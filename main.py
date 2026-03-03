@@ -31,3 +31,5 @@ from app.api import routes_users
 app.include_router(routes_users.router)
 from app.api import routes_webhooks
 app.include_router(routes_webhooks.router)
+from app.api import routes_dashboard
+app.include_router(routes_dashboard.router)

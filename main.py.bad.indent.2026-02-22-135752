@@ -1,0 +1,935 @@
+from fastapi import HTTPException
+import re
+import json
+import os
+import hashlib
+from pydantic import BaseModel
+from typing import Optional, Tuple
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse, JSONResponse
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
+import os, json, time, uuid
+
+app = FastAPI(title="AI Bridge API", version="0.4.0")
+API_KEY = os.getenv("BRIDGE_API_KEY", "")
+
+PUBLIC_PATHS = {
+    "/", "/health", "/docs", "/openapi.json", "/robots.txt", "/admin/ping"
+}
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    path = request.url.path
+
+    # public endpoints (docs/openapi/health) ღიაა
+    if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc"):
+        return await call_next(request)
+
+    # თუ key საერთოდ არ არის დაყენებული -> dev mode, გაატარებს
+    if not API_KEY:
+        return await call_next(request)
+
+    provided = (
+        request.headers.get("x-api-key")
+        or request.headers.get("authorization", "").replace("Bearer ", "")
+    )
+
+    if provided != API_KEY:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+    return await call_next(request)
+
+# BEGIN EMAIL_INVOICE_BLOCK
+
+# -----------------------------
+# Email Invoice (offline-ready)
+# -----------------------------
+
+_EI_TOTAL_HINT_RE = re.compile(
+    r"\b("
+    r"total|amount\s*due|grand\s*total|balance\s*due|invoice\s*total|total\s*due|payable|to\s*pay|sum|"
+    r"ჯამი|სულ|საერთო\s*ჯამი|სულ\s*გადასახდელი|გადასახდელია|"
+    r"totale|importo|da\s*pagare|saldo"
+    r")\b",
+    re.IGNORECASE
+)
+
+_EI_AMOUNT_RE = re.compile(
+    r"(?:(EUR|USD|GEL)\s*)?([€$₾]?\s*\d[\d\s.,]*\d)(?:\s*(EUR|USD|GEL))?",
+    re.IGNORECASE
+)
+def _ei_extract_vendor_from_subject_or_body(subject: Optional[str], body: str) -> Optional[str]:
+    s = (subject or "").strip()
+    b = (body or "").strip()
+
+    m = re.search(r"[-–—]\s*([A-Z0-9&().,'\" ]{3,})\s*$", s)
+    if m:
+        cand = m.group(1).strip()
+        if not re.search(r"\bINV\b|\bINVOICE\b|\b#\d+\b", cand, re.IGNORECASE):
+            return cand
+
+    m = re.search(r"\b(vendor|supplier)\s*[:\-]\s*([^\n\r]{3,})", b, re.IGNORECASE)
+    if m:
+        return m.group(2).strip()
+
+    return None
+
+
+def _ei_extract_due_date_heuristic(text: str) -> Optional[str]:
+    m = re.search(r"\b(due|due date)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})\b", text, re.IGNORECASE)
+    if m:
+        return m.group(2)
+    return None
+
+def _ei_sha1(s: str) -> str:
+    import hashlib as _hashlib
+    return _hashlib.sha1((s or "").encode("utf-8")).hexdigest()
+
+def _ei_preview(s: str, n: int = 220) -> str:
+    s = (s or "").replace("\r", " ").replace("\n", " ")
+    return s[:n]
+
+def _ei_guess_currency(text: str) -> Optional[str]:
+    t = (text or "").upper()
+    if "€" in (text or "") or " EUR" in t or t.startswith("EUR"):
+        return "EUR"
+    if "$" in (text or "") or " USD" in t or t.startswith("USD"):
+        return "USD"
+    if "₾" in (text or "") or " GEL" in t or t.startswith("GEL"):
+        return "GEL"
+    return None
+
+def _ei_parse_amount(num_text: str) -> Optional[float]:
+    if not num_text:
+        return None
+    s = num_text.strip()
+    s = s.replace("€", "").replace("$", "").replace("₾", "")
+    s = s.replace(" ", "")
+
+    # 1,234.56  vs  1.234,56  vs 150,00
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "")
+            s = s.replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s and "." not in s:
+        tail = s.split(",")[-1]
+        if len(tail) in (2, 3):
+            s = s.replace(",", ".")
+        else:
+            s = s.replace(",", "")
+
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+def _ei_guess_vendor(from_field: Optional[str], subject: Optional[str]) -> Optional[str]:
+    if from_field:
+        name = from_field.split("<")[0].strip().strip('"').strip()
+        if name and "no-reply" not in name.lower() and "noreply" not in name.lower():
+            return name[:80]
+    if subject:
+        m = re.search(r"invoice\s+from\s+(.+)$", subject, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()[:80]
+    return None
+
+def _ei_extract_amount_currency_heuristic(body: str) -> Tuple[Optional[float], Optional[str], str]:
+    text = body or ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    for ln in lines[:200]:
+        if _EI_TOTAL_HINT_RE.search(ln):
+            m = _EI_AMOUNT_RE.search(ln)
+            if m:
+                c1, num, c2 = m.group(1), m.group(2), m.group(3)
+                cur = (c1 or c2) or _ei_guess_currency(ln) or _ei_guess_currency(text)
+                amt = _ei_parse_amount(num)
+                if amt is not None:
+                    return amt, cur, "total_line"
+
+    m = _EI_AMOUNT_RE.search(text)
+    if m:
+        c1, num, c2 = m.group(1), m.group(2), m.group(3)
+        cur = (c1 or c2) or _ei_guess_currency(text)
+        amt = _ei_parse_amount(num)
+        if amt is not None:
+            return amt, cur, "global_match"
+
+    return None, None, "none"
+
+def _ei_json_from_text(s: str) -> dict:
+    import json as _json
+    s = (s or "").strip()
+    if not s:
+        return {}
+    try:
+        return _json.loads(s)
+    except Exception:
+        m = re.search(r"\{.*\}", s, re.DOTALL)
+        if m:
+            try:
+                return _json.loads(m.group(0))
+            except Exception:
+                return {}
+        return {}
+
+def _ei_llm_extract(from_field: Optional[str], subject: Optional[str], body: str, trace_id: str) -> dict:
+    import os as _os
+    api_key = _os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}
+
+    model = _os.getenv("OPENAI_MODEL", "gpt-5-mini")
+    sys_prompt = (
+        "Extract invoice fields from this email. "
+        "Return JSON only: {\"vendor\": string|null, \"amount\": number|null, \"currency\": \"EUR\"|\"USD\"|\"GEL\"|null}. "
+        "No extra text."
+    )
+    user_text = f"FROM: {from_field}\nSUBJECT: {subject}\nBODY:\n{body}\n"
+
+    try:
+        from openai import OpenAI  # type: ignore
+        client = OpenAI(api_key=api_key)
+
+        # Responses API first
+        try:
+            resp = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+            )
+            data = _ei_json_from_text(getattr(resp, "output_text", "") or "")
+            if isinstance(data, dict) and data:
+                data["source"] = "llm"
+                return data
+        except Exception:
+            pass
+
+        # Chat Completions fallback
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+            )
+            content = resp.choices[0].message.content if resp and resp.choices else ""
+            data = _ei_json_from_text(content or "")
+            if isinstance(data, dict) and data:
+                data["source"] = "llm"
+                return data
+        except Exception:
+            pass
+
+        return {}
+    except Exception as e:
+        try:
+            _log("bridge.email_invoice.llm_error", trace_id, {"err": str(e)[:200]})
+        except Exception:
+            pass
+        return {}
+
+def _ei_classify_email_invoice(payload: dict, trace_id: str) -> dict:
+    from_field = payload.get("from") or payload.get("from_field") or payload.get("sender") or payload.get("from_email")
+    subject = payload.get("subject")
+    body = payload.get("body") or payload.get("text") or payload.get("content") or ""
+    body = str(body)
+
+    vendor_h = _ei_guess_vendor(from_field, subject)
+    # Prefer vendor name from subject/body if guess looks like an email/domain
+    vendor_from_text = _ei_extract_vendor_from_subject_or_body(subject, body)
+    if vendor_from_text and (vendor_h is None or "@" in str(vendor_h) or "." in str(vendor_h)):
+        vendor_h = vendor_from_text
+
+    due_date_h = _ei_extract_due_date_heuristic(body) or _ei_extract_due_date_heuristic(subject or "")
+
+    amount_h, currency_h, reason = _ei_extract_amount_currency_heuristic(body)
+
+
+
+    try:
+
+        _log("bridge.email_invoice.heuristic", trace_id, {
+            "vendor": vendor_h,
+            "amount": amount_h,
+            "currency": currency_h,
+            "reason": reason,
+            "body_len": len(body),
+            "body_sha1": _ei_sha1(body),
+            "preview": _ei_preview(body),
+        })
+    except Exception:
+        pass
+
+    vendor, amount, currency = vendor_h, amount_h, currency_h
+    source = "heuristic"
+
+    if vendor is None or amount is None or currency is None:
+        llm = _ei_llm_extract(from_field, subject, body, trace_id)
+        if llm:
+            vendor = vendor or llm.get("vendor")
+            amount = amount if amount is not None else llm.get("amount")
+            currency = currency or llm.get("currency")
+            source = "hybrid"
+
+        try:
+            _log("bridge.email_invoice.merged", trace_id, {
+                "source": source,
+                "vendor": vendor,
+                "amount": amount,
+                "currency": currency,
+            })
+        except Exception:
+            pass
+
+    return {
+        "task_type": "email_invoice",
+        "vendor": vendor,
+        "amount": amount,
+        "currency": currency,
+        "source": source,
+    }
+
+class DemoEmailInvoice(BaseModel):
+    from_field: Optional[str] = None
+    subject: Optional[str] = None
+    body: str
+
+@app.post("/bridge/demo/email_invoice")
+async def demo_email_invoice(req: DemoEmailInvoice):
+    trace_id = _ei_sha1((req.from_field or "") + "|" + (req.subject or "") + "|" + (req.body or ""))[:16]
+    payload = {"from": req.from_field, "subject": req.subject, "text": req.body}
+    result = _ei_classify_email_invoice(payload, trace_id)
+    return {"ok": True, "trace_id": trace_id, "result": result}
+
+# END EMAIL_INVOICE_BLOCK
+# === BRIDGE LEARNING (FIRESTORE) ===
+from datetime import datetime, timezone
+import hashlib
+import os
+from typing import Any, Dict, Optional
+
+try:
+    from google.cloud import firestore  # type: ignore
+    _fs_client = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT"))
+except Exception:
+    _fs_client = None  # Firestore not available (dev/local)
+
+_BRIDGE_LEARN_COL = os.getenv("BRIDGE_LEARN_COLLECTION", "bridge_learn_v1")
+_BRIDGE_FEEDBACK_COL = os.getenv("BRIDGE_FEEDBACK_COLLECTION", "bridge_feedback_v1")
+
+def _norm_text(s: str) -> str:
+    return " ".join((s or "").strip().split()).lower()
+
+def _fingerprint(task_type: str, text: str) -> str:
+    h = hashlib.sha1()
+    h.update((task_type or "").encode("utf-8"))
+    h.update(b"|")
+    h.update(_norm_text(text).encode("utf-8"))
+    return h.hexdigest()
+
+def memory_lookup(task_type: str, text: str) -> Optional[Dict[str, Any]]:
+    """Exact-match memory lookup by fingerprint."""
+    if _fs_client is None:
+        return None
+    fp = _fingerprint(task_type, text)
+    doc_id = f"{task_type}:{fp}"
+    doc = _fs_client.collection(_BRIDGE_LEARN_COL).document(doc_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict() or {}
+    label = data.get("label")
+    if isinstance(label, dict):
+        # mark as learned result
+        label = dict(label)
+        label["learned"] = True
+        label["memory_id"] = doc_id
+        return label
+    return None
+
+def memory_upsert(task_type: str, text: str, label: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Store/update a learning example in Firestore."""
+    if _fs_client is None:
+        return {"ok": False, "error": "firestore_not_available"}
+    fp = _fingerprint(task_type, text)
+    doc_id = f"{task_type}:{fp}"
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "task_type": task_type,
+        "fingerprint": fp,
+        "text": text,
+        "label": label,
+        "meta": meta or {},
+        "updated_at": now,
+    }
+    _fs_client.collection(_BRIDGE_LEARN_COL).document(doc_id).set(payload, merge=True)
+    return {"ok": True, "doc_id": doc_id}
+
+def feedback_store(trace_id: str, task_type: str, text: str, correct: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Store correction feedback (and also upsert into learn set)."""
+    if _fs_client is None:
+        return {"ok": False, "error": "firestore_not_available"}
+    now = datetime.now(timezone.utc).isoformat()
+    fb = {
+        "trace_id": trace_id,
+        "task_type": task_type,
+        "text": text,
+        "correct": correct,
+        "meta": meta or {},
+        "created_at": now,
+    }
+    _fs_client.collection(_BRIDGE_FEEDBACK_COL).document(f"{trace_id}").set(fb, merge=True)
+    # also learn from feedback
+    memory_upsert(task_type, text, correct, meta=meta)
+    return {"ok": True}
+# === /BRIDGE LEARNING (FIRESTORE) ===
+
+
+
+# Cloud Run writable path
+BRIDGE_LOG_PATH = os.getenv("BRIDGE_LOG_PATH", "/tmp/bridge_logs.jsonl")
+
+# In-memory debug log
+LOGS: List[Dict[str, Any]] = []
+LOGS_MAX = 200
+
+def _log(event: str, trace_id: str, meta: Optional[Dict[str, Any]] = None) -> None:
+    rec = {"ts": time.time(), "event": event, "trace_id": trace_id, "meta": meta or {}}
+    LOGS.append(rec)
+    if len(LOGS) > LOGS_MAX:
+        del LOGS[: len(LOGS) - LOGS_MAX]
+
+def _append_jsonl(path: str, obj: Dict[str, Any]) -> None:
+    # /tmp exists; keep mkdir safe anyway
+    d = os.path.dirname(path) or "/tmp"
+    os.makedirs(d, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+def _load_recent_examples(task_type: str, limit: int = 5) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    if not os.path.exists(BRIDGE_LOG_PATH):
+        return []
+    try:
+        with open(BRIDGE_LOG_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("event") == "learn" and rec.get("task_type") == task_type:
+                    items.append(rec)
+    except Exception:
+        return []
+    return items[-limit:]
+
+class BridgeBody(BaseModel):
+    locale: Optional[str] = "en"
+    country: Optional[str] = "GE"
+    data: Optional[Dict[str, Any]] = None
+    text: Optional[str] = None
+
+class LearnBody(BaseModel):
+    task_type: str
+    provider: Optional[str] = "manus"
+    ok: Optional[bool] = True
+    notes: Optional[str] = ""
+    input: Dict[str, Any]
+    output: Dict[str, Any]
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "FastAPI is running on Cloud Run"}
+
+@app.get("/debug/openai")
+async def debug_openai():
+    import os, json
+    try:
+        from openai import OpenAI  # type: ignore
+    except Exception as e:
+        return {"ok": False, "error": f"openai_import_failed: {e}"}
+
+    key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+
+    # უსაფრთხოდ: მხოლოდ სიგრძე + ბოლო 4 სიმბოლო
+    safe = {
+        "has_key": bool(key),
+        "key_len": len(key),
+        "key_last4": key[-4:] if len(key) >= 4 else "",
+        "model": model,
+    }
+
+    if not key:
+        return {"ok": False, "detail": "OPENAI_API_KEY is empty", "safe": safe}
+
+    client = OpenAI(api_key=key)
+
+    # დავადასტუროთ რომ KEY რეალურად მუშაობს: /v1/models
+    try:
+        models = client.models.list()
+        # ზოგჯერ models.data არის list
+        count = len(getattr(models, "data", []) or [])
+        return {"ok": True, "safe": safe, "models_count": count}
+    except Exception as e:
+        return {"ok": False, "safe": safe, "error": str(e)}
+
+
+def _normalize_vat(vat_obj, amount, country: str):
+    """
+    Normalize vat.rate to decimal (0.18), recompute vat.amount for GE when possible.
+    Assumption: amount is TOTAL incl VAT (common for receipts/invoices).
+    """
+    try:
+        country = (country or "GE").upper()
+    except Exception:
+        country = "GE"
+
+    if not isinstance(vat_obj, dict):
+        vat_obj = {}
+
+    rate = vat_obj.get("rate")
+    amt = vat_obj.get("amount")
+
+    # normalize rate: 18 -> 0.18
+    try:
+        if rate is not None:
+            r = float(rate)
+            if r > 1.0:
+                r = r / 100.0
+            rate = r
+    except Exception:
+        rate = None
+
+    # recompute amount for GE if amount exists and rate looks valid
+    try:
+        total = float(amount) if amount is not None else None
+    except Exception:
+        total = None
+
+    if country == "GE":
+        # default to 18% if missing but hints exist later (keep only if already provided)
+        if rate is None:
+            pass
+        # compute vat portion from gross total
+        if total is not None and rate in (0.18, 0.0):
+            if rate == 0.18:
+                vat_calc = round(total * rate / (1.0 + rate), 2)
+            else:
+                vat_calc = 0.0
+            # if amt missing or wildly off -> replace
+            try:
+                if amt is None or abs(float(amt) - vat_calc) > max(1.0, vat_calc * 0.25):
+                    amt = vat_calc
+            except Exception:
+                amt = vat_calc
+
+    return {"rate": float(rate) if rate is not None else None, "amount": float(amt) if amt is not None else None}
+
+
+
+def _vat_rate_to_decimal(rate):
+    """Accept 18 / '18%' / 0.18 -> return 0.18 (or 0 / None)."""
+    if rate is None:
+        return None
+    try:
+        if isinstance(rate, str):
+            r = rate.strip().replace("%", "")
+            rate = float(r)
+        else:
+            rate = float(rate)
+    except Exception:
+        return None
+
+    if rate > 1.0:
+        rate = rate / 100.0
+
+    if abs(rate - 0.18) < 0.001:
+        return 0.18
+    if abs(rate - 0.0) < 0.001:
+        return 0.0
+    return rate
+
+def _normalize_ge_vat_amount(vat_obj, total_amount, country: str):
+    """
+    If GE and vat.rate ~ 0.18, recompute vat.amount from TOTAL (incl VAT):
+      vat = total * 0.18 / 1.18
+    """
+    try:
+        country = (country or "GE").upper()
+    except Exception:
+        country = "GE"
+
+    if country != "GE":
+        return vat_obj
+
+    if not isinstance(vat_obj, dict):
+        return vat_obj
+
+    rate = vat_obj.get("rate")
+    try:
+        rate = float(rate) if rate is not None else None
+    except Exception:
+        rate = None
+
+    if rate is None:
+        return vat_obj
+
+    # snap to common rate
+    if abs(rate - 0.18) > 1e-6:
+        return vat_obj
+
+    try:
+        total = float(total_amount)
+    except Exception:
+        return vat_obj
+
+    if total <= 0:
+        return vat_obj
+
+    vat_amount = round(total * 0.18 / 1.18, 2)
+    vat_obj["amount"] = vat_amount
+    return vat_obj
+
+
+def _classify_llm(text: str, trace_id: str) -> dict:
+    key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
+    if not key:
+    # --- VAT normalization (GE) ---
+    try:
+        country = (data.get("country") or "GE").upper() if isinstance(data, dict) else "GE"
+    except Exception:
+        country = "GE"
+
+    if isinstance(data, dict) and isinstance(data.get("vat"), dict):
+        # normalize rate to decimal (18% -> 0.18)
+        data["vat"]["rate"] = _vat_rate_to_decimal(data["vat"].get("rate"))
+        # recompute VAT amount from TOTAL (incl VAT) for GE @18%
+        data["vat"] = _normalize_ge_vat_amount(data.get("vat"), data.get("amount"), country)
+
+        return {}
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    sys_prompt = (
+        "You are an accounting transaction classifier for Georgia (GEL/VAT 18%). "
+        "Return JSON only with keys: "
+        "{\"vendor\": string|null, \"memo\": string|null, "
+        "\"amount\": number|null, \"currency\": \"GEL\"|\"USD\"|\"EUR\"|null, "
+        "\"category\": string|null, \"account_code\": string|null, "
+        "\"confidence\": number|null, "
+        "\"vat\": {\"rate\": number|null, \"amount\": number|null}}. "
+        "No extra text."
+    )
+
+    try:
+        from openai import OpenAI  # type: ignore
+        client = OpenAI(api_key=key)
+
+        # Responses API first
+        try:
+            r = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": text},
+                ],
+                max_output_tokens=250,
+            )
+            raw = (getattr(r, "output_text", "") or "").strip()
+            data = _ei_json_from_text(raw)
+            if isinstance(data, dict) and data:
+                data["source"] = "llm"
+                return data
+        except Exception as e:
+            try:
+                _log("bridge.classify.llm_responses_error", trace_id, {"err": str(e)[:200]})
+            except Exception:
+                pass
+
+        # Chat Completions fallback
+        try:
+            r = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": text},
+                ],
+            )
+            content = r.choices[0].message.content if r and r.choices else ""
+            data = _ei_json_from_text(content or "")
+            if isinstance(data, dict) and data:
+                data["source"] = "llm"
+                return data
+        except Exception as e:
+            try:
+                _log("bridge.classify.llm_chat_error", trace_id, {"err": str(e)[:200]})
+            except Exception:
+                pass
+
+    except Exception as e:
+        try:
+            _log("bridge.classify.llm_import_error", trace_id, {"err": str(e)[:200]})
+        except Exception:
+            pass
+
+    # normalize vat.rate to decimal
+    if isinstance(data.get('vat'), dict):
+        data['vat']['rate'] = _vat_rate_to_decimal(data['vat'].get('rate'))
+    return {}
+
+
+@app.post("/bridge/classify")
+async def bridge_classify(body: BridgeBody, request: Request) -> Dict[str, Any]:
+    trace_id = str(uuid.uuid4())
+    data = body.data if isinstance(body.data, dict) else {}
+    # BEGIN EMAIL_INVOICE_CLASSIFY_BRANCH
+    # task_type comes from query (?task_type=...) or body/raw/data
+    raw = {}
+    try:
+        raw = await request.json()
+        if not isinstance(raw, dict):
+            raw = {}
+    except Exception:
+        raw = {}
+
+    # if raw includes {"data": {...}} use it as fallback
+    if (not data) and isinstance(raw.get("data"), dict):
+        data = raw["data"]
+
+    task_type = (
+        request.query_params.get("task_type")
+        or raw.get("task_type")
+        or data.get("task_type")
+        or getattr(body, "task_type", None)
+    )
+
+    if task_type == "email_invoice":
+        payload = {
+            "from_field": data.get("from_field") or data.get("from") or raw.get("from_field") or raw.get("from"),
+            "subject": data.get("subject") or raw.get("subject"),
+            "body": (
+                data.get("body")
+                or data.get("text")
+                or raw.get("body")
+                or raw.get("text")
+                or (getattr(body, "text", None) or "")
+            ),
+        }
+        _log("email_invoice.classify", trace_id=trace_id, meta={"via": "bridge_classify"})
+        result = _ei_classify_email_invoice(payload, trace_id)
+        return {"ok": True, "trace_id": trace_id, "result": result}
+    # END EMAIL_INVOICE_CLASSIFY_BRANCH
+
+    # --- LLM classify branch (optional) ---
+    mode = (os.getenv("CLASSIFY_MODE", "") or "").strip().lower()
+    if mode in ("llm", "openai", "gpt"):
+        text_in = str(data.get("text") or data.get("memo") or getattr(body, "text", None) or "").strip()
+        if text_in:
+            llm = _classify_llm(text_in, trace_id)
+            if isinstance(llm, dict) and llm:
+                # merge + keep original text
+                data = {**data, **llm, "text": text_in}
+            # continue into rules below to fill missing fields
+
+            else:
+                try:
+                    _log("bridge.classify.llm_empty", trace_id, {"mode": mode})
+                except Exception:
+                    pass
+    # --- end LLM branch ---
+    memo_raw = str(data.get("memo") or data.get("text") or getattr(body, "text", None) or "").strip()
+    vendor_raw = str(data.get("vendor") or "").strip()
+    amount = data.get("amount")
+    currency = str(data.get("currency") or "").strip()
+    country = (body.country or "GE").upper()
+
+    memo = memo_raw.lower()
+    vendor = vendor_raw.upper()
+
+    category = "OTHER"
+    account_code = "9999"
+    confidence = 0.55
+
+    # simple rules first
+    fuel_vendors = {"WISSOL", "SOCAR", "GULF", "LUKOIL", "ROMPETROL"}
+    fuel_keywords = ("საწვ", "ბენზ", "დიზელ", "fuel", "diesel", "gas")
+    if any(k in memo for k in fuel_keywords) or (vendor in fuel_vendors):
+        category = "FUEL"
+        account_code = "7420"
+        confidence = 0.78
+    elif ("coffee" in memo) or ("ყავა" in memo) or (vendor in {"COFFEELAB", "DUNKIN"}):
+        category = "FOOD_CAFE"
+        account_code = "6120"
+        confidence = 0.70
+    elif vendor in {"SPAR", "CARREFOUR", "NIKORA", "ORINABJI"} or ("grocery" in memo) or ("სუპ" in memo):
+        category = "FOOD_GROCERY"
+        account_code = "6110"
+        confidence = 0.72
+
+    # VAT (GE only)
+    vat_rate = 0.18 if country == "GE" else 0.0
+    vat_amount = 0.0
+    try:
+        amt = float(amount) if amount is not None else 0.0
+        if vat_rate > 0 and amt > 0:
+            vat_amount = round(amt * vat_rate / (1 + vat_rate), 2)
+    except Exception:
+        pass
+
+    result = {
+        **data,
+        "vendor": vendor_raw,
+        "memo": memo_raw,
+        "amount": amount,
+        "currency": currency,
+        "category": category,
+        "account_code": account_code,
+        "confidence": float(confidence),
+        "vat": {"rate": float(vat_rate), "amount": float(vat_amount)},
+    }
+
+    _log("bridge.classify", trace_id, {"category": category, "account_code": account_code})
+    return {"ok": True, "trace_id": trace_id, "result": result}
+
+@app.post("/bridge/learn")
+async def bridge_learn(payload: dict, request: Request):
+    trace_id = payload.get("trace_id") or str(uuid.uuid4())
+    task_type = payload.get("task_type") or "email_invoice"
+    provider = payload.get("provider") or "manus"
+    dedup_key = payload.get("dedup_key") or trace_id
+
+    use_firestore = os.getenv("USE_FIRESTORE", "0").lower() in ("1", "true", "yes")
+    if use_firestore:
+        from google.cloud import firestore
+        from google.api_core.exceptions import AlreadyExists
+
+        db = firestore.Client()
+        coll = db.collection(os.getenv("FIRESTORE_COLLECTION", "bridge_logs"))
+
+        doc_id = str(dedup_key).replace("/", "_")
+        data = {
+            "ts": firestore.SERVER_TIMESTAMP,
+            "event": "learn",
+            "trace_id": trace_id,
+            "task_type": task_type,
+            "provider": provider,
+            "ok": True,
+            "notes": payload.get("notes", ""),
+            "input": payload.get("input"),
+            "output": payload.get("output"),
+            "dedup_key": payload.get("dedup_key"),
+            "meta": payload.get("meta") or {},
+            "ip": getattr(request.client, "host", None),
+        }
+        try:
+            coll.document(doc_id).create(data)
+            duplicate = False
+        except AlreadyExists:
+            duplicate = True
+
+        return {"ok": True, "trace_id": trace_id, "saved_to": f"firestore:{doc_id}", "duplicate": duplicate}
+
+    # fallback: local jsonl (ephemeral on Cloud Run)
+    log_path = os.getenv("BRIDGE_LOG_PATH", "/tmp/bridge_logs.jsonl")
+    row = {
+        "ts": time.time(),
+        "event": "learn",
+        "trace_id": trace_id,
+        "task_type": task_type,
+        "provider": provider,
+        "ok": True,
+        "notes": payload.get("notes", ""),
+        "input": payload.get("input"),
+        "output": payload.get("output"),
+        "dedup_key": payload.get("dedup_key"),
+    }
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    return {"ok": True, "trace_id": trace_id, "saved_to": f"file:{log_path}"}
+
+@app.get("/bridge/examples")
+async def bridge_examples(task_type: str = "email_invoice", limit: int = 20):
+    limit = int(limit or 20)
+    limit = max(1, min(limit, 200))
+
+    use_firestore = os.getenv("USE_FIRESTORE", "0").lower() in ("1", "true", "yes")
+    if use_firestore:
+        from google.cloud import firestore
+
+        db = firestore.Client()
+        coll = db.collection(os.getenv("FIRESTORE_COLLECTION", "bridge_logs"))
+
+        q = (
+            coll.where("task_type", "==", task_type)
+            .order_by("ts", direction=firestore.Query.DESCENDING)
+            .limit(limit)
+        )
+
+        examples = []
+        for doc in q.stream():
+            d = doc.to_dict()
+            if "ts" in d and hasattr(d["ts"], "isoformat"):
+                d["ts"] = d["ts"].isoformat()
+            examples.append(d)
+
+        return {"ok": True, "task_type": task_type, "count": len(examples), "examples": examples, "source": "firestore"}
+
+    # fallback file jsonl
+    log_path = os.getenv("BRIDGE_LOG_PATH", "/tmp/bridge_logs.jsonl")
+    if not os.path.exists(log_path):
+        return {"ok": True, "task_type": task_type, "count": 0, "examples": [], "source": "file", "path": log_path}
+
+    rows = []
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if row.get("task_type") == task_type:
+                rows.append(row)
+
+    rows.sort(key=lambda x: x.get("ts", 0), reverse=True)
+    rows = rows[:limit]
+    return {"ok": True, "task_type": task_type, "count": len(rows), "examples": rows, "source": "file", "path": log_path}
+
+
+def jls_extract_def():
+    return "/robots.txt"
+jls_extract_var = jls_extract_def
+@app.get(jls_extract_var())
+def robots_txt():
+    return PlainTextResponse("User-agent: *\nDisallow:\n")
+
+@app.post("/bridge/e2e")
+def bridge_e2e():
+    return {"ok": True, "message": "e2e ok"}
+
+
+# ===== ADMIN PING (token check) =====
+@app.get("/admin/ping")
+async def admin_ping(request: Request):
+    token = request.headers.get("x-admin-token")
+    expected = (os.getenv("ADMIN_TOKEN") or "").strip()
+    if not expected or not token or token.strip() != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return {"ok": True}

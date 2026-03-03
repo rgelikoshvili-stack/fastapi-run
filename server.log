@@ -1,0 +1,7 @@
+nohup: ignoring input
+INFO:     Will watch for changes in these directories: ['/home/r_gelikoshvili/fastapi-run/fastapi-run']
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     Started reloader process [9162] using WatchFiles
+INFO:     Started server process [9168]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

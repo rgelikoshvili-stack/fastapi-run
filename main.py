@@ -1,0 +1,23 @@
+from fastapi import FastAPI
+from datetime import datetime, timezone
+
+app = FastAPI(title="Bridge Hub + GAAS v5.2", version="2.0")
+
+@app.get("/health")
+def health():
+    return {"ok": True, "service": "bridge-hub", "version": "2.0",
+            "gaas": "v5.2", "architecture": "clean", "sprints_done": 7,
+            "timestamp": datetime.now(timezone.utc).isoformat()}
+
+from app.api import routes_bank, routes_accounting, routes_audit, routes_finance
+from app.api import routes_strategy, routes_reports, routes_gaas, routes_close
+app.include_router(routes_bank.router)
+app.include_router(routes_accounting.router)
+app.include_router(routes_audit.router)
+app.include_router(routes_finance.router)
+app.include_router(routes_strategy.router)
+app.include_router(routes_reports.router)
+app.include_router(routes_gaas.router)
+app.include_router(routes_close.router)
+from app.api import routes_auth
+app.include_router(routes_auth.router)

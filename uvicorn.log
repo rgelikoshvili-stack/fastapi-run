@@ -1,0 +1,12 @@
+nohup: ignoring input
+INFO:     Started server process [25509]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     127.0.0.1:56612 - "GET /charjibit/transactions?start_date=2026-01-01&end_date=2026-02-28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56626 - "POST /charjibit/sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56642 - "POST /manus/send-event HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56644 - "POST /manus/receive-feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56652 - "POST /cloud/save-transaction HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56668 - "GET /cloud/list-transactions?folder=transactions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56670 - "GET /debug/log?limit=30 HTTP/1.1" 200 OK

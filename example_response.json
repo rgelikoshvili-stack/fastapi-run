@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "trace_id": "...",
+  "lang": "ka",
+  "result": {
+    "vendor": "SPAR",
+    "amount": 12.7,
+    "currency": "GEL",
+    "date": "2026-02-14",
+    "memo": "coffee",
+    "category": "FOOD_GROCERY",
+    "account_code": "??",
+    "vat": { "rate": 0.18, "amount": 1.94 },
+    "confidence": 0.72
+  }
+}

@@ -1,0 +1,20 @@
+# FastAPI Cloud Run - RUNBOOK
+
+SERVICE URL (current):
+$(gcloud run services describe fastapi-run --region europe-west1 --format='value(status.url)')
+
+Endpoints:
+- POST /bridge/validate
+- POST /bridge/classify
+- GET  /debug/log?limit=N
+
+Test classify:
+SERVICE_URL="$(gcloud run services describe fastapi-run --region europe-west1 --format='value(status.url)')"
+
+curl -s -X POST "$SERVICE_URL/bridge/classify" \
+  -H "Content-Type: application/json" \
+  -d '{"locale":"ka","country":"GE","data":{"vendor":"SPAR","amount":12.7,"currency":"GEL","date":"2026-02-14","memo":"coffee"}}' \
+  | python -m json.tool
+
+View log:
+curl -s "$SERVICE_URL/debug/log?limit=10" | python -m json.tool

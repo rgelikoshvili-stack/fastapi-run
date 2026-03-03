@@ -1,0 +1,236 @@
+from fastapi import FastAPI, Request
+from openai import OpenAI
+import json
+import os
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
+import time
+import uuid
+
+app = FastAPI(title="AI Bridge API", version="0.3.3")
+
+# Keep a small in-memory log for /debug/log
+LOGS: List[Dict[str, Any]] = []
+
+I18N: Dict[str, Dict[str, str]] = {
+    "en": {
+        "root": "FastAPI is running on Cloud Run",
+        "validated": "validated",
+    },
+    "ka": {
+        "root": "FastAPI მუშაობს Cloud Run-ზე",
+        "validated": "ვალიდაცია გავლილია",
+    },
+    "ru": {
+        "root": "FastAPI работает на Cloud Run",
+        "validated": "проверка пройдена",
+    },
+}
+
+def _log(event: str, trace_id: str, lang: str, country: str = "", keys: Optional[List[str]] = None) -> None:
+    rec = {
+        "ts": time.time(),
+        "event": event,
+        "trace_id": trace_id,
+        "lang": lang,
+        "country": country,
+        "keys": keys or [],
+    }
+    LOGS.append(rec)
+    # cap memory
+    if len(LOGS) > 500:
+        del LOGS[:100]
+
+def pick_lang(request: Request, body_locale: Optional[str] = None, default: str = "en") -> str:
+    # 1) from body locale
+    if body_locale:
+        bl = body_locale.lower()
+        if bl in I18N:
+            return bl
+
+    # 2) from query ?lang=ka
+    q = request.query_params.get("lang")
+    if q:
+        ql = q.lower()
+        if ql in I18N:
+            return ql
+
+    return default
+
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    return {"ok": True}
+
+@app.get("/")
+def root(request: Request) -> Dict[str, Any]:
+    lang = pick_lang(request)
+    return {"status": "ok", "message": I18N[lang]["root"], "lang": lang}
+
+class ValidateBody(BaseModel):
+    locale: Optional[str] = None
+    country: Optional[str] = None
+    data: Dict[str, Any] = {}
+
+@app.post("/bridge/validate")
+def bridge_validate(body: ValidateBody, request: Request) -> Dict[str, Any]:
+    trace_id = str(uuid.uuid4())
+    lang = pick_lang(request, body.locale)
+    country = (body.country or "").upper()
+
+    keys = list(body.data.keys()) if isinstance(body.data, dict) else []
+    _log("bridge.validate.in", trace_id=trace_id, lang=lang, country=country, keys=keys)
+
+    return {
+        "ok": True,
+        "trace_id": trace_id,
+        "lang": lang,
+        "message": I18N[lang]["validated"],
+        "received": body.data,
+    }
+
+
+
+def llm_classify_transaction(lang: str, country: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Uses OpenAI to map transaction data -> {category, account_code, confidence}
+    Enable by setting env var OPENAI_API_KEY on Cloud Run.
+    Optional: OPENAI_MODEL (default: gpt-4o-mini)
+    """
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        return {"ok": False, "error": "no_api_key"}
+
+    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+
+    vendor = str((data or {}).get("vendor") or "").strip()
+    memo = str((data or {}).get("memo") or "").strip()
+    amount = (data or {}).get("amount")
+    currency = str((data or {}).get("currency") or "").strip()
+    date = str((data or {}).get("date") or "").strip()
+
+    system = (
+        "You are an accounting classifier. "
+        "Return ONLY valid JSON with keys: category (string), account_code (string), confidence (number 0..1). "
+        "No extra text."
+    )
+
+    user = {
+        "country": (country or "").upper(),
+        "lang": lang,
+        "tx": {
+            "vendor": vendor,
+            "memo": memo,
+            "amount": amount,
+            "currency": currency,
+            "date": date,
+        },
+        "rules": {
+            "examples": [
+                {"when": "coffee/cafe", "category": "FOOD_CAFE", "account_code": "6120"},
+                {"when": "grocery/supermarket", "category": "FOOD_GROCERY", "account_code": "6110"},
+            ],
+            "fallback": {"category": "OTHER", "account_code": "9999"}
+        }
+    }
+
+    client = OpenAI(api_key=api_key)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+        ],
+        temperature=0.1,
+        # If model supports JSON mode, great; otherwise it will be ignored by some models
+        response_format={"type": "json_object"},
+    )
+
+    text = (resp.choices[0].message.content or "").strip()
+    obj = json.loads(text)
+
+    category = str(obj.get("category") or "OTHER").strip().upper()
+    account_code = str(obj.get("account_code") or "9999").strip()
+
+    try:
+        confidence = float(obj.get("confidence", 0.60))
+    except Exception:
+        confidence = 0.60
+    confidence = max(0.0, min(1.0, confidence))
+
+    # Basic sanity
+    if not re.fullmatch(r"[A-Z0-9_]{2,40}", category or ""):
+        category = "OTHER"
+    if not re.fullmatch(r"[0-9]{3,10}", account_code or ""):
+        account_code = "9999"
+
+    return {"ok": True, "category": category, "account_code": account_code, "confidence": confidence}
+
+@app.post("/bridge/classify")
+def bridge_classify(body: ValidateBody, request: Request) -> Dict[str, Any]:
+    trace_id = str(uuid.uuid4())
+    lang = pick_lang(request, body.locale)
+    country = (body.country or "").upper()
+
+    data = body.data if isinstance(body.data, dict) else {}
+    keys = list(data.keys())
+    _log("bridge.classify.in", trace_id=trace_id, lang=lang, country=country, keys=keys)
+
+    vendor = str(data.get("vendor") or "").strip().upper()
+    memo = str(data.get("memo") or "").strip().lower()    # Decide category/account using OpenAI (if configured); fallback to simple rules
+    category = "OTHER"
+    account_code = "9999"
+    confidence = 0.55
+
+    llm = None
+    try:
+        llm = llm_classify_transaction(lang=lang, country=country, data=data)
+    except Exception as e:
+        _log("bridge.classify.llm_error", trace_id=trace_id, lang=lang, country=country, keys=[f"err:{str(e)[:200]}"])
+
+    if isinstance(llm, dict) and llm.get("ok"):
+        category = llm.get("category") or category
+        account_code = llm.get("account_code") or account_code
+        try:
+            confidence = float(llm.get("confidence", confidence))
+        except Exception:
+            pass
+    else:
+        # Fallback rules (cheap)
+        if "coffee" in memo or "კაფე" in memo or vendor in {"COFFEELAB", "DUNKIN"}:
+            category = "FOOD_CAFE"
+            account_code = "6120"
+            confidence = 0.70
+        elif vendor in {"SPAR", "CARREFOUR", "NIKORA", "ORINABJI"} or ("grocery" in memo) or ("სუპ" in memo):
+            category = "FOOD_GROCERY"
+            account_code = "6110"
+            confidence = 0.72
+
+    # VAT mock (GE: assume amount includes 18% VAT)
+    vat_rate = 0.18 if country == "GE" else 0.0
+    vat_amount = 0.0
+    try:
+        amt = float(data.get("amount"))
+        if vat_rate > 0 and amt > 0:
+            vat_amount = round(amt * vat_rate / (1 + vat_rate), 2)
+    except Exception:
+        pass
+
+    result = {
+        **data,
+        "category": category,
+        "account_code": account_code,
+        "vat": {"rate": vat_rate, "amount": vat_amount},
+        "confidence": confidence,
+    }
+
+    return {"ok": True, "trace_id": trace_id, "lang": lang, "result": result}
+
+
+@app.get("/debug/log")
+def debug_log(limit: int = 10) -> Dict[str, Any]:
+    try:
+        lim = int(limit)
+    except Exception:
+        lim = 10
+    lim = max(1, min(lim, 100))
+    return {"ok": True, "limit": lim, "items": LOGS[-lim:]}

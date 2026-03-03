@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+    <meta charset="UTF-8">
+    <title>Bridge Hub — Settings</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+        .sidebar { position: fixed; left: 0; top: 0; width: 240px; height: 100vh; background: #1e2a3a; color: white; padding: 30px 0; }
+        .sidebar .logo { padding: 0 20px 30px; font-size: 18px; font-weight: bold; color: #4fc3f7; border-bottom: 1px solid #2d3f52; }
+        .sidebar .logo span { color: #fff; font-size: 12px; display: block; margin-top: 4px; }
+        .sidebar nav a { display: flex; align-items: center; gap: 10px; padding: 12px 20px; color: #aaa; text-decoration: none; font-size: 14px; transition: all 0.2s; }
+        .sidebar nav a:hover, .sidebar nav a.active { background: #2d3f52; color: #4fc3f7; border-left: 3px solid #4fc3f7; }
+        .main { margin-left: 240px; padding: 40px; }
+        .page-title { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+        .page-sub { color: #888; font-size: 14px; margin-bottom: 30px; }
+        .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+        .card-sub { font-size: 13px; color: #888; margin-bottom: 20px; }
+        .form-group { margin-bottom: 14px; }
+        label { font-size: 13px; color: #555; display: block; margin-bottom: 6px; }
+        input, select { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; transition: border 0.2s; }
+        input:focus, select:focus { border-color: #4fc3f7; }
+        .btn { padding: 10px 20px; background: #4fc3f7; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .btn:hover { background: #0288d1; }
+        .btn-success { background: #43a047; }
+        .status { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 6px; display: none; }
+        .status.ok { background: #e8f5e9; color: #2e7d32; display: block; }
+        .status.err { background: #ffebee; color: #c62828; display: block; }
+        .tax-section { grid-column: 1 / -1; }
+        .tax-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+        .tax-item { background: #f8f9fa; border-radius: 8px; padding: 14px; border: 1px solid #eee; }
+        .tax-item h4 { font-size: 13px; color: #333; margin-bottom: 8px; }
+        .tax-item input { font-size: 13px; padding: 7px 10px; }
+        .country-select { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <div class="logo">🏦 Bridge Hub<span>GAAS v5.2</span></div>
+    <nav>
+        <a href="/dashboard/">📊 Dashboard</a>
+        <a href="/settings/" class="active">⚙️ Settings</a>
+        <a href="/docs">📖 API Docs</a>
+        <a href="/users/">👥 Users</a>
+    </nav>
+</div>
+<div class="main">
+    <div class="page-title">⚙️ Settings</div>
+    <div class="page-sub">სისტემის კონფიგურაცია და ინტეგრაციები</div>
+    <div class="cards">
+        <!-- RS Integration -->
+        <div class="card">
+            <div class="card-title">🏛️ RS (Revenue Service)</div>
+            <div class="card-sub">შემოსავლების სამსახურის API მიბმა</div>
+            <div class="form-group"><label>API URL</label><input id="rs_url" placeholder="https://api.rs.ge/v1" /></div>
+            <div class="form-group"><label>API Key</label><input id="rs_key" type="password" placeholder="••••••••••••" /></div>
+            <div class="form-group"><label>TIN (საიდენტიფიკაციო)</label><input id="rs_tin" placeholder="123456789" /></div>
+            <button class="btn" onclick="save('rs')">💾 შენახვა</button>
+            <div class="status" id="rs_status"></div>
+        </div>
+        <!-- Email -->
+        <div class="card">
+            <div class="card-title">📧 მეილი (SMTP)</div>
+            <div class="card-sub">ელ-ფოსტის კონფიგურაცია</div>
+            <div class="form-group"><label>SMTP Host</label><input id="email_host" placeholder="smtp.gmail.com" /></div>
+            <div class="form-group"><label>Port</label><input id="email_port" placeholder="587" /></div>
+            <div class="form-group"><label>მომხმარებელი</label><input id="email_user" placeholder="info@company.ge" /></div>
+            <div class="form-group"><label>პაროლი</label><input id="email_pass" type="password" placeholder="••••••••" /></div>
+            <button class="btn" onclick="save('email')">💾 შენახვა</button>
+            <div class="status" id="email_status"></div>
+        </div>
+        <!-- Bank -->
+        <div class="card">
+            <div class="card-title">🏦 ბანკი</div>
+            <div class="card-sub">საბანკო API ინტეგრაცია</div>
+            <div class="form-group"><label>ბანკი</label>
+                <select id="bank_name">
+                    <option>TBC Bank</option>
+                    <option>Bank of Georgia</option>
+                    <option>Liberty Bank</option>
+                    <option>ProCredit Bank</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Client ID</label><input id="bank_id" placeholder="client_id" /></div>
+            <div class="form-group"><label>Client Secret</label><input id="bank_secret" type="password" placeholder="••••••••" /></div>
+            <button class="btn" onclick="save('bank')">💾 შენახვა</button>
+            <div class="status" id="bank_status"></div>
+        </div>
+        <!-- Company -->
+        <div class="card">
+            <div class="card-title">🏢 კომპანია</div>
+            <div class="card-sub">ძირითადი ინფორმაცია</div>
+            <div class="form-group"><label>კომპანიის სახელი</label><input id="company_name" placeholder="შპს ..." /></div>
+            <div class="form-group"><label>საიდენტიფიკაციო კოდი</label><input id="company_id" placeholder="123456789" /></div>
+            <div class="form-group"><label>სამართლებრივი ფორმა</label>
+                <select id="company_type">
+                    <option>შპს</option><option>სს</option><option>ინდ. მეწარმე</option>
+                </select>
+            </div>
+            <button class="btn" onclick="save('company')">💾 შენახვა</button>
+            <div class="status" id="company_status"></div>
+        </div>
+        <!-- Tax -->
+        <div class="card tax-section">
+            <div class="card-title">📋 საგადასახადო კანონმდებლობა</div>
+            <div class="card-sub">ქვეყნის არჩევა და გადასახადების პროცენტები</div>
+            <div class="country-select">
+                <label>ქვეყანა</label>
+                <select id="tax_country" onchange="loadTax()">
+                    <option value="ge">🇬🇪 საქართველო</option>
+                    <option value="de">🇩🇪 გერმანია</option>
+                    <option value="us">🇺🇸 აშშ</option>
+                    <option value="uk">🇬🇧 გაერთიანებული სამეფო</option>
+                    <option value="fr">🇫🇷 საფრანგეთი</option>
+                    <option value="ee">🇪🇪 ესტონეთი</option>
+                    <option value="pl">🇵🇱 პოლონეთი</option>
+                    <option value="ua">🇺🇦 უკრაინა</option>
+                </select>
+            </div>
+            <div class="tax-grid" id="tax-grid"></div>
+            <br>
+            <button class="btn btn-success" onclick="saveTax()">💾 გადასახადების შენახვა</button>
+            <div class="status" id="tax_status"></div>
+        </div>
+    </div>
+</div>
+<script>
+const TAX_DATA = {
+    ge: { vat: 18, income_tax: 20, profit_tax: 15, social: 2, property: 1, dividend: 5 },
+    de: { vat: 19, income_tax: 42, profit_tax: 15, social: 18.6, property: 0.35, dividend: 25 },
+    us: { vat: 0, income_tax: 37, profit_tax: 21, social: 7.65, property: 1.1, dividend: 20 },
+    uk: { vat: 20, income_tax: 45, profit_tax: 25, social: 12, property: 0, dividend: 33.75 },
+    fr: { vat: 20, income_tax: 45, profit_tax: 25, social: 22, property: 0, dividend: 30 },
+    ee: { vat: 22, income_tax: 20, profit_tax: 0, social: 33, property: 0, dividend: 20 },
+    pl: { vat: 23, income_tax: 32, profit_tax: 19, social: 19.52, property: 0, dividend: 19 },
+    ua: { vat: 20, income_tax: 18, profit_tax: 18, social: 22, property: 0, dividend: 5 }
+};
+const TAX_LABELS = { vat: 'დღგ %', income_tax: 'საშემოსავლო %', profit_tax: 'მოგების გადასახადი %', social: 'სოციალური %', property: 'ქონების %', dividend: 'დივიდენდი %' };
+
+function loadTax() {
+    const country = document.getElementById('tax_country').value;
+    const data = TAX_DATA[country] || {};
+    const grid = document.getElementById('tax-grid');
+    grid.innerHTML = Object.keys(TAX_LABELS).map(k => `
+        <div class="tax-item">
+            <h4>${TAX_LABELS[k]}</h4>
+            <input id="tax_${k}" type="number" value="${data[k] || 0}" step="0.1" />
+        </div>`).join('');
+}
+
+async function save(section) {
+    const fields = { rs: ['rs_url','rs_key','rs_tin'], email: ['email_host','email_port','email_user','email_pass'], bank: ['bank_name','bank_id','bank_secret'], company: ['company_name','company_id','company_type'] };
+    for (const f of fields[section]) {
+        const val = document.getElementById(f)?.value;
+        if (val) await fetch('/settings/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key: f, value: val}) });
+    }
+    const s = document.getElementById(section+'_status');
+    s.className = 'status ok'; s.innerText = '✅ შენახულია!';
+    setTimeout(() => s.className = 'status', 3000);
+}
+
+async function saveTax() {
+    const country = document.getElementById('tax_country').value;
+    const keys = Object.keys(TAX_LABELS);
+    for (const k of keys) {
+        const val = document.getElementById('tax_'+k)?.value;
+        await fetch('/settings/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key: `tax_${country}_${k}`, value: val}) });
+    }
+    const s = document.getElementById('tax_status');
+    s.className = 'status ok'; s.innerText = '✅ გადასახადები შენახულია!';
+    setTimeout(() => s.className = 'status', 3000);
+}
+
+async function loadSaved() {
+    const res = await fetch('/settings/load');
+    const data = await res.json();
+    Object.keys(data).forEach(k => { const el = document.getElementById(k); if (el) el.value = data[k]; });
+}
+
+loadTax();
+loadSaved();
+</script>
+</body>
+</html>

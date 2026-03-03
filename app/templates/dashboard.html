@@ -8,19 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-:root {
-  --bg:#080c14;--surface:#0d1420;--panel:#111827;--border:#1e2d45;
-  --border2:#243350;--text:#c9d8ef;--muted:#4a6080;--dim:#2a3f5f;
-  --amber:#f0a500;--amber2:#ffc740;--teal:#00c9a7;--teal2:#00ffd2;
-  --blue:#3b82f6;--blue2:#60a5fa;--red:#ef4444;--red2:#f87171;
-  --green:#22c55e;--purple:#a855f7;
-  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
-}
+:root{--bg:#080c14;--surface:#0d1420;--panel:#111827;--border:#1e2d45;--border2:#243350;--text:#c9d8ef;--muted:#4a6080;--dim:#2a3f5f;--amber:#f0a500;--amber2:#ffc740;--teal:#00c9a7;--blue:#3b82f6;--blue2:#60a5fa;--red:#ef4444;--red2:#f87171;--green:#22c55e;--purple:#a855f7;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh;overflow-x:hidden}
 body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px);pointer-events:none;z-index:9999}
-
-/* SIDEBAR */
 .sidebar{width:220px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
 .logo{padding:20px 20px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
 .logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--amber),var(--teal));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
@@ -40,8 +31,6 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .sidebar-footer{border-top:1px solid var(--border);padding:14px 16px}
 .sidebar-footer a{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.68rem;color:var(--muted);text-decoration:none;padding:6px 0;transition:color .15s}
 .sidebar-footer a:hover{color:var(--text)}
-
-/* MAIN */
 .main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .page-title{font-family:var(--mono);font-size:.85rem;font-weight:600;color:var(--text);letter-spacing:.04em}
@@ -54,8 +43,6 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .refresh-btn.spinning .ri{animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .content{padding:24px 28px;flex:1}
-
-/* TICKER */
 .ticker-bar{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 16px;margin-bottom:24px;display:flex;align-items:center;gap:24px;font-family:var(--mono);font-size:.7rem}
 .ticker-label{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;flex-shrink:0}
 .ticker-items{display:flex;gap:28px;flex-wrap:wrap}
@@ -65,18 +52,14 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .chg{font-size:.62rem;padding:1px 5px;border-radius:3px}
 .chg.up{background:rgba(34,197,94,.12);color:var(--green)}
 .chg.neutral{background:rgba(74,96,128,.15);color:var(--muted)}
-
-/* STATS */
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
-.stat-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s;cursor:default}
+.stat-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
 .stat-card:hover{border-color:var(--border2);transform:translateY(-1px)}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ac)}
 .stat-label{font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 .stat-icon{font-size:.9rem;opacity:.6}
-.stat-value{font-family:var(--mono);font-size:2rem;font-weight:600;color:var(--text);line-height:1;margin-bottom:8px;transition:color .3s}
+.stat-value{font-family:var(--mono);font-size:2rem;font-weight:600;color:var(--text);line-height:1;margin-bottom:8px}
 .stat-meta{font-family:var(--mono);font-size:.65rem;color:var(--muted)}
-
-/* CHARTS */
 .charts-row{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:24px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .card-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
@@ -84,13 +67,10 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .cdot{width:6px;height:6px;border-radius:50%}
 .card-actions{display:flex;gap:8px}
 .card-btn{background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:.62rem;padding:3px 8px;border-radius:3px;cursor:pointer;transition:all .15s}
-.card-btn:hover{border-color:var(--border2);color:var(--text)}
 .card-btn.active{border-color:var(--amber);color:var(--amber);background:rgba(240,165,0,.08)}
 .card-body{padding:20px}
-
-/* BOTTOM */
 .bottom-row{display:grid;grid-template-columns:1fr 1fr 280px;gap:16px}
-.activity-item{display:flex;align-items:flex-start;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);transition:background .15s}
+.activity-item{display:flex;align-items:flex-start;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border)}
 .activity-item:last-child{border-bottom:none}
 .activity-item:hover{background:rgba(255,255,255,.02)}
 .activity-time{font-family:var(--mono);font-size:.6rem;color:var(--dim);flex-shrink:0;padding-top:2px;width:38px}
@@ -102,8 +82,6 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .aaction{font-size:.78rem;font-weight:500;color:var(--text)}
 .aentity{font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-top:2px}
 .activity-empty{padding:24px 20px;font-family:var(--mono);font-size:.72rem;color:var(--dim);text-align:center}
-
-/* ISSUES */
 .issues-table{width:100%;border-collapse:collapse}
 .issues-table th{font-family:var(--mono);font-size:.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border)}
 .issues-table td{padding:9px 14px;font-size:.78rem;color:var(--text);border-bottom:1px solid var(--border);vertical-align:middle}
@@ -113,17 +91,12 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 .sev.critical{background:rgba(239,68,68,.15);color:var(--red2)}
 .sev.warning{background:rgba(240,165,0,.12);color:var(--amber2)}
 .sev.info{background:rgba(59,130,246,.12);color:var(--blue2)}
-
-/* ACTIONS */
 .actions-grid{display:grid;gap:8px;padding:16px}
 .action-btn{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:.78rem;font-weight:500;padding:10px 14px;border-radius:6px;cursor:pointer;text-decoration:none;transition:all .15s}
 .action-btn:hover{background:rgba(255,255,255,.07);border-color:var(--border2);transform:translateX(2px)}
 .action-btn .ai{font-size:1rem;flex-shrink:0;width:20px;text-align:center}
 .action-arr{margin-left:auto;opacity:0;transition:all .15s;font-size:.8rem;color:var(--muted)}
 .action-btn:hover .action-arr{opacity:1}
-
-.skeleton{background:linear-gradient(90deg,var(--border) 25%,var(--border2) 50%,var(--border) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;display:inline-block}
-@keyframes shimmer{to{background-position:-200% 0}}
 .fade-in{animation:fadeIn .4s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 ::-webkit-scrollbar{width:4px}
@@ -135,23 +108,17 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
 <aside class="sidebar">
   <div class="logo">
     <div class="logo-icon">🌉</div>
-    <div>
-      <div class="logo-text">BridgeHub</div>
-      <div class="logo-sub">Financial Ops</div>
-    </div>
+    <div><div class="logo-text">BridgeHub</div><div class="logo-sub">Financial Ops</div></div>
   </div>
-  <div class="status-bar">
-    <span class="status-dot"></span>
-    <span>Cloud Run · Live</span>
-  </div>
+  <div class="status-bar"><span class="status-dot"></span><span>Cloud Run · Live</span></div>
   <nav>
     <div class="nav-section">Core</div>
     <a href="/dashboard/" class="nav-link active"><span class="icon">⬡</span>Dashboard</a>
-    <a href="/journal/" class="nav-link"><span class="icon">◈</span>Journal Entries<span class="nav-badge ok" id="nb-j">—</span></a>
-    <a href="/vat/" class="nav-link"><span class="icon">◇</span>VAT Returns<span class="nav-badge ok" id="nb-v">—</span></a>
+    <a href="/accounting/journal/list" class="nav-link"><span class="icon">◈</span>Journal Entries<span class="nav-badge ok" id="nb-j">—</span></a>
+    <a href="/gaas/coa" class="nav-link"><span class="icon">◇</span>Chart of Accounts<span class="nav-badge ok" id="nb-a">—</span></a>
     <div class="nav-section">Control</div>
-    <a href="/issues/" class="nav-link"><span class="icon">▲</span>Issues<span class="nav-badge" id="nb-i">—</span></a>
-    <a href="/audit-log/" class="nav-link"><span class="icon">≡</span>Audit Log</a>
+    <a href="/audit/issues" class="nav-link"><span class="icon">▲</span>Audit Issues<span class="nav-badge" id="nb-i">—</span></a>
+    <a href="/gaas/db/stats" class="nav-link"><span class="icon">≡</span>DB Stats</a>
     <div class="nav-section">Integrate</div>
     <a href="/webhooks/" class="nav-link"><span class="icon">⌁</span>Webhooks<span class="nav-badge ok" id="nb-w">—</span></a>
     <a href="/users/" class="nav-link"><span class="icon">◎</span>Users</a>
@@ -169,16 +136,11 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
   <header class="topbar">
     <div class="topbar-left">
       <span class="page-title">DASHBOARD</span>
-      <span class="breadcrumb">
-        <span>bridgehub</span><span style="color:var(--dim)">›</span>
-        <span style="color:var(--amber)">overview</span>
-      </span>
+      <span class="breadcrumb"><span>bridgehub</span><span style="color:var(--dim)">›</span><span style="color:var(--amber)">overview</span></span>
     </div>
     <div class="topbar-right">
       <span class="last-update" id="last-update">განახლება...</span>
-      <button class="refresh-btn" onclick="refreshAll(this)">
-        <span class="ri">↻</span> Refresh
-      </button>
+      <button class="refresh-btn" onclick="refreshAll(this)"><span class="ri">↻</span> Refresh</button>
     </div>
   </header>
 
@@ -188,9 +150,9 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
       <span class="ticker-label">LIVE</span>
       <div class="ticker-items">
         <div class="ticker-item"><span class="key">JOURNAL</span><span class="val" id="tk-j">—</span><span class="chg neutral">entries</span></div>
-        <div class="ticker-item"><span class="key">VAT</span><span class="val" id="tk-v">—</span><span class="chg neutral">total</span></div>
         <div class="ticker-item"><span class="key">ISSUES</span><span class="val" id="tk-i">—</span><span class="chg neutral">open</span></div>
         <div class="ticker-item"><span class="key">WEBHOOKS</span><span class="val" id="tk-w">—</span><span class="chg neutral">active</span></div>
+        <div class="ticker-item"><span class="key">COA</span><span class="val" id="tk-a">—</span><span class="chg neutral">accounts</span></div>
         <div class="ticker-item"><span class="key">GAAS</span><span class="val" style="color:var(--teal)">660/660</span><span class="chg up">PASS</span></div>
         <div class="ticker-item"><span class="key">ACCURACY</span><span class="val" style="color:var(--green)">98-99%</span><span class="chg up">TARGET</span></div>
       </div>
@@ -203,14 +165,14 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
         <div class="stat-meta" id="meta-j">loading...</div>
       </div>
       <div class="stat-card fade-in" style="--ac:var(--red);animation-delay:.1s">
-        <div class="stat-label"><span>Open Issues</span><span class="stat-icon">▲</span></div>
+        <div class="stat-label"><span>Audit Issues</span><span class="stat-icon">▲</span></div>
         <div class="stat-value" id="stat-i">—</div>
         <div class="stat-meta" id="meta-i">loading...</div>
       </div>
       <div class="stat-card fade-in" style="--ac:var(--teal);animation-delay:.15s">
-        <div class="stat-label"><span>VAT Returns</span><span class="stat-icon">◇</span></div>
-        <div class="stat-value" id="stat-v">—</div>
-        <div class="stat-meta" id="meta-v">loading...</div>
+        <div class="stat-label"><span>COA Accounts</span><span class="stat-icon">◇</span></div>
+        <div class="stat-value" id="stat-a">—</div>
+        <div class="stat-meta" id="meta-a">loading...</div>
       </div>
       <div class="stat-card fade-in" style="--ac:var(--amber);animation-delay:.2s">
         <div class="stat-label"><span>Webhooks</span><span class="stat-icon">⌁</span></div>
@@ -222,34 +184,21 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
     <div class="charts-row">
       <div class="card fade-in" style="animation-delay:.25s">
         <div class="card-header">
-          <div class="card-title">
-            <span class="cdot" style="background:var(--blue)"></span>
-            Journal Activity — ბოლო 6 თვე
-          </div>
+          <div class="card-title"><span class="cdot" style="background:var(--blue)"></span>Journal Activity — ბოლო 6 თვე</div>
           <div class="card-actions">
             <button class="card-btn active" onclick="setRange(this,'6m')">6M</button>
             <button class="card-btn" onclick="setRange(this,'3m')">3M</button>
             <button class="card-btn" onclick="setRange(this,'1m')">1M</button>
           </div>
         </div>
-        <div class="card-body">
-          <div style="position:relative;height:220px">
-            <canvas id="lineChart"></canvas>
-          </div>
-        </div>
+        <div class="card-body"><div style="position:relative;height:220px"><canvas id="lineChart"></canvas></div></div>
       </div>
-
       <div class="card fade-in" style="animation-delay:.3s">
         <div class="card-header">
-          <div class="card-title">
-            <span class="cdot" style="background:var(--amber)"></span>
-            Issues by Severity
-          </div>
+          <div class="card-title"><span class="cdot" style="background:var(--amber)"></span>Issues by Severity</div>
         </div>
         <div class="card-body">
-          <div style="position:relative;height:180px">
-            <canvas id="donutChart"></canvas>
-          </div>
+          <div style="position:relative;height:180px"><canvas id="donutChart"></canvas></div>
           <div id="donut-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
         </div>
       </div>
@@ -258,17 +207,14 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
     <div class="bottom-row">
       <div class="card fade-in" style="animation-delay:.35s">
         <div class="card-header">
-          <div class="card-title"><span class="cdot" style="background:var(--teal)"></span>Audit Log — Recent</div>
+          <div class="card-title"><span class="cdot" style="background:var(--teal)"></span>Audit Issues — Recent</div>
         </div>
-        <div id="activity-feed">
-          <div class="activity-empty">loading...</div>
-        </div>
+        <div id="activity-feed"><div class="activity-empty">loading...</div></div>
       </div>
-
       <div class="card fade-in" style="animation-delay:.4s">
         <div class="card-header">
-          <div class="card-title"><span class="cdot" style="background:var(--red)"></span>Control Issues</div>
-          <a href="/issues/" style="font-family:var(--mono);font-size:.62rem;color:var(--muted);text-decoration:none">view all →</a>
+          <div class="card-title"><span class="cdot" style="background:var(--red)"></span>Control Issues — Open</div>
+          <a href="/audit/issues" style="font-family:var(--mono);font-size:.62rem;color:var(--muted);text-decoration:none">view all →</a>
         </div>
         <div style="overflow-x:auto">
           <table class="issues-table">
@@ -279,15 +225,15 @@ nav{flex:1;padding:12px 0;overflow-y:auto}
           </table>
         </div>
       </div>
-
       <div class="card fade-in" style="animation-delay:.45s">
         <div class="card-header">
           <div class="card-title"><span class="cdot" style="background:var(--purple)"></span>Quick Actions</div>
         </div>
         <div class="actions-grid">
-          <a class="action-btn" href="/journal/new"><span class="ai">+</span>New Journal Entry<span class="action-arr">›</span></a>
-          <a class="action-btn" href="/vat/new"><span class="ai">◇</span>New VAT Return<span class="action-arr">›</span></a>
-          <a class="action-btn" href="/issues/new"><span class="ai">▲</span>Log Issue<span class="action-arr">›</span></a>
+          <a class="action-btn" href="/accounting/journal/list"><span class="ai">◈</span>Journal List<span class="action-arr">›</span></a>
+          <a class="action-btn" href="/audit/issues"><span class="ai">▲</span>Audit Issues<span class="action-arr">›</span></a>
+          <a class="action-btn" href="/finance/dashboard"><span class="ai">📊</span>Finance Dashboard<span class="action-arr">›</span></a>
+          <a class="action-btn" href="/gaas/coa"><span class="ai">◇</span>Chart of Accounts<span class="action-arr">›</span></a>
           <a class="action-btn" href="/settings/"><span class="ai">⚙</span>Settings<span class="action-arr">›</span></a>
           <a class="action-btn" href="/docs" target="_blank"><span class="ai">↗</span>API Docs<span class="action-arr">›</span></a>
         </div>
@@ -305,90 +251,113 @@ let lineChart=null,donutChart=null;
 async function get(url){
   try{const r=await fetch(url,{headers:{'Accept':'application/json'}});if(!r.ok)return null;return await r.json();}catch{return null;}
 }
-function arr(d){if(!d)return[];if(Array.isArray(d))return d;if(d.items)return d.items;if(d.data)return d.data;return[];}
+function arr(d){if(!d)return[];if(Array.isArray(d))return d;if(d.items)return d.items;if(d.data)return d.data;if(d.entries)return d.entries;return[];}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setEl(id,h){const e=document.getElementById(id);if(e)e.innerHTML=String(h);}
-
 function count(id,target){
   const el=document.getElementById(id);if(!el)return;
-  const start=parseInt(el.textContent)||0;const dur=600,step=16;let elapsed=0;
-  const iv=setInterval(()=>{elapsed+=step;const p=Math.min(elapsed/dur,1);const e2=1-Math.pow(1-p,3);
-  el.textContent=Math.round(start+(target-start)*e2);if(p>=1){el.textContent=target;clearInterval(iv);}},step);
+  const start=parseInt(el.textContent)||0,dur=600,step=16;let elapsed=0;
+  const iv=setInterval(()=>{elapsed+=step;const p=Math.min(elapsed/dur,1),e2=1-Math.pow(1-p,3);
+    el.textContent=Math.round(start+(target-start)*e2);if(p>=1){el.textContent=target;clearInterval(iv);}},step);
 }
 
 async function loadStats(){
-  const[j,i,v,w]=await Promise.all([get('/journal/?limit=500'),get('/issues/'),get('/vat/'),get('/webhooks/')]);
-  const jl=arr(j).length,il=arr(i).length,vl=arr(v).length,wl=arr(w).length;
-  count('stat-j',jl);count('stat-i',il);count('stat-v',vl);count('stat-w',wl);
-  setEl('meta-j','სულ ჩანაწერი');
-  setEl('meta-i',il>0?`<span style="color:var(--red2)">⚠ ${il} ღია პრობლემა</span>`:'<span style="color:var(--teal)">✓ პრობლემა არ არის</span>');
-  setEl('meta-v','VAT დეკლარაცია');
+  const[journal,issues,accounts,webhooks]=await Promise.all([
+    get('/accounting/journal/list'),
+    get('/audit/issues'),
+    get('/gaas/coa'),
+    get('/webhooks/'),
+  ]);
+  const jl=arr(journal).length,il=arr(issues).length,al=arr(accounts).length,wl=arr(webhooks).length;
+  count('stat-j',jl);count('stat-i',il);count('stat-a',al);count('stat-w',wl);
+  setEl('meta-j','სულ journal entry');
+  setEl('meta-i',il>0?`<span style="color:var(--red2)">⚠ ${il} ღია</span>`:'<span style="color:var(--teal)">✓ პრობლემა არ არის</span>');
+  setEl('meta-a',al>0?`${al} ანგარიში COA-ში`:'—');
   setEl('meta-w',`${wl} endpoint`);
-  setEl('tk-j',jl);setEl('tk-v',vl);setEl('tk-i',il);setEl('tk-w',wl);
-  setEl('nb-j',jl);setEl('nb-v',vl);setEl('nb-i',il);setEl('nb-w',wl);
+  setEl('tk-j',jl);setEl('tk-i',il);setEl('tk-w',wl);setEl('tk-a',al);
+  setEl('nb-j',jl);setEl('nb-i',il);setEl('nb-w',wl);setEl('nb-a',al);
   if(il>0){document.getElementById('tk-i').style.color='var(--red2)';const nb=document.getElementById('nb-i');if(nb)nb.classList.remove('ok');}
-  updateDonut(arr(i));
+  updateDonut(arr(issues));
   setEl('last-update','Updated: '+new Date().toLocaleTimeString('ka-GE'));
 }
 
 async function loadActivity(){
-  const data=await get('/audit-log/?limit=8');
-  const items=arr(data);
+  const data=await get('/audit/issues');
+  const items=arr(data).slice(0,8);
   const feed=document.getElementById('activity-feed');
-  if(!items.length){feed.innerHTML='<div class="activity-empty" style="color:var(--dim)">Audit log empty</div>';return;}
-  const dc=a=>{if(!a)return '';const s=a.toLowerCase();if(s.includes('error')||s.includes('delet'))return 'err';if(s.includes('warn')||s.includes('issue'))return 'warn';if(s.includes('creat')||s.includes('approv'))return 'ok';return '';};
-  feed.innerHTML=items.map((item,idx)=>{
-    const action=item.action||item.event||item.type||'Event';
-    const entity=item.user||item.entity||item.resource||'';
+  if(!items.length){feed.innerHTML='<div class="activity-empty" style="color:var(--teal)">✓ Audit issues ცარიელია</div>';return;}
+  const dc=a=>{if(!a)return '';const s=String(a).toLowerCase();
+    if(s.includes('critical')||s.includes('error'))return 'err';
+    if(s.includes('warn'))return 'warn';
+    if(s.includes('info'))return 'ok';return '';};
+  feed.innerHTML=items.map(item=>{
+    const action=item.rule_id||item.description||item.type||'Issue';
+    const entity=item.entry_id||item.account||'';
     const ts=item.created_at||item.timestamp||null;
     const time=ts?new Date(ts).toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'}):'--:--';
     return`<div class="activity-item">
       <div class="activity-time">${time}</div>
-      <div class="adot ${dc(action)}" style="margin-top:4px;margin-right:8px"></div>
-      <div class="atext"><div class="aaction">${esc(action)}</div>${entity?`<div class="aentity">${esc(String(entity))}</div>`:''}</div>
+      <div class="adot ${dc(item.severity||'')}" style="margin-top:4px;margin-right:8px"></div>
+      <div class="atext">
+        <div class="aaction">${esc(action)}</div>
+        ${entity?`<div class="aentity">${esc(String(entity))}</div>`:''}
+      </div>
     </div>`;
   }).join('');
 }
 
 async function loadIssues(){
-  const data=await get('/issues/?limit=5');
+  const data=await get('/audit/issues');
   const items=arr(data).slice(0,5);
   const tbody=document.getElementById('issues-tbody');
   if(!items.length){tbody.innerHTML='<tr><td colspan="3" style="padding:12px 14px;font-family:var(--mono);font-size:.72rem;color:var(--teal)">✓ ღია პრობლემა არ არის</td></tr>';return;}
   tbody.innerHTML=items.map(issue=>{
-    const title=issue.title||issue.description||issue.type||'Issue';
-    const sev=(issue.severity||issue.level||'info').toLowerCase();
+    const title=issue.description||issue.rule_id||issue.type||'Issue';
+    const sev=(issue.severity||'info').toLowerCase();
     const ts=issue.created_at||issue.date||null;
     const d=ts?new Date(ts).toLocaleDateString('ka-GE',{month:'short',day:'numeric'}):'—';
-    return`<tr><td title="${esc(title)}">${esc(title.length>26?title.slice(0,26)+'…':title)}</td>
-    <td><span class="sev ${sev}">${sev}</span></td>
-    <td style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">${d}</td></tr>`;
+    return`<tr>
+      <td title="${esc(title)}">${esc(title.length>26?title.slice(0,26)+'…':title)}</td>
+      <td><span class="sev ${sev}">${sev}</span></td>
+      <td style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">${d}</td>
+    </tr>`;
   }).join('');
 }
 
-function buildLine(data){
+function buildLine(){
   const ctx=document.getElementById('lineChart').getContext('2d');
   if(lineChart)lineChart.destroy();
   const grad=ctx.createLinearGradient(0,0,0,220);
   grad.addColorStop(0,'rgba(59,130,246,.3)');grad.addColorStop(1,'rgba(59,130,246,0)');
-  const labels6=['ოქტ','ნოე','დეკ','იან','თებ','მარ'];
-  lineChart=new Chart(ctx,{type:'line',data:{labels:labels6,datasets:[{label:'Entries',data:data||[12,28,19,47,38,61],borderColor:'#3b82f6',backgroundColor:grad,borderWidth:2,pointBackgroundColor:'#3b82f6',pointBorderColor:'#080c14',pointBorderWidth:2,pointRadius:4,pointHoverRadius:6,tension:.4,fill:true}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d1420',borderColor:'#1e2d45',borderWidth:1,titleColor:'#4a6080',bodyColor:'#c9d8ef',titleFont:{family:"'IBM Plex Mono'",size:11},bodyFont:{family:"'IBM Plex Mono'",size:12,weight:'600'},padding:10}},
-    scales:{x:{grid:{color:'rgba(30,45,69,.8)'},ticks:{font:{family:"'IBM Plex Mono'",size:10},color:'#4a6080'}},y:{grid:{color:'rgba(30,45,69,.8)'},ticks:{font:{family:"'IBM Plex Mono'",size:10},color:'#4a6080'},beginAtZero:true}}}});
+  lineChart=new Chart(ctx,{type:'line',
+    data:{labels:['ოქტ','ნოე','დეკ','იან','თებ','მარ'],
+      datasets:[{label:'Entries',data:[12,28,19,47,38,61],borderColor:'#3b82f6',backgroundColor:grad,
+        borderWidth:2,pointBackgroundColor:'#3b82f6',pointBorderColor:'#080c14',pointBorderWidth:2,
+        pointRadius:4,pointHoverRadius:6,tension:.4,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d1420',borderColor:'#1e2d45',borderWidth:1,
+        titleColor:'#4a6080',bodyColor:'#c9d8ef',titleFont:{family:"'IBM Plex Mono'",size:11},
+        bodyFont:{family:"'IBM Plex Mono'",size:12,weight:'600'},padding:10}},
+      scales:{x:{grid:{color:'rgba(30,45,69,.8)'},ticks:{font:{family:"'IBM Plex Mono'",size:10},color:'#4a6080'}},
+        y:{grid:{color:'rgba(30,45,69,.8)'},ticks:{font:{family:"'IBM Plex Mono'",size:10},color:'#4a6080'},beginAtZero:true}}}});
 }
 
 function updateDonut(issues){
   const ctx=document.getElementById('donutChart').getContext('2d');
   if(donutChart)donutChart.destroy();
   const c={critical:0,warning:0,info:0};
-  issues.forEach(i=>{const s=(i.severity||i.level||'info').toLowerCase();if(s in c)c[s]++;else c.info++;});
-  const colors=['#ef4444','#f0a500','#3b82f6'];
-  const labels=['Critical','Warning','Info'];
-  const data=[c.critical,c.warning,c.info];
-  donutChart=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0,hoverOffset:4}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d1420',borderColor:'#1e2d45',borderWidth:1,titleColor:'#4a6080',bodyColor:'#c9d8ef'}}}});
-  const leg=document.getElementById('donut-legend');
-  leg.innerHTML=labels.map((l,i)=>`<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${colors[i]};flex-shrink:0"></span><span style="font-family:var(--mono);font-size:.62rem;color:var(--muted)">${l}</span><span style="font-family:var(--mono);font-size:.68rem;color:var(--text);font-weight:600;margin-left:auto">${data[i]}</span></div>`).join('');
+  issues.forEach(i=>{const s=(i.severity||'info').toLowerCase();if(s in c)c[s]++;else c.info++;});
+  const colors=['#ef4444','#f0a500','#3b82f6'],labels=['Critical','Warning','Info'],data=[c.critical,c.warning,c.info];
+  donutChart=new Chart(ctx,{type:'doughnut',
+    data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0,hoverOffset:4}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'68%',
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d1420',borderColor:'#1e2d45',borderWidth:1,titleColor:'#4a6080',bodyColor:'#c9d8ef'}}}});
+  document.getElementById('donut-legend').innerHTML=labels.map((l,i)=>
+    `<div style="display:flex;align-items:center;gap:6px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${colors[i]};flex-shrink:0"></span>
+      <span style="font-family:var(--mono);font-size:.62rem;color:var(--muted)">${l}</span>
+      <span style="font-family:var(--mono);font-size:.68rem;color:var(--text);font-weight:600;margin-left:auto">${data[i]}</span>
+    </div>`).join('');
 }
 
 function setRange(btn,range){

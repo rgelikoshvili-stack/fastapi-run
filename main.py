@@ -27,3 +27,5 @@ app.include_router(routes_gaas.router)
 app.include_router(routes_close.router)
 from app.api import routes_auth
 app.include_router(routes_auth.router)
+from app.api import routes_users
+app.include_router(routes_users.router)

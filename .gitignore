@@ -4,3 +4,4 @@ __pycache__/
 *.zip
 *.backup
 *.jsonl
+openai_key.txt 

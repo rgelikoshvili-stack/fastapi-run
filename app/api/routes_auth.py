@@ -1,4 +1,9 @@
-﻿import hashlib, secrets, string, uuid
+﻿from slowapi import Limiter
+from slowapi.util import get_remote_address
+from fastapi import Request
+
+limiter = Limiter(key_func=get_remote_address)
+import hashlib, secrets, string, uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Security
@@ -48,7 +53,8 @@ class KeyCreate(BaseModel):
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/keys", status_code=201)
-def create_key(payload: KeyCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def create_key(request: Request, payload: KeyCreate, db: Session = Depends(get_db)):
     raw = generate_api_key()
     kh = hash_key(raw)
     prefix = raw[:14]
@@ -62,8 +68,10 @@ def create_key(payload: KeyCreate, db: Session = Depends(get_db)):
     return {"id": key_id, "api_key": raw, "key_prefix": prefix, "name": payload.name, "warning": "Save this key now. It will NOT be shown again."}
 
 @router.get("/verify")
-def verify(key=Depends(require_api_key)):
+@limiter.limit("60/minute")
+def verify(request: Request, key=Depends(require_api_key)):
     return {"valid": True, "key_prefix": key.key_prefix, "name": key.name, "scopes": key.scopes}
+    
 
 @router.get("/me")
 def me(key=Depends(require_api_key)):

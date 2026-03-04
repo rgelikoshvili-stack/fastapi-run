@@ -25,6 +25,19 @@ def _ocr_with_vision(data):
     if gvision is None: return ""
     try:
         client = gvision.ImageAnnotatorClient()
+        if fitz is not None:
+            doc = fitz.open(stream=data, filetype="pdf")
+            texts = []
+            for i in range(len(doc)):
+                page = doc[i]
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                image = gvision.Image(content=img_bytes)
+                response = client.document_text_detection(image=image)
+                if response.full_text_annotation:
+                    texts.append(response.full_text_annotation.text)
+            return "\n".join(texts)
         image = gvision.Image(content=data)
         response = client.document_text_detection(image=image)
         if response.full_text_annotation:

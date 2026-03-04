@@ -1,14 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from datetime import datetime, timezone
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import json, os
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Bridge Hub + GAAS v5.2", version="2.0")
-
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "bridge-hub", "version": "2.0",
@@ -35,10 +36,10 @@ from app.api import routes_dashboard
 app.include_router(routes_dashboard.router)
 from app.api import routes_settings
 app.include_router(routes_settings.router)
+from app.api import routes_observerlog
+app.include_router(routes_observerlog.router)
+
 from app.api.doc_analyzer import analyze, to_dict
-from fastapi import UploadFile, File
-import json, os
-from datetime import datetime, timezone
 
 DATA_DIR = os.getenv("BRIDGE_DATA_DIR", "./bridge_data")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -70,7 +71,3 @@ async def bridge_learn_stats():
         "analysis_count": len([x for x in files if x.startswith("analysis_")]),
         "feedback_count": len([x for x in files if x.startswith("feedback_")])
     }
-    from app.api import routes_observerlog
-app.include_router(routes_observerlog.router)
-from app.api import routes_observerlog
-app.include_router(routes_observerlog.router)

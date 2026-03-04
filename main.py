@@ -38,6 +38,8 @@ from app.api import routes_settings
 app.include_router(routes_settings.router)
 from app.api import routes_observerlog
 app.include_router(routes_observerlog.router)
+from app.api import routes_validation
+app.include_router(routes_validation.router)
 
 from app.api.doc_analyzer import analyze, to_dict
 
@@ -71,5 +73,3 @@ async def bridge_learn_stats():
         "analysis_count": len([x for x in files if x.startswith("analysis_")]),
         "feedback_count": len([x for x in files if x.startswith("feedback_")])
     }
-    from app.api import routes_validation
-app.include_router(routes_validation.router)

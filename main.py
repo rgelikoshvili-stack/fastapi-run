@@ -35,3 +35,38 @@ from app.api import routes_dashboard
 app.include_router(routes_dashboard.router)
 from app.api import routes_settings
 app.include_router(routes_settings.router)
+from app.api.doc_analyzer import analyze, to_dict
+from fastapi import UploadFile, File
+import json, os
+from datetime import datetime, timezone
+
+DATA_DIR = os.getenv("BRIDGE_DATA_DIR", "./bridge_data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+@app.post("/bridge/doc/analyze")
+async def bridge_doc_analyze(file: UploadFile = File(...)):
+    data = await file.read()
+    res = analyze(file.filename or "uploaded", data)
+    result = to_dict(res)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join(DATA_DIR, f"analysis_{ts}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    return {"ok": True, "analysis": result}
+
+@app.post("/bridge/learn/feedback")
+async def bridge_learn_feedback(payload: dict):
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join(DATA_DIR, f"feedback_{ts}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return {"ok": True, "saved": os.path.basename(path)}
+
+@app.get("/bridge/learn/stats")
+async def bridge_learn_stats():
+    files = os.listdir(DATA_DIR) if os.path.exists(DATA_DIR) else []
+    return {
+        "ok": True,
+        "analysis_count": len([x for x in files if x.startswith("analysis_")]),
+        "feedback_count": len([x for x in files if x.startswith("feedback_")])
+    }

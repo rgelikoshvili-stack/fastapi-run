@@ -1,25 +1,37 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
-import re, io
+from typing import Any, Dict, List, Tuple
+import re, io, base64
 
 try:
     import fitz
 except Exception:
     fitz = None
 try:
-    from docx import Document
-except Exception:
-    Document = None
-try:
     from openpyxl import load_workbook
 except Exception:
     load_workbook = None
+try:
+    from google.cloud import vision as gvision
+except Exception:
+    gvision = None
 
 def _pdf_to_text(data):
     if fitz is None: return ""
     doc = fitz.open(stream=data, filetype="pdf")
     return "\n".join(doc[i].get_text("text") or "" for i in range(len(doc))).strip()
+
+def _ocr_with_vision(data):
+    if gvision is None: return ""
+    try:
+        client = gvision.ImageAnnotatorClient()
+        image = gvision.Image(content=data)
+        response = client.document_text_detection(image=image)
+        if response.full_text_annotation:
+            return response.full_text_annotation.text
+    except Exception as e:
+        return f"OCR_ERROR: {e}"
+    return ""
 
 def _xlsx_to_text(data):
     if load_workbook is None: return ""
@@ -36,7 +48,11 @@ def _raw_to_text(data):
 
 def extract_text(filename, data):
     n = (filename or "").lower()
-    if n.endswith(".pdf") or data[:4] == b"%PDF": return "pdf", _pdf_to_text(data)
+    if n.endswith(".pdf") or data[:4] == b"%PDF":
+        text = _pdf_to_text(data)
+        if not text or len(text) < 50:
+            text = _ocr_with_vision(data)
+        return "pdf", text
     if n.endswith((".xlsx", ".xlsm")): return "xlsx", _xlsx_to_text(data)
     return "text", _raw_to_text(data)
 
@@ -87,7 +103,7 @@ def extract_names(text):
     names = set()
     for ln in text.splitlines()[:4000]:
         ln = ln.strip()
-        if any(k in ln for k in ["შპს","ი.მ","LLC","Ltd","ООО"]):
+        if any(k in ln for k in ["შპს","ი.მ","ი/მ","LLC","Ltd","ООО"]):
             names.add(ln[:160])
     return sorted(names)[:50]
 
@@ -107,6 +123,7 @@ class AnalysisResult:
     filename: str
     doc_format: str
     text_len: int
+    ocr_used: bool
     dates: List[str]
     periods: List[str]
     amounts: List[Dict[str, Any]]
@@ -118,12 +135,19 @@ class AnalysisResult:
 
 def analyze(filename, data):
     doc_format, text = extract_text(filename, data)
+    ocr_used = False
     warnings = []
-    if not text: warnings.append("No text extracted - may be scanned PDF")
+    n = (filename or "").lower()
+    if (n.endswith(".pdf") or data[:4] == b"%PDF"):
+        native = _pdf_to_text(data)
+        if not native or len(native) < 50:
+            ocr_used = True
+    if not text: warnings.append("No text extracted")
     if not extract_amounts(text): warnings.append("No amounts detected")
     if not extract_dates(text): warnings.append("No dates detected")
     return AnalysisResult(
         filename=filename, doc_format=doc_format, text_len=len(text),
+        ocr_used=ocr_used,
         dates=extract_dates(text), periods=extract_periods(text),
         amounts=extract_amounts(text), ids=extract_ids(text),
         ibans=extract_ibans(text), names=extract_names(text),

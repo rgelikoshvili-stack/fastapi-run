@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List
-import re, io
+import re, io, json, base64, urllib.request
 
 try:
     import fitz
@@ -11,10 +11,6 @@ try:
     from openpyxl import load_workbook
 except Exception:
     load_workbook = None
-try:
-    from google.cloud import vision as gvision
-except Exception:
-    gvision = None
 
 def _pdf_to_text(data):
     if fitz is None: return ""
@@ -22,27 +18,30 @@ def _pdf_to_text(data):
     return "\n".join(doc[i].get_text("text") or "" for i in range(len(doc))).strip()
 
 def _ocr_with_vision(data):
-    if gvision is None: return "OCR_UNAVAILABLE"
     try:
-        client = gvision.ImageAnnotatorClient()
-        if fitz is not None:
-            doc = fitz.open(stream=data, filetype="pdf")
-            texts = []
-            for i in range(len(doc)):
-                page = doc[i]
-                mat = fitz.Matrix(2, 2)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("png")
-                image = gvision.Image(content=img_bytes)
-                response = client.document_text_detection(image=image)
-                if response.error.message:
-                    return f"OCR_API_ERROR: {response.error.message}"
-                if response.full_text_annotation:
-                    texts.append(response.full_text_annotation.text)
-                else:
-                    texts.append(f"OCR_NO_TEXT_PAGE_{i}")
-            return "\n".join(texts) if texts else "OCR_EMPTY"
-        return "OCR_NO_FITZ"
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+            headers={"Metadata-Flavor": "Google"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            token = json.loads(r.read())["access_token"]
+        if fitz is None: return "OCR_NO_FITZ"
+        doc = fitz.open(stream=data, filetype="pdf")
+        texts = []
+        for i in range(len(doc)):
+            pix = doc[i].get_pixmap(matrix=fitz.Matrix(2, 2))
+            img_b64 = base64.b64encode(pix.tobytes("png")).decode()
+            body = json.dumps({"requests":[{"image":{"content":img_b64},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}]}]}).encode()
+            req2 = urllib.request.Request(
+                "https://vision.googleapis.com/v1/images:annotate",
+                data=body,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req2, timeout=30) as r2:
+                resp = json.loads(r2.read())
+            t = resp.get("responses",[{}])[0].get("fullTextAnnotation",{}).get("text","")
+            texts.append(t or f"OCR_NO_TEXT_PAGE_{i}")
+        return "\n".join(texts) if texts else "OCR_EMPTY"
     except Exception as e:
         return f"OCR_ERROR: {e}"
 

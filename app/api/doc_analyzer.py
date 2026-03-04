@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Tuple
-import re, io, base64
+from typing import Any, Dict, List
+import re, io
 
 try:
     import fitz
@@ -22,7 +22,7 @@ def _pdf_to_text(data):
     return "\n".join(doc[i].get_text("text") or "" for i in range(len(doc))).strip()
 
 def _ocr_with_vision(data):
-    if gvision is None: return ""
+    if gvision is None: return "OCR_UNAVAILABLE"
     try:
         client = gvision.ImageAnnotatorClient()
         if fitz is not None:
@@ -35,16 +35,16 @@ def _ocr_with_vision(data):
                 img_bytes = pix.tobytes("png")
                 image = gvision.Image(content=img_bytes)
                 response = client.document_text_detection(image=image)
+                if response.error.message:
+                    return f"OCR_API_ERROR: {response.error.message}"
                 if response.full_text_annotation:
                     texts.append(response.full_text_annotation.text)
-            return "\n".join(texts)
-        image = gvision.Image(content=data)
-        response = client.document_text_detection(image=image)
-        if response.full_text_annotation:
-            return response.full_text_annotation.text
+                else:
+                    texts.append(f"OCR_NO_TEXT_PAGE_{i}")
+            return "\n".join(texts) if texts else "OCR_EMPTY"
+        return "OCR_NO_FITZ"
     except Exception as e:
         return f"OCR_ERROR: {e}"
-    return ""
 
 def _xlsx_to_text(data):
     if load_workbook is None: return ""
@@ -151,11 +151,11 @@ def analyze(filename, data):
     ocr_used = False
     warnings = []
     n = (filename or "").lower()
-    if (n.endswith(".pdf") or data[:4] == b"%PDF"):
+    if n.endswith(".pdf") or data[:4] == b"%PDF":
         native = _pdf_to_text(data)
         if not native or len(native) < 50:
             ocr_used = True
-    if not text: warnings.append("No text extracted")
+    if not text or text.startswith("OCR_"): warnings.append(f"No text extracted: {text[:100]}")
     if not extract_amounts(text): warnings.append("No amounts detected")
     if not extract_dates(text): warnings.append("No dates detected")
     return AnalysisResult(

@@ -68,7 +68,7 @@ def extract_text(filename, data):
     if n.endswith((".xlsx", ".xlsm")): return "xlsx", _xlsx_to_text(data)
     return "text", _raw_to_text(data)
 
-DATE_RE = [r"\b(\d{2})[./-](\d{2})[./-](\d{4})\b", r"\b(\d{4})[./-](\d{2})[./-](\d{2})\b"]
+DATE_RE = [r"\b(\d{2})[./-](\d{2})[./-](\d{4})\b", r"\b(\d{4})[./-](\d{2})[./-](\d{2})\b", r"\b(\d{2}),(\d{2}),(\d{4})\b"]
 PERIOD_RE = [r"\b(\d{2}[./-]\d{2}[./-]\d{4})\s*[-–]\s*(\d{2}[./-]\d{2}[./-]\d{4})\b"]
 AMOUNT_RE = r"(?<!\w)(\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?)(?:\s*(GEL|USD|EUR|₾|\$|€))?(?!\w)"
 ID_RE = r"\b(\d{9}|\d{11})\b"

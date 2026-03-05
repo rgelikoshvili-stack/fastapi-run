@@ -1,35 +1,30 @@
 from fastapi import APIRouter
-import sqlite3, json, os
+import psycopg2, psycopg2.extras, json
 from datetime import datetime, timezone
 from collections import Counter
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 
-OBS_DB = os.getenv("OBSERVER_DB", "/tmp/observer_log.db")
-APP_DB = os.getenv("APPROVAL_DB", "/tmp/approval.db")
+DB_URL = "postgresql://postgres:BridgeHub2026x@35.192.214.120/bridgehub"
 
-def get_obs_db():
-    conn = sqlite3.connect(OBS_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def get_app_db():
-    conn = sqlite3.connect(APP_DB)
-    conn.row_factory = sqlite3.Row
+def get_db():
+    conn = psycopg2.connect(DB_URL)
     return conn
 
 @router.get("/health")
 def health():
-    return {"ok": True, "service": "patterns"}
+    return {"ok": True, "service": "patterns", "db": "postgresql"}
 
 @router.get("/errors")
 def error_patterns():
-    conn = get_obs_db()
-    rows = conn.execute("SELECT error_tags FROM diffs").fetchall()
-    conn.close()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT error_tags FROM diffs")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
     counter = Counter()
     for row in rows:
-        tags = json.loads(row["error_tags"] or "[]")
+        tags = json.loads(row[0] or "[]")
         for tag in tags:
             counter[tag] += 1
     return {
@@ -40,13 +35,15 @@ def error_patterns():
 
 @router.get("/accounts")
 def account_patterns():
-    conn = get_obs_db()
-    rows = conn.execute("SELECT changed_fields FROM diffs").fetchall()
-    conn.close()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT changed_fields FROM diffs")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
     ai_accounts = Counter()
     human_accounts = Counter()
     for row in rows:
-        fields = json.loads(row["changed_fields"] or "[]")
+        fields = json.loads(row[0] or "[]")
         for f in fields:
             if f.get("field") == "account_code":
                 ai_accounts[f.get("ai", "?")] += 1
@@ -59,14 +56,15 @@ def account_patterns():
 
 @router.get("/weekly")
 def weekly_report():
-    conn = get_obs_db()
-    diffs = conn.execute("SELECT * FROM diffs ORDER BY created_at DESC").fetchall()
-    decisions = conn.execute("SELECT * FROM human_decisions ORDER BY created_at DESC").fetchall()
-    conn.close()
-
-    app_conn = get_app_db()
-    approvals = app_conn.execute("SELECT state, COUNT(*) as cnt FROM approvals GROUP BY state").fetchall()
-    app_conn.close()
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM diffs ORDER BY created_at DESC")
+    diffs = cur.fetchall()
+    cur.execute("SELECT * FROM human_decisions ORDER BY created_at DESC")
+    decisions = cur.fetchall()
+    cur.execute("SELECT state, COUNT(*) as cnt FROM approvals GROUP BY state")
+    approvals = cur.fetchall()
+    cur.close(); conn.close()
 
     error_counter = Counter()
     for row in diffs:

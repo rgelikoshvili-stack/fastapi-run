@@ -1,6 +1,4 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel
-from typing import Optional
 import psycopg2, psycopg2.extras, json, uuid
 from datetime import datetime, timezone
 from app.api.doc_analyzer import analyze, to_dict
@@ -67,13 +65,9 @@ async def run_pipeline(file: UploadFile = File(...)):
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     cur = conn.cursor()
-
     try:
-        # Step 1: OCR + Extraction
         data = await file.read()
         result = to_dict(analyze(file.filename or "uploaded", data))
-
-        # Step 2: AI Draft
         ai_draft = _generate_ai_draft(result)
         debit_entry = {**ai_draft}
         credit_entry = {
@@ -84,24 +78,17 @@ async def run_pipeline(file: UploadFile = File(...)):
             "currency": "GEL"
         }
         entries = [debit_entry, credit_entry]
-
-        # Step 3: Validation
         validation = _validate(entries)
-
-        # Step 4: Submit for Approval
         approval_id = str(uuid.uuid4())
         cur.execute("INSERT INTO approvals VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", (
             approval_id, run_id, "PENDING_APPROVAL",
             json.dumps(entries), "pipeline",
             None, None, now, now))
-
-        # Step 5: Save run
         cur.execute("INSERT INTO pipeline_runs VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", (
             run_id, file.filename, "PENDING_APPROVAL",
             json.dumps(result), json.dumps(ai_draft),
             json.dumps(validation), approval_id,
             None, now, now))
-
         conn.commit()
         return {
             "ok": True,
@@ -120,7 +107,6 @@ async def run_pipeline(file: UploadFile = File(...)):
             "state": "PENDING_APPROVAL",
             "next_step": f"POST /approval/approve/{approval_id}"
         }
-
     except Exception as e:
         cur.execute("INSERT INTO pipeline_runs VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", (
             run_id, file.filename, "ERROR",

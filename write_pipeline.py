@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+content = '''from fastapi import APIRouter, UploadFile, File, HTTPException
 import psycopg2, psycopg2.extras, json, uuid
 from datetime import datetime, timezone
 from app.api.doc_analyzer import analyze, to_dict
@@ -56,7 +56,7 @@ def _validate(entries):
         if e.get("vat", 0) > 0:
             expected = round(e["amount"] * 18 / 118, 2)
             if abs(e["vat"] - expected) > 0.05:
-                warnings.append(f"VAT mismatch: got {e['vat']}, expected {expected}")
+                warnings.append(f"VAT mismatch: got {e[\'vat\']}, expected {expected}")
     return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings}
 
 @router.post("/run")
@@ -116,3 +116,9 @@ def pipeline_history():
 @router.get("/health")
 def health():
     return {"ok": True, "service": "pipeline", "db": "postgresql"}
+'''
+
+with open('app/api/routes_pipeline.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+
+print("Done! routes_pipeline.py written successfully!")

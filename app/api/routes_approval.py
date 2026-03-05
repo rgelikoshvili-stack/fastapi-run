@@ -1,21 +1,21 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-import sqlite3, uuid, os, json
+import psycopg2, psycopg2.extras, json, uuid
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/approval", tags=["approval"])
 
-DB_PATH = os.getenv("APPROVAL_DB", "/tmp/approval.db")
+DB_URL = "postgresql://postgres:BridgeHub2026x@35.192.214.120/bridgehub"
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DB_URL)
     return conn
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS approvals (
             approval_id TEXT PRIMARY KEY,
             case_id TEXT,
@@ -29,6 +29,7 @@ def init_db():
         );
     """)
     conn.commit()
+    cur.close()
     conn.close()
 
 init_db()
@@ -45,65 +46,70 @@ class ActionPayload(BaseModel):
 @router.post("/submit")
 def submit(payload: SubmitPayload):
     conn = get_db()
+    cur = conn.cursor()
     now = datetime.now(timezone.utc).isoformat()
     approval_id = str(uuid.uuid4())
     case_id = payload.case_id or str(uuid.uuid4())
-    conn.execute("INSERT INTO approvals VALUES (?,?,?,?,?,?,?,?,?)", (
+    cur.execute("INSERT INTO approvals VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", (
         approval_id, case_id, "PENDING_APPROVAL",
-        json.dumps(payload.entries, ensure_ascii=False),
-        payload.submitted_by, None, None, now, now
-    ))
-    conn.commit()
-    conn.close()
+        json.dumps(payload.entries), payload.submitted_by,
+        None, None, now, now))
+    conn.commit(); cur.close(); conn.close()
     return {"ok": True, "approval_id": approval_id, "case_id": case_id, "state": "PENDING_APPROVAL"}
 
 @router.get("/pending")
 def pending():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM approvals WHERE state='PENDING_APPROVAL' ORDER BY created_at DESC").fetchall()
-    conn.close()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM approvals WHERE state='PENDING_APPROVAL' ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
     return {"ok": True, "pending": [dict(r) for r in rows]}
 
 @router.post("/approve/{approval_id}")
 def approve(approval_id: str, payload: ActionPayload):
     conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     now = datetime.now(timezone.utc).isoformat()
-    row = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+    cur.execute("SELECT * FROM approvals WHERE approval_id=%s", (approval_id,))
+    row = cur.fetchone()
     if not row:
-        conn.close()
+        cur.close(); conn.close()
         raise HTTPException(404, f"Not found: {approval_id}")
     if row["state"] != "PENDING_APPROVAL":
-        conn.close()
+        cur.close(); conn.close()
         raise HTTPException(400, f"Cannot approve — state is {row['state']}")
-    conn.execute("UPDATE approvals SET state='APPROVED', approved_by=?, comment=?, updated_at=? WHERE approval_id=?",
-                 (payload.approved_by, payload.comment, now, approval_id))
-    conn.commit()
-    conn.close()
+    cur.execute("UPDATE approvals SET state='APPROVED', approved_by=%s, comment=%s, updated_at=%s WHERE approval_id=%s",
+                (payload.approved_by, payload.comment, now, approval_id))
+    conn.commit(); cur.close(); conn.close()
     return {"ok": True, "approval_id": approval_id, "state": "APPROVED"}
 
 @router.post("/reject/{approval_id}")
 def reject(approval_id: str, payload: ActionPayload):
     conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     now = datetime.now(timezone.utc).isoformat()
-    row = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+    cur.execute("SELECT * FROM approvals WHERE approval_id=%s", (approval_id,))
+    row = cur.fetchone()
     if not row:
-        conn.close()
+        cur.close(); conn.close()
         raise HTTPException(404, f"Not found: {approval_id}")
-    conn.execute("UPDATE approvals SET state='REJECTED', approved_by=?, comment=?, updated_at=? WHERE approval_id=?",
-                 (payload.approved_by, payload.comment, now, approval_id))
-    conn.commit()
-    conn.close()
+    cur.execute("UPDATE approvals SET state='REJECTED', approved_by=%s, comment=%s, updated_at=%s WHERE approval_id=%s",
+                (payload.approved_by, payload.comment, now, approval_id))
+    conn.commit(); cur.close(); conn.close()
     return {"ok": True, "approval_id": approval_id, "state": "REJECTED"}
 
 @router.get("/status/{approval_id}")
 def status(approval_id: str):
     conn = get_db()
-    row = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
-    conn.close()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM approvals WHERE approval_id=%s", (approval_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
     if not row:
         raise HTTPException(404, f"Not found: {approval_id}")
     return {"ok": True, "approval": dict(row)}
 
 @router.get("/health")
 def health():
-    return {"ok": True, "service": "approval", "db_path": DB_PATH}
+    return {"ok": True, "service": "approval", "db": "postgresql"}

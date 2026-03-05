@@ -1,21 +1,21 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-import sqlite3, json, os, uuid
+import psycopg2, psycopg2.extras
 from datetime import datetime, timezone, timedelta
 
 router = APIRouter(prefix="/autonomy", tags=["autonomy"])
 
-DB_PATH = os.getenv("AUTONOMY_DB", "/tmp/autonomy.db")
+DB_URL = "postgresql://postgres:BridgeHub2026x@35.192.214.120/bridgehub"
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DB_URL)
     return conn
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS autonomy_config (
             id INTEGER PRIMARY KEY,
             mode TEXT DEFAULT 'OBSERVER',
@@ -26,10 +26,12 @@ def init_db():
             expires_at TEXT,
             updated_at TEXT
         );
-        INSERT OR IGNORE INTO autonomy_config (id, mode, enabled, updated_at)
-        VALUES (1, 'OBSERVER', 0, datetime('now'));
+        INSERT INTO autonomy_config (id, mode, enabled, updated_at)
+        VALUES (1, 'OBSERVER', 0, NOW()::TEXT)
+        ON CONFLICT DO NOTHING;
     """)
     conn.commit()
+    cur.close()
     conn.close()
 
 init_db()
@@ -40,24 +42,21 @@ class EnablePayload(BaseModel):
     max_transactions: Optional[int] = 10
     ttl_minutes: Optional[int] = 60
 
-class ModePayload(BaseModel):
-    mode: str
-
 @router.get("/status")
 def status():
     conn = get_db()
-    row = conn.execute("SELECT * FROM autonomy_config WHERE id=1").fetchone()
-    conn.close()
-    cfg = dict(row)
-    # TTL check
-    if cfg["enabled"] and cfg["expires_at"]:
-        expires = datetime.fromisoformat(cfg["expires_at"])
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM autonomy_config WHERE id=1")
+    row = dict(cur.fetchone())
+    cur.close(); conn.close()
+    if row["enabled"] and row["expires_at"]:
+        expires = datetime.fromisoformat(row["expires_at"])
         if datetime.now(timezone.utc) > expires:
             _kill_switch()
-            cfg["enabled"] = 0
-            cfg["mode"] = "OBSERVER"
-            cfg["note"] = "TTL expired — auto disabled"
-    return {"ok": True, "autonomy": cfg}
+            row["enabled"] = 0
+            row["mode"] = "OBSERVER"
+            row["note"] = "TTL expired — auto disabled"
+    return {"ok": True, "autonomy": row}
 
 @router.post("/enable")
 def enable(payload: EnablePayload):
@@ -66,27 +65,20 @@ def enable(payload: EnablePayload):
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(minutes=payload.ttl_minutes)).isoformat()
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         UPDATE autonomy_config SET
-            mode=?, enabled=1,
-            max_amount=?, max_transactions=?,
-            ttl_minutes=?, expires_at=?, updated_at=?
+            mode=%s, enabled=1, max_amount=%s, max_transactions=%s,
+            ttl_minutes=%s, expires_at=%s, updated_at=%s
         WHERE id=1
     """, (payload.mode, payload.max_amount, payload.max_transactions,
           payload.ttl_minutes, expires_at, now.isoformat()))
-    conn.commit()
-    conn.close()
-    return {
-        "ok": True,
-        "mode": payload.mode,
-        "enabled": True,
-        "expires_at": expires_at,
-        "limits": {
-            "max_amount": payload.max_amount,
-            "max_transactions": payload.max_transactions,
-            "ttl_minutes": payload.ttl_minutes
-        }
-    }
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True, "mode": payload.mode, "enabled": True,
+            "expires_at": expires_at,
+            "limits": {"max_amount": payload.max_amount,
+                       "max_transactions": payload.max_transactions,
+                       "ttl_minutes": payload.ttl_minutes}}
 
 @router.post("/disable")
 def disable():
@@ -95,20 +87,21 @@ def disable():
 
 def _kill_switch():
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         UPDATE autonomy_config SET
-            mode='OBSERVER', enabled=0, expires_at=NULL, updated_at=?
+            mode='OBSERVER', enabled=0, expires_at=NULL, updated_at=%s
         WHERE id=1
     """, (datetime.now(timezone.utc).isoformat(),))
-    conn.commit()
-    conn.close()
+    conn.commit(); cur.close(); conn.close()
 
 @router.post("/check")
 def check_allowed(amount: float = 0, transactions: int = 1):
     conn = get_db()
-    row = conn.execute("SELECT * FROM autonomy_config WHERE id=1").fetchone()
-    conn.close()
-    cfg = dict(row)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM autonomy_config WHERE id=1")
+    cfg = dict(cur.fetchone())
+    cur.close(); conn.close()
     if not cfg["enabled"]:
         return {"ok": True, "allowed": False, "reason": "Autonomy disabled"}
     if cfg["expires_at"]:
@@ -124,4 +117,4 @@ def check_allowed(amount: float = 0, transactions: int = 1):
 
 @router.get("/health")
 def health():
-    return {"ok": True, "service": "autonomy"}
+    return {"ok": True, "service": "autonomy", "db": "postgresql"}

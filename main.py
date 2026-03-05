@@ -73,3 +73,5 @@ async def bridge_learn_stats():
         "analysis_count": len([x for x in files if x.startswith("analysis_")]),
         "feedback_count": len([x for x in files if x.startswith("feedback_")])
     }
+    from app.api import routes_approval
+app.include_router(routes_approval.router)

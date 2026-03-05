@@ -78,3 +78,6 @@ async def bridge_learn_stats():
 
 from app.api import routes_patterns
 app.include_router(routes_patterns.router)
+
+from app.api import routes_autonomy
+app.include_router(routes_autonomy.router)

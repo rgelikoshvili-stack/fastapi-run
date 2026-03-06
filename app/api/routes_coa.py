@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from app.db import get_db
+import psycopg2
+def get_db():
+    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
 import psycopg2.extras
 
 router = APIRouter(prefix="/coa", tags=["coa"])

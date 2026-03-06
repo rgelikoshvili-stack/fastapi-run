@@ -125,3 +125,5 @@ from app.api import routes_gates
 app.include_router(routes_gates.router)
 from app.api import routes_security
 app.include_router(routes_security.router)
+from app.api import routes_health
+app.include_router(routes_health.router)

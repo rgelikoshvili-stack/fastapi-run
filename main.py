@@ -84,4 +84,6 @@ app.include_router(routes_autonomy.router)
 
 from app.api import routes_pipeline
 app.include_router(routes_pipeline.router)
+from app.api import routes_ai_journal
+app.include_router(routes_ai_journal.router)
 

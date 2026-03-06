@@ -33,7 +33,7 @@ def init_db():
 init_db()
 
 def _generate_ai_draft(extraction):
-    amounts = extraction.get("amounts", [])
+    amounts = [a for a in extraction.get("amounts", []) if a.get("value", 0) >= 50]
     # ყველაზე დიდი თანხა ავიღოთ
     amount = max((a["value"] for a in amounts), default=0.0) if amounts else 0.0
     vat = round(amount * 18 / 118, 2)

@@ -5,14 +5,15 @@ from datetime import datetime, timezone
 
 app = FastAPI(title="Bridge Hub v1.0.0", version="1.0.0")
 
-# Static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+from fastapi.responses import FileResponse, HTMLResponse
 
-from fastapi.responses import FileResponse
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
-
+    try:
+        return FileResponse("static/index.html")
+    except:
+        return HTMLResponse("<h1>Bridge Hub v1.0.0</h1><p><a href='/docs'>API Docs</a></p>")
+        
 from app.api import routes_pipeline
 app.include_router(routes_pipeline.router)
 from app.api import routes_coa

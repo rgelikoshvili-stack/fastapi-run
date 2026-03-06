@@ -127,3 +127,5 @@ from app.api import routes_security
 app.include_router(routes_security.router)
 from app.api import routes_health
 app.include_router(routes_health.router)
+from app.api import routes_firestore
+app.include_router(routes_firestore.router)

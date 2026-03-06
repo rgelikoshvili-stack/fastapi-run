@@ -95,3 +95,5 @@ from app.api import routes_supervisor
 app.include_router(routes_supervisor.router)
 from app.api import routes_audit_engine
 app.include_router(routes_audit_engine.router)
+from app.api import routes_bank_csv
+app.include_router(routes_bank_csv.router)

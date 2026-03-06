@@ -30,7 +30,8 @@ def validate_journal(req: ValidationRequest):
     # 2) VAT consistency (18%)
     for e in req.entries:
         if e.vat and e.vat > 0:
-            expected_vat = round(e.amount * 18 / 118, 2)
+            gross = e.amount + (e.vat or 0)
+            expected_vat = round(gross * 18 / 118, 2)
             if abs(e.vat - expected_vat) > 0.05:
                 warnings.append(f"VAT mismatch on {e.account_code}: got {e.vat}, expected {expected_vat}")
 

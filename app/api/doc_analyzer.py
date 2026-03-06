@@ -95,6 +95,10 @@ def extract_amounts(text):
         try: val = float(s)
         except: continue
         if val == 0: continue
+        # ID ნომრები გამოვრიცხოთ (10M+)
+        if val >= 10000000: continue
+        # წლები გამოვრიცხოთ (1900-2099)
+        if 1900 <= val <= 2099: continue
         cur = m.group(2)
         if cur == "₾": cur = "GEL"
         if cur == "$": cur = "USD"

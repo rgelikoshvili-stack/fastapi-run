@@ -115,3 +115,5 @@ from app.api import routes_notifications
 app.include_router(routes_notifications.router)
 from app.api import routes_tenants
 app.include_router(routes_tenants.router)
+from app.api import routes_chat
+app.include_router(routes_chat.router)

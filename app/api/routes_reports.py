@@ -1,43 +1,58 @@
 from fastapi import APIRouter
-from app.engines.finance_engine import compute_kpis, rolling_forecast, cashflow_summary
-from app.engines.accounting_engine import JOURNAL_ENTRIES
-from app.engines.audit_engine import get_issues
-from app.storage.event_log import AUDIT_LOG
+import psycopg2, psycopg2.extras, os
+from datetime import datetime
+from openai import OpenAI
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-def get_txs():
-    return [{"amount": e.get("gross_amount", 0), "direction": "OUT",
-             "date": e.get("transaction_date",""), "category": e.get("reasoning","")}
-            for e in JOURNAL_ENTRIES]
+def get_db():
+    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
 
-@router.get("/executive-brief")
-def executive_brief(period: str = "2026-03"):
-    txs = get_txs()
-    kpis = compute_kpis(txs)
-    forecast = rolling_forecast(txs, 30)
-    critical = [i for i in get_issues() if i["severity"] in ["CRITICAL","HIGH"]]
-    return {
-        "ok": True,
-        "period": period,
-        "kpis": kpis,
-        "forecast_30d": forecast,
-        "open_critical_issues": len(critical),
-        "total_journal_entries": len(JOURNAL_ENTRIES),
-        "total_audit_events": len(AUDIT_LOG),
-    }
+@router.get("/monthly")
+def monthly_report():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT DATE_TRUNC('month', created_at) as month,
+               COUNT(*) as total_docs,
+               SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) as approved,
+               SUM(CASE WHEN status='REJECTED' THEN 1 ELSE 0 END) as rejected,
+               SUM(CASE WHEN status='PENDING_APPROVAL' THEN 1 ELSE 0 END) as pending
+        FROM pipeline_runs
+        GROUP BY DATE_TRUNC('month', created_at)
+        ORDER BY month DESC LIMIT 12
+    """)
+    rows = cur.fetchall()
+    cur.execute("""
+        SELECT DATE_TRUNC('month', created_at) as month,
+               SUM(CASE WHEN amount>0 THEN amount ELSE 0 END) as inflow,
+               SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END) as outflow
+        FROM bank_transactions
+        GROUP BY DATE_TRUNC('month', created_at)
+        ORDER BY month DESC LIMIT 12
+    """)
+    tx_rows = {str(r["month"])[:7]: dict(r) for r in cur.fetchall()}
+    cur.close(); conn.close()
+    
+    result = []
+    for r in rows:
+        month_key = str(r["month"])[:7]
+        tx = tx_rows.get(month_key, {})
+        result.append({
+            "month": month_key,
+            "documents": {"total": r["total_docs"], "approved": r["approved"], "rejected": r["rejected"], "pending": r["pending"]},
+            "financials": {"inflow": round(float(tx.get("inflow") or 0), 2), "outflow": round(float(tx.get("outflow") or 0), 2)}
+        })
+    return {"ok": True, "monthly_reports": result}
 
-@router.get("/audit-summary")
-def audit_summary():
-    issues = get_issues()
-    by_severity = {}
-    for i in issues:
-        s = i["severity"]
-        by_severity[s] = by_severity.get(s, 0) + 1
-    return {
-        "ok": True,
-        "total_issues": len(issues),
-        "by_severity": by_severity,
-        "open": len([i for i in issues if i["status"] == "open"]),
-        "resolved": len([i for i in issues if i["status"] == "resolved"]),
-    }
+@router.get("/annual")
+def annual_report():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT EXTRACT(YEAR FROM created_at) as year,
+               COUNT(*) as total_docs,
+               SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) as approved
+        FROM pipeline_runs GROUP BY year ORDER BY year DESC
+    """)
+    doc_rows = [dict(r) for r in cur

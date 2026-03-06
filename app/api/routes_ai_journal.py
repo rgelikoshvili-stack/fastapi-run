@@ -45,14 +45,13 @@ async def generate_journal(req: JournalRequest):
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
+            "https://api.openai.com/v1/chat/completions",
             headers={
-                "x-api-key": os.environ.get("ANTHROPIC_API_KEY", ""),
-                "anthropic-version": "2023-06-01",
+                "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}",
                 "content-type": "application/json"
             },
             json={
-                "model": "claude-3-haiku-20240307",
+                "model": "gpt-4o-mini",
                 "max_tokens": 256,
                 "messages": [{"role": "user", "content": prompt}]
             },
@@ -60,7 +59,7 @@ async def generate_journal(req: JournalRequest):
         )
     
     data = resp.json()
-    text = data["content"][0]["text"]
+    text = data["choices"][0]["message"]["content"]
     
     import json, re
     match = re.search(r'\{.*\}', text, re.DOTALL)

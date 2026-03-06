@@ -121,3 +121,5 @@ from app.api import routes_search
 app.include_router(routes_search.router)
 from app.api import routes_export
 app.include_router(routes_export.router)
+from app.api import routes_gates
+app.include_router(routes_gates.router)

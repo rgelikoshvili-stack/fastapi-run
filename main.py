@@ -103,3 +103,5 @@ from app.api import routes_finance_engine
 app.include_router(routes_finance_engine.router)
 from app.api import routes_strategy
 app.include_router(routes_strategy.router)
+from app.api import routes_dashboard_full
+app.include_router(routes_dashboard_full.router)

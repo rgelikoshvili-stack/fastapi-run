@@ -111,3 +111,5 @@ from app.api import routes_fpa
 app.include_router(routes_fpa.router)
 from app.api import routes_reports
 app.include_router(routes_reports.router)
+from app.api import routes_notifications
+app.include_router(routes_notifications.router)

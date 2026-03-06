@@ -101,3 +101,5 @@ from app.api import routes_reconciliation
 app.include_router(routes_reconciliation.router)
 from app.api import routes_finance_engine
 app.include_router(routes_finance_engine.router)
+from app.api import routes_strategy
+app.include_router(routes_strategy.router)

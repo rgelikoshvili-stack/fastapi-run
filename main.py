@@ -109,3 +109,5 @@ from app.api import routes_learning
 app.include_router(routes_learning.router)
 from app.api import routes_fpa
 app.include_router(routes_fpa.router)
+from app.api import routes_reports
+app.include_router(routes_reports.router)

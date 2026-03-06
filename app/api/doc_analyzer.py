@@ -99,6 +99,8 @@ def extract_amounts(text):
         if val >= 10000000: continue
         # წლები გამოვრიცხოთ (1900-2099)
         if 1900 <= val <= 2099: continue
+        # პატარა რიცხვები გამოვრიცხოთ (< 10)
+        if val < 10: continue
         cur = m.group(2)
         if cur == "₾": cur = "GEL"
         if cur == "$": cur = "USD"

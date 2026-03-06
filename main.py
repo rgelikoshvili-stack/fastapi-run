@@ -105,3 +105,5 @@ from app.api import routes_strategy
 app.include_router(routes_strategy.router)
 from app.api import routes_dashboard_full
 app.include_router(routes_dashboard_full.router)
+from app.api import routes_learning
+app.include_router(routes_learning.router)

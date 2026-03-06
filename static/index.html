@@ -1,7 +1,340 @@
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bridge Hub</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0a0f;color:#e8e8f0;font-family:monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:20px}h1{font-size:32px;color:#4fffb0}.btn{padding:12px 24px;background:#4fffb0;color:#0a0a0f;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold}</style>
-</head><body>
-<h1>⬡ Bridge Hub</h1>
-<p style="color:#6b6b8a">Dashboard იტვირთება...</p>
-<button class="btn" onclick="location.href='https://fastapi-run-226875230147.us-central1.run.app/docs'">API Docs გახსნა</button>
-</body></html>
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hub — AI Financial OS</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e8e8f0;font-family:'Segoe UI',sans-serif;min-height:100vh}
+.sidebar{position:fixed;left:0;top:0;width:220px;height:100vh;background:#0f0f1a;border-right:1px solid #1a1a2e;padding:20px 0;z-index:100}
+.logo{padding:0 20px 30px;font-size:20px;font-weight:700;color:#4fffb0;letter-spacing:2px}
+.logo span{display:block;font-size:11px;color:#6b6b8a;font-weight:400;letter-spacing:1px}
+.nav-item{padding:12px 20px;cursor:pointer;color:#9b9bb0;font-size:14px;transition:all 0.2s;border-left:3px solid transparent;display:flex;align-items:center;gap:10px}
+.nav-item:hover,.nav-item.active{color:#4fffb0;background:#1a1a2e;border-left-color:#4fffb0}
+.main{margin-left:220px;padding:30px;min-height:100vh}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
+.page-title{font-size:24px;font-weight:700;color:#fff}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#4fffb0;display:inline-block;margin-right:8px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:30px}
+.card{background:#0f0f1a;border:1px solid #1a1a2e;border-radius:12px;padding:20px}
+.card-title{font-size:12px;color:#6b6b8a;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.card-value{font-size:32px;font-weight:700;color:#fff}
+.card-value.green{color:#4fffb0}
+.card-value.yellow{color:#ffd700}
+.card-value.red{color:#ff4757}
+.card-sub{font-size:12px;color:#6b6b8a;margin-top:4px}
+.section{background:#0f0f1a;border:1px solid #1a1a2e;border-radius:12px;padding:24px;margin-bottom:20px}
+.section-title{font-size:16px;font-weight:600;color:#fff;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 12px;font-size:11px;color:#6b6b8a;text-transform:uppercase;border-bottom:1px solid #1a1a2e}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid #0f0f1a2a;color:#c8c8d8}
+tr:hover td{background:#1a1a2e22}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge.approved{background:#4fffb022;color:#4fffb0}
+.badge.pending{background:#ffd70022;color:#ffd700}
+.badge.rejected{background:#ff475722;color:#ff4757}
+.btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.2s}
+.btn-primary{background:#4fffb0;color:#0a0a0f}
+.btn-primary:hover{background:#3de89e}
+.btn-outline{background:transparent;color:#4fffb0;border:1px solid #4fffb0}
+.upload-zone{border:2px dashed #1a1a2e;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all 0.2s}
+.upload-zone:hover{border-color:#4fffb0;background:#4fffb008}
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:#6b6b8a}
+.spinner{width:24px;height:24px;border:2px solid #1a1a2e;border-top-color:#4fffb0;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.agent{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #1a1a2e}
+.agent:last-child{border:none}
+.agent-dot{width:8px;height:8px;border-radius:50%;background:#4fffb0}
+.agent-name{font-size:14px;color:#fff;font-weight:500}
+.agent-role{font-size:12px;color:#6b6b8a}
+input,textarea{background:#1a1a2e;border:1px solid #2a2a3e;border-radius:8px;padding:10px 14px;color:#fff;font-size:14px;width:100%;outline:none}
+input:focus,textarea:focus{border-color:#4fffb0}
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:#0a0a0f;padding:4px;border-radius:10px;width:fit-content}
+.tab{padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;color:#6b6b8a;transition:all 0.2s}
+.tab.active{background:#1a1a2e;color:#4fffb0}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const API = "https://fastapi-run-226875230147.us-central1.run.app";
+
+function App() {
+  const [page, setPage] = React.useState("dashboard");
+  const pages = [
+    {id:"dashboard",icon:"⬡",label:"Dashboard"},
+    {id:"pipeline",icon:"⚡",label:"Pipeline"},
+    {id:"supervisor",icon:"🤖",label:"Supervisor"},
+    {id:"audit",icon:"🔍",label:"Audit Engine"},
+    {id:"finance",icon:"💰",label:"Finance"},
+    {id:"reports",icon:"📊",label:"Reports"},
+    {id:"coa",icon:"📋",label:"COA"},
+    {id:"bank",icon:"🏦",label:"Bank CSV"},
+  ];
+  return (
+    <div>
+      <div className="sidebar">
+        <div className="logo">⬡ BRIDGE HUB<span>AI Financial OS</span></div>
+        {pages.map(p => (
+          <div key={p.id} className={`nav-item ${page===p.id?"active":""}`} onClick={()=>setPage(p.id)}>
+            <span>{p.icon}</span>{p.label}
+          </div>
+        ))}
+      </div>
+      <div className="main">
+        {page==="dashboard" && <DashboardPage/>}
+        {page==="pipeline" && <PipelinePage/>}
+        {page==="supervisor" && <SupervisorPage/>}
+        {page==="audit" && <AuditPage/>}
+        {page==="finance" && <FinancePage/>}
+        {page==="reports" && <ReportsPage/>}
+        {page==="coa" && <COAPage/>}
+        {page==="bank" && <BankPage/>}
+      </div>
+    </div>
+  );
+}
+
+function useFetch(url) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch(API + url).then(r=>r.json()).then(d=>{setData(d);setLoading(false)}).catch(()=>setLoading(false));
+  }, [url]);
+  return {data, loading};
+}
+
+function DashboardPage() {
+  const {data, loading} = useFetch("/dashboard-full/overview");
+  if(loading) return <Loading/>;
+  const ov = data?.overview || {};
+  const docs = ov.documents || {};
+  const txs = ov.transactions || {};
+  return (
+    <div>
+      <div className="header">
+        <div className="page-title"><span className="status-dot"/>Bridge Hub Dashboard</div>
+        <span style={{color:"#4fffb0",fontSize:13}}>{ov.health || "HEALTHY"}</span>
+      </div>
+      <div className="grid">
+        <div className="card"><div className="card-title">სულ დოკუმენტი</div><div className="card-value">{docs.total||0}</div></div>
+        <div className="card"><div className="card-title">დამტკიცებული</div><div className="card-value green">{docs.approved||0}</div></div>
+        <div className="card"><div className="card-title">მოლოდინში</div><div className="card-value yellow">{docs.pending||0}</div></div>
+        <div className="card"><div className="card-title">Net Cashflow</div><div className={`card-value ${(txs.net_gel||0)>=0?"green":"red"}`}>{txs.net_gel||0} ₾</div></div>
+        <div className="card"><div className="card-title">შემოსავალი</div><div className="card-value green">{txs.inflow_gel||0} ₾</div></div>
+        <div className="card"><div className="card-title">გასავალი</div><div className="card-value red">{txs.outflow_gel||0} ₾</div></div>
+      </div>
+      <div className="section">
+        <div className="section-title">📋 ბოლო აქტივობა</div>
+        <table><thead><tr><th>ფაილი</th><th>სტატუსი</th><th>თარიღი</th></tr></thead>
+        <tbody>{(data?.recent_activity||[]).map(r=>(
+          <tr key={r.id}><td>{r.filename}</td>
+          <td><span className={`badge ${r.status==="APPROVED"?"approved":r.status==="REJECTED"?"rejected":"pending"}`}>{r.status}</span></td>
+          <td>{new Date(r.created_at).toLocaleString()}</td></tr>
+        ))}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function PipelinePage() {
+  const [file, setFile] = React.useState(null);
+  const [result, setResult] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const upload = async () => {
+    if(!file) return;
+    setLoading(true);
+    const fd = new FormData(); fd.append("file", file);
+    const r = await fetch(API+"/pipeline/run", {method:"POST", body:fd});
+    const d = await r.json();
+    setResult(d); setLoading(false);
+  };
+  return (
+    <div>
+      <div className="header"><div className="page-title">⚡ Pipeline</div></div>
+      <div className="section">
+        <div className="section-title">PDF ატვირთვა</div>
+        <div className="upload-zone" onClick={()=>document.getElementById("fu").click()}>
+          {file ? <p style={{color:"#4fffb0"}}>✓ {file.name}</p> : <p style={{color:"#6b6b8a"}}>PDF ჩააგდე ან დააჭირე</p>}
+        </div>
+        <input id="fu" type="file" accept=".pdf" style={{display:"none"}} onChange={e=>setFile(e.target.files[0])}/>
+        <button className="btn btn-primary" style={{marginTop:16}} onClick={upload} disabled={loading}>
+          {loading?"მუშავდება...":"გაშვება"}
+        </button>
+      </div>
+      {result && <div className="section">
+        <div className="section-title">✅ შედეგი</div>
+        <pre style={{color:"#4fffb0",fontSize:12,overflow:"auto"}}>{JSON.stringify(result, null, 2)}</pre>
+      </div>}
+    </div>
+  );
+}
+
+function SupervisorPage() {
+  const {data, loading} = useFetch("/supervisor/status");
+  if(loading) return <Loading/>;
+  return (
+    <div>
+      <div className="header"><div className="page-title">🤖 Supervisor Agent</div></div>
+      <div className="grid">
+        <div className="card"><div className="card-title">სტატუსი</div><div className="card-value green">ACTIVE</div></div>
+        <div className="card"><div className="card-title">სულ Runs</div><div className="card-value">{data?.total_runs||0}</div></div>
+      </div>
+      <div className="section">
+        <div className="section-title">🤖 Agents</div>
+        {(data?.agents||[]).map(a=>(
+          <div key={a.name} className="agent">
+            <div className="agent-dot"/>
+            <div><div className="agent-name">{a.name}</div><div className="agent-role">{a.role}</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuditPage() {
+  const {data:sum} = useFetch("/audit-engine/summary");
+  const {data:dups} = useFetch("/audit-engine/duplicates");
+  return (
+    <div>
+      <div className="header"><div className="page-title">🔍 Audit Engine</div></div>
+      <div className="grid">
+        <div className="card"><div className="card-title">Health</div><div className={`card-value ${sum?.health==="OK"?"green":"yellow"}`}>{sum?.health||"..."}</div></div>
+        <div className="card"><div className="card-title">სულ Runs</div><div className="card-value">{sum?.total_runs||0}</div></div>
+        <div className="card"><div className="card-title">დუბლიკატი</div><div className={`card-value ${(sum?.duplicate_filenames||0)>0?"red":"green"}`}>{sum?.duplicate_filenames||0}</div></div>
+      </div>
+      <div className="section">
+        <div className="section-title">📊 სტატუს განაწილება</div>
+        {Object.entries(sum?.status_breakdown||{}).map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #1a1a2e"}}>
+            <span className={`badge ${k==="APPROVED"?"approved":k==="REJECTED"?"rejected":"pending"}`}>{k}</span>
+            <span style={{color:"#fff",fontWeight:700}}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FinancePage() {
+  const {data:kpi} = useFetch("/finance/kpi");
+  const {data:cf} = useFetch("/finance/cashflow");
+  const k = kpi?.kpi||{};
+  return (
+    <div>
+      <div className="header"><div className="page-title">💰 Finance Engine</div></div>
+      <div className="grid">
+        <div className="card"><div className="card-title">შემოსავალი</div><div className="card-value green">{k.total_inflow_gel||0} ₾</div></div>
+        <div className="card"><div className="card-title">გასავალი</div><div className="card-value red">{k.total_outflow_gel||0} ₾</div></div>
+        <div className="card"><div className="card-title">Net Cashflow</div><div className={`card-value ${(k.net_cashflow_gel||0)>=0?"green":"red"}`}>{k.net_cashflow_gel||0} ₾</div></div>
+        <div className="card"><div className="card-title">Approval Rate</div><div className="card-value yellow">{k.approval_rate_percent||0}%</div></div>
+      </div>
+      <div className="section">
+        <div className="section-title">📈 Cashflow by Month</div>
+        <table><thead><tr><th>თვე</th><th>შემოსავალი</th><th>გასავალი</th><th>Net</th></tr></thead>
+        <tbody>{(cf?.cashflow_by_month||[]).map(r=>(
+          <tr key={r.month}><td>{r.month}</td>
+          <td style={{color:"#4fffb0"}}>{r.inflow} ₾</td>
+          <td style={{color:"#ff4757"}}>{r.outflow} ₾</td>
+          <td style={{color:r.net>=0?"#4fffb0":"#ff4757"}}>{r.net} ₾</td></tr>
+        ))}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function ReportsPage() {
+  const {data} = useFetch("/reports/monthly");
+  return (
+    <div>
+      <div className="header"><div className="page-title">📊 Reports</div></div>
+      <div className="section">
+        <div className="section-title">📅 Monthly Reports</div>
+        <table><thead><tr><th>თვე</th><th>სულ</th><th>დამტკიც.</th><th>უარყ.</th><th>შემოს.</th><th>გასავ.</th></tr></thead>
+        <tbody>{(data?.monthly_reports||[]).map(r=>(
+          <tr key={r.month}>
+            <td>{r.month}</td>
+            <td>{r.documents?.total||0}</td>
+            <td style={{color:"#4fffb0"}}>{r.documents?.approved||0}</td>
+            <td style={{color:"#ff4757"}}>{r.documents?.rejected||0}</td>
+            <td style={{color:"#4fffb0"}}>{r.financials?.inflow||0} ₾</td>
+            <td style={{color:"#ff4757"}}>{r.financials?.outflow||0} ₾</td>
+          </tr>
+        ))}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function COAPage() {
+  const {data} = useFetch("/coa/list");
+  const [search, setSearch] = React.useState("");
+  const accounts = (data?.accounts||[]).filter(a=>
+    a.code.includes(search) || a.name_ka.includes(search) || (a.name_en||"").toLowerCase().includes(search.toLowerCase())
+  );
+  return (
+    <div>
+      <div className="header"><div className="page-title">📋 Chart of Accounts</div></div>
+      <div className="section">
+        <input placeholder="🔍 ანგარიში..." value={search} onChange={e=>setSearch(e.target.value)} style={{marginBottom:16}}/>
+        <table><thead><tr><th>კოდი</th><th>სახელი (KA)</th><th>სახელი (EN)</th><th>კატეგორია</th><th>მიმართულება</th></tr></thead>
+        <tbody>{accounts.map(a=>(
+          <tr key={a.code}>
+            <td style={{color:"#4fffb0",fontWeight:700}}>{a.code}</td>
+            <td>{a.name_ka}</td>
+            <td style={{color:"#6b6b8a"}}>{a.name_en}</td>
+            <td>{a.category}</td>
+            <td><span className={`badge ${a.direction==="debit"?"approved":"pending"}`}>{a.direction}</span></td>
+          </tr>
+        ))}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function BankPage() {
+  const {data:txs} = useFetch("/bank-csv/transactions");
+  const {data:batches} = useFetch("/bank-csv/batches");
+  return (
+    <div>
+      <div className="header"><div className="page-title">🏦 Bank CSV</div></div>
+      <div className="section">
+        <div className="section-title">📦 Batches</div>
+        <table><thead><tr><th>Bank</th><th>Count</th><th>Total</th><th>Date</th></tr></thead>
+        <tbody>{(batches?.batches||[]).map(b=>(
+          <tr key={b.batch_id}>
+            <td>{b.bank}</td><td>{b.count}</td>
+            <td style={{color:"#4fffb0"}}>{parseFloat(b.total||0).toFixed(2)} ₾</td>
+            <td>{new Date(b.uploaded_at).toLocaleString()}</td>
+          </tr>
+        ))}</tbody></table>
+      </div>
+      <div className="section">
+        <div className="section-title">💳 ბოლო ტრანზაქციები</div>
+        <table><thead><tr><th>Bank</th><th>თარიღი</th><th>თანხა</th><th>აღწერა</th></tr></thead>
+        <tbody>{(txs?.transactions||[]).slice(0,20).map(t=>(
+          <tr key={t.id}>
+            <td>{t.bank}</td><td>{t.date}</td>
+            <td style={{color:t.amount>=0?"#4fffb0":"#ff4757"}}>{t.amount} ₾</td>
+            <td style={{color:"#6b6b8a"}}>{(t.description||"").slice(0,40)}</td>
+          </tr>
+        ))}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function Loading() {
+  return <div className="loading"><div className="spinner"/>იტვირთება...</div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

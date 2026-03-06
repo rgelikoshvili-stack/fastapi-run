@@ -91,4 +91,7 @@ from app.api import routes_coa
 app.include_router(routes_coa.router)
 from app.api import routes_ai_journal
 app.include_router(routes_ai_journal.router)
-
+from app.api import routes_supervisor
+app.include_router(routes_supervisor.router)
+from app.api import routes_audit_engine
+app.include_router(routes_audit_engine.router)

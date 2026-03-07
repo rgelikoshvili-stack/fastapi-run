@@ -79,3 +79,5 @@ from app.api import routes_firestore
 app.include_router(routes_firestore.router)
 from app.api import routes_launch
 app.include_router(routes_launch.router)
+from app.api import routes_transaction_ai
+app.include_router(routes_transaction_ai.router)

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 import psycopg2, psycopg2.extras, json
 from datetime import datetime, timezone
 from collections import Counter
+from app.api.db import get_db
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 

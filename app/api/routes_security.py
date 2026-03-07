@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Request
 import psycopg2, psycopg2.extras, hashlib, secrets
 from datetime import datetime, timedelta
+from app.api.db import get_db
 
 router = APIRouter(prefix="/security", tags=["security"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 def ensure_tables(cur):
     cur.execute("""

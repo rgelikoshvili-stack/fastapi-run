@@ -2,11 +2,11 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 import psycopg2, psycopg2.extras, io, csv, json
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/export", tags=["export"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/documents/csv")
 def export_documents_csv():

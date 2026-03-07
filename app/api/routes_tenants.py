@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException
 import psycopg2, psycopg2.extras, hashlib, secrets
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 def hash_password(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()

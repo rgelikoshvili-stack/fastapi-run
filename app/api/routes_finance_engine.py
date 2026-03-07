@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras
 from datetime import datetime, timedelta
+from app.api.db import get_db
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/kpi")
 def get_kpi():
@@ -15,10 +15,10 @@ def get_kpi():
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total_docs = cur.fetchone()["total"]
     
-    cur.execute("SELECT COUNT(*) as approved FROM pipeline_runs WHERE status='APPROVED'")
+    cur.execute("SELECT COUNT(*) as approved FROM pipeline_runs WHERE state='APPROVED'")
     approved = cur.fetchone()["approved"]
     
-    cur.execute("SELECT COUNT(*) as pending FROM pipeline_runs WHERE status='PENDING_APPROVAL'")
+    cur.execute("SELECT COUNT(*) as pending FROM pipeline_runs WHERE state='PENDING_APPROVAL'")
     pending = cur.fetchone()["pending"]
     
     cur.execute("SELECT COUNT(*) as total FROM bank_transactions")

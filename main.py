@@ -15,6 +15,25 @@ def root():
         return HTMLResponse("<h1>Bridge Hub v1.0.0</h1><p><a href='/docs'>API Docs</a></p>")
         
 from app.api import routes_pipeline
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(status_code=422, content={"ok": False, "error": str(exc)})
+
+
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": str(exc.detail)})
+
+
 app.include_router(routes_pipeline.router)
 from app.api import routes_coa
 app.include_router(routes_coa.router)

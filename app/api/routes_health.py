@@ -1,15 +1,15 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras, os, time
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/health", tags=["health"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/")
 def health_check():
-    return {"ok": True, "status": "HEALTHY", "timestamp": datetime.utcnow().isoformat(), "version": "1.0.0"}
+    return {"ok": True, "state": "HEALTHY", "timestamp": datetime.utcnow().isoformat(), "version": "1.0.0"}
 
 @router.get("/deep")
 def deep_health():
@@ -21,9 +21,9 @@ def deep_health():
         cur = conn.cursor()
         cur.execute("SELECT 1")
         cur.close(); conn.close()
-        results["database"] = {"status": "OK", "latency_ms": round((time.time()-start)*1000, 1)}
+        results["database"] = {"state": "OK", "latency_ms": round((time.time()-start)*1000, 1)}
     except Exception as e:
-        results["database"] = {"status": "ERROR", "error": str(e)}
+        results["database"] = {"state": "ERROR", "error": str(e)}
 
     # Tables check
     try:
@@ -36,17 +36,17 @@ def deep_health():
             try:
                 cur.execute(f"SELECT COUNT(*) as c FROM {t}")
                 count = cur.fetchone()["c"]
-                table_status[t] = {"status": "OK", "rows": count}
+                table_status[t] = {"state": "OK", "rows": count}
             except:
-                table_status[t] = {"status": "MISSING"}
+                table_status[t] = {"state": "MISSING"}
         cur.close(); conn.close()
         results["tables"] = table_status
     except Exception as e:
-        results["tables"] = {"status": "ERROR", "error": str(e)}
+        results["tables"] = {"state": "ERROR", "error": str(e)}
 
     # OpenAI check
     openai_key = os.environ.get("OPENAI_API_KEY")
-    results["openai"] = {"status": "OK" if openai_key else "MISSING", "configured": bool(openai_key)}
+    results["openai"] = {"state": "OK" if openai_key else "MISSING", "configured": bool(openai_key)}
 
     # Modules check
     results["modules"] = {
@@ -59,7 +59,7 @@ def deep_health():
         "tenants": "OK"
     }
 
-    overall = "HEALTHY" if results["database"]["status"] == "OK" else "DEGRADED"
+    overall = "HEALTHY" if results["database"]["state"] == "OK" else "DEGRADED"
     return {
         "ok": True,
         "overall": overall,
@@ -75,7 +75,7 @@ def metrics():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("SELECT COUNT(*) as c FROM pipeline_runs")
         total_docs = cur.fetchone()["c"]
-        cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='APPROVED'")
+        cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='APPROVED'")
         approved = cur.fetchone()["c"]
         cur.execute("SELECT COUNT(*) as c FROM bank_transactions")
         total_txs = cur.fetchone()["c"]

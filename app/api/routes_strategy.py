@@ -1,20 +1,20 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras, os
 from openai import OpenAI
+from app.api.db import get_db
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 def get_financial_snapshot():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total_docs = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as approved FROM pipeline_runs WHERE status='APPROVED'")
+    cur.execute("SELECT COUNT(*) as approved FROM pipeline_runs WHERE state='APPROVED'")
     approved = cur.fetchone()["approved"]
-    cur.execute("SELECT COUNT(*) as pending FROM pipeline_runs WHERE status='PENDING_APPROVAL'")
+    cur.execute("SELECT COUNT(*) as pending FROM pipeline_runs WHERE state='PENDING_APPROVAL'")
     pending = cur.fetchone()["pending"]
     cur.execute("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as inflow FROM bank_transactions")
     inflow = float(cur.fetchone()["inflow"])
@@ -37,29 +37,7 @@ def get_financial_snapshot():
 @router.get("/cfo-report")
 def cfo_report():
     snapshot = get_financial_snapshot()
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    prompt = f"""შენ ხარ AI CFO Assistant Bridge Hub სისტემაში.
-    
-მიმდინარე ფინანსური მდგომარეობა:
-- სულ დოკუმენტები: {snapshot['total_documents']}
-- დამტკიცებული: {snapshot['approved']} ({snapshot['approval_rate']}%)
-- მოლოდინში: {snapshot['pending']}
-- სულ ტრანზაქციები: {snapshot['total_transactions']}
-- შემოსავალი: {snapshot['total_inflow_gel']} GEL
-- გასავალი: {snapshot['total_outflow_gel']} GEL
-- სუფთა cashflow: {snapshot['net_cashflow_gel']} GEL
-
-გთხოვ მოამზადო მოკლე CFO რეპორტი ქართულ ენაზე:
-1. მდგომარეობის შეფასება
-2. რისკები
-3. რეკომენდაციები
-"""
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=500
-    )
-    report = response.choices[0].message.content
+    report = f"CFO Summary: {snapshot['total_documents']} docs, approved {snapshot['approval_rate']}%, net cashflow {snapshot['net_cashflow_gel']} GEL"
     return {"ok": True, "snapshot": snapshot, "cfo_report": report}
 
 @router.get("/recommendations")

@@ -1,18 +1,18 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras, json
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/audit-engine", tags=["audit-engine"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/duplicates")
 def find_duplicates():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT filename, COUNT(*) as count, array_agg(id) as ids
+        SELECT filename, COUNT(*) as count, array_agg(run_id) as ids
         FROM pipeline_runs
         GROUP BY filename
         HAVING COUNT(*) > 1
@@ -27,7 +27,7 @@ def find_anomalies():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     issues = []
-    cur.execute("SELECT id, filename, extraction_result, status, created_at FROM pipeline_runs ORDER BY created_at DESC LIMIT 100")
+    cur.execute("SELECT run_id, filename, extraction, state, created_at FROM pipeline_runs ORDER BY created_at DESC LIMIT 100")
     rows = cur.fetchall()
     for row in rows:
         r = dict(row)
@@ -37,9 +37,9 @@ def find_anomalies():
             for a in amounts:
                 v = a.get("value", 0)
                 if v > 100000:
-                    issues.append({"type": "HIGH_AMOUNT", "run_id": r["id"], "filename": r["filename"], "amount": v, "severity": "HIGH"})
+                    issues.append({"type": "HIGH_AMOUNT", "run_id": r["run_id"], "filename": r["filename"], "amount": v, "severity": "HIGH"})
                 if v < 0:
-                    issues.append({"type": "NEGATIVE_AMOUNT", "run_id": r["id"], "filename": r["filename"], "amount": v, "severity": "CRITICAL"})
+                    issues.append({"type": "NEGATIVE_AMOUNT", "run_id": r["run_id"], "filename": r["filename"], "amount": v, "severity": "CRITICAL"})
         except:
             pass
     cur.close(); conn.close()
@@ -50,13 +50,13 @@ def policy_check():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     violations = []
-    cur.execute("SELECT id, filename, status, created_at FROM pipeline_runs WHERE status='PENDING_APPROVAL' ORDER BY created_at DESC")
+    cur.execute("SELECT run_id, filename, state, created_at FROM pipeline_runs WHERE state='PENDING_APPROVAL' ORDER BY created_at DESC")
     rows = cur.fetchall()
     for row in rows:
         r = dict(row)
-        age_hours = (datetime.utcnow() - r["created_at"].replace(tzinfo=None)).total_seconds() / 3600
+        age_hours = (datetime.utcnow() - datetime.fromisoformat(str(r["created_at"])).replace(tzinfo=None)).total_seconds() / 3600
         if age_hours > 48:
-            violations.append({"type": "APPROVAL_OVERDUE", "run_id": r["id"], "filename": r["filename"], "hours_pending": round(age_hours, 1), "severity": "MEDIUM"})
+            violations.append({"type": "APPROVAL_OVERDUE", "run_id": r["run_id"], "filename": r["filename"], "hours_pending": round(age_hours, 1), "severity": "MEDIUM"})
     cur.close(); conn.close()
     return {"ok": True, "violations_found": len(violations), "violations": violations}
 
@@ -64,8 +64,8 @@ def policy_check():
 def audit_summary():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT status, COUNT(*) as count FROM pipeline_runs GROUP BY status")
-    status_counts = {r["status"]: r["count"] for r in cur.fetchall()}
+    cur.execute("SELECT state, COUNT(*) as count FROM pipeline_runs GROUP BY state")
+    status_counts = {r["state"]: r["count"] for r in cur.fetchall()}
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total = cur.fetchone()["total"]
     cur.execute("SELECT COUNT(*) as dups FROM (SELECT filename FROM pipeline_runs GROUP BY filename HAVING COUNT(*)>1) x")

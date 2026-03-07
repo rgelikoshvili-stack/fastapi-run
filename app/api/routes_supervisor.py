@@ -1,18 +1,18 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras, json
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/supervisor", tags=["supervisor"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/status")
 def supervisor_status():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT status, COUNT(*) as count FROM pipeline_runs GROUP BY status")
-    breakdown = {r["status"]: r["count"] for r in cur.fetchall()}
+    cur.execute("SELECT state, COUNT(*) as count FROM pipeline_runs GROUP BY state")
+    breakdown = {r["state"]: r["count"] for r in cur.fetchall()}
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total = cur.fetchone()["total"]
     cur.close(); conn.close()
@@ -44,7 +44,7 @@ def supervisor_route(payload: dict):
 def supervisor_queue():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, filename, status, created_at FROM pipeline_runs WHERE status='PENDING_APPROVAL' ORDER BY created_at DESC LIMIT 20")
+    cur.execute("SELECT run_id, filename, state, created_at FROM pipeline_runs WHERE state='PENDING_APPROVAL' ORDER BY created_at DESC LIMIT 20")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return {"ok": True, "queue_size": len(rows), "items": [dict(r) for r in rows]}

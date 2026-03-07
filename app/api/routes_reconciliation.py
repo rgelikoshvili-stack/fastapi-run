@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras, json
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
 
+
+@router.post("/run")
 @router.get("/run")
 def run_reconciliation():
     conn = get_db()

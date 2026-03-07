@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 import psycopg2, psycopg2.extras, json, uuid
 from datetime import datetime, timezone
+from app.api.db import get_db
 
 router = APIRouter(prefix="/observerlog", tags=["observerlog"])
 

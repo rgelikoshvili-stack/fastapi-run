@@ -1,11 +1,11 @@
 from fastapi import APIRouter, UploadFile, File
 import psycopg2, psycopg2.extras, csv, io, json, uuid
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 def detect_bank(headers):
     h = [x.lower().strip() for x in headers]

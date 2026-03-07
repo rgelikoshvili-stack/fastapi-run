@@ -2,11 +2,11 @@ from fastapi import APIRouter
 import psycopg2, psycopg2.extras, os
 from datetime import datetime
 from openai import OpenAI
+from app.api.db import get_db
 
 router = APIRouter(prefix="/fpa", tags=["fpa"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 def get_snapshot():
     conn = get_db()
@@ -17,7 +17,7 @@ def get_snapshot():
     outflow = float(cur.fetchone()["outflow"])
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     docs = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='APPROVED'")
+    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='APPROVED'")
     approved = cur.fetchone()["c"]
     cur.close(); conn.close()
     return {"inflow": inflow, "outflow": outflow, "net": inflow-outflow, "docs": docs, "approved": approved}
@@ -42,11 +42,11 @@ def forecast():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT DATE_TRUNC('month', created_at) as month,
+        SELECT DATE_TRUNC('month', created_at::timestamp) as month,
                SUM(CASE WHEN amount>0 THEN amount ELSE 0 END) as inflow,
                SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END) as outflow
         FROM bank_transactions
-        GROUP BY DATE_TRUNC('month', created_at)
+        GROUP BY DATE_TRUNC('month', created_at::timestamp)
         ORDER BY month DESC LIMIT 3
     """)
     rows = [dict(r) for r in cur.fetchall()]
@@ -66,38 +66,18 @@ def forecast():
 @router.get("/ai-analysis")
 def ai_analysis():
     snap = get_snapshot()
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    prompt = f"""შენ ხარ FP&A ანალიტიკოსი.
-
-მონაცემები:
-- შემოსავალი: {round(snap['inflow'],2)} GEL
-- გასავალი: {round(snap['outflow'],2)} GEL  
-- სუფთა: {round(snap['net'],2)} GEL
-- დოკუმენტები: {snap['docs']} (დამტკიცებული: {snap['approved']})
-
-მოამზადე მოკლე FP&A ანალიზი ქართულად:
-1. შემოსავლების ტენდენცია
-2. ხარჯების კონტროლი
-3. პროგნოზი
-4. რეკომენდაციები
-"""
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=400
-    )
-    return {"ok": True, "snapshot": snap, "fpa_analysis": response.choices[0].message.content}
+    return {"ok": True, "snapshot": snap, "fpa_analysis": f"Inflow: {round(snap["inflow"],2)} GEL, Outflow: {round(snap["outflow"],2)} GEL, Net: {round(snap["net"],2)} GEL"}
 
 @router.get("/kpi-trends")
 def kpi_trends():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT DATE_TRUNC('month', created_at) as month,
+        SELECT DATE_TRUNC('month', created_at::timestamp) as month,
                COUNT(*) as doc_count,
-               SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) as approved_count
+               SUM(CASE WHEN state='APPROVED' THEN 1 ELSE 0 END) as approved_count
         FROM pipeline_runs
-        GROUP BY DATE_TRUNC('month', created_at)
+        GROUP BY DATE_TRUNC('month', created_at::timestamp)
         ORDER BY month DESC LIMIT 6
     """)
     rows = cur.fetchall()

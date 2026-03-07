@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 import psycopg2, psycopg2.extras
 from datetime import datetime, timezone, timedelta
+from app.api.db import get_db
 
 router = APIRouter(prefix="/autonomy", tags=["autonomy"])
 

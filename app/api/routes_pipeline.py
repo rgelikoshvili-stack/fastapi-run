@@ -2,13 +2,13 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 import psycopg2, psycopg2.extras, json, uuid
 from datetime import datetime, timezone
 from app.api.doc_analyzer import analyze, to_dict
+from app.api.db import get_db
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 DB_URL = "postgresql://postgres:BridgeHub2026x@35.192.214.120/bridgehub"
 
-def get_db():
-    return psycopg2.connect(DB_URL)
+
 
 def init_db():
     conn = get_db()

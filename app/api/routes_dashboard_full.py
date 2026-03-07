@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras
 from datetime import datetime, timedelta
+from app.api.db import get_db
 
 router = APIRouter(prefix="/dashboard-full", tags=["dashboard-full"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/overview")
 def dashboard_overview():
@@ -14,11 +14,11 @@ def dashboard_overview():
     
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total_docs = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='APPROVED'")
+    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='APPROVED'")
     approved = cur.fetchone()["c"]
-    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='PENDING_APPROVAL'")
+    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='PENDING_APPROVAL'")
     pending = cur.fetchone()["c"]
-    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='REJECTED'")
+    cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='REJECTED'")
     rejected = cur.fetchone()["c"]
     cur.execute("SELECT COUNT(*) as c FROM bank_transactions")
     bank_txs = cur.fetchone()["c"]
@@ -32,7 +32,7 @@ def dashboard_overview():
     coa_count = cur.fetchone()["c"]
     
     # Recent activity
-    cur.execute("SELECT id, filename, status, created_at FROM pipeline_runs ORDER BY created_at DESC LIMIT 5")
+    cur.execute("SELECT run_id, filename, state, created_at FROM pipeline_runs ORDER BY created_at DESC LIMIT 5")
     recent = [dict(r) for r in cur.fetchall()]
     
     cur.close(); conn.close()
@@ -55,17 +55,17 @@ def dashboard_analytics():
     
     # Documents per day (last 7 days)
     cur.execute("""
-        SELECT DATE(created_at) as day, COUNT(*) as count, status
+        SELECT DATE(created_at) as day, COUNT(*) as count, state
         FROM pipeline_runs
-        WHERE created_at >= NOW() - INTERVAL '7 days'
-        GROUP BY DATE(created_at), status
+        WHERE created_at::timestamp >= NOW() - INTERVAL '7 days'
+        GROUP BY DATE(created_at), state
         ORDER BY day DESC
     """)
     docs_per_day = [dict(r) for r in cur.fetchall()]
     
     # Top amounts
     cur.execute("""
-        SELECT filename, status, created_at
+        SELECT run_id, filename, state, created_at
         FROM pipeline_runs
         ORDER BY created_at DESC
         LIMIT 10
@@ -92,8 +92,8 @@ def dashboard_analytics():
 def dashboard_report():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT status, COUNT(*) as count FROM pipeline_runs GROUP BY status")
-    status_breakdown = {r["status"]: r["count"] for r in cur.fetchall()}
+    cur.execute("SELECT state, COUNT(*) as count FROM pipeline_runs GROUP BY state")
+    status_breakdown = {r["state"]: r["count"] for r in cur.fetchall()}
     cur.execute("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as v FROM bank_transactions")
     inflow = float(cur.fetchone()["v"])
     cur.execute("SELECT COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) as v FROM bank_transactions")

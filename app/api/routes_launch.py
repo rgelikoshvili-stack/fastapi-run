@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras
 from datetime import datetime
+from app.api.db import get_db
 
 router = APIRouter(prefix="/v1", tags=["launch"])
 
-def get_db():
-    return psycopg2.connect(host="35.192.214.120", dbname="bridgehub", user="postgres", password="BridgeHub2026x")
+
 
 @router.get("/status")
 def system_status():

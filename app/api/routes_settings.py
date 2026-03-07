@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
+from app.api.db import get_db
 
 DB_URL = "postgresql://postgres:BridgeHub2026x@35.192.214.120:5432/bridgehub"
 engine = create_engine(DB_URL, connect_args={"connect_timeout": 10})

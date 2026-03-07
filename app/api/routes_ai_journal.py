@@ -25,10 +25,10 @@ COA = {
 
 
 class JournalRequest(BaseModel):
-    partner: Optional[str] = None
-    amount: float = Field(..., gt=0)
-    vat: float = Field(default=0, ge=0)
-    description: Optional[str] = None
+    partner: str = Field(..., min_length=1, description="პარტნიორის სახელი")
+    amount: float = Field(..., gt=0, description="თანხა > 0")
+    vat: float = Field(default=0, ge=0, description="დღგ >= 0")
+    description: str = Field(..., min_length=3, description="ოპერაციის აღწერა")
     names: List[str] = Field(default_factory=list)
     dates: List[str] = Field(default_factory=list)
 

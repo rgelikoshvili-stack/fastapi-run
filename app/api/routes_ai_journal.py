@@ -1,8 +1,11 @@
-from app.api.db import get_db
-import psycopg2, psycopg2.extras
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import List
+import psycopg2, psycopg2.extras
+
+from app.api.db import get_db
+from app.api.audit_service import log_event
+from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/ai-journal", tags=["ai-journal"])
 
@@ -23,7 +26,6 @@ COA = {
     "7210": "შრომის ანაზღაურება",
 }
 
-
 class JournalRequest(BaseModel):
     partner: str = Field(..., min_length=1, description="პარტნიორის სახელი")
     amount: float = Field(..., gt=0, description="თანხა > 0")
@@ -32,81 +34,77 @@ class JournalRequest(BaseModel):
     names: List[str] = Field(default_factory=list)
     dates: List[str] = Field(default_factory=list)
 
-
 @router.post("/generate")
 async def generate_journal(req: JournalRequest):
-    desc = (req.description or "").lower()
+    try:
+        desc = (req.description or "").lower()
 
-    if any(x in desc for x in ["rent", "იჯარა"]):
-        result = {
-            "account_code": "7110",
-            "account_name": "იჯარის ხარჯი",
-            "confidence": 0.92,
-            "reason": "rent",
-        }
-    elif any(x in desc for x in ["salary", "ხელფასი"]):
-        result = {
-            "account_code": "7210",
-            "account_name": "შრომის ანაზღაურება",
-            "confidence": 0.95,
-            "reason": "salary",
-        }
-    elif any(x in desc for x in ["utility", "communal", "კომუნალური"]):
-        result = {
-            "account_code": "7130",
-            "account_name": "კომუნალური ხარჯი",
-            "confidence": 0.90,
-            "reason": "utility",
-        }
-    elif any(x in desc for x in ["income", "revenue", "payment", "შემოსავალი"]):
-        result = {
-            "account_code": "6100",
-            "account_name": "გაყიდვების შემოსავალი",
-            "confidence": 0.88,
-            "reason": "income",
-        }
-    elif any(x in desc for x in ["software", "license", "subscription"]):
-        result = {
-            "account_code": "7150",
-            "account_name": "ლიცენზიის ხარჯი",
-            "confidence": 0.91,
-            "reason": "software",
-        }
-    else:
-        result = {
-            "account_code": "7190",
-            "account_name": "სხვა ხარჯი",
-            "confidence": 0.50,
-            "reason": "default",
-        }
+        if any(x in desc for x in ["rent", "იჯარა"]):
+            result = {
+                "account_code": "7110",
+                "account_name": "იჯარის ხარჯი",
+                "confidence": 0.92,
+                "reason": "rent",
+            }
+        elif any(x in desc for x in ["salary", "ხელფასი"]):
+            result = {
+                "account_code": "7210",
+                "account_name": "შრომის ანაზღაურება",
+                "confidence": 0.95,
+                "reason": "salary",
+            }
+        elif any(x in desc for x in ["utility", "communal", "კომუნალური"]):
+            result = {
+                "account_code": "7130",
+                "account_name": "კომუნალური ხარჯი",
+                "confidence": 0.90,
+                "reason": "utility",
+            }
+        elif any(x in desc for x in ["income", "revenue", "payment", "შემოსავალი"]):
+            result = {
+                "account_code": "6100",
+                "account_name": "გაყიდვების შემოსავალი",
+                "confidence": 0.88,
+                "reason": "income",
+            }
+        elif any(x in desc for x in ["software", "license", "subscription"]):
+            result = {
+                "account_code": "7150",
+                "account_name": "ლიცენზიის ხარჯი",
+                "confidence": 0.91,
+                "reason": "software",
+            }
+        else:
+            result = {
+                "account_code": "7190",
+                "account_name": "სხვა ხარჯი",
+                "confidence": 0.50,
+                "reason": "default",
+            }
 
-    result["amount"] = req.amount
-    result["vat"] = req.vat
-    result["direction"] = "debit"
-    result["currency"] = "GEL"
-    result["partner"] = req.partner
-    result["description"] = req.description
+        result["amount"] = req.amount
+        result["vat"] = req.vat
+        result["direction"] = "debit"
+        result["currency"] = "GEL"
+        result["partner"] = req.partner
+        result["description"] = req.description
 
-    return {
-        "ok": True,
-        "message": "AI journal draft generated",
-        "data": {
-            "draft": result
-        },
-        "error": None,
-    }
+        log_event("journal_generated", {
+            "partner": req.partner,
+            "amount": req.amount,
+            "description": req.description
+        })
 
+        return ok_response("AI journal draft generated", {"draft": result})
+    except Exception as e:
+        return error_response("AI journal failed", "AI_JOURNAL_ERROR", str(e))
 
 @router.get("/coa")
 def get_coa():
-    return {
-        "ok": True,
-        "message": "COA loaded",
-        "data": {
-            "coa": COA
-        },
-        "error": None,
-    }
+    try:
+        return ok_response("COA loaded", {"coa": COA})
+    except Exception as e:
+        return error_response("COA load failed", "COA_ERROR", str(e))
 
 @router.get("/list")
 def list_journals():
@@ -115,9 +113,10 @@ def list_journals():
     try:
         cur.execute("SELECT * FROM journal_entries ORDER BY created_at DESC LIMIT 50")
         rows = [dict(r) for r in cur.fetchall()]
-        conn.commit()
+        cur.close()
+        conn.close()
+        return ok_response("Journal list loaded", {"count": len(rows), "journals": rows})
     except Exception as e:
-        conn.rollback()
-        rows = []
-    cur.close(); conn.close()
-    return {"ok": True, "count": len(rows), "journals": rows}
+        cur.close()
+        conn.close()
+        return error_response("Journal list failed", "JOURNAL_LIST_ERROR", str(e))

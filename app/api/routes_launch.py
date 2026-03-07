@@ -16,7 +16,7 @@ def system_status():
         docs = cur.fetchone()["c"]
         cur.execute("SELECT COUNT(*) as c FROM bank_transactions")
         txs = cur.fetchone()["c"]
-        cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE status='APPROVED'")
+        cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='APPROVED'")
         approved = cur.fetchone()["c"]
         cur.execute("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as v FROM bank_transactions")
         inflow = float(cur.fetchone()["v"])

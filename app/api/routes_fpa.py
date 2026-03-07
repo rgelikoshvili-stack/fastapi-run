@@ -42,11 +42,11 @@ def forecast():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT DATE_TRUNC('month', created_at::timestamp) as month,
+        SELECT DATE_TRUNC('month', created_at) as month,
                SUM(CASE WHEN amount>0 THEN amount ELSE 0 END) as inflow,
                SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END) as outflow
         FROM bank_transactions
-        GROUP BY DATE_TRUNC('month', created_at::timestamp)
+        GROUP BY DATE_TRUNC('month', created_at)
         ORDER BY month DESC LIMIT 3
     """)
     rows = [dict(r) for r in cur.fetchall()]
@@ -73,11 +73,11 @@ def kpi_trends():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT DATE_TRUNC('month', created_at::timestamp) as month,
+        SELECT DATE_TRUNC('month', created_at) as month,
                COUNT(*) as doc_count,
                SUM(CASE WHEN state='APPROVED' THEN 1 ELSE 0 END) as approved_count
         FROM pipeline_runs
-        GROUP BY DATE_TRUNC('month', created_at::timestamp)
+        GROUP BY DATE_TRUNC('month', created_at)
         ORDER BY month DESC LIMIT 6
     """)
     rows = cur.fetchall()

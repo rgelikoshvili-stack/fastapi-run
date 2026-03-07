@@ -57,7 +57,7 @@ def dashboard_analytics():
     cur.execute("""
         SELECT DATE(created_at) as day, COUNT(*) as count, state
         FROM pipeline_runs
-        WHERE created_at::timestamp >= NOW() - INTERVAL '7 days'
+        WHERE created_at >= NOW() - INTERVAL '7 days'
         GROUP BY DATE(created_at), state
         ORDER BY day DESC
     """)

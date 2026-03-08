@@ -30,7 +30,7 @@ def ensure_tables(cur):
         )
     """)
 
-@router.get("/query")
+@router.post("/query")
 def search(q: str = "", state: str = "", min_amount: float = 0, max_amount: float = 999999999):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)

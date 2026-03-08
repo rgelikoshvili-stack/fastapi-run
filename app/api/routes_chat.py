@@ -33,3 +33,12 @@ def send_message(payload: ChatMessageRequest):
         )
     except Exception as e:
         return error_response("Chat failed", "CHAT_ERROR", str(e))
+
+@router.get("/history")
+def chat_history(session_id: str = "default"):
+    from app.api.response_utils import ok_response
+    return ok_response("Chat history", {
+        "session_id": session_id,
+        "messages": [],
+        "note": "In-memory only — history resets on redeploy"
+    })

@@ -33,3 +33,42 @@ async def upload_bank_file(file: UploadFile = File(...)):
         )
     except Exception as e:
         return error_response("Bank parse failed", "BANK_PARSE_ERROR", str(e))
+
+@router.get("/history")
+def bank_csv_history():
+    from app.api.db import get_db
+    import psycopg2.extras
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT id, filename, status, created_at 
+            FROM pipeline_runs ORDER BY created_at DESC LIMIT 20
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+    except:
+        rows = []
+    finally:
+        cur.close(); conn.close()
+    from app.api.response_utils import ok_response
+    return ok_response("Bank CSV history", {"count": len(rows), "history": rows})
+
+@router.get("/search/query")
+def bank_csv_search(q: str = "", limit: int = 20):
+    from app.api.db import get_db
+    import psycopg2.extras
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT * FROM journal_drafts
+            WHERE description ILIKE %s OR partner ILIKE %s
+            ORDER BY created_at DESC LIMIT %s
+        """, (f"%{q}%", f"%{q}%", limit))
+        rows = [dict(r) for r in cur.fetchall()]
+    except:
+        rows = []
+    finally:
+        cur.close(); conn.close()
+    from app.api.response_utils import ok_response
+    return ok_response("Search results", {"query": q, "count": len(rows), "results": rows})

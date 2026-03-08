@@ -86,12 +86,14 @@ from app.api import routes_approval
 from app.api import routes_export_journal
 from app.api import routes_invoice
 from app.api import routes_docs
+from app.api import routes_balance_ge
 app.include_router(routes_bank_csv.router)
 app.include_router(routes_bank_process.router)
 app.include_router(routes_approval.router)
 app.include_router(routes_export_journal.router)
 app.include_router(routes_invoice.router)
 app.include_router(routes_docs.router)
+app.include_router(routes_balance_ge.router)
 
 from app.api import routes_reconciliation
 app.include_router(routes_reconciliation.router)

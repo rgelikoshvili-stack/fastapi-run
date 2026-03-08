@@ -5,3 +5,10 @@ __pycache__/
 *.backup
 *.jsonl
 openai_key.txt 
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.zip
+.env

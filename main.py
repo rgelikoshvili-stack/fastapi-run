@@ -125,7 +125,9 @@ from app.api import routes_reports
 app.include_router(routes_reports.router)
 
 from app.api import routes_notifications
+from app.api import routes_rbac
 app.include_router(routes_notifications.router)
+app.include_router(routes_rbac.router)
 
 from app.api import routes_tenants
 app.include_router(routes_tenants.router)

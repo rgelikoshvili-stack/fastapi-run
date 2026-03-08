@@ -24,7 +24,7 @@ def generate_draft(transaction: dict, classification: dict) -> dict:
 
     paid_in = transaction.get("paid_in")
     paid_out = transaction.get("paid_out")
-    amount = float(paid_out or paid_in or 0)
+    amount = float(paid_out or paid_in or transaction.get("amount") or 0)
 
     rules = POSTING_RULES.get(reason, {"dr": account_code, "cr": BANK_ACCOUNT})
 

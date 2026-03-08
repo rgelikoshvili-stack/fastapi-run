@@ -1,6 +1,6 @@
 RULES = [
     # შემოსავალი
-    (["payment","client","customer","invoice","revenue","sale","income","received"], "6100", "income"),
+    (["payment","client","customer","revenue","sale","income","received"], "6100", "income"),
     # ხელფასი
     (["salary","payroll","wage","ხელფასი","compensation"], "7120", "salary"),
     # ქირა

@@ -1,3 +1,4 @@
+from app.api.audit_service import log_event
 from fastapi import APIRouter, UploadFile, File
 from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
 from app.api.transaction_classifier import classify
@@ -43,6 +44,7 @@ async def process_bank_file(file: UploadFile = File(...)):
                 failed.append({"tx": tx, "error": str(e)})
 
         # DB-ში შენახვა
+        log_event("bank_file_uploaded", {"filename": file.filename, "total_rows": total})
         conn = get_db()
         cur = conn.cursor()
         for d in drafted + review:

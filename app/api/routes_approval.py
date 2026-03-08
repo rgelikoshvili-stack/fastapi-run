@@ -1,3 +1,4 @@
+from app.api.audit_service import log_event
 from fastapi import APIRouter
 import psycopg2, psycopg2.extras
 from app.api.db import get_db
@@ -33,6 +34,7 @@ def approve_draft(draft_id: int):
         return error_response("Approve failed", "APPROVE_ERROR", str(e))
     finally:
         cur.close(); conn.close()
+    log_event("draft_approved", {"draft_id": draft_id})
     return ok_response("Draft approved", {"id": draft_id, "status": "approved"})
 
 @router.post("/reject/{draft_id}")
@@ -51,4 +53,18 @@ def reject_draft(draft_id: int, data: dict = {}):
         return error_response("Reject failed", "REJECT_ERROR", str(e))
     finally:
         cur.close(); conn.close()
+    log_event("draft_rejected", {"draft_id": draft_id, "reason": reason})
     return ok_response("Draft rejected", {"id": draft_id, "status": "rejected", "reason": reason})
+
+@router.get("/audit")
+def get_audit_log():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 50")
+        events = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        return error_response("Audit failed", "AUDIT_ERROR", str(e))
+    finally:
+        cur.close(); conn.close()
+    return ok_response("Audit log", {"count": len(events), "events": events})

@@ -94,6 +94,7 @@ from app.api import routes_1c
 from app.api import routes_dashboard_ui
 from app.api import routes_dashboard_v2
 from app.api import routes_pdf_report
+from app.api import routes_webhooks_v2
 from app.api import routes_tenants_v2
 from app.api import routes_reconciliation_v2
 app.include_router(routes_bank_csv.router)
@@ -107,6 +108,7 @@ app.include_router(routes_1c.router)
 app.include_router(routes_dashboard_ui.router)
 app.include_router(routes_dashboard_v2.router)
 app.include_router(routes_pdf_report.router)
+app.include_router(routes_webhooks_v2.router)
 app.include_router(routes_tenants_v2.router)
 app.include_router(routes_reconciliation_v2.router)
 

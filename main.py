@@ -102,6 +102,7 @@ from app.api import routes_tax
 from app.api import routes_dashboard_mobile
 from app.api import routes_expenses
 from app.api import routes_crm
+from app.api import routes_bank_accounts
 from app.api import routes_tenants_v2
 from app.api import routes_reconciliation_v2
 app.include_router(routes_bank_csv.router)
@@ -123,6 +124,7 @@ app.include_router(routes_tax.router)
 app.include_router(routes_dashboard_mobile.router)
 app.include_router(routes_expenses.router)
 app.include_router(routes_crm.router)
+app.include_router(routes_bank_accounts.router)
 app.include_router(routes_tenants_v2.router)
 app.include_router(routes_reconciliation_v2.router)
 

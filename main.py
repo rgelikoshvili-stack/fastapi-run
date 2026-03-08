@@ -1,4 +1,7 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, Request, Response
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -128,6 +131,18 @@ from app.api import routes_notifications
 from app.api import routes_rbac
 app.include_router(routes_notifications.router)
 app.include_router(routes_rbac.router)
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        response.headers[k] = v
+    return response
 
 from app.api import routes_tenants
 app.include_router(routes_tenants.router)

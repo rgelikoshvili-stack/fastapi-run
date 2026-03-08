@@ -9,16 +9,19 @@ import psycopg2.extras
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 class TestEmailRequest(BaseModel):
-    to: str
+    to: Optional[str] = None
+    email: Optional[str] = None
     subject: Optional[str] = "Bridge Hub Test"
     message: Optional[str] = "Test notification from Bridge Hub"
 
 class NotifyApprovalRequest(BaseModel):
-    to: str
+    to: Optional[str] = None
+    email: Optional[str] = None
     draft_id: int
 
 class NotifyReconcileRequest(BaseModel):
-    to: str
+    to: Optional[str] = None
+    email: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
 

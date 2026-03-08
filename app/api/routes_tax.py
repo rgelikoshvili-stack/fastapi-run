@@ -151,23 +151,14 @@ def tax_from_journal(year: int):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("""
-            SELECT COALESCE(SUM(amount),0) as total
-            FROM journal_drafts WHERE account_code='6100' AND date LIKE %s
-        """, (f"{year}%",))
-        revenue = float(cur.fetchone()["total"])
+        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s", (f"{year}%",))
+        r = cur.fetchone(); revenue = float(r["total"]) if r else 0.0
 
-        cur.execute("""
-            SELECT COALESCE(SUM(amount),0) as total
-            FROM journal_drafts WHERE account_code LIKE '7%' AND date LIKE %s
-        """, (f"{year}%",))
-        expenses = float(cur.fetchone()["total"])
+        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND date LIKE %s", (f"{year}%",))
+        r = cur.fetchone(); expenses = float(r["total"]) if r else 0.0
 
-        cur.execute("""
-            SELECT COALESCE(SUM(amount),0) as total
-            FROM journal_drafts WHERE account_code='3100' AND date LIKE %s
-        """, (f"{year}%",))
-        tax_paid = float(cur.fetchone()["total"])
+        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s", (f"{year}%",))
+        r = cur.fetchone(); tax_paid = float(r["total"]) if r else 0.0
     finally:
         cur.close(); conn.close()
 

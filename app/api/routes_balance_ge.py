@@ -12,12 +12,12 @@ BALANCE_GE_URL = "https://api.balance.ge/v1"
 
 class BalanceGeConfig(BaseModel):
     api_key: str
-    company_id: str
+    company_id: Optional[str] = "default"
 
 class JournalPostRequest(BaseModel):
     draft_ids: List[int]
     api_key: str
-    company_id: str
+    company_id: Optional[str] = "default"
 
 @router.post("/test-connection")
 async def test_connection(config: BalanceGeConfig):

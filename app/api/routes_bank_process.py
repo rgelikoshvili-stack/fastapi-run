@@ -3,6 +3,8 @@ from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, par
 from app.api.transaction_classifier import classify
 from app.api.journal_generator import generate_draft
 from app.api.response_utils import ok_response, error_response
+import psycopg2
+from app.api.db import get_db
 
 router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
 
@@ -39,6 +41,19 @@ async def process_bank_file(file: UploadFile = File(...)):
                     drafted.append(draft)
             except Exception as e:
                 failed.append({"tx": tx, "error": str(e)})
+
+        # DB-ში შენახვა
+        conn = get_db()
+        cur = conn.cursor()
+        for d in drafted + review:
+            cur.execute("""
+                INSERT INTO journal_drafts (date,description,partner,amount,debit_account,credit_account,account_code,reason,confidence,review_required,status,source_type)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (d.get("date"),d.get("description"),d.get("partner"),d.get("amount"),
+                  d.get("debit_account"),d.get("credit_account"),d.get("account_code"),
+                  d.get("reason"),d.get("confidence"),d.get("review_required"),d.get("status"),d.get("source_type")))
+        conn.commit()
+        cur.close(); conn.close()
 
         return ok_response("Bank file processed", {
             "filename": file.filename,

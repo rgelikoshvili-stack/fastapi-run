@@ -89,6 +89,7 @@ from app.api import routes_docs
 from app.api import routes_balance_ge
 from app.api import routes_1c
 from app.api import routes_dashboard_ui
+from app.api import routes_tenants_v2
 app.include_router(routes_bank_csv.router)
 app.include_router(routes_bank_process.router)
 app.include_router(routes_approval.router)
@@ -98,6 +99,7 @@ app.include_router(routes_docs.router)
 app.include_router(routes_balance_ge.router)
 app.include_router(routes_1c.router)
 app.include_router(routes_dashboard_ui.router)
+app.include_router(routes_tenants_v2.router)
 
 from app.api import routes_reconciliation
 app.include_router(routes_reconciliation.router)

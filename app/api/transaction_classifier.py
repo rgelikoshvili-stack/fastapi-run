@@ -14,7 +14,7 @@ RULES = [
     # ტრანსფერი
     (["transfer","own account","internal","გადარიცხვა"], "1210", "transfer"),
     # გადასახადები
-    (["tax","vat","rs.ge","revenue service","გადასახადი","დღგ"], "3100", "tax"),
+    (["tax","vat","rs.ge","revenue service","გადასახადი","დღგ","sagareo"], "3100", "tax"),
     # სატრანსპორტო
     (["fuel","petrol","gas station","taxi","transport","საწვავი"], "7160", "transport"),
     # მარკეტინგი
@@ -23,40 +23,74 @@ RULES = [
     (["stationery","supplies","კანცელარია"], "7180", "office"),
     # კურიერი
     (["courier","delivery","shipping","მიტანა"], "7185", "delivery"),
+    # სასურსათო
+    (["grocery","supermarket","სასურსათო","2nabiji","carrefour","nikora","goodwill"], "7191", "grocery"),
+    # საოჯახო ხარჯი
+    (["საოჯახო","household","home expense"], "7192", "household"),
+    # კონვერტაცია
+    (["კონვერტაცია","conversion","exchange"], "1210", "conversion"),
+    # Cost of goods/services
+    (["cost of goods","cost of service","cogs"], "7100", "cost_of_goods"),
+    # POS ტრანზაქცია
+    (["pos -","pos transaction"], "7190", "pos_expense"),
 ]
 
-def classify(description: str, paid_in=None, paid_out=None, partner: str = ""):
+INCOME_ACCOUNTS = {"6100"}
+EXPENSE_ACCOUNTS = {"7100","7110","7120","7130","7140","7150","7160","7170","7180","7185","7190","7191","7192"}
+
+def classify(description: str, paid_in=None, paid_out=None, partner: str = "", operation_code: str = ""):
     desc = (description or "").lower()
     part = (partner or "").lower()
+    op   = (operation_code or "").lower()
     combined = desc + " " + part
 
     matched_account = "7190"
-    matched_reason = "default expense"
-    confidence = 0.4
-    matches = 0
+    matched_reason  = "default expense"
+    confidence      = 0.0
+    keyword_matched = False
 
+    # 1. keyword match +0.3
     for keywords, account, reason in RULES:
         for kw in keywords:
             if kw.lower() in combined:
                 matched_account = account
-                matched_reason = reason
-                matches += 1
+                matched_reason  = reason
+                confidence     += 0.4
+                keyword_matched = True
                 break
+        if keyword_matched:
+            break
 
-    if matches == 0 and paid_in and not paid_out:
-        matched_account = "6100"
-        matched_reason = "income (direction)"
-        confidence = 0.5
-    elif matches == 1:
-        confidence = 0.75
-    elif matches >= 2:
-        confidence = 0.9
+    # 2. partner hint +0.2
+    if part and keyword_matched:
+        confidence += 0.2
 
+    # 3. operation code match +0.2
+    if op and any(kw in op for kw in [matched_reason, matched_account]):
+        confidence += 0.2
+
+    # 4. direction consistency +0.2
+    if paid_in is not None and paid_out is None:
+        if matched_account in INCOME_ACCOUNTS:
+            confidence += 0.2
+        elif not keyword_matched:
+            matched_account = "6100"
+            matched_reason  = "income (direction)"
+            confidence      = 0.5
+    elif paid_out is not None and paid_in is None:
+        if matched_account in EXPENSE_ACCOUNTS or matched_account in {"1210","3100"}:
+            confidence += 0.2
+
+    # fallback
+    if not keyword_matched and not (paid_in and not paid_out):
+        confidence = 0.4
+
+    confidence = round(min(confidence, 1.0), 2)
     review_required = confidence < 0.6
 
     return {
         "account_code": matched_account,
         "reason": matched_reason,
-        "confidence": round(confidence, 2),
+        "confidence": confidence,
         "review_required": review_required,
     }

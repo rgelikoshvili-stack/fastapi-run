@@ -36,10 +36,10 @@ def _normalize(row):
     return row
 
 FALLBACK_COLS = {
-    "date":         ["date","Date","თარიღი","transaction_date","ValueDate"],
+    "date":         ["date","Date","თარიღი","transaction_date","ValueDate","Document Date"],
     "description":  ["description","Description","დანიშნულება","details","Details","Narrative"],
-    "paid_out":     ["paid_out","PaidOut","debit","Debit","გასული თანხა","WithdrawalAmt"],
-    "paid_in":      ["paid_in","PaidIn","credit","Credit","შემოსული თანხა","DepositAmt"],
+    "paid_out":     ["paid_out","PaidOut","Paid Out","debit","Debit","გასული თანხა","WithdrawalAmt"],
+    "paid_in":      ["paid_in","PaidIn","Paid In","credit","Credit","შემოსული თანხა","DepositAmt"],
     "amount":       ["amount","Amount","თანხა"],
     "partner":      ["partner","Partner","პარტნიორი","Counterparty"],
     "operation_code":["operation_code","OperationCode","ოპ. კოდი","TxnType"],
@@ -66,12 +66,14 @@ def parse_csv_bytes(content: bytes):
 def parse_xlsx_bytes(content: bytes):
     xl = pd.ExcelFile(io.BytesIO(content))
     sheet = next((s for s in xl.sheet_names if s != "Summary"), xl.sheet_names[0])
-    df = pd.read_excel(io.BytesIO(content), sheet_name=sheet)
+    # TBC Bank: row1=Georgian, row2=English, data from row3 → header=1
+    df = pd.read_excel(io.BytesIO(content), sheet_name=sheet, header=1)
     rows = []
     for _, r in df.iterrows():
-        rd = {k: _clean(v) for k, v in r.items()}
+        rd = {str(k).strip(): _clean(v) for k, v in r.items()}
         row = {f: _get(rd, f) for f in FALLBACK_COLS}
         if not row.get("date") and not row.get("description"): continue
+        if not row.get("paid_out") and not row.get("paid_in") and not row.get("amount"): continue
         row["source_type"] = "xlsx"
         rows.append(_normalize(row))
     return rows

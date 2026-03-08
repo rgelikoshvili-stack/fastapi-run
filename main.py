@@ -106,6 +106,7 @@ from app.api import routes_bank_accounts
 from app.api import routes_financial_statements
 from app.api import routes_audit_log
 from app.api import routes_contracts
+from app.api import routes_currency
 from app.api import routes_tenants_v2
 from app.api import routes_reconciliation_v2
 app.include_router(routes_bank_csv.router)
@@ -131,6 +132,7 @@ app.include_router(routes_bank_accounts.router)
 app.include_router(routes_financial_statements.router)
 app.include_router(routes_audit_log.router)
 app.include_router(routes_contracts.router)
+app.include_router(routes_currency.router)
 app.include_router(routes_tenants_v2.router)
 app.include_router(routes_reconciliation_v2.router)
 

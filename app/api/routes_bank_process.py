@@ -1,0 +1,55 @@
+from fastapi import APIRouter, UploadFile, File
+from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
+from app.api.transaction_classifier import classify
+from app.api.journal_generator import generate_draft
+from app.api.response_utils import ok_response, error_response
+
+router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
+
+@router.post("/process")
+async def process_bank_file(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        filename = file.filename.lower()
+
+        if filename.endswith(".csv"):
+            transactions = parse_csv_bytes(content)
+        elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+            transactions = parse_xlsx_bytes(content)
+        elif filename.endswith(".xml"):
+            transactions = parse_xml_bytes(content)
+        else:
+            return error_response("Unsupported format", "FORMAT_ERROR", "Use CSV, XLSX or XML")
+
+        total = len(transactions)
+        drafted, review, failed = [], [], []
+
+        for tx in transactions:
+            try:
+                cl = classify(
+                    description=tx.get("description", ""),
+                    paid_in=tx.get("paid_in"),
+                    paid_out=tx.get("paid_out"),
+                    partner=tx.get("partner", "")
+                )
+                draft = generate_draft(tx, cl)
+                if draft["review_required"]:
+                    review.append(draft)
+                else:
+                    drafted.append(draft)
+            except Exception as e:
+                failed.append({"tx": tx, "error": str(e)})
+
+        return ok_response("Bank file processed", {
+            "filename": file.filename,
+            "total_rows": total,
+            "drafted_count": len(drafted),
+            "review_count": len(review),
+            "failed_count": len(failed),
+            "drafted": drafted,
+            "review_required": review,
+            "failed": failed,
+        })
+
+    except Exception as e:
+        return error_response("Processing failed", "PROCESS_ERROR", str(e))

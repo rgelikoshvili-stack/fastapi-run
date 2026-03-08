@@ -81,7 +81,9 @@ from app.api import routes_audit_engine
 app.include_router(routes_audit_engine.router)
 
 from app.api import routes_bank_csv
+from app.api import routes_bank_process
 app.include_router(routes_bank_csv.router)
+app.include_router(routes_bank_process.router)
 
 from app.api import routes_reconciliation
 app.include_router(routes_reconciliation.router)

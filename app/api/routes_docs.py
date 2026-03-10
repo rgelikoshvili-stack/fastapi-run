@@ -5,9 +5,6 @@ router = APIRouter(prefix="/docs-hub", tags=["docs"])
 
 SPRINT_HISTORY = {
     "project": "Bridge Hub v1.0.0",
-    "db": "35.192.214.120 / bridgehub",
-    "live_url": "https://fastapi-run-226875230147.us-central1.run.app",
-    "github": "https://github.com/rgelikoshvili-stack/fastapi-run",
     "sprints": {
         "sprint_51_52": {
             "revision": "fastapi-run-00153-bht",
@@ -40,7 +37,7 @@ SPRINT_HISTORY = {
                 "6834c45 — archive 12 inactive routes",
                 "d2c1a23 — Pydantic validation, business scenario tests",
                 "974b3e5 — audit service + ai-journal/list fix",
-            ]
+            ],
         },
         "sprint_53": {
             "revision": "fastapi-run-00166-zmr",
@@ -72,11 +69,11 @@ SPRINT_HISTORY = {
             ],
             "new_endpoints": [
                 "POST /bank-csv/process",
-                "GET  /approval/queue",
+                "GET /approval/queue",
                 "POST /approval/approve/{id}",
                 "POST /approval/reject/{id}",
-                "GET  /approval/audit",
-                "GET  /export/journal/excel",
+                "GET /approval/audit",
+                "GET /export/journal/excel",
                 "POST /invoice/parse",
             ],
             "db_tables": [
@@ -89,18 +86,18 @@ SPRINT_HISTORY = {
                 "7150 bank_fee", "7160 transport", "7170 marketing",
                 "7180 office", "7185 delivery", "7190 default",
                 "7191 grocery", "7192 household", "1210 transfer",
-                "1210 conversion", "3100 tax"
+                "1210 conversion", "3100 tax",
             ],
             "confidence_scoring": {
                 "keyword_match": "+0.4",
                 "partner_hint": "+0.2",
                 "operation_code": "+0.2",
                 "direction": "+0.2",
-                "review_threshold": "< 0.6"
+                "review_threshold": "< 0.6",
             },
             "tbc_bank_test": {
                 "file1": "total=27 drafted=21 review=6 failed=0 (78% auto)",
-                "file2": "total=14 drafted=11 review=3 failed=0 (79% auto)"
+                "file2": "total=14 drafted=11 review=3 failed=0 (79% auto)",
             },
             "git_commits": [
                 "bdad5b1 — parser stabilization, rule engine x12, journal draft",
@@ -110,8 +107,8 @@ SPRINT_HISTORY = {
                 "9b75d2d — Excel export",
                 "4fab9c2 — real TBC Bank XLSX support, confidence fix",
                 "d2ae768 — invoice PDF parser, all 8 etapi complete",
-            ]
-        }
+            ],
+        },
     },
     "next_sprint_54": [
         "Balance.ge API integration",
@@ -119,12 +116,14 @@ SPRINT_HISTORY = {
         "Frontend Dashboard (React/HTML)",
         "Multi-tenant support",
         "Georgian classifier keywords expansion",
-    ]
+    ],
 }
+
 
 @router.get("/sprints")
 def get_all_sprints():
     return ok_response("Sprint history", SPRINT_HISTORY)
+
 
 @router.get("/sprints/{sprint_id}")
 def get_sprint(sprint_id: str):

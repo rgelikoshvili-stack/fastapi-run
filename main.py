@@ -206,6 +206,9 @@ app.include_router(routes_launch.router)
 from app.api import routes_transaction_ai
 app.include_router(routes_transaction_ai.router)
 
+from app.api import routes_debug
+app.include_router(routes_debug.router)
+
 
 
 

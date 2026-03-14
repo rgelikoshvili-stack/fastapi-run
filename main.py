@@ -212,5 +212,11 @@ app.include_router(routes_debug.router)
 from routes_version import router as version_router
 app.include_router(version_router)
 
+from app.api import routes_system
+app.include_router(routes_system.router)
+
+from app.api import routes_posting
+app.include_router(routes_posting.router)
+
 
 

@@ -30,12 +30,12 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"},
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"},
         )
 
 
@@ -112,6 +112,22 @@ def _insert_posting_log(cur, draft_id, target_system, payload, response, status,
     return cur.fetchone()["id"]
 
 
+def _find_successful_post(cur, draft_id: int, target_system: str):
+    cur.execute(
+        """
+        SELECT id, status
+        FROM posting_logs
+        WHERE draft_id = %s
+          AND target_system = %s
+          AND status IN ('posted', 'success', 'simulated_success')
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (draft_id, target_system),
+    )
+    return cur.fetchone()
+
+
 def _get_connector_executor(target_normalized: str):
     connectors = {
         "mock": {
@@ -143,7 +159,8 @@ def _get_connector_executor(target_normalized: str):
     return connectors.get(target_normalized)
 
 
-# ─── APPROVED DRAFTS ──────────────────────────────────────────────────────────
+# --- APPROVED DRAFTS ---
+
 
 @router.get("/approved-drafts")
 def get_approved_drafts(limit: int = 100, offset: int = 0):
@@ -153,12 +170,14 @@ def get_approved_drafts(limit: int = 100, offset: int = 0):
     try:
         cur.execute("SELECT COUNT(*) AS total FROM journal_drafts WHERE status = 'approved'")
         total = cur.fetchone()["total"]
+
         cur.execute(
             """
-            SELECT id, date, description, partner, amount,
-                   debit_account, credit_account, account_code,
-                   reason, confidence, review_required, status,
-                   source_type, bank_file_id, created_at
+            SELECT
+                id, date, description, partner, amount,
+                debit_account, credit_account, account_code,
+                reason, confidence, review_required, status,
+                source_type, bank_file_id, created_at
             FROM journal_drafts
             WHERE status = 'approved'
             ORDER BY created_at DESC, id DESC
@@ -173,10 +192,14 @@ def get_approved_drafts(limit: int = 100, offset: int = 0):
         cur.close()
         conn.close()
 
-    return ok_response("Approved drafts", {"count": total, "limit": limit, "offset": offset, "items": items})
+    return ok_response(
+        "Approved drafts",
+        {"count": total, "limit": limit, "offset": offset, "items": items},
+    )
 
 
-# ─── PAYLOAD PREVIEW ─────────────────────────────────────────────────────────
+# --- PAYLOAD PREVIEW ---
+
 
 @router.get("/payload/{draft_id}")
 def get_posting_payload(draft_id: int = Path(..., description="Approved journal draft ID")):
@@ -187,6 +210,7 @@ def get_posting_payload(draft_id: int = Path(..., description="Approved journal 
         err = _validate_approved_draft(draft, draft_id)
         if err:
             return err
+
         payload = _build_generic_payload(draft)
     except Exception as e:
         return error_response("Posting payload build failed", "POSTING_PAYLOAD_ERROR", str(e))
@@ -197,7 +221,8 @@ def get_posting_payload(draft_id: int = Path(..., description="Approved journal 
     return ok_response("Posting payload preview", {"draft": dict(draft), "payload": payload})
 
 
-# ─── MOCK POSTING ─────────────────────────────────────────────────────────────
+# --- MOCK POSTING ---
+
 
 @router.post("/mock/{draft_id}")
 def mock_posting(draft_id: int = Path(..., description="Approved journal draft ID")):
@@ -209,6 +234,14 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
         if err:
             return err
 
+        existing_post = _find_successful_post(cur, draft["id"], "mock")
+        if existing_post:
+            return error_response(
+                "Draft already posted",
+                "ALREADY_POSTED",
+                f"draft_id={draft['id']} was already posted to mock (log_id={existing_post['id']})",
+            )
+
         payload = _build_generic_payload(draft)
         mock_response = {
             "target_system": "mock",
@@ -216,7 +249,15 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
             "message": "Mock posting completed successfully",
             "posted_draft_id": draft["id"],
         }
-        posting_log_id = _insert_posting_log(cur, draft["id"], "mock", payload, mock_response, "simulated_success", None)
+        posting_log_id = _insert_posting_log(
+            cur,
+            draft["id"],
+            "mock",
+            payload,
+            mock_response,
+            "simulated_success",
+            None,
+        )
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -225,15 +266,19 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
         cur.close()
         conn.close()
 
-    return ok_response("Mock posting completed", {
-        "posting_log_id": posting_log_id,
-        "draft_id": draft["id"],
-        "payload": payload,
-        "response": mock_response,
-    })
+    return ok_response(
+        "Mock posting completed",
+        {
+            "posting_log_id": posting_log_id,
+            "draft_id": draft["id"],
+            "payload": payload,
+            "response": mock_response,
+        },
+    )
 
 
-# ─── POSTING LOGS ─────────────────────────────────────────────────────────────
+# --- POSTING LOGS ---
+
 
 @router.get("/logs")
 def get_posting_logs(
@@ -245,12 +290,15 @@ def get_posting_logs(
     _validate_pagination(limit, offset)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         where_clauses = []
         params = []
+
         if target_system:
             where_clauses.append("target_system = %s")
             params.append(target_system)
+
         if draft_id is not None:
             where_clauses.append("draft_id = %s")
             params.append(draft_id)
@@ -262,8 +310,9 @@ def get_posting_logs(
 
         cur.execute(
             f"""
-            SELECT id, draft_id, target_system, payload_json,
-                   response_json, status, error_message, created_at
+            SELECT
+                id, draft_id, target_system, payload_json,
+                response_json, status, error_message, created_at
             FROM posting_logs
             {where_sql}
             ORDER BY created_at DESC, id DESC
@@ -278,29 +327,42 @@ def get_posting_logs(
         cur.close()
         conn.close()
 
-    return ok_response("Posting logs", {
-        "count": total, "limit": limit, "offset": offset,
-        "filters": {"target_system": target_system, "draft_id": draft_id},
-        "items": items,
-    })
+    return ok_response(
+        "Posting logs",
+        {
+            "count": total,
+            "limit": limit,
+            "offset": offset,
+            "filters": {"target_system": target_system, "draft_id": draft_id},
+            "items": items,
+        },
+    )
 
 
 @router.get("/logs/{log_id}")
 def get_posting_log_detail(log_id: int = Path(..., description="Posting log ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         cur.execute(
             """
-            SELECT id, draft_id, target_system, payload_json,
-                   response_json, status, error_message, created_at
-            FROM posting_logs WHERE id = %s
+            SELECT
+                id, draft_id, target_system, payload_json,
+                response_json, status, error_message, created_at
+            FROM posting_logs
+            WHERE id = %s
             """,
             (log_id,),
         )
         row = cur.fetchone()
+
         if not row:
-            return error_response("Posting log not found", "POSTING_LOG_NOT_FOUND", f"posting_logs id={log_id} does not exist")
+            return error_response(
+                "Posting log not found",
+                "POSTING_LOG_NOT_FOUND",
+                f"posting_logs id={log_id} does not exist",
+            )
     except Exception as e:
         return error_response("Posting log detail failed", "POSTING_LOG_DETAIL_ERROR", str(e))
     finally:
@@ -310,7 +372,8 @@ def get_posting_log_detail(log_id: int = Path(..., description="Posting log ID")
     return ok_response("Posting log detail", dict(row))
 
 
-# ─── BALANCE ──────────────────────────────────────────────────────────────────
+# --- BALANCE ---
+
 
 @router.get("/balance-status")
 def get_balance_status():
@@ -324,14 +387,32 @@ def get_balance_status():
 def post_draft_to_balance(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
         if err:
             return err
+
+        existing_post = _find_successful_post(cur, draft["id"], "balance")
+        if existing_post:
+            return error_response(
+                "Draft already posted",
+                "ALREADY_POSTED",
+                f"draft_id={draft['id']} was already posted to balance (log_id={existing_post['id']})",
+            )
+
         payload = build_balance_payload(dict(draft))
         balance_result = post_to_balance(payload)
-        posting_log_id = _insert_posting_log(cur, draft["id"], "balance", payload, balance_result, balance_result.get("status", "unknown"), balance_result.get("error"))
+        posting_log_id = _insert_posting_log(
+            cur,
+            draft["id"],
+            "balance",
+            payload,
+            balance_result,
+            balance_result.get("status", "unknown"),
+            balance_result.get("error"),
+        )
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -340,13 +421,19 @@ def post_draft_to_balance(draft_id: int = Path(..., description="Approved journa
         cur.close()
         conn.close()
 
-    return ok_response("Balance posting attempt completed", {
-        "posting_log_id": posting_log_id, "draft_id": draft["id"],
-        "payload": payload, "balance_result": balance_result,
-    })
+    return ok_response(
+        "Balance posting attempt completed",
+        {
+            "posting_log_id": posting_log_id,
+            "draft_id": draft["id"],
+            "payload": payload,
+            "balance_result": balance_result,
+        },
+    )
 
 
-# ─── 1C ───────────────────────────────────────────────────────────────────────
+# --- 1C ---
+
 
 @router.get("/onec-status")
 def get_onec_status():
@@ -360,14 +447,32 @@ def get_onec_status():
 def post_draft_to_onec(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
         if err:
             return err
+
+        existing_post = _find_successful_post(cur, draft["id"], "1c")
+        if existing_post:
+            return error_response(
+                "Draft already posted",
+                "ALREADY_POSTED",
+                f"draft_id={draft['id']} was already posted to 1c (log_id={existing_post['id']})",
+            )
+
         payload = build_onec_payload(dict(draft))
         onec_result = post_to_onec(payload)
-        posting_log_id = _insert_posting_log(cur, draft["id"], "1c", payload, onec_result, onec_result.get("status", "unknown"), onec_result.get("error"))
+        posting_log_id = _insert_posting_log(
+            cur,
+            draft["id"],
+            "1c",
+            payload,
+            onec_result,
+            onec_result.get("status", "unknown"),
+            onec_result.get("error"),
+        )
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -376,13 +481,19 @@ def post_draft_to_onec(draft_id: int = Path(..., description="Approved journal d
         cur.close()
         conn.close()
 
-    return ok_response("1C posting attempt completed", {
-        "posting_log_id": posting_log_id, "draft_id": draft["id"],
-        "payload": payload, "onec_result": onec_result,
-    })
+    return ok_response(
+        "1C posting attempt completed",
+        {
+            "posting_log_id": posting_log_id,
+            "draft_id": draft["id"],
+            "payload": payload,
+            "onec_result": onec_result,
+        },
+    )
 
 
-# ─── ORIS ─────────────────────────────────────────────────────────────────────
+# --- ORIS ---
+
 
 @router.get("/oris-status")
 def get_oris_status():
@@ -396,14 +507,32 @@ def get_oris_status():
 def post_draft_to_oris(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
         if err:
             return err
+
+        existing_post = _find_successful_post(cur, draft["id"], "oris")
+        if existing_post:
+            return error_response(
+                "Draft already posted",
+                "ALREADY_POSTED",
+                f"draft_id={draft['id']} was already posted to oris (log_id={existing_post['id']})",
+            )
+
         payload = build_oris_payload(dict(draft))
         oris_result = post_to_oris(payload)
-        posting_log_id = _insert_posting_log(cur, draft["id"], "oris", payload, oris_result, oris_result.get("status", "unknown"), oris_result.get("error"))
+        posting_log_id = _insert_posting_log(
+            cur,
+            draft["id"],
+            "oris",
+            payload,
+            oris_result,
+            oris_result.get("status", "unknown"),
+            oris_result.get("error"),
+        )
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -412,13 +541,19 @@ def post_draft_to_oris(draft_id: int = Path(..., description="Approved journal d
         cur.close()
         conn.close()
 
-    return ok_response("ORIS posting attempt completed", {
-        "posting_log_id": posting_log_id, "draft_id": draft["id"],
-        "payload": payload, "oris_result": oris_result,
-    })
+    return ok_response(
+        "ORIS posting attempt completed",
+        {
+            "posting_log_id": posting_log_id,
+            "draft_id": draft["id"],
+            "payload": payload,
+            "oris_result": oris_result,
+        },
+    )
 
 
-# ─── UNIFIED APPLY ────────────────────────────────────────────────────────────
+# --- UNIFIED APPLY ---
+
 
 @router.post("/apply/{draft_id}")
 def apply_posting(
@@ -427,6 +562,7 @@ def apply_posting(
 ):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
@@ -442,12 +578,25 @@ def apply_posting(
                 f"target={target} is not supported. Use mock, balance, 1c, oris",
             )
 
-        payload = connector["payload_builder"](draft)
-        result = connector["executor"](payload, draft)
         log_target = connector["target_system"]
 
+        existing_post = _find_successful_post(cur, draft["id"], log_target)
+        if existing_post:
+            return error_response(
+                "Draft already posted",
+                "ALREADY_POSTED",
+                f"draft_id={draft['id']} was already posted to {log_target} (log_id={existing_post['id']})",
+            )
+
+        payload = connector["payload_builder"](draft)
+        result = connector["executor"](payload, draft)
+
         posting_log_id = _insert_posting_log(
-            cur, draft["id"], log_target, payload, result,
+            cur,
+            draft["id"],
+            log_target,
+            payload,
+            result,
             result.get("status", result.get("result", "unknown")),
             result.get("error"),
         )
@@ -459,10 +608,14 @@ def apply_posting(
         cur.close()
         conn.close()
 
-    return ok_response("Posting apply completed", {
-        "posting_log_id": posting_log_id,
-        "draft_id": draft["id"],
-        "target": log_target,
-        "payload": payload,
-        "result": result,
-    })
+    return ok_response(
+        "Posting apply completed",
+        {
+            "posting_log_id": posting_log_id,
+            "draft_id": draft["id"],
+            "target": log_target,
+            "payload": payload,
+            "result": result,
+        },
+    )
+PS C:\Users\Acer\fastapi-run> ისუფთავე?

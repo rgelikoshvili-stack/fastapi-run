@@ -223,3 +223,31 @@ def pipeline_history():
 @router.get("/health")
 def health():
     return {"ok": True, "service": "pipeline", "db": "postgresql"}
+
+@router.get("/stats")
+def pipeline_stats():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS total_runs,
+            COUNT(*) FILTER (WHERE state = 'PENDING_APPROVAL') AS pending_runs,
+            COUNT(*) FILTER (WHERE state = 'ERROR') AS error_runs
+        FROM pipeline_runs
+        """
+    )
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    return {
+        "ok": True,
+        "stats": {
+            "total_runs": row["total_runs"] or 0,
+            "pending_runs": row["pending_runs"] or 0,
+            "error_runs": row["error_runs"] or 0,
+        },
+    }

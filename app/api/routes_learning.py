@@ -53,7 +53,7 @@ def submit_feedback(payload: dict):
     ))
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True, "message": "Feedback saved — AI will learn from this"}
+    return {"ok": True, "message": "Feedback saved - AI will learn from this"}
 
 @router.get("/patterns")
 def get_learned_patterns():

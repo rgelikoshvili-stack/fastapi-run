@@ -8,15 +8,21 @@ def _clean(value):
     return value if value else None
 
 
+def _is_true(value) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def oris_config_status():
     base_url = _clean(os.getenv("ORIS_BASE_URL"))
     api_key = _clean(os.getenv("ORIS_API_KEY"))
     company_id = _clean(os.getenv("ORIS_COMPANY_ID"))
+    dry_run = _is_true(os.getenv("ORIS_DRY_RUN", "false"))
 
     return {
         "base_url": base_url,
         "api_key_configured": bool(api_key),
         "company_id": company_id,
+        "dry_run": dry_run,
         "ready": bool(base_url and api_key and company_id),
     }
 
@@ -28,20 +34,35 @@ def oris_ping():
         return {
             "ok": False,
             "status": "config_missing",
+            "error": "ORIS config is incomplete",
             "details": {
                 "base_url_present": bool(config["base_url"]),
                 "api_key_present": config["api_key_configured"],
                 "company_id_present": bool(config["company_id"]),
+                "dry_run": config["dry_run"],
+            },
+        }
+
+    if config["dry_run"]:
+        return {
+            "ok": True,
+            "status": "dry_run_ready",
+            "message": "ORIS config is present and dry-run mode is enabled.",
+            "details": {
+                "base_url": config["base_url"],
+                "company_id": config["company_id"],
+                "dry_run": True,
             },
         }
 
     return {
         "ok": True,
         "status": "ready_for_live_ping",
+        "message": "ORIS config is present. Live API call can be enabled.",
         "details": {
-            "message": "ORIS config is present. Live API call not enabled yet.",
             "base_url": config["base_url"],
             "company_id": config["company_id"],
+            "dry_run": False,
         },
     }
 
@@ -80,16 +101,33 @@ def post_to_oris(payload: dict):
                 "base_url_present": bool(config["base_url"]),
                 "api_key_present": config["api_key_configured"],
                 "company_id_present": bool(config["company_id"]),
+                "dry_run": config["dry_run"],
             },
         }
 
+    if config["dry_run"]:
+        return {
+            "ok": True,
+            "status": "dry_run_ready",
+            "message": "ORIS dry-run completed successfully. No live API request was sent.",
+            "payload": payload,
+            "target": {
+                "base_url": config["base_url"],
+                "company_id": config["company_id"],
+                "dry_run": True,
+            },
+        }
+
+    # Live HTTP request placeholder:
+    # აქ მომავალში დაემატება რეალური httpx POST request ORIS API-ზე.
     return {
         "ok": True,
         "status": "simulated_oris_post",
-        "message": "ORIS connector skeleton is ready. Replace this stub with live API request later.",
+        "message": "ORIS connector is ready. Replace this placeholder with a live API request when ORIS access is available.",
         "payload": payload,
         "target": {
             "base_url": config["base_url"],
             "company_id": config["company_id"],
+            "dry_run": False,
         },
     }

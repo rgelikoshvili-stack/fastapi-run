@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Request
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -19,29 +18,44 @@ def root():
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    return JSONResponse(status_code=500, content={
-        "ok": False, "message": "Internal server error", "data": None,
-        "error": {"code": "INTERNAL_ERROR", "details": str(exc)},
-    })
+    return JSONResponse(
+        status_code=500,
+        content={
+            "ok": False,
+            "message": "Internal server error",
+            "data": None,
+            "error": {"code": "INTERNAL_ERROR", "details": str(exc)},
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    return JSONResponse(status_code=422, content={
-        "ok": False, "message": "Validation failed", "data": None,
-        "error": {"code": "VALIDATION_ERROR", "details": exc.errors()},
-    })
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "message": "Validation failed",
+            "data": None,
+            "error": {"code": "VALIDATION_ERROR", "details": exc.errors()},
+        },
+    )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
-    return JSONResponse(status_code=exc.status_code, content={
-        "ok": False, "message": "HTTP error", "data": None,
-        "error": {"code": f"HTTP_{exc.status_code}", "details": str(exc.detail)},
-    })
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "ok": False,
+            "message": "HTTP error",
+            "data": None,
+            "error": {"code": f"HTTP_{exc.status_code}", "details": str(exc.detail)},
+        },
+    )
 
 
-# ─── CORE ROUTES ──────────────────────────────────────────────────────────────
+# --- CORE ROUTES ---
 
 from app.api import routes_health
 from app.api import routes_debug
@@ -71,9 +85,12 @@ app.include_router(routes_export_journal.router)
 app.include_router(routes_audit_log.router)
 app.include_router(version_router)
 
-# ─── FUTURE ROUTES (დროებით გამორთული) ───────────────────────────────────────
-# from app.api import routes_pipeline        # → routes_bank_process-ით ჩანაცვლდა
-# from app.api import routes_balance_ge      # → routes_posting-ით ჩანაცვლდა
+
+# --- FUTURE ROUTES ---
+# Keep these disabled until each module is cleaned, tested, and reintroduced.
+#
+# from app.api import routes_pipeline
+# from app.api import routes_balance_ge
 # from app.api import routes_dashboard_ui
 # from app.api import routes_dashboard_v2
 # from app.api import routes_dashboard_full
@@ -106,7 +123,6 @@ app.include_router(version_router)
 # from app.api import routes_audit_engine
 # from app.api import routes_finance_engine
 # from app.api import routes_strategy
-# from app.api import routes_fpa
 # from app.api import routes_invoices
 # from app.api import routes_invoice
 # from app.api import routes_docs
@@ -117,7 +133,8 @@ app.include_router(version_router)
 # from app.api import routes_1c
 # from app.api import routes_bank
 
-# ─── RATE LIMITING & SECURITY ─────────────────────────────────────────────────
+
+# --- RATE LIMITING & SECURITY ---
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)

@@ -618,4 +618,3 @@ def apply_posting(
             "result": result,
         },
     )
-PS C:\Users\Acer\fastapi-run> ისუფთავე?

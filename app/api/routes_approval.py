@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -14,12 +14,12 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"}
+            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"},
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"}
+            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"},
         )
 
 
@@ -59,7 +59,7 @@ def _fix_text(value):
                 good += 1
             elif ch.isdigit() or ch in " .,:-_/()[]":
                 good += 0.2
-        for m in ("Ã¡", "Ãƒ", "Â¢", "Â£", "Ã¢", "Ã", "Ã‘"):
+        for m in ("Ã¡", "Ãƒ", "Â¢", "Â£", "Ã¢", "Ã", "Ã‘"):
             good -= text.count(m) * 2
         return good
 
@@ -74,7 +74,8 @@ class RejectRequest(BaseModel):
     reason: Optional[str] = ""
 
 
-#  QUEUE 
+# --- QUEUE ---
+
 
 @router.get("/queue")
 def get_queue(status: str = "", limit: int = 100, offset: int = 0):
@@ -126,16 +127,20 @@ def get_queue(status: str = "", limit: int = 100, offset: int = 0):
         cur.close()
         conn.close()
 
-    return ok_response("Approval queue", {
-        "count": total,
-        "filter": status or "drafted+pending_approval",
-        "limit": limit,
-        "offset": offset,
-        "queue": items,
-    })
+    return ok_response(
+        "Approval queue",
+        {
+            "count": total,
+            "filter": status or "drafted+pending_approval",
+            "limit": limit,
+            "offset": offset,
+            "queue": items,
+        },
+    )
 
 
-#  APPROVE 
+# --- APPROVE ---
+
 
 @router.post("/approve/{draft_id}")
 def approve_draft(draft_id: int):
@@ -147,15 +152,25 @@ def approve_draft(draft_id: int):
         row = cur.fetchone()
 
         if not row:
-            return error_response("Not found", "NOT_FOUND", f"Draft {draft_id} not found")
+            return error_response(
+                "Not found", "NOT_FOUND", f"Draft {draft_id} not found"
+            )
 
         current_status = row["status"]
 
         if current_status == "approved":
-            return error_response("Already approved", "ALREADY_APPROVED", f"Draft {draft_id} is already approved")
+            return error_response(
+                "Already approved",
+                "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved",
+            )
 
         if current_status == "rejected":
-            return error_response("Already rejected", "ALREADY_REJECTED", f"Draft {draft_id} is already rejected and cannot be approved")
+            return error_response(
+                "Already rejected",
+                "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected and cannot be approved",
+            )
 
         cur.execute(
             """
@@ -170,7 +185,11 @@ def approve_draft(draft_id: int):
         conn.commit()
 
         if not updated:
-            return error_response("Approve blocked", "APPROVE_BLOCKED", f"Draft {draft_id} could not be approved")
+            return error_response(
+                "Approve blocked",
+                "APPROVE_BLOCKED",
+                f"Draft {draft_id} could not be approved",
+            )
 
     except Exception as e:
         conn.rollback()
@@ -183,7 +202,8 @@ def approve_draft(draft_id: int):
     return ok_response("Draft approved", {"id": draft_id, "status": "approved"})
 
 
-#  REJECT 
+# --- REJECT ---
+
 
 @router.post("/reject/{draft_id}")
 def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
@@ -195,15 +215,25 @@ def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
         row = cur.fetchone()
 
         if not row:
-            return error_response("Not found", "NOT_FOUND", f"Draft {draft_id} not found")
+            return error_response(
+                "Not found", "NOT_FOUND", f"Draft {draft_id} not found"
+            )
 
         current_status = row["status"]
 
         if current_status == "rejected":
-            return error_response("Already rejected", "ALREADY_REJECTED", f"Draft {draft_id} is already rejected")
+            return error_response(
+                "Already rejected",
+                "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected",
+            )
 
         if current_status == "approved":
-            return error_response("Already approved", "ALREADY_APPROVED", f"Draft {draft_id} is already approved and cannot be rejected")
+            return error_response(
+                "Already approved",
+                "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved and cannot be rejected",
+            )
 
         cur.execute(
             """
@@ -218,7 +248,11 @@ def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
         conn.commit()
 
         if not updated:
-            return error_response("Reject blocked", "REJECT_BLOCKED", f"Draft {draft_id} could not be rejected")
+            return error_response(
+                "Reject blocked",
+                "REJECT_BLOCKED",
+                f"Draft {draft_id} could not be rejected",
+            )
 
     except Exception as e:
         conn.rollback()
@@ -228,10 +262,14 @@ def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
         conn.close()
 
     log_event("draft_rejected", {"draft_id": draft_id, "reason": req.reason})
-    return ok_response("Draft rejected", {"id": draft_id, "status": "rejected", "reason": req.reason})
+    return ok_response(
+        "Draft rejected",
+        {"id": draft_id, "status": "rejected", "reason": req.reason},
+    )
 
 
-# â”€â”€â”€ AUDIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# --- AUDIT ---
+
 
 @router.get("/audit")
 def get_audit_log(limit: int = 50, offset: int = 0):

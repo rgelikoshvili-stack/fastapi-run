@@ -749,7 +749,7 @@ def apply_posting(
         conn.rollback()
         log_event(
             "posting_attempt_failed",
-            {"draft_id": draft_id, "target": target if 'target' in locals() else None, "error": str(e)},
+            {"draft_id": draft_id, "target": target, "error": str(e)}
         )
         return error_response("Unified posting apply failed", "POSTING_APPLY_ERROR", str(e))
     finally:

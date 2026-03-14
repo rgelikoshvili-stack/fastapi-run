@@ -11,16 +11,17 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"},
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"},
         )
 
 
-# ─── SUMMARY ──────────────────────────────────────────────────────────────────
+# --- SUMMARY ---
+
 
 @router.get("/summary")
 def get_system_summary():
@@ -37,7 +38,12 @@ def get_system_summary():
         cur.execute("SELECT status, COUNT(*) AS count FROM journal_drafts GROUP BY status")
         rows = cur.fetchall()
 
-        status_counts = {"drafted": 0, "pending_approval": 0, "approved": 0, "rejected": 0}
+        status_counts = {
+            "drafted": 0,
+            "pending_approval": 0,
+            "approved": 0,
+            "rejected": 0,
+        }
         for row in rows:
             status_counts[row["status"]] = row["count"]
 
@@ -61,26 +67,30 @@ def get_system_summary():
         cur.close()
         conn.close()
 
-    return ok_response("System summary", {
-        "bank_files_processed": bank_files_processed,
-        "transactions_total": transactions_total,
-        "drafted": status_counts.get("drafted", 0),
-        "pending_approval": status_counts.get("pending_approval", 0),
-        "approved": status_counts.get("approved", 0),
-        "rejected": status_counts.get("rejected", 0),
-        "duplicates_skipped": file_stats["skipped_sum"] or 0,
-        "file_stats": {
-            "total_rows_sum": file_stats["total_rows_sum"] or 0,
-            "drafted_sum": file_stats["drafted_sum"] or 0,
-            "review_sum": file_stats["review_sum"] or 0,
-            "failed_sum": file_stats["failed_sum"] or 0,
-            "inserted_sum": file_stats["inserted_sum"] or 0,
-            "skipped_sum": file_stats["skipped_sum"] or 0,
+    return ok_response(
+        "System summary",
+        {
+            "bank_files_processed": bank_files_processed,
+            "transactions_total": transactions_total,
+            "drafted": status_counts.get("drafted", 0),
+            "pending_approval": status_counts.get("pending_approval", 0),
+            "approved": status_counts.get("approved", 0),
+            "rejected": status_counts.get("rejected", 0),
+            "duplicates_skipped": file_stats["skipped_sum"] or 0,
+            "file_stats": {
+                "total_rows_sum": file_stats["total_rows_sum"] or 0,
+                "drafted_sum": file_stats["drafted_sum"] or 0,
+                "review_sum": file_stats["review_sum"] or 0,
+                "failed_sum": file_stats["failed_sum"] or 0,
+                "inserted_sum": file_stats["inserted_sum"] or 0,
+                "skipped_sum": file_stats["skipped_sum"] or 0,
+            },
         },
-    })
+    )
 
 
-# ─── OVERVIEW ─────────────────────────────────────────────────────────────────
+# --- OVERVIEW ---
+
 
 @router.get("/overview")
 def get_system_overview():
@@ -117,13 +127,19 @@ def get_system_overview():
         bank_files_summary = dict(cur.fetchone())
 
         cur.execute(
-            "SELECT status, COUNT(*) AS count FROM journal_drafts GROUP BY status ORDER BY status"
+            """
+            SELECT status, COUNT(*) AS count
+            FROM journal_drafts
+            GROUP BY status
+            ORDER BY status
+            """
         )
         status_breakdown = [dict(r) for r in cur.fetchall()]
 
         cur.execute(
             """
-            SELECT COUNT(*) AS count FROM journal_drafts
+            SELECT COUNT(*) AS count
+            FROM journal_drafts
             WHERE status = 'drafted' AND review_required = TRUE
             """
         )
@@ -131,9 +147,10 @@ def get_system_overview():
 
         cur.execute(
             """
-            SELECT id, filename, file_hash, source_type, total_rows,
-                   drafted_count, review_count, failed_count,
-                   inserted_count, skipped_duplicates, created_at
+            SELECT
+                id, filename, file_hash, source_type, total_rows,
+                drafted_count, review_count, failed_count,
+                inserted_count, skipped_duplicates, created_at
             FROM processed_bank_files
             ORDER BY created_at DESC, id DESC
             LIMIT 5
@@ -143,8 +160,9 @@ def get_system_overview():
 
         cur.execute(
             """
-            SELECT id, date, description, amount, account_code,
-                   confidence, review_required, status, source_type, created_at
+            SELECT
+                id, date, description, amount, account_code,
+                confidence, review_required, status, source_type, created_at
             FROM journal_drafts
             ORDER BY created_at DESC, id DESC
             LIMIT 10
@@ -158,19 +176,23 @@ def get_system_overview():
         cur.close()
         conn.close()
 
-    return ok_response("System overview", {
-        "summary": {
-            "journal_drafts": drafts_summary,
-            "bank_files": bank_files_summary,
+    return ok_response(
+        "System overview",
+        {
+            "summary": {
+                "journal_drafts": drafts_summary,
+                "bank_files": bank_files_summary,
+            },
+            "status_breakdown": status_breakdown,
+            "approval_queue_count": approval_queue_count,
+            "latest_bank_files": latest_bank_files,
+            "latest_drafts": latest_drafts,
         },
-        "status_breakdown": status_breakdown,
-        "approval_queue_count": approval_queue_count,
-        "latest_bank_files": latest_bank_files,
-        "latest_drafts": latest_drafts,
-    })
+    )
 
 
-# ─── BANK FILES ───────────────────────────────────────────────────────────────
+# --- BANK FILES ---
+
 
 @router.get("/bank-files")
 def get_bank_files_history(limit: int = 50, offset: int = 0):
@@ -184,9 +206,10 @@ def get_bank_files_history(limit: int = 50, offset: int = 0):
 
         cur.execute(
             """
-            SELECT id, filename, file_hash, source_type, total_rows,
-                   drafted_count, review_count, failed_count,
-                   inserted_count, skipped_duplicates, created_at
+            SELECT
+                id, filename, file_hash, source_type, total_rows,
+                drafted_count, review_count, failed_count,
+                inserted_count, skipped_duplicates, created_at
             FROM processed_bank_files
             ORDER BY created_at DESC, id DESC
             LIMIT %s OFFSET %s
@@ -196,17 +219,24 @@ def get_bank_files_history(limit: int = 50, offset: int = 0):
         items = [dict(r) for r in cur.fetchall()]
 
     except Exception as e:
-        return error_response("Bank files history failed", "BANK_FILES_HISTORY_ERROR", str(e))
+        return error_response(
+            "Bank files history failed",
+            "BANK_FILES_HISTORY_ERROR",
+            str(e),
+        )
     finally:
         cur.close()
         conn.close()
 
-    return ok_response("Bank files history", {
-        "count": total,
-        "limit": limit,
-        "offset": offset,
-        "items": items,
-    })
+    return ok_response(
+        "Bank files history",
+        {
+            "count": total,
+            "limit": limit,
+            "offset": offset,
+            "items": items,
+        },
+    )
 
 
 @router.get("/bank-files/{file_id}")
@@ -217,9 +247,10 @@ def get_bank_file_detail(file_id: int = Path(..., description="Processed bank fi
     try:
         cur.execute(
             """
-            SELECT id, filename, file_hash, source_type, total_rows,
-                   drafted_count, review_count, failed_count,
-                   inserted_count, skipped_duplicates, created_at
+            SELECT
+                id, filename, file_hash, source_type, total_rows,
+                drafted_count, review_count, failed_count,
+                inserted_count, skipped_duplicates, created_at
             FROM processed_bank_files
             WHERE id = %s
             """,
@@ -244,14 +275,22 @@ def get_bank_file_detail(file_id: int = Path(..., description="Processed bank fi
 
 
 @router.get("/bank-files/{file_id}/drafts")
-def get_bank_file_drafts(file_id: int, limit: int = 100, offset: int = 0):
+def get_bank_file_drafts(
+    file_id: int = Path(..., description="Processed bank file ID"),
+    limit: int = 100,
+    offset: int = 0,
+):
     _validate_pagination(limit, offset)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         cur.execute(
-            "SELECT id, filename, source_type, created_at FROM processed_bank_files WHERE id = %s",
+            """
+            SELECT id, filename, source_type, created_at
+            FROM processed_bank_files
+            WHERE id = %s
+            """,
             (file_id,),
         )
         bank_file = cur.fetchone()
@@ -264,17 +303,22 @@ def get_bank_file_drafts(file_id: int, limit: int = 100, offset: int = 0):
             )
 
         cur.execute(
-            "SELECT COUNT(*) AS total FROM journal_drafts WHERE bank_file_id = %s",
+            """
+            SELECT COUNT(*) AS total
+            FROM journal_drafts
+            WHERE bank_file_id = %s
+            """,
             (file_id,),
         )
         total = cur.fetchone()["total"]
 
         cur.execute(
             """
-            SELECT id, date, description, partner, amount,
-                   debit_account, credit_account, account_code,
-                   reason, confidence, review_required, status,
-                   source_type, bank_file_id, created_at
+            SELECT
+                id, date, description, partner, amount,
+                debit_account, credit_account, account_code,
+                reason, confidence, review_required, status,
+                source_type, bank_file_id, created_at
             FROM journal_drafts
             WHERE bank_file_id = %s
             ORDER BY created_at DESC, id DESC
@@ -290,10 +334,13 @@ def get_bank_file_drafts(file_id: int, limit: int = 100, offset: int = 0):
         cur.close()
         conn.close()
 
-    return ok_response("Bank file drafts", {
-        "bank_file": dict(bank_file),
-        "count": total,
-        "limit": limit,
-        "offset": offset,
-        "items": items,
-    })
+    return ok_response(
+        "Bank file drafts",
+        {
+            "bank_file": dict(bank_file),
+            "count": total,
+            "limit": limit,
+            "offset": offset,
+            "items": items,
+        },
+    )

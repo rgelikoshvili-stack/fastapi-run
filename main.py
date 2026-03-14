@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from slowapi.errors import RateLimitExceeded
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -37,7 +38,10 @@ async def validation_exception_handler(request, exc):
             "ok": False,
             "message": "Validation failed",
             "data": None,
-            "error": {"code": "VALIDATION_ERROR", "details": exc.errors()},
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "details": jsonable_encoder(exc.errors()),
+            },
         },
     )
 

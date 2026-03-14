@@ -1,59 +1,65 @@
-from app.api.audit_service import log_event
+import hashlib
 from fastapi import APIRouter, UploadFile, File
+import psycopg2.extras
+
+from app.api.audit_service import log_event
 from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
 from app.api.transaction_classifier import classify
 from app.api.journal_generator import generate_draft
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_db
 
-import hashlib
-import psycopg2
-import re
-
-
 router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def _normalize_text(value):
     if value is None:
         return ""
-    text = str(value).strip().lower()
-    text = re.sub(r"\s+", " ", text)
-    return text
+    return " ".join(str(value).strip().lower().split())
 
 
 def _normalize_amount(value):
-    if value is None:
-        return 0.0
-    return round(float(value), 2)
-
-
-def _normalize_date(value):
-    if value is None:
+    try:
+        return round(float(value), 2)
+    except Exception:
         return None
-    return str(value)[:10]
 
 
-def _build_tx_fingerprint(draft: dict):
-    normalized_date = _normalize_date(draft.get("date"))
-    normalized_description = _normalize_text(draft.get("description"))
-    normalized_amount = _normalize_amount(draft.get("amount"))
+def _build_tx_fingerprint(tx: dict) -> str:
+    normalized_date = str(tx.get("date") or "").strip()
+    normalized_description = _normalize_text(tx.get("description"))
+    normalized_amount = _normalize_amount(tx.get("amount"))
 
     raw = f"{normalized_date}|{normalized_description}|{normalized_amount}"
-    tx_fingerprint = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    return {
-        "normalized_date": normalized_date,
-        "normalized_description": normalized_description,
-        "normalized_amount": normalized_amount,
-        "tx_fingerprint": tx_fingerprint,
-    }
+
+def _find_existing_processed_file(cur, file_hash: str):
+    cur.execute(
+        """
+        SELECT
+            id, filename, file_hash, source_type, total_rows,
+            drafted_count, review_count, failed_count,
+            inserted_count, skipped_duplicates, created_at
+        FROM processed_bank_files
+        WHERE file_hash = %s
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (file_hash,),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def _find_existing_draft_by_fingerprint(cur, tx_fingerprint: str):
     cur.execute(
         """
-        SELECT id
+        SELECT id, status
         FROM journal_drafts
         WHERE tx_fingerprint = %s
         ORDER BY id DESC
@@ -61,7 +67,8 @@ def _find_existing_draft_by_fingerprint(cur, tx_fingerprint: str):
         """,
         (tx_fingerprint,),
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
 @router.post("/process")
@@ -72,6 +79,7 @@ async def process_bank_file(file: UploadFile = File(...)):
     try:
         content = await file.read()
         filename = (file.filename or "").lower()
+        file_hash = _sha256_bytes(content)
 
         if filename.endswith(".csv"):
             transactions = parse_csv_bytes(content)
@@ -89,117 +97,137 @@ async def process_bank_file(file: UploadFile = File(...)):
         drafted = []
         review = []
         failed = []
-
-        for tx in transactions:
-            try:
-                cl = classify(
-                    description=tx.get("description", ""),
-                    paid_in=tx.get("paid_in"),
-                    paid_out=tx.get("paid_out"),
-                    partner=tx.get("partner", "")
-                )
-                draft = generate_draft(tx, cl)
-                if draft["review_required"]:
-                    review.append(draft)
-                else:
-                    drafted.append(draft)
-            except Exception as e:
-                failed.append({"tx": tx, "error": str(e)})
+        inserted_count = 0
+        skipped_duplicates = 0
 
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        file_hash = hashlib.sha256(content).hexdigest()
+        existing_file = _find_existing_processed_file(cur, file_hash)
+        if existing_file:
+            log_event(
+                "bank_file_duplicate_skipped",
+                {
+                    "filename": file.filename,
+                    "file_hash": file_hash,
+                    "existing_processed_file_id": existing_file["id"],
+                },
+            )
+            return ok_response(
+                "Duplicate bank file skipped",
+                {
+                    "duplicate": True,
+                    "filename": file.filename,
+                    "file_hash": file_hash,
+                    "original_id": str(existing_file["id"]),
+                    "message": "ეს ფაილი უკვე დამუშავებულია",
+                },
+            )
 
         cur.execute(
             """
             INSERT INTO processed_bank_files
-            (filename, file_hash, source_type, total_rows, drafted_count, review_count, failed_count, inserted_count, skipped_duplicates)
+            (
+                filename, file_hash, source_type, total_rows,
+                drafted_count, review_count, failed_count,
+                inserted_count, skipped_duplicates
+            )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (
-                file.filename,
-                file_hash,
-                source_type,
-                total,
-                len(drafted),
-                len(review),
-                len(failed),
-                0,
-                0,
-            ),
+            (file.filename, file_hash, source_type, total, 0, 0, 0, 0, 0),
         )
-        bank_file_id = cur.fetchone()[0]
+        bank_file_id = cur.fetchone()["id"]
 
-        inserted_count = 0
-        skipped_duplicates = 0
+        for tx in transactions:
+            try:
+                amount = tx.get("amount")
+                if amount is None:
+                    paid_in = tx.get("paid_in")
+                    paid_out = tx.get("paid_out")
+                    if paid_in not in (None, "", 0, 0.0):
+                        amount = paid_in
+                    elif paid_out not in (None, "", 0, 0.0):
+                        amount = paid_out
 
-        for d in drafted + review:
-            fp = _build_tx_fingerprint(d)
+                tx["amount"] = amount
+                tx_fingerprint = _build_tx_fingerprint(tx)
 
-            existing = _find_existing_draft_by_fingerprint(cur, fp["tx_fingerprint"])
-            if existing:
-                skipped_duplicates += 1
-                continue
+                existing_draft = _find_existing_draft_by_fingerprint(cur, tx_fingerprint)
+                if existing_draft:
+                    skipped_duplicates += 1
+                    continue
 
-            cur.execute(
-                """
-                INSERT INTO journal_drafts (
-                    date,
-                    description,
-                    partner,
-                    amount,
-                    debit_account,
-                    credit_account,
-                    account_code,
-                    reason,
-                    confidence,
-                    review_required,
-                    status,
-                    source_type,
-                    created_at,
-                    normalized_date,
-                    normalized_description,
-                    normalized_amount,
-                    bank_file_id,
-                    tx_fingerprint
+                cl = classify(
+                    description=tx.get("description", ""),
+                    paid_in=tx.get("paid_in"),
+                    paid_out=tx.get("paid_out"),
+                    partner=tx.get("partner", ""),
                 )
-                VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    NOW(), %s, %s, %s, %s, %s
+
+                draft = generate_draft(tx, cl)
+                draft["bank_file_id"] = bank_file_id
+                draft["tx_fingerprint"] = tx_fingerprint
+
+                cur.execute(
+                    """
+                    INSERT INTO journal_drafts
+                    (
+                        date, description, partner, amount,
+                        debit_account, credit_account, account_code,
+                        reason, confidence, review_required, status,
+                        source_type, bank_file_id, tx_fingerprint
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        draft.get("date"),
+                        draft.get("description"),
+                        draft.get("partner"),
+                        draft.get("amount"),
+                        draft.get("debit_account"),
+                        draft.get("credit_account"),
+                        draft.get("account_code"),
+                        draft.get("reason"),
+                        draft.get("confidence"),
+                        draft.get("review_required"),
+                        draft.get("status"),
+                        draft.get("source_type"),
+                        draft.get("bank_file_id"),
+                        draft.get("tx_fingerprint"),
+                    ),
                 )
-                """,
-                (
-                    d.get("date"),
-                    d.get("description"),
-                    d.get("partner"),
-                    d.get("amount"),
-                    d.get("debit_account"),
-                    d.get("credit_account"),
-                    d.get("account_code"),
-                    d.get("reason"),
-                    d.get("confidence"),
-                    d.get("review_required"),
-                    d.get("status"),
-                    d.get("source_type") or source_type,
-                    fp["normalized_date"],
-                    fp["normalized_description"],
-                    fp["normalized_amount"],
-                    bank_file_id,
-                    fp["tx_fingerprint"],
-                ),
-            )
-            inserted_count += 1
+                draft["id"] = cur.fetchone()["id"]
+
+                inserted_count += 1
+                if draft["review_required"]:
+                    review.append(draft)
+                else:
+                    drafted.append(draft)
+
+            except Exception as e:
+                failed.append({"tx": tx, "error": str(e)})
 
         cur.execute(
             """
             UPDATE processed_bank_files
-            SET inserted_count = %s,
+            SET
+                drafted_count = %s,
+                review_count = %s,
+                failed_count = %s,
+                inserted_count = %s,
                 skipped_duplicates = %s
             WHERE id = %s
             """,
-            (inserted_count, skipped_duplicates, bank_file_id),
+            (
+                len(drafted),
+                len(review),
+                len(failed),
+                inserted_count,
+                skipped_duplicates,
+                bank_file_id,
+            ),
         )
 
         conn.commit()
@@ -216,19 +244,22 @@ async def process_bank_file(file: UploadFile = File(...)):
             },
         )
 
-        return ok_response("Bank file processed", {
-            "filename": file.filename,
-            "total_rows": total,
-            "drafted_count": len(drafted),
-            "review_count": len(review),
-            "failed_count": len(failed),
-            "inserted_count": inserted_count,
-            "skipped_duplicates": skipped_duplicates,
-            "processed_file_id": bank_file_id,
-            "drafted": drafted,
-            "review_required": review,
-            "failed": failed,
-        })
+        return ok_response(
+            "Bank file processed",
+            {
+                "filename": file.filename,
+                "total_rows": total,
+                "drafted_count": len(drafted),
+                "review_count": len(review),
+                "failed_count": len(failed),
+                "inserted_count": inserted_count,
+                "skipped_duplicates": skipped_duplicates,
+                "processed_file_id": bank_file_id,
+                "drafted": drafted,
+                "review_required": review,
+                "failed": failed,
+            },
+        )
 
     except Exception as e:
         if conn:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+﻿from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -14,12 +14,12 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "limit áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"}
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"}
+            detail={"error": "INVALID_PAGINATION", "message": "offset áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"}
         )
 
 
@@ -59,7 +59,7 @@ def _fix_text(value):
                 good += 1
             elif ch.isdigit() or ch in " .,:-_/()[]":
                 good += 0.2
-        for m in ("á", "Ã", "¢", "£", "â", "Ð", "Ñ"):
+        for m in ("Ã¡", "Ãƒ", "Â¢", "Â£", "Ã¢", "Ã", "Ã‘"):
             good -= text.count(m) * 2
         return good
 
@@ -74,7 +74,7 @@ class RejectRequest(BaseModel):
     reason: Optional[str] = ""
 
 
-# ─── QUEUE ────────────────────────────────────────────────────────────────────
+#  QUEUE 
 
 @router.get("/queue")
 def get_queue(status: str = "", limit: int = 100, offset: int = 0):
@@ -135,7 +135,7 @@ def get_queue(status: str = "", limit: int = 100, offset: int = 0):
     })
 
 
-# ─── APPROVE ──────────────────────────────────────────────────────────────────
+#  APPROVE 
 
 @router.post("/approve/{draft_id}")
 def approve_draft(draft_id: int):
@@ -183,7 +183,7 @@ def approve_draft(draft_id: int):
     return ok_response("Draft approved", {"id": draft_id, "status": "approved"})
 
 
-# ─── REJECT ───────────────────────────────────────────────────────────────────
+#  REJECT 
 
 @router.post("/reject/{draft_id}")
 def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
@@ -231,7 +231,7 @@ def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
     return ok_response("Draft rejected", {"id": draft_id, "status": "rejected", "reason": req.reason})
 
 
-# ─── AUDIT ────────────────────────────────────────────────────────────────────
+# â”€â”€â”€ AUDIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/audit")
 def get_audit_log(limit: int = 50, offset: int = 0):

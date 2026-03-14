@@ -4,6 +4,7 @@ import psycopg2.extras
 
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
+from app.api.audit_service import log_event
 from app.api.balance_connector import (
     balance_config_status,
     balance_ping,
@@ -167,6 +168,7 @@ def get_approved_drafts(limit: int = 100, offset: int = 0):
     _validate_pagination(limit, offset)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         cur.execute("SELECT COUNT(*) AS total FROM journal_drafts WHERE status = 'approved'")
         total = cur.fetchone()["total"]
@@ -205,6 +207,7 @@ def get_approved_drafts(limit: int = 100, offset: int = 0):
 def get_posting_payload(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
@@ -228,6 +231,7 @@ def get_posting_payload(draft_id: int = Path(..., description="Approved journal 
 def mock_posting(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
         draft = _fetch_draft(cur, draft_id)
         err = _validate_approved_draft(draft, draft_id)
@@ -236,11 +240,24 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
 
         existing_post = _find_successful_post(cur, draft["id"], "mock")
         if existing_post:
+            log_event(
+                "posting_duplicate_blocked",
+                {
+                    "draft_id": draft["id"],
+                    "target": "mock",
+                    "existing_log_id": existing_post["id"],
+                },
+            )
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
                 f"draft_id={draft['id']} was already posted to mock (log_id={existing_post['id']})",
             )
+
+        log_event(
+            "posting_attempt_started",
+            {"draft_id": draft["id"], "target": "mock"},
+        )
 
         payload = _build_generic_payload(draft)
         mock_response = {
@@ -249,6 +266,7 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
             "message": "Mock posting completed successfully",
             "posted_draft_id": draft["id"],
         }
+
         posting_log_id = _insert_posting_log(
             cur,
             draft["id"],
@@ -259,8 +277,23 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
             None,
         )
         conn.commit()
+
+        log_event(
+            "posting_attempt_finished",
+            {
+                "draft_id": draft["id"],
+                "target": "mock",
+                "posting_log_id": posting_log_id,
+                "status": "simulated_success",
+            },
+        )
+
     except Exception as e:
         conn.rollback()
+        log_event(
+            "posting_attempt_failed",
+            {"draft_id": draft_id, "target": "mock", "error": str(e)},
+        )
         return error_response("Mock posting failed", "MOCK_POSTING_ERROR", str(e))
     finally:
         cur.close()
@@ -396,14 +429,28 @@ def post_draft_to_balance(draft_id: int = Path(..., description="Approved journa
 
         existing_post = _find_successful_post(cur, draft["id"], "balance")
         if existing_post:
+            log_event(
+                "posting_duplicate_blocked",
+                {
+                    "draft_id": draft["id"],
+                    "target": "balance",
+                    "existing_log_id": existing_post["id"],
+                },
+            )
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
                 f"draft_id={draft['id']} was already posted to balance (log_id={existing_post['id']})",
             )
 
+        log_event(
+            "posting_attempt_started",
+            {"draft_id": draft["id"], "target": "balance"},
+        )
+
         payload = build_balance_payload(dict(draft))
         balance_result = post_to_balance(payload)
+
         posting_log_id = _insert_posting_log(
             cur,
             draft["id"],
@@ -414,8 +461,23 @@ def post_draft_to_balance(draft_id: int = Path(..., description="Approved journa
             balance_result.get("error"),
         )
         conn.commit()
+
+        log_event(
+            "posting_attempt_finished",
+            {
+                "draft_id": draft["id"],
+                "target": "balance",
+                "posting_log_id": posting_log_id,
+                "status": balance_result.get("status", "unknown"),
+            },
+        )
+
     except Exception as e:
         conn.rollback()
+        log_event(
+            "posting_attempt_failed",
+            {"draft_id": draft_id, "target": "balance", "error": str(e)},
+        )
         return error_response("Balance posting failed", "BALANCE_POSTING_ERROR", str(e))
     finally:
         cur.close()
@@ -456,14 +518,28 @@ def post_draft_to_onec(draft_id: int = Path(..., description="Approved journal d
 
         existing_post = _find_successful_post(cur, draft["id"], "1c")
         if existing_post:
+            log_event(
+                "posting_duplicate_blocked",
+                {
+                    "draft_id": draft["id"],
+                    "target": "1c",
+                    "existing_log_id": existing_post["id"],
+                },
+            )
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
                 f"draft_id={draft['id']} was already posted to 1c (log_id={existing_post['id']})",
             )
 
+        log_event(
+            "posting_attempt_started",
+            {"draft_id": draft["id"], "target": "1c"},
+        )
+
         payload = build_onec_payload(dict(draft))
         onec_result = post_to_onec(payload)
+
         posting_log_id = _insert_posting_log(
             cur,
             draft["id"],
@@ -474,8 +550,23 @@ def post_draft_to_onec(draft_id: int = Path(..., description="Approved journal d
             onec_result.get("error"),
         )
         conn.commit()
+
+        log_event(
+            "posting_attempt_finished",
+            {
+                "draft_id": draft["id"],
+                "target": "1c",
+                "posting_log_id": posting_log_id,
+                "status": onec_result.get("status", "unknown"),
+            },
+        )
+
     except Exception as e:
         conn.rollback()
+        log_event(
+            "posting_attempt_failed",
+            {"draft_id": draft_id, "target": "1c", "error": str(e)},
+        )
         return error_response("1C posting failed", "ONEC_POSTING_ERROR", str(e))
     finally:
         cur.close()
@@ -516,14 +607,28 @@ def post_draft_to_oris(draft_id: int = Path(..., description="Approved journal d
 
         existing_post = _find_successful_post(cur, draft["id"], "oris")
         if existing_post:
+            log_event(
+                "posting_duplicate_blocked",
+                {
+                    "draft_id": draft["id"],
+                    "target": "oris",
+                    "existing_log_id": existing_post["id"],
+                },
+            )
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
                 f"draft_id={draft['id']} was already posted to oris (log_id={existing_post['id']})",
             )
 
+        log_event(
+            "posting_attempt_started",
+            {"draft_id": draft["id"], "target": "oris"},
+        )
+
         payload = build_oris_payload(dict(draft))
         oris_result = post_to_oris(payload)
+
         posting_log_id = _insert_posting_log(
             cur,
             draft["id"],
@@ -534,8 +639,23 @@ def post_draft_to_oris(draft_id: int = Path(..., description="Approved journal d
             oris_result.get("error"),
         )
         conn.commit()
+
+        log_event(
+            "posting_attempt_finished",
+            {
+                "draft_id": draft["id"],
+                "target": "oris",
+                "posting_log_id": posting_log_id,
+                "status": oris_result.get("status", "unknown"),
+            },
+        )
+
     except Exception as e:
         conn.rollback()
+        log_event(
+            "posting_attempt_failed",
+            {"draft_id": draft_id, "target": "oris", "error": str(e)},
+        )
         return error_response("ORIS posting failed", "ORIS_POSTING_ERROR", str(e))
     finally:
         cur.close()
@@ -582,11 +702,24 @@ def apply_posting(
 
         existing_post = _find_successful_post(cur, draft["id"], log_target)
         if existing_post:
+            log_event(
+                "posting_duplicate_blocked",
+                {
+                    "draft_id": draft["id"],
+                    "target": log_target,
+                    "existing_log_id": existing_post["id"],
+                },
+            )
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
                 f"draft_id={draft['id']} was already posted to {log_target} (log_id={existing_post['id']})",
             )
+
+        log_event(
+            "posting_attempt_started",
+            {"draft_id": draft["id"], "target": log_target},
+        )
 
         payload = connector["payload_builder"](draft)
         result = connector["executor"](payload, draft)
@@ -601,8 +734,23 @@ def apply_posting(
             result.get("error"),
         )
         conn.commit()
+
+        log_event(
+            "posting_attempt_finished",
+            {
+                "draft_id": draft["id"],
+                "target": log_target,
+                "posting_log_id": posting_log_id,
+                "status": result.get("status", result.get("result", "unknown")),
+            },
+        )
+
     except Exception as e:
         conn.rollback()
+        log_event(
+            "posting_attempt_failed",
+            {"draft_id": draft_id, "target": target if 'target' in locals() else None, "error": str(e)},
+        )
         return error_response("Unified posting apply failed", "POSTING_APPLY_ERROR", str(e))
     finally:
         cur.close()

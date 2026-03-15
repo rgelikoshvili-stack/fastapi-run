@@ -29,11 +29,13 @@ def _normalize_amount(value):
         return None
 
 
-def _build_tx_fingerprint(tx: dict) -> str:
-    normalized_date = str(tx.get("date") or "").strip()
-    normalized_description = _normalize_text(tx.get("description"))
-    normalized_amount = _normalize_amount(tx.get("amount"))
+def _normalize_date(value):
+    if value is None:
+        return ""
+    return str(value).strip()
 
+
+def _build_tx_fingerprint(normalized_date: str, normalized_description: str, normalized_amount):
     raw = f"{normalized_date}|{normalized_description}|{normalized_amount}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -151,7 +153,16 @@ async def process_bank_file(file: UploadFile = File(...)):
                         amount = paid_out
 
                 tx["amount"] = amount
-                tx_fingerprint = _build_tx_fingerprint(tx)
+
+                normalized_date = _normalize_date(tx.get("date"))
+                normalized_description = _normalize_text(tx.get("description"))
+                normalized_amount = _normalize_amount(tx.get("amount"))
+
+                tx_fingerprint = _build_tx_fingerprint(
+                    normalized_date,
+                    normalized_description,
+                    normalized_amount,
+                )
 
                 existing_draft = _find_existing_draft_by_fingerprint(cur, tx_fingerprint)
                 if existing_draft:
@@ -168,6 +179,9 @@ async def process_bank_file(file: UploadFile = File(...)):
                 draft = generate_draft(tx, cl)
                 draft["bank_file_id"] = bank_file_id
                 draft["tx_fingerprint"] = tx_fingerprint
+                draft["normalized_date"] = normalized_date
+                draft["normalized_description"] = normalized_description
+                draft["normalized_amount"] = normalized_amount
 
                 cur.execute(
                     """
@@ -176,9 +190,10 @@ async def process_bank_file(file: UploadFile = File(...)):
                         date, description, partner, amount,
                         debit_account, credit_account, account_code,
                         reason, confidence, review_required, status,
-                        source_type, bank_file_id, tx_fingerprint
+                        source_type, normalized_date, normalized_description, normalized_amount,
+                        bank_file_id, tx_fingerprint
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -194,6 +209,9 @@ async def process_bank_file(file: UploadFile = File(...)):
                         draft.get("review_required"),
                         draft.get("status"),
                         draft.get("source_type"),
+                        draft.get("normalized_date"),
+                        draft.get("normalized_description"),
+                        draft.get("normalized_amount"),
                         draft.get("bank_file_id"),
                         draft.get("tx_fingerprint"),
                     ),

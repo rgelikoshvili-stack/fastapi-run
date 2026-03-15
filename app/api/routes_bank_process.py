@@ -190,8 +190,8 @@ async def process_bank_file(file: UploadFile = File(...)):
                         date, description, partner, amount,
                         debit_account, credit_account, account_code,
                         reason, confidence, review_required, status,
-                        source_type, normalized_date, normalized_description, normalized_amount,
-                        bank_file_id, tx_fingerprint
+                        source_type, bank_file_id, tx_fingerprint,
+                        normalized_date, normalized_description, normalized_amount
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
@@ -209,11 +209,11 @@ async def process_bank_file(file: UploadFile = File(...)):
                         draft.get("review_required"),
                         draft.get("status"),
                         draft.get("source_type"),
+                        draft.get("bank_file_id"),
+                        draft.get("tx_fingerprint"),
                         draft.get("normalized_date"),
                         draft.get("normalized_description"),
                         draft.get("normalized_amount"),
-                        draft.get("bank_file_id"),
-                        draft.get("tx_fingerprint"),
                     ),
                 )
                 draft["id"] = cur.fetchone()["id"]

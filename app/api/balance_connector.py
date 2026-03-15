@@ -46,7 +46,8 @@ def balance_ping():
     if config["dry_run"]:
         return {
             "ok": True,
-            "status": "dry_run_ready",
+            "status": "dry_run_only",
+            "error": None,
             "message": "Balance config is present and dry-run mode is enabled.",
             "details": {
                 "base_url": config["base_url"],
@@ -58,6 +59,7 @@ def balance_ping():
     return {
         "ok": True,
         "status": "ready_for_live_ping",
+        "error": None,
         "message": "Balance config is present. Live API call can be enabled.",
         "details": {
             "base_url": config["base_url"],
@@ -108,7 +110,8 @@ def post_to_balance(payload: dict):
     if config["dry_run"]:
         return {
             "ok": True,
-            "status": "dry_run_ready",
+            "status": "dry_run_only",
+            "error": None,
             "message": "Balance dry-run completed successfully. No live API request was sent.",
             "payload": payload,
             "target": {
@@ -118,11 +121,11 @@ def post_to_balance(payload: dict):
             },
         }
 
-    # Live HTTP request placeholder:
-    # აქ მომავალში დაემატება რეალური httpx POST request Balance API-ზე.
+    # Live HTTP request placeholder
     return {
         "ok": True,
-        "status": "simulated_balance_post",
+        "status": "simulated_success",
+        "error": None,
         "message": "Balance connector is ready. Replace this placeholder with a live API request when Balance access is available.",
         "payload": payload,
         "target": {

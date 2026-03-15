@@ -120,7 +120,7 @@ def _find_successful_post(cur, draft_id: int, target_system: str):
         FROM posting_logs
         WHERE draft_id = %s
           AND target_system = %s
-          AND status IN ('posted', 'success', 'simulated_success')
+          AND status NOT IN ('failed', 'config_missing', 'dry_run_only')
         ORDER BY created_at DESC, id DESC
         LIMIT 1
         """,

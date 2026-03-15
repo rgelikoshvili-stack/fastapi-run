@@ -206,7 +206,7 @@ def approve_draft(draft_id: int):
 
 
 @router.post("/reject/{draft_id}")
-def reject_draft(draft_id: int, req: RejectRequest = RejectRequest()):
+def reject_draft(draft_id: int, req: RejectRequest):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 

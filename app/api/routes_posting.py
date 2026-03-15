@@ -129,6 +129,64 @@ def _find_successful_post(cur, draft_id: int, target_system: str):
     return cur.fetchone()
 
 
+def _is_connector_ready(status: dict) -> bool:
+    if not isinstance(status, dict):
+        return False
+
+    if status.get("ok") is True:
+        return True
+
+    if status.get("ready") is True:
+        return True
+
+    if status.get("configured") is True:
+        return True
+
+    if "base_url" in status or "api_key_configured" in status or "company_id" in status:
+        return bool(status.get("base_url")) and bool(status.get("api_key_configured")) and bool(status.get("company_id"))
+
+    return False
+
+
+def _get_connector_readiness(target_normalized: str) -> dict:
+    if target_normalized == "mock":
+        return {
+            "target": "mock",
+            "ready": True,
+            "status": {"ok": True, "mode": "mock"},
+        }
+
+    if target_normalized == "balance":
+        status = balance_config_status()
+        return {
+            "target": "balance",
+            "ready": _is_connector_ready(status),
+            "status": status,
+        }
+
+    if target_normalized == "1c":
+        status = onec_config_status()
+        return {
+            "target": "1c",
+            "ready": _is_connector_ready(status),
+            "status": status,
+        }
+
+    if target_normalized == "oris":
+        status = oris_config_status()
+        return {
+            "target": "oris",
+            "ready": _is_connector_ready(status),
+            "status": status,
+        }
+
+    return {
+        "target": target_normalized,
+        "ready": False,
+        "status": {"error": "unsupported_target"},
+    }
+
+
 def _get_connector_executor(target_normalized: str):
     connectors = {
         "mock": {
@@ -158,9 +216,6 @@ def _get_connector_executor(target_normalized: str):
         },
     }
     return connectors.get(target_normalized)
-
-
-# --- APPROVED DRAFTS ---
 
 
 @router.get("/approved-drafts")
@@ -200,9 +255,6 @@ def get_approved_drafts(limit: int = 100, offset: int = 0):
     )
 
 
-# --- PAYLOAD PREVIEW ---
-
-
 @router.get("/payload/{draft_id}")
 def get_posting_payload(draft_id: int = Path(..., description="Approved journal draft ID")):
     conn = get_db()
@@ -222,9 +274,6 @@ def get_posting_payload(draft_id: int = Path(..., description="Approved journal 
         conn.close()
 
     return ok_response("Posting payload preview", {"draft": dict(draft), "payload": payload})
-
-
-# --- MOCK POSTING ---
 
 
 @router.post("/mock/{draft_id}")
@@ -308,9 +357,6 @@ def mock_posting(draft_id: int = Path(..., description="Approved journal draft I
             "response": mock_response,
         },
     )
-
-
-# --- POSTING LOGS ---
 
 
 @router.get("/logs")
@@ -405,9 +451,6 @@ def get_posting_log_detail(log_id: int = Path(..., description="Posting log ID")
     return ok_response("Posting log detail", dict(row))
 
 
-# --- BALANCE ---
-
-
 @router.get("/balance-status")
 def get_balance_status():
     try:
@@ -492,9 +535,6 @@ def post_draft_to_balance(draft_id: int = Path(..., description="Approved journa
             "balance_result": balance_result,
         },
     )
-
-
-# --- 1C ---
 
 
 @router.get("/onec-status")
@@ -583,9 +623,6 @@ def post_draft_to_onec(draft_id: int = Path(..., description="Approved journal d
     )
 
 
-# --- ORIS ---
-
-
 @router.get("/oris-status")
 def get_oris_status():
     try:
@@ -672,13 +709,14 @@ def post_draft_to_oris(draft_id: int = Path(..., description="Approved journal d
     )
 
 
-# --- UNIFIED APPLY ---
-
-
 @router.post("/apply/{draft_id}")
 def apply_posting(
     draft_id: int = Path(..., description="Approved journal draft ID"),
-    target: str = Query(..., description="Target system: mock, balance, 1c, oris"),
+    target: str = Query(
+        ...,
+        pattern="^(mock|balance|1c|oris)$",
+        description="Target system: mock, balance, 1c, oris",
+    ),
 ):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -716,6 +754,29 @@ def apply_posting(
                 f"draft_id={draft['id']} was already posted to {log_target} (log_id={existing_post['id']})",
             )
 
+        readiness = _get_connector_readiness(target_normalized)
+        if not readiness["ready"]:
+            log_event(
+                "connector_not_ready",
+                {
+                    "draft_id": draft["id"],
+                    "target": log_target,
+                    "readiness": readiness["status"],
+                },
+            )
+            return error_response(
+                "Connector not ready",
+                "CONNECTOR_NOT_READY",
+                json.dumps(
+                    {
+                        "draft_id": draft["id"],
+                        "target": log_target,
+                        "readiness": readiness["status"],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
         log_event(
             "posting_attempt_started",
             {"draft_id": draft["id"], "target": log_target},
@@ -749,7 +810,7 @@ def apply_posting(
         conn.rollback()
         log_event(
             "posting_attempt_failed",
-            {"draft_id": draft_id, "target": target, "error": str(e)}
+            {"draft_id": draft_id, "target": target, "error": str(e)},
         )
         return error_response("Unified posting apply failed", "POSTING_APPLY_ERROR", str(e))
     finally:

@@ -124,9 +124,9 @@ def post_to_oris(payload: dict):
     # Live HTTP request placeholder
     return {
         "ok": True,
-        "status": "simulated_success",
+        "status": "ready_for_live_post",
         "error": None,
-        "message": "ORIS connector is ready. Replace this placeholder with a live API request when ORIS access is available.",
+        "message": "ORIS connector config is ready, but live posting is still a placeholder until full ORIS API access is available.",
         "payload": payload,
         "target": {
             "base_url": config["base_url"],

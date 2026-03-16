@@ -124,9 +124,9 @@ def post_to_balance(payload: dict):
     # Live HTTP request placeholder
     return {
         "ok": True,
-        "status": "simulated_success",
+        "status": "ready_for_live_post",
         "error": None,
-        "message": "Balance connector is ready. Replace this placeholder with a live API request when Balance access is available.",
+        "message": "Balance connector config is ready, but live posting is still a placeholder until full Balance API access is available.",
         "payload": payload,
         "target": {
             "base_url": config["base_url"],

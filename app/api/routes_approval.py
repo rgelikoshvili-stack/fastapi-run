@@ -8,6 +8,7 @@ from app.api.services.approval_service import (
     reject_draft_service,
     get_audit_service,
 )
+from app.api.services.correct_draft_service import correct_draft
 
 router = APIRouter(prefix="/approval", tags=["approval"])
 
@@ -29,7 +30,12 @@ class RejectRequest(BaseModel):
     reason: Optional[str] = ""
 
 
-# --- QUEUE ---
+class CorrectRequest(BaseModel):
+    account_code: Optional[str] = None
+    reason: Optional[str] = None
+    debit_account: Optional[str] = None
+    credit_account: Optional[str] = None
+    user: Optional[str] = "human"
 
 
 @router.get("/queue")
@@ -38,15 +44,9 @@ def get_queue(status: str = "", limit: int = 100, offset: int = 0):
     return get_queue_service(status, limit, offset)
 
 
-# --- APPROVE ---
-
-
 @router.post("/approve/{draft_id}")
 def approve_draft(draft_id: int):
     return approve_draft_service(draft_id)
-
-
-# --- REJECT ---
 
 
 @router.post("/reject/{draft_id}")
@@ -54,7 +54,15 @@ def reject_draft(draft_id: int, req: RejectRequest):
     return reject_draft_service(draft_id, req.reason)
 
 
-# --- AUDIT ---
+@router.post("/correct/{draft_id}")
+def correct_draft_route(draft_id: int, req: CorrectRequest):
+    payload = {
+        "account_code": req.account_code,
+        "reason": req.reason,
+        "debit_account": req.debit_account,
+        "credit_account": req.credit_account,
+    }
+    return correct_draft(draft_id, payload, req.user or "human")
 
 
 @router.get("/audit")

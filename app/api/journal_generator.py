@@ -1,77 +1,65 @@
-BANK_ACCOUNT = "1210"
+def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
+    source = cl.get("source")
+    confidence = float(cl.get("confidence") or 0)
+    support_count = int(cl.get("pattern_support_count") or 0)
+    failure_count = int(cl.get("pattern_failure_count") or 0)
 
-POSTING_RULES = {
-    "income":            {"dr": BANK_ACCOUNT, "cr": "6100"},
-    "income_direction":  {"dr": BANK_ACCOUNT, "cr": "6100"},
+    if source in ("pattern_active", "pattern_active_fuzzy"):
+        if confidence >= 0.90 and failure_count == 0:
+            return False, "auto_approved", "trusted_active_pattern"
+        return False, "drafted", "active_pattern_manual_post"
 
-    "salary":            {"dr": "7120", "cr": BANK_ACCOUNT},
-    "rent":              {"dr": "7110", "cr": BANK_ACCOUNT},
-    "utility":           {"dr": "7130", "cr": BANK_ACCOUNT},
-    "software":          {"dr": "7140", "cr": BANK_ACCOUNT},
-    "bank_fee":          {"dr": "7150", "cr": BANK_ACCOUNT},
-    "transport":         {"dr": "7160", "cr": BANK_ACCOUNT},
-    "marketing":         {"dr": "7170", "cr": BANK_ACCOUNT},
-    "office":            {"dr": "7180", "cr": BANK_ACCOUNT},
-    "delivery":          {"dr": "7185", "cr": BANK_ACCOUNT},
-    "tax":               {"dr": "3100", "cr": BANK_ACCOUNT},
+    if source in ("pattern_candidate", "pattern_candidate_fuzzy"):
+        return True, "pending_approval", "candidate_pattern_needs_review"
 
-    "grocery":           {"dr": "7191", "cr": BANK_ACCOUNT},
-    "household":         {"dr": "7192", "cr": BANK_ACCOUNT},
-    "pos_expense":       {"dr": "7190", "cr": BANK_ACCOUNT},
-    "default_expense":   {"dr": "7190", "cr": BANK_ACCOUNT},
-    "expense_direction": {"dr": "7190", "cr": BANK_ACCOUNT},
+    if confidence >= 0.85:
+        return False, "drafted", "high_confidence_rules"
 
-    "conversion":        {"dr": BANK_ACCOUNT, "cr": BANK_ACCOUNT},
-    "transfer":          {"dr": BANK_ACCOUNT, "cr": BANK_ACCOUNT},
-
-    "cost_of_goods":     {"dr": "7100", "cr": BANK_ACCOUNT},
-}
+    return True, "pending_approval", "low_confidence_rules"
 
 
-def generate_draft(transaction: dict, classification: dict) -> dict:
-    reason = classification.get("reason", "default_expense")
-    account_code = classification.get("account_code", "7190")
-    confidence = float(classification.get("confidence", 0.4))
-    review_required = classification.get("review_required", confidence < 0.75)
+def generate_draft(tx: dict, cl: dict) -> dict:
+    amount = tx.get("amount")
+    if amount is None:
+        paid_in = tx.get("paid_in")
+        paid_out = tx.get("paid_out")
+        if paid_in not in (None, "", 0, 0.0):
+            amount = paid_in
+        elif paid_out not in (None, "", 0, 0.0):
+            amount = paid_out
+        else:
+            amount = 0.0
 
-    paid_in = transaction.get("paid_in")
-    paid_out = transaction.get("paid_out")
+    account_code = cl.get("account_code")
+    review_required, status, autopilot_reason = decide_autopilot_status(cl)
 
-    amount = float(
-        paid_out
-        or paid_in
-        or transaction.get("amount")
-        or 0
-    )
-
-    rules = POSTING_RULES.get(reason, {"dr": account_code, "cr": BANK_ACCOUNT})
-
-    # Income direction always means bank increases
-    if reason in {"income", "income_direction"}:
-        dr = BANK_ACCOUNT
-        cr = account_code
-
-    # Transfer / conversion stay bank-to-bank
-    elif reason in {"transfer", "conversion"}:
-        dr = BANK_ACCOUNT
-        cr = BANK_ACCOUNT
-
-    # Expense side
+    if tx.get("paid_in") not in (None, "", 0, 0.0):
+        debit_account = "1210"
+        credit_account = account_code
     else:
-        dr = rules["dr"]
-        cr = rules["cr"]
+        debit_account = account_code
+        credit_account = "1210"
+
+    approved_by_mode = "pattern_autopilot" if status == "auto_approved" else None
 
     return {
-        "date": transaction.get("date"),
-        "description": transaction.get("description"),
-        "partner": transaction.get("partner"),
+        "date": tx.get("date"),
+        "description": tx.get("description"),
+        "partner": tx.get("partner"),
         "amount": amount,
-        "debit_account": dr,
-        "credit_account": cr,
+        "debit_account": debit_account,
+        "credit_account": credit_account,
         "account_code": account_code,
-        "reason": reason,
-        "confidence": confidence,
+        "reason": cl.get("reason"),
+        "confidence": cl.get("confidence"),
         "review_required": review_required,
-        "status": "pending_approval" if review_required else "drafted",
-        "source_type": transaction.get("source_type", "manual"),
+        "status": status,
+        "source_type": tx.get("source_type"),
+        "classification_source": cl.get("source"),
+        "pattern_matched_on": cl.get("pattern_matched_on"),
+        "pattern_support_count": cl.get("pattern_support_count"),
+        "pattern_similarity": cl.get("pattern_similarity"),
+        "autopilot_decision": status,
+        "autopilot_reason": autopilot_reason,
+        "approved_by_mode": approved_by_mode,
     }

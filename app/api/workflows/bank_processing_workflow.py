@@ -178,6 +178,11 @@ def process_bank_file_workflow(filename: str, content: bytes):
                 draft["normalized_description"] = normalized_description
                 draft["normalized_amount"] = normalized_amount
 
+                draft["classification_source"] = cl.get("source")
+                draft["pattern_matched_on"] = cl.get("pattern_matched_on")
+                draft["pattern_support_count"] = cl.get("pattern_support_count")
+                draft["pattern_similarity"] = cl.get("pattern_similarity")
+
                 cur.execute(
                     """
                     INSERT INTO journal_drafts
@@ -186,9 +191,14 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         debit_account, credit_account, account_code,
                         reason, confidence, review_required, status,
                         source_type, bank_file_id, tx_fingerprint,
-                        normalized_date, normalized_description, normalized_amount
+                        normalized_date, normalized_description, normalized_amount,
+                        classification_source, pattern_matched_on,
+                        pattern_support_count, pattern_similarity
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
                     RETURNING id
                     """,
                     (
@@ -209,6 +219,10 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         draft.get("normalized_date"),
                         draft.get("normalized_description"),
                         draft.get("normalized_amount"),
+                        draft.get("classification_source"),
+                        draft.get("pattern_matched_on"),
+                        draft.get("pattern_support_count"),
+                        draft.get("pattern_similarity"),
                     ),
                 )
                 draft["id"] = cur.fetchone()["id"]

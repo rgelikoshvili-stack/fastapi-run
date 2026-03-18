@@ -23,6 +23,8 @@ from app.api.oris_connector import (
     post_to_oris,
 )
 
+BLOCKING_POST_STATUSES = {"posted"}
+
 
 def _fetch_draft(cur, draft_id: int):
     cur.execute(
@@ -104,11 +106,11 @@ def _find_successful_post(cur, draft_id: int, target_system: str):
         FROM posting_logs
         WHERE draft_id = %s
           AND target_system = %s
-          AND status NOT IN ('failed', 'config_missing', 'dry_run_only')
+          AND status = ANY(%s)
         ORDER BY created_at DESC, id DESC
         LIMIT 1
         """,
-        (draft_id, target_system),
+        (draft_id, target_system, list(BLOCKING_POST_STATUSES)),
     )
     return cur.fetchone()
 
@@ -178,7 +180,7 @@ def _get_connector_executor(target_normalized: str):
             "payload_builder": lambda draft: _build_generic_payload(draft),
             "executor": lambda payload, draft: {
                 "target_system": "mock",
-                "result": "simulated_success",
+                "status": "posted",
                 "message": "Mock posting completed successfully",
                 "posted_draft_id": draft["id"],
             },
@@ -302,7 +304,7 @@ def mock_posting_service(draft_id: int):
         payload = _build_generic_payload(draft)
         mock_response = {
             "target_system": "mock",
-            "result": "simulated_success",
+            "status": "posted",
             "message": "Mock posting completed successfully",
             "posted_draft_id": draft["id"],
         }
@@ -313,7 +315,7 @@ def mock_posting_service(draft_id: int):
             "mock",
             payload,
             mock_response,
-            "simulated_success",
+            "posted",
             None,
         )
         conn.commit()
@@ -324,7 +326,7 @@ def mock_posting_service(draft_id: int):
                 "draft_id": draft["id"],
                 "target": "mock",
                 "posting_log_id": posting_log_id,
-                "status": "simulated_success",
+                "status": "posted",
             },
         )
 

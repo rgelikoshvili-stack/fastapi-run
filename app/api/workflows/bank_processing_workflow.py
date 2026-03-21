@@ -138,6 +138,8 @@ def process_bank_file_workflow(filename: str, content: bytes):
 
         for tx in transactions:
             try:
+                tx["source_type"] = source_type
+
                 amount = tx.get("amount")
                 if amount is None:
                     paid_in = tx.get("paid_in")
@@ -182,6 +184,11 @@ def process_bank_file_workflow(filename: str, content: bytes):
                 draft["pattern_matched_on"] = cl.get("pattern_matched_on")
                 draft["pattern_support_count"] = cl.get("pattern_support_count")
                 draft["pattern_similarity"] = cl.get("pattern_similarity")
+                draft["pattern_value_used"] = cl.get("pattern_value_used")
+
+                draft["autopilot_decision"] = cl.get("autopilot_eligible")
+                draft["autopilot_reason"] = cl.get("autopilot_reason")
+                draft["approved_by_mode"] = "autopilot" if cl.get("autopilot_eligible") else "manual_review"
 
                 cur.execute(
                     """
@@ -193,11 +200,13 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         source_type, bank_file_id, tx_fingerprint,
                         normalized_date, normalized_description, normalized_amount,
                         classification_source, pattern_matched_on,
-                        pattern_support_count, pattern_similarity
+                        pattern_support_count, pattern_similarity, pattern_value_used,
+                        autopilot_decision, autopilot_reason, approved_by_mode
                     )
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s
                     )
                     RETURNING id
                     """,
@@ -223,6 +232,10 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         draft.get("pattern_matched_on"),
                         draft.get("pattern_support_count"),
                         draft.get("pattern_similarity"),
+                        draft.get("pattern_value_used"),
+                        draft.get("autopilot_decision"),
+                        draft.get("autopilot_reason"),
+                        draft.get("approved_by_mode"),
                     ),
                 )
                 draft["id"] = cur.fetchone()["id"]

@@ -59,6 +59,7 @@ def generate_draft(tx: dict, cl: dict) -> dict:
         "pattern_matched_on": cl.get("pattern_matched_on"),
         "pattern_support_count": cl.get("pattern_support_count"),
         "pattern_similarity": cl.get("pattern_similarity"),
+        "pattern_value_used": cl.get("pattern_value_used"),
         "autopilot_decision": status,
         "autopilot_reason": autopilot_reason,
         "approved_by_mode": approved_by_mode,

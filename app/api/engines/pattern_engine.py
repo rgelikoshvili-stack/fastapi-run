@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.api.db import get_db
 
 
@@ -7,17 +9,63 @@ DEMOTION_FAILURE_THRESHOLD = 2
 AUTOPILOT_SUPPORT_THRESHOLD = 5
 AUTOPILOT_SUCCESS_THRESHOLD = 3
 
+AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
+STALE_CANDIDATE_AFTER_DAYS = 90
+STALE_INACTIVE_AFTER_DAYS = 120
+
 
 def _normalize(value: str | None) -> str:
     return " ".join((value or "").strip().lower().split())
+
+
+def _normalized_sql_expr(column_name: str) -> str:
+    return f"LOWER(REGEXP_REPLACE(TRIM(COALESCE({column_name}, '')), '\\s+', ' ', 'g'))"
+
+
+def _safe_parse_dt(value) -> datetime | None:
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt
+
+
+def _days_since(value) -> int | None:
+    dt = _safe_parse_dt(value)
+    if dt is None:
+        return None
+    return max(0, (datetime.now(timezone.utc) - dt).days)
+
+
+def _is_pattern_stale(last_seen_at, max_days: int = AUTOPILOT_MAX_PATTERN_AGE_DAYS) -> bool:
+    days = _days_since(last_seen_at)
+    if days is None:
+        return True
+    return days > max_days
 
 
 def _decide_pattern_status(
     support_count: int,
     success_count: int,
     failure_count: int,
+    last_seen_at=None,
 ) -> str:
     if failure_count >= DEMOTION_FAILURE_THRESHOLD:
+        return "inactive"
+
+    days = _days_since(last_seen_at)
+
+    if days is not None and days >= STALE_INACTIVE_AFTER_DAYS and failure_count > 0:
         return "inactive"
 
     if (
@@ -25,6 +73,8 @@ def _decide_pattern_status(
         and success_count >= PROMOTION_SUCCESS_THRESHOLD
         and failure_count == 0
     ):
+        if days is not None and days >= STALE_CANDIDATE_AFTER_DAYS:
+            return "candidate"
         return "active"
 
     return "candidate"
@@ -34,12 +84,15 @@ def is_pattern_autopilot_eligible(
     support_count: int,
     success_count: int,
     failure_count: int,
+    last_seen_at=None,
 ) -> bool:
     if failure_count > 0:
         return False
     if support_count < AUTOPILOT_SUPPORT_THRESHOLD:
         return False
     if success_count < AUTOPILOT_SUCCESS_THRESHOLD:
+        return False
+    if _is_pattern_stale(last_seen_at, AUTOPILOT_MAX_PATTERN_AGE_DAYS):
         return False
     return True
 
@@ -78,11 +131,11 @@ def generate_patterns_from_feedback():
 
             if description:
                 cur.execute(
-                    """
-                    SELECT id, support_count, success_count, failure_count
+                    f"""
+                    SELECT id, support_count, success_count, failure_count, last_seen_at
                     FROM learning_patterns
                     WHERE pattern_type = %s
-                      AND pattern_value = %s
+                      AND {_normalized_sql_expr("pattern_value")} = %s
                     LIMIT 1
                     """,
                     ("description_exact", description),
@@ -90,12 +143,17 @@ def generate_patterns_from_feedback():
                 existing = cur.fetchone()
 
                 if existing:
-                    pattern_id, support_count, success_count, failure_count = existing
+                    pattern_id, support_count, success_count, failure_count, last_seen_at = existing
 
                     support_count = int(support_count or 0) + 1
                     success_count = int(success_count or 0)
                     failure_count = int(failure_count or 0)
-                    status = _decide_pattern_status(support_count, success_count, failure_count)
+                    status = _decide_pattern_status(
+                        support_count,
+                        success_count,
+                        failure_count,
+                        last_seen_at=last_seen_at,
+                    )
 
                     cur.execute(
                         """
@@ -117,7 +175,12 @@ def generate_patterns_from_feedback():
                     support_count = 1
                     success_count = 0
                     failure_count = 0
-                    status = _decide_pattern_status(support_count, success_count, failure_count)
+                    status = _decide_pattern_status(
+                        support_count,
+                        success_count,
+                        failure_count,
+                        last_seen_at=None,
+                    )
 
                     cur.execute(
                         """
@@ -158,7 +221,7 @@ def generate_patterns_from_feedback():
             if partner:
                 cur.execute(
                     """
-                    SELECT id, support_count, success_count, failure_count
+                    SELECT id, support_count, success_count, failure_count, last_seen_at
                     FROM learning_patterns
                     WHERE pattern_type = %s
                       AND pattern_value = %s
@@ -169,12 +232,17 @@ def generate_patterns_from_feedback():
                 existing = cur.fetchone()
 
                 if existing:
-                    pattern_id, support_count, success_count, failure_count = existing
+                    pattern_id, support_count, success_count, failure_count, last_seen_at = existing
 
                     support_count = int(support_count or 0) + 1
                     success_count = int(success_count or 0)
                     failure_count = int(failure_count or 0)
-                    status = _decide_pattern_status(support_count, success_count, failure_count)
+                    status = _decide_pattern_status(
+                        support_count,
+                        success_count,
+                        failure_count,
+                        last_seen_at=last_seen_at,
+                    )
 
                     cur.execute(
                         """
@@ -196,7 +264,12 @@ def generate_patterns_from_feedback():
                     support_count = 1
                     success_count = 0
                     failure_count = 0
-                    status = _decide_pattern_status(support_count, success_count, failure_count)
+                    status = _decide_pattern_status(
+                        support_count,
+                        success_count,
+                        failure_count,
+                        last_seen_at=None,
+                    )
 
                     cur.execute(
                         """
@@ -260,13 +333,18 @@ def mark_pattern_success(
         if not value:
             return {"updated": 0}
 
+        if pattern_type == "description_exact":
+            compare_sql = _normalized_sql_expr("pattern_value")
+        else:
+            compare_sql = "pattern_value"
+
         if account_code:
             cur.execute(
-                """
-                SELECT id, support_count, success_count, failure_count
+                f"""
+                SELECT id, support_count, success_count, failure_count, last_seen_at
                 FROM learning_patterns
                 WHERE pattern_type = %s
-                  AND pattern_value = %s
+                  AND {compare_sql} = %s
                   AND account_code = %s
                 LIMIT 1
                 """,
@@ -274,11 +352,11 @@ def mark_pattern_success(
             )
         else:
             cur.execute(
-                """
-                SELECT id, support_count, success_count, failure_count
+                f"""
+                SELECT id, support_count, success_count, failure_count, last_seen_at
                 FROM learning_patterns
                 WHERE pattern_type = %s
-                  AND pattern_value = %s
+                  AND {compare_sql} = %s
                 LIMIT 1
                 """,
                 (pattern_type, value),
@@ -288,11 +366,17 @@ def mark_pattern_success(
         if not row:
             return {"updated": 0}
 
-        pattern_id, support_count, success_count, failure_count = row
+        pattern_id, support_count, success_count, failure_count, _last_seen_at = row
         support_count = int(support_count or 0)
         success_count = int(success_count or 0) + 1
         failure_count = int(failure_count or 0)
-        status = _decide_pattern_status(support_count, success_count, failure_count)
+
+        status = _decide_pattern_status(
+            support_count,
+            success_count,
+            failure_count,
+            last_seen_at=datetime.now(timezone.utc),
+        )
 
         cur.execute(
             """
@@ -329,13 +413,18 @@ def mark_pattern_failure(
         if not value:
             return {"updated": 0}
 
+        if pattern_type == "description_exact":
+            compare_sql = _normalized_sql_expr("pattern_value")
+        else:
+            compare_sql = "pattern_value"
+
         if account_code:
             cur.execute(
-                """
-                SELECT id, support_count, success_count, failure_count
+                f"""
+                SELECT id, support_count, success_count, failure_count, last_seen_at
                 FROM learning_patterns
                 WHERE pattern_type = %s
-                  AND pattern_value = %s
+                  AND {compare_sql} = %s
                   AND account_code = %s
                 LIMIT 1
                 """,
@@ -343,11 +432,11 @@ def mark_pattern_failure(
             )
         else:
             cur.execute(
-                """
-                SELECT id, support_count, success_count, failure_count
+                f"""
+                SELECT id, support_count, success_count, failure_count, last_seen_at
                 FROM learning_patterns
                 WHERE pattern_type = %s
-                  AND pattern_value = %s
+                  AND {compare_sql} = %s
                 LIMIT 1
                 """,
                 (pattern_type, value),
@@ -357,11 +446,17 @@ def mark_pattern_failure(
         if not row:
             return {"updated": 0}
 
-        pattern_id, support_count, success_count, failure_count = row
+        pattern_id, support_count, success_count, failure_count, last_seen_at = row
         support_count = int(support_count or 0)
         success_count = int(success_count or 0)
         failure_count = int(failure_count or 0) + 1
-        status = _decide_pattern_status(support_count, success_count, failure_count)
+
+        status = _decide_pattern_status(
+            support_count,
+            success_count,
+            failure_count,
+            last_seen_at=last_seen_at,
+        )
 
         cur.execute(
             """

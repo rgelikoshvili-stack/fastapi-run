@@ -4,99 +4,12 @@ from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.services.feedback_service import save_feedback
-
-
-PROMOTION_SUPPORT_THRESHOLD = 3
-PROMOTION_SUCCESS_THRESHOLD = 3
-DEMOTION_FAILURE_THRESHOLD = 2
-
-
-def _decide_pattern_status(support_count: int, success_count: int, failure_count: int) -> str:
-    if failure_count >= DEMOTION_FAILURE_THRESHOLD:
-        return "inactive"
-
-    if (
-        support_count >= PROMOTION_SUPPORT_THRESHOLD
-        and success_count >= PROMOTION_SUCCESS_THRESHOLD
-        and failure_count == 0
-    ):
-        return "active"
-
-    return "candidate"
-
-
-def _normalize_pattern_value(value: str | None, lowercase: bool = False) -> str | None:
-    if not value:
-        return None
-    cleaned = value.strip()
-    return cleaned.lower() if lowercase else cleaned
-
-
-def _update_pattern_feedback(cur, pattern_type: str, pattern_value: str | None, action: str):
-    if not pattern_value:
-        return
-
-    cur.execute(
-        """
-        SELECT id, support_count, success_count, failure_count
-        FROM learning_patterns
-        WHERE pattern_type = %s
-          AND pattern_value = %s
-        LIMIT 1
-        """,
-        (pattern_type, pattern_value),
-    )
-    row = cur.fetchone()
-    if not row:
-        return
-
-    pattern_id = row["id"]
-    support_count = int(row.get("support_count") or 0)
-    success_count = int(row.get("success_count") or 0)
-    failure_count = int(row.get("failure_count") or 0)
-
-    if action == "approve":
-        success_count += 1
-    elif action == "reject":
-        failure_count += 1
-    else:
-        return
-
-    new_status = _decide_pattern_status(support_count, success_count, failure_count)
-
-    cur.execute(
-        """
-        UPDATE learning_patterns
-        SET success_count = %s,
-            failure_count = %s,
-            status = %s,
-            last_seen_at = NOW(),
-            updated_at = NOW()
-        WHERE id = %s
-        """,
-        (success_count, failure_count, new_status, pattern_id),
-    )
-
-
-def _update_patterns_for_draft_feedback(cur, draft: dict, action: str):
-    matched_on = (draft.get("pattern_matched_on") or "").strip()
-
-    description_value = _normalize_pattern_value(draft.get("description"), lowercase=True)
-    partner_value = _normalize_pattern_value(draft.get("partner"), lowercase=False)
-
-    if matched_on in ("description_exact", "description_fuzzy"):
-        _update_pattern_feedback(cur, "description_exact", description_value, action)
-
-    elif matched_on in ("partner_exact", "partner_fuzzy", "partner"):
-        _update_pattern_feedback(cur, "partner", partner_value, action)
-
-    else:
-        # fallback: თუ pattern_matched_on არაა, მაგრამ classification_source pattern-based იყო,
-        # მაინც ვცადოთ description / partner lookup
-        if description_value:
-            _update_pattern_feedback(cur, "description_exact", description_value, action)
-        if partner_value:
-            _update_pattern_feedback(cur, "partner", partner_value, action)
+from app.api.services.transaction_memory_service import save_transaction_memory
+from app.api.engines.pattern_engine import (
+    generate_patterns_from_feedback,
+    mark_pattern_success,
+    mark_pattern_failure,
+)
 
 
 def get_queue_service(status: str, limit: int, offset: int):
@@ -113,7 +26,8 @@ def get_queue_service(status: str, limit: int, offset: int):
 
             cur.execute(
                 """
-                SELECT * FROM journal_drafts
+                SELECT *
+                FROM journal_drafts
                 WHERE status = %s
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
@@ -132,7 +46,8 @@ def get_queue_service(status: str, limit: int, offset: int):
 
             cur.execute(
                 """
-                SELECT * FROM journal_drafts
+                SELECT *
+                FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved')
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
@@ -160,22 +75,74 @@ def get_queue_service(status: str, limit: int, offset: int):
     )
 
 
+def _get_pattern_value_for_draft(draft: dict):
+    matched_on = draft.get("pattern_matched_on")
+
+    if matched_on in ("description_exact", "description_fuzzy"):
+        return draft.get("pattern_value_used") or draft.get("description")
+
+    if matched_on in ("partner_exact", "partner_fuzzy"):
+        return draft.get("pattern_value_used") or draft.get("partner")
+
+    return None
+
+
+def _mark_success_for_draft(draft: dict):
+    matched_on = draft.get("pattern_matched_on")
+    account_code = draft.get("account_code")
+    pattern_value = _get_pattern_value_for_draft(draft)
+
+    if not pattern_value:
+        return {"updated": 0}
+
+    if matched_on == "description_exact":
+        return mark_pattern_success("description_exact", pattern_value, account_code)
+    if matched_on == "partner_exact":
+        return mark_pattern_success("partner", pattern_value, account_code)
+    if matched_on == "description_fuzzy":
+        return mark_pattern_success("description_exact", pattern_value, account_code)
+    if matched_on == "partner_fuzzy":
+        return mark_pattern_success("partner", pattern_value, account_code)
+
+    return {"updated": 0}
+
+
+def _mark_failure_for_draft(draft: dict):
+    matched_on = draft.get("pattern_matched_on")
+    account_code = draft.get("account_code")
+    pattern_value = _get_pattern_value_for_draft(draft)
+
+    if not pattern_value:
+        return {"updated": 0}
+
+    if matched_on == "description_exact":
+        return mark_pattern_failure("description_exact", pattern_value, account_code)
+    if matched_on == "partner_exact":
+        return mark_pattern_failure("partner", pattern_value, account_code)
+    if matched_on == "description_fuzzy":
+        return mark_pattern_failure("description_exact", pattern_value, account_code)
+    if matched_on == "partner_fuzzy":
+        return mark_pattern_failure("partner", pattern_value, account_code)
+
+    return {"updated": 0}
+
+
 def approve_draft_service(draft_id: int):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        cur.execute("SELECT id, status FROM journal_drafts WHERE id = %s", (draft_id,))
-        row = cur.fetchone()
+        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
+        draft = cur.fetchone()
 
-        if not row:
+        if not draft:
             return error_response(
                 "Not found",
                 "NOT_FOUND",
                 f"Draft {draft_id} not found",
             )
 
-        current_status = row["status"]
+        current_status = draft["status"]
 
         if current_status == "approved":
             return error_response(
@@ -200,7 +167,7 @@ def approve_draft_service(draft_id: int):
                 updated_at = NOW()
             WHERE id = %s
               AND status IN ('drafted', 'pending_approval', 'auto_approved')
-            RETURNING id, status
+            RETURNING *
             """,
             (draft_id,),
         )
@@ -214,15 +181,12 @@ def approve_draft_service(draft_id: int):
                 f"Draft {draft_id} could not be approved",
             )
 
-        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
-        draft = cur.fetchone()
-
         save_feedback(
             draft_id=draft.get("id"),
             tx_fingerprint=draft.get("tx_fingerprint"),
             source_type=draft.get("source_type"),
             description_raw=draft.get("description"),
-            description_normalized=draft.get("description"),
+            description_normalized=draft.get("normalized_description") or draft.get("description"),
             partner_raw=draft.get("partner"),
             partner_normalized=draft.get("partner"),
             amount=draft.get("amount"),
@@ -236,13 +200,14 @@ def approve_draft_service(draft_id: int):
             notes=None,
         )
 
-        if draft.get("classification_source") in (
-            "pattern_learning",
-            "pattern_learning_fuzzy",
-            "human_correction",
-        ):
-            _update_patterns_for_draft_feedback(cur, draft, "approve")
+        memory_result = save_transaction_memory(
+            draft.get("description"),
+            draft.get("partner"),
+            draft.get("amount"),
+            draft.get("account_code"),
+        )
 
+        generate_patterns_from_feedback()
         conn.commit()
 
     except Exception as e:
@@ -252,17 +217,38 @@ def approve_draft_service(draft_id: int):
         cur.close()
         conn.close()
 
+    pattern_update_result = {"updated": 0}
+    if draft.get("classification_source") in (
+        "pattern_active",
+        "pattern_active_fuzzy",
+        "pattern_candidate",
+        "pattern_candidate_fuzzy",
+    ):
+        pattern_update_result = _mark_success_for_draft(draft)
+
     log_event(
         "draft_approved",
         {
             "draft_id": draft_id,
             "classification_source": draft.get("classification_source"),
             "pattern_matched_on": draft.get("pattern_matched_on"),
-            "approved_by_mode": draft.get("approved_by_mode"),
+            "pattern_value_used": draft.get("pattern_value_used"),
+            "approved_by_mode": updated.get("approved_by_mode"),
+            "pattern_update_result": pattern_update_result,
+            "memory_saved": bool(memory_result.get("ok")),
+            "memory_result": memory_result,
+            "bridge_from_erp_history": draft.get("classification_source") == "erp_history",
         },
     )
 
-    return ok_response("Draft approved", {"id": draft_id, "status": "approved"})
+    return ok_response(
+        "Draft approved",
+        {
+            "id": draft_id,
+            "status": "approved",
+            "approved_by_mode": updated.get("approved_by_mode"),
+        },
+    )
 
 
 def reject_draft_service(draft_id: int, reason: str = ""):
@@ -270,17 +256,17 @@ def reject_draft_service(draft_id: int, reason: str = ""):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        cur.execute("SELECT id, status FROM journal_drafts WHERE id = %s", (draft_id,))
-        row = cur.fetchone()
+        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
+        draft = cur.fetchone()
 
-        if not row:
+        if not draft:
             return error_response(
                 "Not found",
                 "NOT_FOUND",
                 f"Draft {draft_id} not found",
             )
 
-        current_status = row["status"]
+        current_status = draft["status"]
 
         if current_status == "rejected":
             return error_response(
@@ -299,11 +285,12 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         cur.execute(
             """
             UPDATE journal_drafts
-            SET status = 'rejected',
+            SET
+                status = 'rejected',
                 updated_at = NOW()
             WHERE id = %s
               AND status IN ('drafted', 'pending_approval', 'auto_approved')
-            RETURNING id, status
+            RETURNING *
             """,
             (draft_id,),
         )
@@ -317,15 +304,12 @@ def reject_draft_service(draft_id: int, reason: str = ""):
                 f"Draft {draft_id} could not be rejected",
             )
 
-        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
-        draft = cur.fetchone()
-
         save_feedback(
             draft_id=draft.get("id"),
             tx_fingerprint=draft.get("tx_fingerprint"),
             source_type=draft.get("source_type"),
             description_raw=draft.get("description"),
-            description_normalized=draft.get("description"),
+            description_normalized=draft.get("normalized_description") or draft.get("description"),
             partner_raw=draft.get("partner"),
             partner_normalized=draft.get("partner"),
             amount=draft.get("amount"),
@@ -339,13 +323,6 @@ def reject_draft_service(draft_id: int, reason: str = ""):
             notes=reason,
         )
 
-        if draft.get("classification_source") in (
-            "pattern_learning",
-            "pattern_learning_fuzzy",
-            "human_correction",
-        ):
-            _update_patterns_for_draft_feedback(cur, draft, "reject")
-
         conn.commit()
 
     except Exception as e:
@@ -355,6 +332,15 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         cur.close()
         conn.close()
 
+    pattern_update_result = {"updated": 0}
+    if draft.get("classification_source") in (
+        "pattern_active",
+        "pattern_active_fuzzy",
+        "pattern_candidate",
+        "pattern_candidate_fuzzy",
+    ):
+        pattern_update_result = _mark_failure_for_draft(draft)
+
     log_event(
         "draft_rejected",
         {
@@ -362,6 +348,8 @@ def reject_draft_service(draft_id: int, reason: str = ""):
             "reason": reason,
             "classification_source": draft.get("classification_source"),
             "pattern_matched_on": draft.get("pattern_matched_on"),
+            "pattern_value_used": draft.get("pattern_value_used"),
+            "pattern_update_result": pattern_update_result,
         },
     )
 

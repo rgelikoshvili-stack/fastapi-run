@@ -73,7 +73,15 @@ from app.api import routes_learning
 from app.api import routes_transaction_ai
 from app.api import routes_export_journal
 from app.api import routes_audit_log
+from app.api.routes_patterns import router as patterns_router
 from routes_version import router as version_router
+from app.api import routes_invoice
+from app.api.routes_expense_articles import router as expense_articles_router
+from app.api import routes_erp_memory
+from app.api import routes_erp_import
+from app.api import routes_erp_connectors
+from app.api import routes_transaction_memory
+
 
 app.include_router(routes_health.router)
 app.include_router(routes_debug.router)
@@ -87,7 +95,14 @@ app.include_router(routes_learning.router)
 app.include_router(routes_transaction_ai.router)
 app.include_router(routes_export_journal.router)
 app.include_router(routes_audit_log.router)
+app.include_router(patterns_router)
 app.include_router(version_router)
+app.include_router(routes_invoice.router)
+app.include_router(expense_articles_router)
+app.include_router(routes_erp_memory.router)
+app.include_router(routes_erp_import.router)
+app.include_router(routes_erp_connectors.router)
+app.include_router(routes_transaction_memory.router)
 
 
 # --- FUTURE ROUTES ---

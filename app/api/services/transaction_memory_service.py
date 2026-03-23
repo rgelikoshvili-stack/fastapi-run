@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import psycopg2.extras
 
 from app.api.db import get_db
@@ -5,6 +7,23 @@ from app.api.db import get_db
 
 def _norm(value):
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _days_since(last_used_at):
+    if not last_used_at:
+        return None
+
+    if isinstance(last_used_at, str):
+        try:
+            last_used_at = datetime.fromisoformat(last_used_at.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    if last_used_at.tzinfo is None:
+        last_used_at = last_used_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    return max(0, (now - last_used_at).days)
 
 
 def save_transaction_memory(description, partner, amount, account_code):
@@ -146,6 +165,17 @@ def find_memory_match(description, partner):
             return None
 
         usage_count = int(row["usage_count"] or 1)
+        last_used_at = row.get("last_used_at")
+        days_since_seen = _days_since(last_used_at)
+
+        if desc and part and row.get("description") == desc and row.get("partner") == part:
+            match_type = "description_partner_exact"
+        elif desc and row.get("description") == desc:
+            match_type = "description_exact"
+        elif part and row.get("partner") == part:
+            match_type = "partner_exact"
+        else:
+            match_type = "generic"
 
         confidence = 0.88
         if usage_count >= 5:
@@ -155,16 +185,25 @@ def find_memory_match(description, partner):
         elif usage_count >= 2:
             confidence = 0.90
 
+        if days_since_seen is None:
+            confidence -= 0.03
+        elif days_since_seen > 45:
+            confidence -= 0.08
+        elif days_since_seen > 30:
+            confidence -= 0.04
+
+        confidence = round(max(0.50, min(confidence, 0.99)), 2)
+
         return {
             "account_code": row["account_code"],
             "reason": "memory_match",
-            "confidence": round(confidence, 2),
-            "review_required": confidence < 0.90,
-            "status": "drafted" if confidence >= 0.90 else "pending_approval",
+            "confidence": confidence,
             "source": "memory",
             "memory_usage_count": usage_count,
             "memory_description": row["description"],
             "memory_partner": row["partner"],
+            "memory_match_type": match_type,
+            "memory_days_since_seen": days_since_seen,
         }
 
     finally:

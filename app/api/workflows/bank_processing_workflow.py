@@ -117,7 +117,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                     "filename": filename,
                     "file_hash": file_hash,
                     "original_id": str(existing_file["id"]),
-                    "message": "ეს ფაილი უკვე დამუშავებულია",
+                    "message": "This file has already been processed",
                 },
             )
 
@@ -174,21 +174,12 @@ def process_bank_file_workflow(filename: str, content: bytes):
                 )
 
                 draft = generate_draft(tx, cl)
+
                 draft["bank_file_id"] = bank_file_id
                 draft["tx_fingerprint"] = tx_fingerprint
                 draft["normalized_date"] = normalized_date
                 draft["normalized_description"] = normalized_description
                 draft["normalized_amount"] = normalized_amount
-
-                draft["classification_source"] = cl.get("source")
-                draft["pattern_matched_on"] = cl.get("pattern_matched_on")
-                draft["pattern_support_count"] = cl.get("pattern_support_count")
-                draft["pattern_similarity"] = cl.get("pattern_similarity")
-                draft["pattern_value_used"] = cl.get("pattern_value_used")
-
-                draft["autopilot_decision"] = cl.get("autopilot_eligible")
-                draft["autopilot_reason"] = cl.get("autopilot_reason")
-                draft["approved_by_mode"] = "autopilot" if cl.get("autopilot_eligible") else "manual_review"
 
                 cur.execute(
                     """
@@ -204,8 +195,9 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         autopilot_decision, autopilot_reason, approved_by_mode
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s
                     )
                     RETURNING id
@@ -241,7 +233,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                 draft["id"] = cur.fetchone()["id"]
 
                 inserted_count += 1
-                if draft["review_required"]:
+                if draft.get("review_required"):
                     review.append(draft)
                 else:
                     drafted.append(draft)

@@ -48,6 +48,24 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def to_float(value):
+    try:
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def safe_int(value, default=0):
+    try:
+        return int(value if value is not None else default)
+    except Exception:
+        return default
+
+
+def normalize_text(value: str) -> str:
+    return (value or "").strip().lower()
+
+
 def days_since(last_seen_at) -> int | None:
     if not last_seen_at:
         return None
@@ -98,7 +116,7 @@ def adaptive_pattern_confidence(
     status: str = "candidate",
     last_seen_at=None,
 ) -> float:
-    status = (status or "candidate").strip().lower()
+    status = normalize_text(status) or "candidate"
 
     if status == "active":
         base = 0.93
@@ -214,7 +232,7 @@ def get_fuzzy_pattern_match(cur, pattern_type: str, value: str, min_ratio: float
 
     for row in rows:
         pattern_value, account_code, reason, support_count, success_count, failure_count, status, last_seen_at = row
-        pv = (pattern_value or "").strip().lower()
+        pv = normalize_text(pattern_value)
         if not pv:
             continue
 
@@ -228,9 +246,9 @@ def get_fuzzy_pattern_match(cur, pattern_type: str, value: str, min_ratio: float
                 pattern_value,
                 account_code,
                 reason,
-                int(support_count or 1),
-                int(success_count or 0),
-                int(failure_count or 0),
+                safe_int(support_count, 1),
+                safe_int(success_count, 0),
+                safe_int(failure_count, 0),
                 status,
                 last_seen_at,
                 ratio,
@@ -244,17 +262,21 @@ def check_patterns(description: str = "", partner: str = ""):
     cur = conn.cursor()
 
     try:
-        desc = (description or "").strip().lower()
-        part = (partner or "").strip().lower()
+        desc = normalize_text(description)
+        part = normalize_text(partner)
 
         if desc:
             row = get_exact_pattern_match(cur, "description_exact", desc)
             if row:
                 account_code, reason, support_count, success_count, failure_count, status, last_seen_at = row
+                support_count = safe_int(support_count, 1)
+                success_count = safe_int(success_count, 0)
+                failure_count = safe_int(failure_count, 0)
+
                 confidence = adaptive_pattern_confidence(
-                    int(support_count or 1),
-                    int(success_count or 0),
-                    int(failure_count or 0),
+                    support_count,
+                    success_count,
+                    failure_count,
                     status=status,
                     last_seen_at=last_seen_at,
                 )
@@ -264,9 +286,9 @@ def check_patterns(description: str = "", partner: str = ""):
                     "account_code": account_code,
                     "reason": reason,
                     "confidence": confidence,
-                    "support_count": int(support_count or 1),
-                    "success_count": int(success_count or 0),
-                    "failure_count": int(failure_count or 0),
+                    "support_count": support_count,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
                     "status": status,
                     "matched_on": "description_exact",
                     "source": "pattern_active" if status == "active" else "pattern_candidate",
@@ -279,10 +301,14 @@ def check_patterns(description: str = "", partner: str = ""):
             row = get_exact_pattern_match(cur, "partner", part)
             if row:
                 account_code, reason, support_count, success_count, failure_count, status, last_seen_at = row
+                support_count = safe_int(support_count, 1)
+                success_count = safe_int(success_count, 0)
+                failure_count = safe_int(failure_count, 0)
+
                 confidence = adaptive_pattern_confidence(
-                    int(support_count or 1),
-                    int(success_count or 0),
-                    int(failure_count or 0),
+                    support_count,
+                    success_count,
+                    failure_count,
                     status=status,
                     last_seen_at=last_seen_at,
                 )
@@ -292,9 +318,9 @@ def check_patterns(description: str = "", partner: str = ""):
                     "account_code": account_code,
                     "reason": reason,
                     "confidence": confidence,
-                    "support_count": int(support_count or 1),
-                    "success_count": int(success_count or 0),
-                    "failure_count": int(failure_count or 0),
+                    "support_count": support_count,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
                     "status": status,
                     "matched_on": "partner_exact",
                     "source": "pattern_active" if status == "active" else "pattern_candidate",
@@ -378,13 +404,17 @@ def classify(
     operation_code: str = "",
     doc_type: str = "",
 ):
-    desc = (description or "").strip().lower()
-    part = (partner or "").strip().lower()
-    op = (operation_code or "").strip().lower()
-    doc = (doc_type or "").strip().lower()
+    desc = normalize_text(description)
+    part = normalize_text(partner)
+    op = normalize_text(operation_code)
+    doc = normalize_text(doc_type)
     combined = f"{desc} {part}".strip()
 
-    # 1. EXPENSE ARTICLES (highest priority)
+    paid_in_value = to_float(paid_in)
+    paid_out_value = to_float(paid_out)
+    amount_for_history = paid_out_value if paid_out_value is not None else paid_in_value
+
+    # 1. EXPENSE ARTICLE
     article = find_expense_article(desc, part)
     if article:
         return {
@@ -409,10 +439,13 @@ def classify(
     # 2. TRANSACTION MEMORY
     memory = find_memory_match(desc, part)
     if memory:
+        confidence = float(memory.get("confidence") or 0.0)
+        usage_count = safe_int(memory.get("memory_usage_count"), 0)
+
         return {
             "account_code": memory["account_code"],
             "reason": memory["reason"],
-            "confidence": memory["confidence"],
+            "confidence": confidence,
             "review_required": memory["review_required"],
             "status": memory["status"],
             "source": memory["source"],
@@ -424,26 +457,27 @@ def classify(
             "pattern_value_used": None,
             "pattern_days_since_seen": None,
             "pattern_recency_penalty": None,
-            "autopilot_eligible": memory["confidence"] >= 0.90 and memory.get("memory_usage_count", 0) >= 3,
-            "autopilot_reason": "memory_match" if memory["confidence"] >= 0.90 else "memory_needs_review",
+            "autopilot_eligible": confidence >= 0.90 and usage_count >= 3,
+            "autopilot_reason": "memory_match" if confidence >= 0.90 and usage_count >= 3 else "memory_needs_review",
         }
 
-    # 3. ERP HISTORY
+    # 3. ERP MEMORY
     erp_match = find_erp_memory_match(
         description=description,
         partner=partner,
-        amount=paid_out if paid_out is not None else paid_in,
+        amount=amount_for_history,
         doc_type=doc_type,
     )
     if erp_match:
         confidence = min(float(erp_match.get("confidence") or 0.90), 0.94)
+        auto_ok = confidence >= 0.93
 
         return {
             "account_code": erp_match.get("account_code"),
             "reason": "erp_history_match",
             "confidence": confidence,
-            "review_required": False if confidence >= 0.93 else True,
-            "status": "auto_approved" if confidence >= 0.93 else "pending_approval",
+            "review_required": not auto_ok,
+            "status": "auto_approved" if auto_ok else "pending_approval",
             "source": "erp_history",
             "pattern_support_count": erp_match.get("evidence_count"),
             "pattern_success_count": None,
@@ -453,36 +487,40 @@ def classify(
             "pattern_value_used": erp_match.get("description"),
             "pattern_days_since_seen": None,
             "pattern_recency_penalty": None,
-            "autopilot_eligible": True if confidence >= 0.93 else False,
-            "autopilot_reason": "erp_history_rule" if confidence >= 0.93 else "erp_history_needs_review",
+            "autopilot_eligible": auto_ok,
+            "autopilot_reason": "erp_history_rule" if auto_ok else "erp_history_needs_review",
         }
 
     # 4. LEARNING PATTERNS
     learned = check_patterns(desc, part)
     if learned:
+        support_count = safe_int(learned.get("support_count"), 0)
+        success_count = safe_int(learned.get("success_count"), 0)
+        failure_count = safe_int(learned.get("failure_count"), 0)
+        pattern_days = learned.get("pattern_days_since_seen")
+        confidence = float(learned.get("confidence") or 0.0)
+        learned_status = normalize_text(learned.get("status"))
+
         review_required = True
         status = "pending_approval"
 
-        if learned["status"] == "active" and learned["confidence"] >= 0.90:
+        if learned_status == "active" and confidence >= 0.90:
             review_required = False
             status = "auto_approved"
-        elif learned["status"] == "candidate":
-            review_required = True
-            status = "pending_approval"
 
         autopilot_reason = "not_eligible"
 
-        if learned["status"] != "active":
+        if learned_status != "active":
             autopilot_reason = "status_not_active"
-        elif (learned.get("pattern_days_since_seen") if learned.get("pattern_days_since_seen") is not None else 999999) > 45:
+        elif (pattern_days if pattern_days is not None else 999999) > 45:
             autopilot_reason = "pattern_stale"
-        elif learned["failure_count"] > 0:
+        elif failure_count > 0:
             autopilot_reason = "has_failures"
-        elif learned["support_count"] < 5:
+        elif support_count < 5:
             autopilot_reason = "support_below_threshold"
-        elif learned["success_count"] < 3:
+        elif success_count < 3:
             autopilot_reason = "success_below_threshold"
-        elif learned["confidence"] < 0.90:
+        elif confidence < 0.90:
             autopilot_reason = "confidence_below_autopilot_threshold"
         else:
             autopilot_reason = "eligible_for_autopilot"
@@ -490,17 +528,17 @@ def classify(
         return {
             "account_code": learned["account_code"],
             "reason": learned["reason"],
-            "confidence": learned["confidence"],
+            "confidence": confidence,
             "review_required": review_required,
             "status": status,
             "source": learned["source"],
-            "pattern_support_count": learned["support_count"],
-            "pattern_success_count": learned["success_count"],
-            "pattern_failure_count": learned["failure_count"],
-            "pattern_matched_on": learned["matched_on"],
+            "pattern_support_count": support_count,
+            "pattern_success_count": success_count,
+            "pattern_failure_count": failure_count,
+            "pattern_matched_on": learned.get("matched_on"),
             "pattern_similarity": learned.get("pattern_similarity"),
             "pattern_value_used": learned.get("pattern_value_used"),
-            "pattern_days_since_seen": learned.get("pattern_days_since_seen"),
+            "pattern_days_since_seen": pattern_days,
             "pattern_recency_penalty": learned.get("pattern_recency_penalty"),
             "autopilot_eligible": status == "auto_approved",
             "autopilot_reason": autopilot_reason,
@@ -532,11 +570,11 @@ def classify(
             confidence = min(confidence + 0.05, 1.0)
 
     if not keyword_matched:
-        if paid_in is not None and paid_out is None:
+        if paid_in_value is not None and paid_out_value is None:
             matched_account = "6100"
             matched_reason = "income_direction"
             confidence = 0.65
-        elif paid_out is not None and paid_in is None:
+        elif paid_out_value is not None and paid_in_value is None:
             matched_account = "7190"
             matched_reason = "expense_direction"
             confidence = 0.55

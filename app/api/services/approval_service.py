@@ -3,12 +3,9 @@ import psycopg2.extras
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
-from app.api.services.feedback_service import save_feedback
-from app.api.services.transaction_memory_service import save_transaction_memory
-from app.api.engines.pattern_engine import (
-    generate_patterns_from_feedback,
-    mark_pattern_success,
-    mark_pattern_failure,
+from app.api.services.learning_service import (
+    apply_approve_learning,
+    apply_reject_learning,
 )
 
 
@@ -75,58 +72,6 @@ def get_queue_service(status: str, limit: int, offset: int):
     )
 
 
-def _get_pattern_value_for_draft(draft: dict):
-    matched_on = draft.get("pattern_matched_on")
-
-    if matched_on in ("description_exact", "description_fuzzy"):
-        return draft.get("pattern_value_used") or draft.get("description")
-
-    if matched_on in ("partner_exact", "partner_fuzzy"):
-        return draft.get("pattern_value_used") or draft.get("partner")
-
-    return None
-
-
-def _mark_success_for_draft(draft: dict):
-    matched_on = draft.get("pattern_matched_on")
-    account_code = draft.get("account_code")
-    pattern_value = _get_pattern_value_for_draft(draft)
-
-    if not pattern_value:
-        return {"updated": 0}
-
-    if matched_on == "description_exact":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
-    if matched_on == "partner_exact":
-        return mark_pattern_success("partner", pattern_value, account_code)
-    if matched_on == "description_fuzzy":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
-    if matched_on == "partner_fuzzy":
-        return mark_pattern_success("partner", pattern_value, account_code)
-
-    return {"updated": 0}
-
-
-def _mark_failure_for_draft(draft: dict):
-    matched_on = draft.get("pattern_matched_on")
-    account_code = draft.get("account_code")
-    pattern_value = _get_pattern_value_for_draft(draft)
-
-    if not pattern_value:
-        return {"updated": 0}
-
-    if matched_on == "description_exact":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
-    if matched_on == "partner_exact":
-        return mark_pattern_failure("partner", pattern_value, account_code)
-    if matched_on == "description_fuzzy":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
-    if matched_on == "partner_fuzzy":
-        return mark_pattern_failure("partner", pattern_value, account_code)
-
-    return {"updated": 0}
-
-
 def approve_draft_service(draft_id: int):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -163,7 +108,7 @@ def approve_draft_service(draft_id: int):
             UPDATE journal_drafts
             SET
                 status = 'approved',
-                approved_by_mode = COALESCE(approved_by_mode, 'human'),
+                approved_by_mode = COALESCE(approved_by_mode, 'manual_review'),
                 updated_at = NOW()
             WHERE id = %s
               AND status IN ('drafted', 'pending_approval', 'auto_approved')
@@ -181,33 +126,6 @@ def approve_draft_service(draft_id: int):
                 f"Draft {draft_id} could not be approved",
             )
 
-        save_feedback(
-            draft_id=draft.get("id"),
-            tx_fingerprint=draft.get("tx_fingerprint"),
-            source_type=draft.get("source_type"),
-            description_raw=draft.get("description"),
-            description_normalized=draft.get("normalized_description") or draft.get("description"),
-            partner_raw=draft.get("partner"),
-            partner_normalized=draft.get("partner"),
-            amount=draft.get("amount"),
-            original_account_code=draft.get("account_code"),
-            original_reason=draft.get("reason"),
-            original_confidence=draft.get("confidence"),
-            final_account_code=draft.get("account_code"),
-            final_reason=draft.get("reason"),
-            feedback_type="approve",
-            corrected_by=None,
-            notes=None,
-        )
-
-        memory_result = save_transaction_memory(
-            draft.get("description"),
-            draft.get("partner"),
-            draft.get("amount"),
-            draft.get("account_code"),
-        )
-
-        generate_patterns_from_feedback()
         conn.commit()
 
     except Exception as e:
@@ -217,27 +135,20 @@ def approve_draft_service(draft_id: int):
         cur.close()
         conn.close()
 
-    pattern_update_result = {"updated": 0}
-    if draft.get("classification_source") in (
-        "pattern_active",
-        "pattern_active_fuzzy",
-        "pattern_candidate",
-        "pattern_candidate_fuzzy",
-    ):
-        pattern_update_result = _mark_success_for_draft(draft)
+    learning_result = apply_approve_learning(
+        draft,
+        approved_by_mode=updated.get("approved_by_mode") or "manual_review",
+    )
 
     log_event(
         "draft_approved",
         {
             "draft_id": draft_id,
+            "approved_by_mode": updated.get("approved_by_mode"),
             "classification_source": draft.get("classification_source"),
             "pattern_matched_on": draft.get("pattern_matched_on"),
             "pattern_value_used": draft.get("pattern_value_used"),
-            "approved_by_mode": updated.get("approved_by_mode"),
-            "pattern_update_result": pattern_update_result,
-            "memory_saved": bool(memory_result.get("ok")),
-            "memory_result": memory_result,
-            "bridge_from_erp_history": draft.get("classification_source") == "erp_history",
+            "learning_result": learning_result,
         },
     )
 
@@ -247,6 +158,7 @@ def approve_draft_service(draft_id: int):
             "id": draft_id,
             "status": "approved",
             "approved_by_mode": updated.get("approved_by_mode"),
+            "learning_result": learning_result,
         },
     )
 
@@ -304,25 +216,6 @@ def reject_draft_service(draft_id: int, reason: str = ""):
                 f"Draft {draft_id} could not be rejected",
             )
 
-        save_feedback(
-            draft_id=draft.get("id"),
-            tx_fingerprint=draft.get("tx_fingerprint"),
-            source_type=draft.get("source_type"),
-            description_raw=draft.get("description"),
-            description_normalized=draft.get("normalized_description") or draft.get("description"),
-            partner_raw=draft.get("partner"),
-            partner_normalized=draft.get("partner"),
-            amount=draft.get("amount"),
-            original_account_code=draft.get("account_code"),
-            original_reason=draft.get("reason"),
-            original_confidence=draft.get("confidence"),
-            final_account_code=None,
-            final_reason=None,
-            feedback_type="reject",
-            corrected_by=None,
-            notes=reason,
-        )
-
         conn.commit()
 
     except Exception as e:
@@ -332,14 +225,7 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         cur.close()
         conn.close()
 
-    pattern_update_result = {"updated": 0}
-    if draft.get("classification_source") in (
-        "pattern_active",
-        "pattern_active_fuzzy",
-        "pattern_candidate",
-        "pattern_candidate_fuzzy",
-    ):
-        pattern_update_result = _mark_failure_for_draft(draft)
+    learning_result = apply_reject_learning(draft, reason=reason)
 
     log_event(
         "draft_rejected",
@@ -349,13 +235,18 @@ def reject_draft_service(draft_id: int, reason: str = ""):
             "classification_source": draft.get("classification_source"),
             "pattern_matched_on": draft.get("pattern_matched_on"),
             "pattern_value_used": draft.get("pattern_value_used"),
-            "pattern_update_result": pattern_update_result,
+            "learning_result": learning_result,
         },
     )
 
     return ok_response(
         "Draft rejected",
-        {"id": draft_id, "status": "rejected", "reason": reason},
+        {
+            "id": draft_id,
+            "status": "rejected",
+            "reason": reason,
+            "learning_result": learning_result,
+        },
     )
 
 

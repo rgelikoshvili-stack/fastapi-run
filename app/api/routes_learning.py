@@ -4,6 +4,7 @@ import json
 
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
+from app.api.services.learning_service import get_learning_health_service
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -252,3 +253,15 @@ def learning_stats():
     finally:
         cur.close()
         conn.close()
+
+
+@router.get("/health")
+def learning_health():
+    result = get_learning_health_service()
+    if result.get("ok"):
+        return ok_response("Learning health", result)
+    return error_response(
+        "Learning health failed",
+        "LEARNING_HEALTH_ERROR",
+        result.get("error", "unknown"),
+    )

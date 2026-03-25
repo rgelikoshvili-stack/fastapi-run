@@ -22,50 +22,70 @@ def save_feedback(
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO learning_feedback (
-            draft_id,
-            tx_fingerprint,
-            source_type,
-            description_raw,
-            description_normalized,
-            partner_raw,
-            partner_normalized,
-            amount,
-            original_account_code,
-            original_reason,
-            original_confidence,
-            final_account_code,
-            final_reason,
-            feedback_type,
-            corrected_by,
-            notes
+    try:
+        # duplicate-safe by draft_id
+        cur.execute(
+            """
+            SELECT id
+            FROM learning_feedback
+            WHERE draft_id = %s
+            LIMIT 1
+            """,
+            (draft_id,),
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """,
-        (
-            draft_id,
-            tx_fingerprint,
-            source_type,
-            description_raw,
-            description_normalized,
-            partner_raw,
-            partner_normalized,
-            amount,
-            original_account_code,
-            original_reason,
-            original_confidence,
-            final_account_code,
-            final_reason,
-            feedback_type,
-            corrected_by,
-            notes,
-        ),
-    )
+        existing = cur.fetchone()
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        if existing:
+            return {"status": "duplicate_skipped", "feedback_id": existing[0]}
 
-    return {"status": "feedback_saved"}
+        cur.execute(
+            """
+            INSERT INTO learning_feedback (
+                draft_id,
+                tx_fingerprint,
+                source_type,
+                description_raw,
+                description_normalized,
+                partner_raw,
+                partner_normalized,
+                amount,
+                original_account_code,
+                original_reason,
+                original_confidence,
+                final_account_code,
+                final_reason,
+                feedback_type,
+                corrected_by,
+                notes
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                draft_id,
+                tx_fingerprint,
+                source_type,
+                description_raw,
+                description_normalized,
+                partner_raw,
+                partner_normalized,
+                amount,
+                original_account_code,
+                original_reason,
+                original_confidence,
+                final_account_code,
+                final_reason,
+                feedback_type,
+                corrected_by,
+                notes,
+            ),
+        )
+
+        feedback_id = cur.fetchone()[0]
+        conn.commit()
+
+        return {"status": "feedback_saved", "feedback_id": feedback_id}
+
+    finally:
+        cur.close()
+        conn.close()

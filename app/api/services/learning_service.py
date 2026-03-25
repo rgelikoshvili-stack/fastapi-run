@@ -25,11 +25,11 @@ def _feedback_exists(cur, draft_id: int, feedback_type: str) -> bool:
         """
         SELECT 1
         FROM learning_feedback
-        WHERE run_id = %s
+        WHERE draft_id = %s
           AND feedback_type = %s
         LIMIT 1
         """,
-        (f"draft:{draft_id}", feedback_type),
+        (draft_id, feedback_type),
     )
     return cur.fetchone() is not None
 
@@ -124,12 +124,13 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
     erp_memory_result = {"ok": False}
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
+    feedback_result = None
 
     try:
         if _feedback_exists(cur, draft["id"], "approve"):
             duplicate_skipped = True
         else:
-            save_feedback(
+            feedback_result = save_feedback(
                 draft_id=draft.get("id"),
                 tx_fingerprint=draft.get("tx_fingerprint"),
                 source_type=draft.get("source_type"),
@@ -179,6 +180,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
         {
             "draft_id": draft.get("id"),
             "duplicate_skipped": duplicate_skipped,
+            "feedback_result": feedback_result,
             "classification_source": draft.get("classification_source"),
             "pattern_update_result": pattern_update_result,
             "memory_saved": bool(memory_result.get("ok")),
@@ -191,6 +193,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
     return {
         "ok": True,
         "duplicate_skipped": duplicate_skipped,
+        "feedback_result": feedback_result,
         "pattern_update_result": pattern_update_result,
         "memory_result": memory_result,
         "erp_memory_result": erp_memory_result,
@@ -203,12 +206,13 @@ def apply_reject_learning(draft: dict, reason: str = ""):
 
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
+    feedback_result = None
 
     try:
         if _feedback_exists(cur, draft["id"], "reject"):
             duplicate_skipped = True
         else:
-            save_feedback(
+            feedback_result = save_feedback(
                 draft_id=draft.get("id"),
                 tx_fingerprint=draft.get("tx_fingerprint"),
                 source_type=draft.get("source_type"),
@@ -247,6 +251,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
             "draft_id": draft.get("id"),
             "reason": reason,
             "duplicate_skipped": duplicate_skipped,
+            "feedback_result": feedback_result,
             "classification_source": draft.get("classification_source"),
             "pattern_update_result": pattern_update_result,
         },
@@ -255,6 +260,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
     return {
         "ok": True,
         "duplicate_skipped": duplicate_skipped,
+        "feedback_result": feedback_result,
         "pattern_update_result": pattern_update_result,
     }
 
@@ -273,12 +279,13 @@ def apply_correct_learning(
     erp_memory_result = {"ok": False}
     failure_result = {"updated": 0}
     duplicate_skipped = False
+    feedback_result = None
 
     try:
         if _feedback_exists(cur, draft["id"], "correct"):
             duplicate_skipped = True
         else:
-            save_feedback(
+            feedback_result = save_feedback(
                 draft_id=draft.get("id"),
                 tx_fingerprint=draft.get("tx_fingerprint"),
                 source_type=draft.get("source_type"),
@@ -306,6 +313,7 @@ def apply_correct_learning(
 
             corrected_draft = dict(draft)
             corrected_draft["account_code"] = corrected_account_code
+            corrected_draft["reason"] = corrected_reason
 
             erp_memory_result = _save_erp_memory_from_draft(
                 corrected_draft,
@@ -331,7 +339,9 @@ def apply_correct_learning(
         {
             "draft_id": draft.get("id"),
             "corrected_account_code": corrected_account_code,
+            "corrected_reason": corrected_reason,
             "duplicate_skipped": duplicate_skipped,
+            "feedback_result": feedback_result,
             "memory_saved": bool(memory_result.get("ok")),
             "memory_result": memory_result,
             "erp_memory_saved": bool(erp_memory_result.get("ok")),
@@ -343,6 +353,7 @@ def apply_correct_learning(
     return {
         "ok": True,
         "duplicate_skipped": duplicate_skipped,
+        "feedback_result": feedback_result,
         "memory_result": memory_result,
         "erp_memory_result": erp_memory_result,
         "pattern_failure_result": failure_result,

@@ -1,4 +1,5 @@
 from app.api.db import get_db
+from app.api.services.learning_service import apply_correct_learning
 import json
 
 
@@ -57,7 +58,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             "credit_account": payload.get("credit_account", original["credit_account"]),
         }
 
-        # 2. ვნახოთ რეალურად რა შეიცვალა
+        # 2. ვნახოთ რა შეიცვალა
         changed_fields = []
         delta_parts = []
 
@@ -113,7 +114,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
 
         review_id = cur.fetchone()[0]
 
-        # 5. learning delta log
+        # 5. learning delta log (ეს არ უნდა წაშალო!)
         cur.execute("""
             INSERT INTO learning_deltas (
                 case_id,
@@ -136,175 +137,26 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             "corrected_mapping"
         ))
 
-        # 6. Pattern learning update
-        description = row[1]
-        partner = row[2]
-
-        # აქ შეგიძლია description-based learning
-        if description:
-            pattern_type = "description_exact"
-            pattern_value = description.strip().lower()
-
-            cur.execute("""
-                SELECT id, support_count, success_count, failure_count
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND pattern_value = %s
-                LIMIT 1
-            """, (pattern_type, pattern_value))
-            existing = cur.fetchone()
-
-            if existing:
-                pattern_id, support_count, success_count, failure_count = existing
-
-                new_support = int(support_count or 0) + 1
-                new_success = int(success_count or 0) + 1
-                new_failure = int(failure_count or 0)
-
-                new_status = _decide_pattern_status(new_support, new_success, new_failure)
-
-                cur.execute("""
-                    UPDATE learning_patterns
-                    SET account_code = %s,
-                        reason = %s,
-                        support_count = %s,
-                        success_count = %s,
-                        failure_count = %s,
-                        status = %s,
-                        source = 'human_correction',
-                        last_seen_at = NOW(),
-                        last_confirmed_at = NOW(),
-                        updated_at = NOW()
-                    WHERE id = %s
-                """, (
-                    final["account_code"],
-                    final["reason"],
-                    new_support,
-                    new_success,
-                    new_failure,
-                    new_status,
-                    pattern_id
-                ))
-            else:
-                new_support = 1
-                new_success = 1
-                new_failure = 0
-                new_status = _decide_pattern_status(new_support, new_success, new_failure)
-
-                cur.execute("""
-                    INSERT INTO learning_patterns (
-                        pattern_type,
-                        pattern_value,
-                        account_code,
-                        reason,
-                        confidence_score,
-                        support_count,
-                        success_count,
-                        failure_count,
-                        status,
-                        source,
-                        last_seen_at,
-                        last_confirmed_at,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW(), NOW())
-                """, (
-                    pattern_type,
-                    pattern_value,
-                    final["account_code"],
-                    final["reason"],
-                    0.90,
-                    new_support,
-                    new_success,
-                    new_failure,
-                    new_status,
-                    "human_correction"
-                ))
-
-        # 7. სურვილის შემთხვევაში partner-based learning-იც
-        if partner:
-            pattern_type = "partner"
-            pattern_value = partner.strip()
-
-            cur.execute("""
-                SELECT id, support_count, success_count, failure_count
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND pattern_value = %s
-                LIMIT 1
-            """, (pattern_type, pattern_value))
-            existing = cur.fetchone()
-
-            if existing:
-                pattern_id, support_count, success_count, failure_count = existing
-
-                new_support = int(support_count or 0) + 1
-                new_success = int(success_count or 0) + 1
-                new_failure = int(failure_count or 0)
-
-                new_status = _decide_pattern_status(new_support, new_success, new_failure)
-
-                cur.execute("""
-                    UPDATE learning_patterns
-                    SET account_code = %s,
-                        reason = %s,
-                        support_count = %s,
-                        success_count = %s,
-                        failure_count = %s,
-                        status = %s,
-                        source = 'human_correction',
-                        last_seen_at = NOW(),
-                        last_confirmed_at = NOW(),
-                        updated_at = NOW()
-                    WHERE id = %s
-                """, (
-                    final["account_code"],
-                    final["reason"],
-                    new_support,
-                    new_success,
-                    new_failure,
-                    new_status,
-                    pattern_id
-                ))
-            else:
-                new_support = 1
-                new_success = 1
-                new_failure = 0
-                new_status = _decide_pattern_status(new_support, new_success, new_failure)
-
-                cur.execute("""
-                    INSERT INTO learning_patterns (
-                        pattern_type,
-                        pattern_value,
-                        account_code,
-                        reason,
-                        confidence_score,
-                        support_count,
-                        success_count,
-                        failure_count,
-                        status,
-                        source,
-                        last_seen_at,
-                        last_confirmed_at,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW(), NOW())
-                """, (
-                    pattern_type,
-                    pattern_value,
-                    final["account_code"],
-                    final["reason"],
-                    0.90,
-                    new_support,
-                    new_success,
-                    new_failure,
-                    new_status,
-                    "human_correction"
-                ))
-
         conn.commit()
+
+        # ✅ 6. ცენტრალიზებული learning (ყველაზე მნიშვნელოვანი ნაწილი)
+        learning_result = apply_correct_learning(
+            draft={
+                "id": draft_id,
+                "description": row[1],
+                "partner": row[2],
+                "account_code": original["account_code"],
+                "reason": original["reason"],
+                "debit_account": original["debit_account"],
+                "credit_account": original["credit_account"],
+                "amount": row[7],
+                "classification_source": row[8],
+            },
+            corrected_account_code=final["account_code"],
+            corrected_reason=final["reason"],
+            corrected_by=user,
+            notes=f"review_id={review_id}",
+        )
 
         return {
             "ok": True,
@@ -313,7 +165,8 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 "draft_id": draft_id,
                 "review_id": review_id,
                 "changed_fields": changed_fields,
-                "delta_summary": delta_summary
+                "delta_summary": delta_summary,
+                "learning_result": learning_result
             },
             "error": None
         }

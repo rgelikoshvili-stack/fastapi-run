@@ -1,4 +1,7 @@
-﻿from fastapi import FastAPI, Request
+﻿import os
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from slowapi.errors import RateLimitExceeded
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS

@@ -265,3 +265,67 @@ def learning_health():
         "LEARNING_HEALTH_ERROR",
         result.get("error", "unknown"),
     )
+@router.get("/patterns/top")
+def top_patterns(limit: int = 10):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT pattern_value, account_code, status,
+                   support_count, success_count, failure_count
+            FROM learning_patterns WHERE status = 'active'
+            ORDER BY success_count DESC LIMIT %s
+        """, (limit,))
+        top = [dict(r) for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT pattern_value, account_code, status,
+                   support_count, success_count, failure_count
+            FROM learning_patterns
+            ORDER BY failure_count DESC LIMIT %s
+        """, (limit,))
+        weak = [dict(r) for r in cur.fetchall()]
+
+        return ok_response("Top & Weak patterns", {
+            "top_patterns": top, "weak_patterns": weak
+        })
+    except Exception as e:
+        return error_response("Failed", "LEARN_ERROR", str(e))
+    finally:
+        cur.close(); conn.close()
+
+
+@router.post("/decay")
+def run_decay():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE learning_patterns
+            SET support_count = GREATEST(support_count - 1, 0),
+                status = CASE WHEN support_count <= 1 THEN 'inactive' ELSE status END
+            WHERE status = 'active'
+              AND last_seen_at < NOW() - INTERVAL '45 days'
+        """)
+        decayed = cur.rowcount
+        conn.commit()
+        return ok_response("Decay applied", {"decayed_patterns": decayed})
+    except Exception as e:
+        conn.rollback()
+        return error_response("Failed", "DECAY_ERROR", str(e))
+    finally:
+        cur.close(); conn.close()
+
+
+@router.get("/autopilot-check")
+def autopilot_check(confidence: float = 0.85,
+                    success_count: int = 5,
+                    support_count: int = 6):
+    success_rate = success_count / max(support_count, 1)
+    eligible = confidence >= 0.90 and success_rate >= 0.80
+    return ok_response("Autopilot check", {
+        "eligible": eligible,
+        "confidence": confidence,
+        "success_rate": round(success_rate, 2),
+        "thresholds": {"confidence": 0.90, "success_rate": 0.80}
+    })

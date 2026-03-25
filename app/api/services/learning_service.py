@@ -23,15 +23,15 @@ PATTERN_SOURCES = {
 def _feedback_exists(cur, draft_id: int, feedback_type: str) -> bool:
     cur.execute(
         """
-        SELECT 1
+        SELECT COUNT(*) AS cnt
         FROM learning_feedback
         WHERE draft_id = %s
           AND feedback_type = %s
-        LIMIT 1
         """,
         (draft_id, feedback_type),
     )
-    return cur.fetchone() is not None
+    row = cur.fetchone()
+    return bool(row and row["cnt"] > 0)
 
 
 def _get_pattern_value_for_draft(draft: dict):
@@ -117,14 +117,14 @@ def _save_erp_memory_from_draft(draft: dict, account_code: str):
 
 
 def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review"):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     memory_result = {"ok": False}
     erp_memory_result = {"ok": False}
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         if _feedback_exists(cur, draft["id"], "approve"):
@@ -163,10 +163,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
 
             generate_patterns_from_feedback()
 
-        conn.commit()
-
     except Exception as e:
-        conn.rollback()
         return {"ok": False, "error": str(e)}
     finally:
         cur.close()
@@ -201,12 +198,12 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
 
 
 def apply_reject_learning(draft: dict, reason: str = ""):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         if _feedback_exists(cur, draft["id"], "reject"):
@@ -233,10 +230,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
 
             generate_patterns_from_feedback()
 
-        conn.commit()
-
     except Exception as e:
-        conn.rollback()
         return {"ok": False, "error": str(e)}
     finally:
         cur.close()
@@ -272,14 +266,14 @@ def apply_correct_learning(
     corrected_by: str = "manual_review",
     notes: str = "",
 ):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     memory_result = {"ok": False}
     erp_memory_result = {"ok": False}
     failure_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         if _feedback_exists(cur, draft["id"], "correct"):
@@ -322,10 +316,7 @@ def apply_correct_learning(
 
             generate_patterns_from_feedback()
 
-        conn.commit()
-
     except Exception as e:
-        conn.rollback()
         return {"ok": False, "error": str(e)}
     finally:
         cur.close()

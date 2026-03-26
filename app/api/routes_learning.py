@@ -266,34 +266,90 @@ def learning_health():
         result.get("error", "unknown"),
     )
 @router.get("/patterns/top")
-def top_patterns(limit: int = 10):
+def learning_patterns_top():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
     try:
-        cur.execute("""
-            SELECT pattern_value, account_code, status,
-                   support_count, success_count, failure_count
-            FROM learning_patterns WHERE status = 'active'
-            ORDER BY success_count DESC LIMIT %s
-        """, (limit,))
-        top = [dict(r) for r in cur.fetchall()]
+        ensure_tables(cur)
 
-        cur.execute("""
-            SELECT pattern_value, account_code, status,
-                   support_count, success_count, failure_count
+        cur.execute(
+            """
+            SELECT
+                id,
+                pattern_type,
+                pattern_value,
+                account_code,
+                reason,
+                confidence_score,
+                support_count,
+                success_count,
+                failure_count,
+                status,
+                COALESCE(autopilot_eligible, FALSE) AS autopilot_eligible,
+                last_seen_at,
+                last_confirmed_at,
+                CASE
+                    WHEN last_seen_at IS NULL THEN NULL
+                    ELSE EXTRACT(DAY FROM (NOW() - last_seen_at))
+                END AS days_since_seen
             FROM learning_patterns
-            ORDER BY failure_count DESC LIMIT %s
-        """, (limit,))
-        weak = [dict(r) for r in cur.fetchall()]
+            ORDER BY
+                confidence_score DESC NULLS LAST,
+                success_count DESC NULLS LAST,
+                support_count DESC NULLS LAST
+            LIMIT 10
+            """
+        )
+        top_rows = [dict(r) for r in cur.fetchall()]
 
-        return ok_response("Top & Weak patterns", {
-            "top_patterns": top, "weak_patterns": weak
-        })
+        cur.execute(
+            """
+            SELECT
+                id,
+                pattern_type,
+                pattern_value,
+                account_code,
+                reason,
+                confidence_score,
+                support_count,
+                success_count,
+                failure_count,
+                status,
+                COALESCE(autopilot_eligible, FALSE) AS autopilot_eligible,
+                last_seen_at,
+                last_confirmed_at,
+                CASE
+                    WHEN last_seen_at IS NULL THEN NULL
+                    ELSE EXTRACT(DAY FROM (NOW() - last_seen_at))
+                END AS days_since_seen
+            FROM learning_patterns
+            ORDER BY
+                failure_count DESC NULLS LAST,
+                confidence_score ASC NULLS LAST,
+                support_count DESC NULLS LAST
+            LIMIT 10
+            """
+        )
+        weak_rows = [dict(r) for r in cur.fetchall()]
+
+        return ok_response(
+            "Top & Weak patterns",
+            {
+                "top_patterns": top_rows,
+                "weak_patterns": weak_rows,
+            },
+        )
+
     except Exception as e:
-        return error_response("Failed", "LEARN_ERROR", str(e))
+        return error_response(
+            "Patterns top failed",
+            "LEARNING_PATTERNS_TOP_ERROR",
+            str(e),
+        )
     finally:
-        cur.close(); conn.close()
-
+        cur.close()
+        conn.close()
 
 @router.post("/decay")
 def run_decay():

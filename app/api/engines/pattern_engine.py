@@ -6,6 +6,7 @@ from app.api.db import get_db
 PROMOTION_SUPPORT_THRESHOLD = 3
 PROMOTION_SUCCESS_THRESHOLD = 3
 DEMOTION_FAILURE_THRESHOLD = 2
+
 AUTOPILOT_SUPPORT_THRESHOLD = 5
 AUTOPILOT_SUCCESS_THRESHOLD = 3
 AUTOPILOT_CONFIDENCE_THRESHOLD = 0.85
@@ -66,6 +67,41 @@ def _calculate_confidence(success_count, failure_count) -> float:
     return max(0.0, min(1.0, success / total))
 
 
+def calculate_pattern_confidence(
+    support_count: int,
+    success_count: int,
+    failure_count: int,
+    last_seen_at=None,
+) -> float:
+    support_count = int(support_count or 0)
+    success_count = int(success_count or 0)
+    failure_count = int(failure_count or 0)
+
+    total = max(1, success_count + failure_count)
+    success_rate = success_count / total
+
+    confidence = 0.50
+
+    if support_count >= 1:
+        confidence += min(0.20, support_count * 0.02)
+
+    confidence += success_rate * 0.25
+
+    confidence -= min(0.25, failure_count * 0.08)
+
+    days = _days_since(last_seen_at)
+    if days is not None:
+        if days > AUTOPILOT_MAX_PATTERN_AGE_DAYS:
+            confidence -= 0.05
+        if days >= STALE_CANDIDATE_AFTER_DAYS:
+            confidence -= 0.05
+        if days >= STALE_INACTIVE_AFTER_DAYS:
+            confidence -= 0.10
+
+    confidence = max(0.05, min(0.99, confidence))
+    return round(confidence, 4)
+
+
 def _decide_pattern_status(
     support_count: int,
     success_count: int,
@@ -109,7 +145,12 @@ def is_pattern_autopilot_eligible(
     confidence = (
         float(confidence_score)
         if confidence_score is not None
-        else _calculate_confidence(success_count, failure_count)
+        else calculate_pattern_confidence(
+            support_count=support_count,
+            success_count=success_count,
+            failure_count=failure_count,
+            last_seen_at=last_seen_at,
+        )
     )
     if confidence < AUTOPILOT_CONFIDENCE_THRESHOLD:
         return False
@@ -118,6 +159,39 @@ def is_pattern_autopilot_eligible(
         return False
 
     return True
+
+
+def recalculate_pattern_state(
+    support_count: int,
+    success_count: int,
+    failure_count: int,
+    last_seen_at=None,
+):
+    status = _decide_pattern_status(
+        support_count=support_count,
+        success_count=success_count,
+        failure_count=failure_count,
+        last_seen_at=last_seen_at,
+    )
+    confidence = calculate_pattern_confidence(
+        support_count=support_count,
+        success_count=success_count,
+        failure_count=failure_count,
+        last_seen_at=last_seen_at,
+    )
+    autopilot_eligible = is_pattern_autopilot_eligible(
+        support_count=support_count,
+        success_count=success_count,
+        failure_count=failure_count,
+        last_seen_at=last_seen_at,
+        confidence_score=confidence,
+    )
+
+    return {
+        "status": status,
+        "confidence_score": confidence,
+        "autopilot_eligible": autopilot_eligible,
+    }
 
 
 def generate_patterns_from_feedback():
@@ -171,11 +245,11 @@ def generate_patterns_from_feedback():
                     support_count = int(support_count or 0) + 1
                     success_count = int(success_count or 0)
                     failure_count = int(failure_count or 0)
-                    confidence = _calculate_confidence(success_count, failure_count)
-                    status = _decide_pattern_status(
-                        support_count,
-                        success_count,
-                        failure_count,
+
+                    state = recalculate_pattern_state(
+                        support_count=support_count,
+                        success_count=success_count,
+                        failure_count=failure_count,
                         last_seen_at=last_seen_at,
                     )
 
@@ -186,6 +260,7 @@ def generate_patterns_from_feedback():
                             account_code = %s,
                             reason = %s,
                             confidence_score = %s,
+                            autopilot_eligible = %s,
                             support_count = %s,
                             status = %s,
                             source = 'feedback_learning',
@@ -193,18 +268,26 @@ def generate_patterns_from_feedback():
                             updated_at = NOW()
                         WHERE id = %s
                         """,
-                        (account_code, reason, confidence, support_count, status, pattern_id),
+                        (
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            support_count,
+                            state["status"],
+                            pattern_id,
+                        ),
                     )
                     updated += 1
                 else:
                     support_count = 1
                     success_count = 0
                     failure_count = 0
-                    confidence = _calculate_confidence(success_count, failure_count)
-                    status = _decide_pattern_status(
-                        support_count,
-                        success_count,
-                        failure_count,
+
+                    state = recalculate_pattern_state(
+                        support_count=support_count,
+                        success_count=success_count,
+                        failure_count=failure_count,
                         last_seen_at=None,
                     )
 
@@ -217,6 +300,7 @@ def generate_patterns_from_feedback():
                             account_code,
                             reason,
                             confidence_score,
+                            autopilot_eligible,
                             support_count,
                             success_count,
                             failure_count,
@@ -227,18 +311,19 @@ def generate_patterns_from_feedback():
                             created_at,
                             updated_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
                         """,
                         (
                             "description_exact",
                             description,
                             account_code,
                             reason,
-                            confidence,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
                             support_count,
                             success_count,
                             failure_count,
-                            status,
+                            state["status"],
                             "feedback_learning",
                         ),
                     )
@@ -263,11 +348,11 @@ def generate_patterns_from_feedback():
                     support_count = int(support_count or 0) + 1
                     success_count = int(success_count or 0)
                     failure_count = int(failure_count or 0)
-                    confidence = _calculate_confidence(success_count, failure_count)
-                    status = _decide_pattern_status(
-                        support_count,
-                        success_count,
-                        failure_count,
+
+                    state = recalculate_pattern_state(
+                        support_count=support_count,
+                        success_count=success_count,
+                        failure_count=failure_count,
                         last_seen_at=last_seen_at,
                     )
 
@@ -278,6 +363,7 @@ def generate_patterns_from_feedback():
                             account_code = %s,
                             reason = %s,
                             confidence_score = %s,
+                            autopilot_eligible = %s,
                             support_count = %s,
                             status = %s,
                             source = 'feedback_learning',
@@ -285,18 +371,26 @@ def generate_patterns_from_feedback():
                             updated_at = NOW()
                         WHERE id = %s
                         """,
-                        (account_code, reason, confidence, support_count, status, pattern_id),
+                        (
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            support_count,
+                            state["status"],
+                            pattern_id,
+                        ),
                     )
                     updated += 1
                 else:
                     support_count = 1
                     success_count = 0
                     failure_count = 0
-                    confidence = _calculate_confidence(success_count, failure_count)
-                    status = _decide_pattern_status(
-                        support_count,
-                        success_count,
-                        failure_count,
+
+                    state = recalculate_pattern_state(
+                        support_count=support_count,
+                        success_count=success_count,
+                        failure_count=failure_count,
                         last_seen_at=None,
                     )
 
@@ -309,6 +403,7 @@ def generate_patterns_from_feedback():
                             account_code,
                             reason,
                             confidence_score,
+                            autopilot_eligible,
                             support_count,
                             success_count,
                             failure_count,
@@ -319,18 +414,19 @@ def generate_patterns_from_feedback():
                             created_at,
                             updated_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
                         """,
                         (
                             "partner",
                             partner,
                             account_code,
                             reason,
-                            confidence,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
                             support_count,
                             success_count,
                             failure_count,
-                            status,
+                            state["status"],
                             "feedback_learning",
                         ),
                     )
@@ -399,12 +495,11 @@ def mark_pattern_success(
         support_count = int(support_count or 0) + 1
         success_count = int(success_count or 0) + 1
         failure_count = int(failure_count or 0)
-        confidence = _calculate_confidence(success_count, failure_count)
 
-        status = _decide_pattern_status(
-            support_count,
-            success_count,
-            failure_count,
+        state = recalculate_pattern_state(
+            support_count=support_count,
+            success_count=success_count,
+            failure_count=failure_count,
             last_seen_at=datetime.now(timezone.utc),
         )
 
@@ -415,13 +510,21 @@ def mark_pattern_success(
                 success_count = %s,
                 support_count = %s,
                 confidence_score = %s,
+                autopilot_eligible = %s,
                 status = %s,
                 last_confirmed_at = NOW(),
                 last_seen_at = NOW(),
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (success_count, support_count, confidence, status, pattern_id),
+            (
+                success_count,
+                support_count,
+                state["confidence_score"],
+                state["autopilot_eligible"],
+                state["status"],
+                pattern_id,
+            ),
         )
 
         conn.commit()
@@ -482,12 +585,11 @@ def mark_pattern_failure(
         support_count = int(support_count or 0) + 1
         success_count = int(success_count or 0)
         failure_count = int(failure_count or 0) + 1
-        confidence = _calculate_confidence(success_count, failure_count)
 
-        status = _decide_pattern_status(
-            support_count,
-            success_count,
-            failure_count,
+        state = recalculate_pattern_state(
+            support_count=support_count,
+            success_count=success_count,
+            failure_count=failure_count,
             last_seen_at=last_seen_at,
         )
 
@@ -498,12 +600,20 @@ def mark_pattern_failure(
                 failure_count = %s,
                 support_count = %s,
                 confidence_score = %s,
+                autopilot_eligible = %s,
                 status = %s,
                 last_seen_at = NOW(),
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (failure_count, support_count, confidence, status, pattern_id),
+            (
+                failure_count,
+                support_count,
+                state["confidence_score"],
+                state["autopilot_eligible"],
+                state["status"],
+                pattern_id,
+            ),
         )
 
         conn.commit()

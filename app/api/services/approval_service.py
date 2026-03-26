@@ -138,7 +138,7 @@ def approve_draft_service(draft_id: int):
     learning_result = apply_approve_learning(
         draft,
         approved_by_mode=updated.get("approved_by_mode") or "manual_review",
-    )
+    ) or {}
 
     log_event(
         "draft_approved",
@@ -225,7 +225,7 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         cur.close()
         conn.close()
 
-    learning_result = apply_reject_learning(draft, reason=reason)
+    learning_result = apply_reject_learning(draft, reason=reason) or {}
 
     log_event(
         "draft_rejected",

@@ -9,7 +9,7 @@ DEMOTION_FAILURE_THRESHOLD = 2
 
 AUTOPILOT_SUPPORT_THRESHOLD = 5
 AUTOPILOT_SUCCESS_THRESHOLD = 3
-AUTOPILOT_CONFIDENCE_THRESHOLD = 0.85
+AUTOPILOT_CONFIDENCE_THRESHOLD = 0.90
 
 AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
 STALE_CANDIDATE_AFTER_DAYS = 90
@@ -56,17 +56,6 @@ def _is_pattern_stale(last_seen_at, max_days: int = AUTOPILOT_MAX_PATTERN_AGE_DA
     return days > max_days
 
 
-def _calculate_confidence(success_count, failure_count) -> float:
-    success = float(success_count or 0)
-    failure = float(failure_count or 0)
-    total = success + failure
-
-    if total <= 0:
-        return 0.50
-
-    return max(0.0, min(1.0, success / total))
-
-
 def calculate_pattern_confidence(
     support_count: int,
     success_count: int,
@@ -77,18 +66,21 @@ def calculate_pattern_confidence(
     success_count = int(success_count or 0)
     failure_count = int(failure_count or 0)
 
-    total = max(1, success_count + failure_count)
-    success_rate = success_count / total
+    total_outcomes = success_count + failure_count
+    success_rate = (success_count / total_outcomes) if total_outcomes > 0 else 0.50
 
-    confidence = 0.50
+    confidence = 0.35
 
-    if support_count >= 1:
-        confidence += min(0.20, support_count * 0.02)
+    # Support boost
+    confidence += min(0.20, support_count * 0.02)
 
-    confidence += success_rate * 0.25
+    # Success rate boost
+    confidence += success_rate * 0.40
 
-    confidence -= min(0.25, failure_count * 0.08)
+    # Failure penalty
+    confidence -= min(0.30, failure_count * 0.10)
 
+    # Staleness penalty
     days = _days_since(last_seen_at)
     if days is not None:
         if days > AUTOPILOT_MAX_PATTERN_AGE_DAYS:
@@ -108,6 +100,10 @@ def _decide_pattern_status(
     failure_count: int,
     last_seen_at=None,
 ) -> str:
+    support_count = int(support_count or 0)
+    success_count = int(success_count or 0)
+    failure_count = int(failure_count or 0)
+
     if failure_count >= DEMOTION_FAILURE_THRESHOLD:
         return "inactive"
 
@@ -135,6 +131,10 @@ def is_pattern_autopilot_eligible(
     last_seen_at=None,
     confidence_score: float | None = None,
 ) -> bool:
+    support_count = int(support_count or 0)
+    success_count = int(success_count or 0)
+    failure_count = int(failure_count or 0)
+
     if failure_count > 0:
         return False
     if support_count < AUTOPILOT_SUPPORT_THRESHOLD:
@@ -152,6 +152,7 @@ def is_pattern_autopilot_eligible(
             last_seen_at=last_seen_at,
         )
     )
+
     if confidence < AUTOPILOT_CONFIDENCE_THRESHOLD:
         return False
 
@@ -195,11 +196,6 @@ def recalculate_pattern_state(
 
 
 def generate_patterns_from_feedback():
-    """
-    Legacy/backfill helper.
-    არ უნდა იყოს primary learning path.
-    Primary learning ახლა ხდება approve/reject/correct flows-ით.
-    """
     conn = get_db()
     cur = conn.cursor()
 
@@ -458,10 +454,7 @@ def mark_pattern_success(
         if not value:
             return {"updated": 0}
 
-        if pattern_type == "description_exact":
-            compare_sql = _normalized_sql_expr("pattern_value")
-        else:
-            compare_sql = "pattern_value"
+        compare_sql = _normalized_sql_expr("pattern_value") if pattern_type == "description_exact" else "pattern_value"
 
         if account_code:
             cur.execute(
@@ -492,6 +485,7 @@ def mark_pattern_success(
             return {"updated": 0}
 
         pattern_id, support_count, success_count, failure_count, _last_seen_at = row
+
         support_count = int(support_count or 0) + 1
         success_count = int(success_count or 0) + 1
         failure_count = int(failure_count or 0)
@@ -548,10 +542,7 @@ def mark_pattern_failure(
         if not value:
             return {"updated": 0}
 
-        if pattern_type == "description_exact":
-            compare_sql = _normalized_sql_expr("pattern_value")
-        else:
-            compare_sql = "pattern_value"
+        compare_sql = _normalized_sql_expr("pattern_value") if pattern_type == "description_exact" else "pattern_value"
 
         if account_code:
             cur.execute(
@@ -582,6 +573,7 @@ def mark_pattern_failure(
             return {"updated": 0}
 
         pattern_id, support_count, success_count, failure_count, last_seen_at = row
+
         support_count = int(support_count or 0) + 1
         success_count = int(success_count or 0)
         failure_count = int(failure_count or 0) + 1

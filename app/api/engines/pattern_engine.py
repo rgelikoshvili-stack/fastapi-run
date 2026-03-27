@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-
 from app.api.db import get_db
 
 
@@ -8,8 +7,8 @@ PROMOTION_SUCCESS_THRESHOLD = 3
 DEMOTION_FAILURE_THRESHOLD = 2
 
 AUTOPILOT_SUPPORT_THRESHOLD = 5
-AUTOPILOT_SUCCESS_THRESHOLD = 3
-AUTOPILOT_CONFIDENCE_THRESHOLD = 0.90
+AUTOPILOT_SUCCESS_THRESHOLD = 4
+AUTOPILOT_CONFIDENCE_THRESHOLD = 0.88
 
 AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
 STALE_CANDIDATE_AFTER_DAYS = 90
@@ -27,7 +26,6 @@ def _normalized_sql_expr(column_name: str) -> str:
 def _safe_parse_dt(value) -> datetime | None:
     if not value:
         return None
-
     if isinstance(value, datetime):
         dt = value
     else:
@@ -35,10 +33,8 @@ def _safe_parse_dt(value) -> datetime | None:
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         except Exception:
             return None
-
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-
     return dt
 
 
@@ -62,23 +58,30 @@ def calculate_pattern_confidence(
     failure_count: int,
     last_seen_at=None,
 ) -> float:
+    """
+    ✅ Stricter confidence calculation — v2
+    support სუსტი boost, success_count და success_rate სძლიერი
+    """
     support_count = int(support_count or 0)
     success_count = int(success_count or 0)
     failure_count = int(failure_count or 0)
 
     total_outcomes = success_count + failure_count
-    success_rate = (success_count / total_outcomes) if total_outcomes > 0 else 0.50
+    success_rate = (success_count / total_outcomes) if total_outcomes > 0 else 0.0
 
-    confidence = 0.35
+    confidence = 0.20
 
-    # Support boost
-    confidence += min(0.20, support_count * 0.02)
+    # Support — modest boost
+    confidence += min(0.15, support_count * 0.01)
 
-    # Success rate boost
-    confidence += success_rate * 0.40
+    # Success count — strong signal
+    confidence += min(0.30, success_count * 0.05)
+
+    # Success rate — most important
+    confidence += success_rate * 0.30
 
     # Failure penalty
-    confidence -= min(0.30, failure_count * 0.10)
+    confidence -= min(0.35, failure_count * 0.12)
 
     # Staleness penalty
     days = _days_since(last_seen_at)
@@ -90,8 +93,7 @@ def calculate_pattern_confidence(
         if days >= STALE_INACTIVE_AFTER_DAYS:
             confidence -= 0.10
 
-    confidence = max(0.05, min(0.99, confidence))
-    return round(confidence, 4)
+    return round(max(0.05, min(0.99, confidence)), 4)
 
 
 def _decide_pattern_status(
@@ -131,15 +133,24 @@ def is_pattern_autopilot_eligible(
     last_seen_at=None,
     confidence_score: float | None = None,
 ) -> bool:
+    """
+    ✅ Stricter autopilot — v2
+    success_count >= 4, success_rate >= 90%, confidence >= 0.88
+    """
     support_count = int(support_count or 0)
     success_count = int(success_count or 0)
     failure_count = int(failure_count or 0)
 
+    total_outcomes = success_count + failure_count
+    success_rate = (success_count / total_outcomes) if total_outcomes > 0 else 0.0
+
     if failure_count > 0:
         return False
-    if support_count < AUTOPILOT_SUPPORT_THRESHOLD:
+    if support_count < 5:
         return False
-    if success_count < AUTOPILOT_SUCCESS_THRESHOLD:
+    if success_count < 4:
+        return False
+    if success_rate < 0.90:
         return False
 
     confidence = (
@@ -153,7 +164,7 @@ def is_pattern_autopilot_eligible(
         )
     )
 
-    if confidence < AUTOPILOT_CONFIDENCE_THRESHOLD:
+    if confidence < 0.88:
         return False
 
     if _is_pattern_stale(last_seen_at, AUTOPILOT_MAX_PATTERN_AGE_DAYS):
@@ -187,7 +198,6 @@ def recalculate_pattern_state(
         last_seen_at=last_seen_at,
         confidence_score=confidence,
     )
-
     return {
         "status": status,
         "confidence_score": confidence,
@@ -198,23 +208,15 @@ def recalculate_pattern_state(
 def generate_patterns_from_feedback():
     conn = get_db()
     cur = conn.cursor()
-
     try:
-        cur.execute(
-            """
-            SELECT
-                description_normalized,
-                partner_normalized,
-                final_account_code,
-                final_reason
+        cur.execute("""
+            SELECT description_normalized, partner_normalized,
+                   final_account_code, final_reason
             FROM learning_feedback
             WHERE final_account_code IS NOT NULL
-            """
-        )
-
+        """)
         rows = cur.fetchall()
-        inserted = 0
-        updated = 0
+        inserted = updated = 0
 
         for row in rows:
             description = _normalize(row[0])
@@ -236,206 +238,74 @@ def generate_patterns_from_feedback():
                 existing = cur.fetchone()
 
                 if existing:
-                    pattern_id, support_count, success_count, failure_count, last_seen_at = existing
-
-                    support_count = int(support_count or 0) + 1
-                    success_count = int(success_count or 0)
-                    failure_count = int(failure_count or 0)
-
-                    state = recalculate_pattern_state(
-                        support_count=support_count,
-                        success_count=success_count,
-                        failure_count=failure_count,
-                        last_seen_at=last_seen_at,
-                    )
-
-                    cur.execute(
-                        """
+                    pid, sc, suc, fc, lsa = existing
+                    sc = int(sc or 0) + 1
+                    suc = int(suc or 0)
+                    fc = int(fc or 0)
+                    state = recalculate_pattern_state(sc, suc, fc, lsa)
+                    cur.execute("""
                         UPDATE learning_patterns
-                        SET
-                            account_code = %s,
-                            reason = %s,
-                            confidence_score = %s,
-                            autopilot_eligible = %s,
-                            support_count = %s,
-                            status = %s,
-                            source = 'feedback_learning',
-                            last_seen_at = NOW(),
-                            updated_at = NOW()
-                        WHERE id = %s
-                        """,
-                        (
-                            account_code,
-                            reason,
-                            state["confidence_score"],
-                            state["autopilot_eligible"],
-                            support_count,
-                            state["status"],
-                            pattern_id,
-                        ),
-                    )
+                        SET account_code=%s, reason=%s, confidence_score=%s,
+                            autopilot_eligible=%s, support_count=%s, status=%s,
+                            source='feedback_learning', last_seen_at=NOW(), updated_at=NOW()
+                        WHERE id=%s
+                    """, (account_code, reason, state["confidence_score"],
+                          state["autopilot_eligible"], sc, state["status"], pid))
                     updated += 1
                 else:
-                    support_count = 1
-                    success_count = 0
-                    failure_count = 0
-
-                    state = recalculate_pattern_state(
-                        support_count=support_count,
-                        success_count=success_count,
-                        failure_count=failure_count,
-                        last_seen_at=None,
-                    )
-
-                    cur.execute(
-                        """
+                    state = recalculate_pattern_state(1, 0, 0, None)
+                    cur.execute("""
                         INSERT INTO learning_patterns
-                        (
-                            pattern_type,
-                            pattern_value,
-                            account_code,
-                            reason,
-                            confidence_score,
-                            autopilot_eligible,
-                            support_count,
-                            success_count,
-                            failure_count,
-                            status,
-                            source,
-                            last_seen_at,
-                            last_confirmed_at,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
-                        """,
-                        (
-                            "description_exact",
-                            description,
-                            account_code,
-                            reason,
-                            state["confidence_score"],
-                            state["autopilot_eligible"],
-                            support_count,
-                            success_count,
-                            failure_count,
-                            state["status"],
-                            "feedback_learning",
-                        ),
-                    )
+                          (pattern_type, pattern_value, account_code, reason,
+                           confidence_score, autopilot_eligible, support_count,
+                           success_count, failure_count, status, source,
+                           last_seen_at, last_confirmed_at, created_at, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NULL,NOW(),NOW())
+                    """, ("description_exact", description, account_code, reason,
+                          state["confidence_score"], state["autopilot_eligible"],
+                          1, 0, 0, state["status"], "feedback_learning"))
                     inserted += 1
 
             if partner:
-                cur.execute(
-                    """
+                cur.execute("""
                     SELECT id, support_count, success_count, failure_count, last_seen_at
                     FROM learning_patterns
-                    WHERE pattern_type = %s
-                      AND pattern_value = %s
-                    LIMIT 1
-                    """,
-                    ("partner", partner),
-                )
+                    WHERE pattern_type = %s AND pattern_value = %s LIMIT 1
+                """, ("partner", partner))
                 existing = cur.fetchone()
 
                 if existing:
-                    pattern_id, support_count, success_count, failure_count, last_seen_at = existing
-
-                    support_count = int(support_count or 0) + 1
-                    success_count = int(success_count or 0)
-                    failure_count = int(failure_count or 0)
-
-                    state = recalculate_pattern_state(
-                        support_count=support_count,
-                        success_count=success_count,
-                        failure_count=failure_count,
-                        last_seen_at=last_seen_at,
-                    )
-
-                    cur.execute(
-                        """
+                    pid, sc, suc, fc, lsa = existing
+                    sc = int(sc or 0) + 1
+                    suc = int(suc or 0)
+                    fc = int(fc or 0)
+                    state = recalculate_pattern_state(sc, suc, fc, lsa)
+                    cur.execute("""
                         UPDATE learning_patterns
-                        SET
-                            account_code = %s,
-                            reason = %s,
-                            confidence_score = %s,
-                            autopilot_eligible = %s,
-                            support_count = %s,
-                            status = %s,
-                            source = 'feedback_learning',
-                            last_seen_at = NOW(),
-                            updated_at = NOW()
-                        WHERE id = %s
-                        """,
-                        (
-                            account_code,
-                            reason,
-                            state["confidence_score"],
-                            state["autopilot_eligible"],
-                            support_count,
-                            state["status"],
-                            pattern_id,
-                        ),
-                    )
+                        SET account_code=%s, reason=%s, confidence_score=%s,
+                            autopilot_eligible=%s, support_count=%s, status=%s,
+                            source='feedback_learning', last_seen_at=NOW(), updated_at=NOW()
+                        WHERE id=%s
+                    """, (account_code, reason, state["confidence_score"],
+                          state["autopilot_eligible"], sc, state["status"], pid))
                     updated += 1
                 else:
-                    support_count = 1
-                    success_count = 0
-                    failure_count = 0
-
-                    state = recalculate_pattern_state(
-                        support_count=support_count,
-                        success_count=success_count,
-                        failure_count=failure_count,
-                        last_seen_at=None,
-                    )
-
-                    cur.execute(
-                        """
+                    state = recalculate_pattern_state(1, 0, 0, None)
+                    cur.execute("""
                         INSERT INTO learning_patterns
-                        (
-                            pattern_type,
-                            pattern_value,
-                            account_code,
-                            reason,
-                            confidence_score,
-                            autopilot_eligible,
-                            support_count,
-                            success_count,
-                            failure_count,
-                            status,
-                            source,
-                            last_seen_at,
-                            last_confirmed_at,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
-                        """,
-                        (
-                            "partner",
-                            partner,
-                            account_code,
-                            reason,
-                            state["confidence_score"],
-                            state["autopilot_eligible"],
-                            support_count,
-                            success_count,
-                            failure_count,
-                            state["status"],
-                            "feedback_learning",
-                        ),
-                    )
+                          (pattern_type, pattern_value, account_code, reason,
+                           confidence_score, autopilot_eligible, support_count,
+                           success_count, failure_count, status, source,
+                           last_seen_at, last_confirmed_at, created_at, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NULL,NOW(),NOW())
+                    """, ("partner", partner, account_code, reason,
+                          state["confidence_score"], state["autopilot_eligible"],
+                          1, 0, 0, state["status"], "feedback_learning"))
                     inserted += 1
 
         conn.commit()
-
-        return {
-            "patterns_inserted": inserted,
-            "patterns_updated": updated,
-            "feedback_rows_seen": len(rows),
-        }
-
+        return {"patterns_inserted": inserted, "patterns_updated": updated,
+                "feedback_rows_seen": len(rows)}
     finally:
         cur.close()
         conn.close()
@@ -448,7 +318,6 @@ def mark_pattern_success(
 ):
     conn = get_db()
     cur = conn.cursor()
-
     try:
         value = _normalize(pattern_value) if pattern_type == "description_exact" else (pattern_value or "").strip()
         if not value:
@@ -458,72 +327,36 @@ def mark_pattern_success(
 
         if account_code:
             cur.execute(
-                f"""
-                SELECT id, support_count, success_count, failure_count, last_seen_at
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND {compare_sql} = %s
-                  AND account_code = %s
-                LIMIT 1
-                """,
-                (pattern_type, value, account_code),
-            )
+                f"SELECT id, support_count, success_count, failure_count, last_seen_at "
+                f"FROM learning_patterns WHERE pattern_type=%s AND {compare_sql}=%s AND account_code=%s LIMIT 1",
+                (pattern_type, value, account_code))
         else:
             cur.execute(
-                f"""
-                SELECT id, support_count, success_count, failure_count, last_seen_at
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND {compare_sql} = %s
-                LIMIT 1
-                """,
-                (pattern_type, value),
-            )
+                f"SELECT id, support_count, success_count, failure_count, last_seen_at "
+                f"FROM learning_patterns WHERE pattern_type=%s AND {compare_sql}=%s LIMIT 1",
+                (pattern_type, value))
 
         row = cur.fetchone()
         if not row:
             return {"updated": 0}
 
-        pattern_id, support_count, success_count, failure_count, _last_seen_at = row
+        pid, sc, suc, fc, _ = row
+        sc = int(sc or 0) + 1
+        suc = int(suc or 0) + 1
+        fc = int(fc or 0)
 
-        support_count = int(support_count or 0) + 1
-        success_count = int(success_count or 0) + 1
-        failure_count = int(failure_count or 0)
+        state = recalculate_pattern_state(sc, suc, fc, datetime.now(timezone.utc))
 
-        state = recalculate_pattern_state(
-            support_count=support_count,
-            success_count=success_count,
-            failure_count=failure_count,
-            last_seen_at=datetime.now(timezone.utc),
-        )
-
-        cur.execute(
-            """
+        cur.execute("""
             UPDATE learning_patterns
-            SET
-                success_count = %s,
-                support_count = %s,
-                confidence_score = %s,
-                autopilot_eligible = %s,
-                status = %s,
-                last_confirmed_at = NOW(),
-                last_seen_at = NOW(),
-                updated_at = NOW()
-            WHERE id = %s
-            """,
-            (
-                success_count,
-                support_count,
-                state["confidence_score"],
-                state["autopilot_eligible"],
-                state["status"],
-                pattern_id,
-            ),
-        )
-
+            SET success_count=%s, support_count=%s, confidence_score=%s,
+                autopilot_eligible=%s, status=%s,
+                last_confirmed_at=NOW(), last_seen_at=NOW(), updated_at=NOW()
+            WHERE id=%s
+        """, (suc, sc, state["confidence_score"], state["autopilot_eligible"],
+              state["status"], pid))
         conn.commit()
         return {"updated": cur.rowcount}
-
     finally:
         cur.close()
         conn.close()
@@ -536,7 +369,6 @@ def mark_pattern_failure(
 ):
     conn = get_db()
     cur = conn.cursor()
-
     try:
         value = _normalize(pattern_value) if pattern_type == "description_exact" else (pattern_value or "").strip()
         if not value:
@@ -546,71 +378,36 @@ def mark_pattern_failure(
 
         if account_code:
             cur.execute(
-                f"""
-                SELECT id, support_count, success_count, failure_count, last_seen_at
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND {compare_sql} = %s
-                  AND account_code = %s
-                LIMIT 1
-                """,
-                (pattern_type, value, account_code),
-            )
+                f"SELECT id, support_count, success_count, failure_count, last_seen_at "
+                f"FROM learning_patterns WHERE pattern_type=%s AND {compare_sql}=%s AND account_code=%s LIMIT 1",
+                (pattern_type, value, account_code))
         else:
             cur.execute(
-                f"""
-                SELECT id, support_count, success_count, failure_count, last_seen_at
-                FROM learning_patterns
-                WHERE pattern_type = %s
-                  AND {compare_sql} = %s
-                LIMIT 1
-                """,
-                (pattern_type, value),
-            )
+                f"SELECT id, support_count, success_count, failure_count, last_seen_at "
+                f"FROM learning_patterns WHERE pattern_type=%s AND {compare_sql}=%s LIMIT 1",
+                (pattern_type, value))
 
         row = cur.fetchone()
         if not row:
             return {"updated": 0}
 
-        pattern_id, support_count, success_count, failure_count, last_seen_at = row
+        pid, sc, suc, fc, lsa = row
+        sc = int(sc or 0) + 1
+        suc = int(suc or 0)
+        fc = int(fc or 0) + 1
 
-        support_count = int(support_count or 0) + 1
-        success_count = int(success_count or 0)
-        failure_count = int(failure_count or 0) + 1
+        state = recalculate_pattern_state(sc, suc, fc, lsa)
 
-        state = recalculate_pattern_state(
-            support_count=support_count,
-            success_count=success_count,
-            failure_count=failure_count,
-            last_seen_at=last_seen_at,
-        )
-
-        cur.execute(
-            """
+        cur.execute("""
             UPDATE learning_patterns
-            SET
-                failure_count = %s,
-                support_count = %s,
-                confidence_score = %s,
-                autopilot_eligible = %s,
-                status = %s,
-                last_seen_at = NOW(),
-                updated_at = NOW()
-            WHERE id = %s
-            """,
-            (
-                failure_count,
-                support_count,
-                state["confidence_score"],
-                state["autopilot_eligible"],
-                state["status"],
-                pattern_id,
-            ),
-        )
-
+            SET failure_count=%s, support_count=%s, confidence_score=%s,
+                autopilot_eligible=%s, status=%s,
+                last_seen_at=NOW(), updated_at=NOW()
+            WHERE id=%s
+        """, (fc, sc, state["confidence_score"], state["autopilot_eligible"],
+              state["status"], pid))
         conn.commit()
         return {"updated": cur.rowcount}
-
     finally:
         cur.close()
         conn.close()

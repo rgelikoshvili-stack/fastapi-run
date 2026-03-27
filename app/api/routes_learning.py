@@ -5,6 +5,7 @@ import json
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.services.learning_service import get_learning_health_service
+from app.api.services.pattern_decay_service import run_pattern_decay
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -265,6 +266,8 @@ def learning_health():
         "LEARNING_HEALTH_ERROR",
         result.get("error", "unknown"),
     )
+
+
 @router.get("/patterns/top")
 def learning_patterns_top():
     conn = get_db()
@@ -351,26 +354,17 @@ def learning_patterns_top():
         cur.close()
         conn.close()
 
+
 @router.post("/decay")
-def run_decay():
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            UPDATE learning_patterns
-            SET support_count = GREATEST(support_count - 1, 0),
-                status = CASE WHEN support_count <= 1 THEN 'inactive' ELSE status END
-            WHERE status = 'active'
-              AND last_seen_at < NOW() - INTERVAL '45 days'
-        """)
-        decayed = cur.rowcount
-        conn.commit()
-        return ok_response("Decay applied", {"decayed_patterns": decayed})
-    except Exception as e:
-        conn.rollback()
-        return error_response("Failed", "DECAY_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
+def learning_decay():
+    result = run_pattern_decay()
+    if result.get("ok"):
+        return ok_response("Decay applied", result)
+    return error_response(
+        "Pattern decay failed",
+        "LEARNING_DECAY_ERROR",
+        result.get("error", "unknown"),
+    )
 
 
 @router.get("/autopilot-check")

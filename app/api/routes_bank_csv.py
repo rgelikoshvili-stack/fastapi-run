@@ -15,7 +15,7 @@ async def upload_bank_file(
     try:
         content = await file.read()
         name = (file.filename or "").lower()
-        file_hash = hashlib.md5(content).hexdigest()
+        file_hash = hashlib.sha256(content).hexdigest()
 
         try:
             from app.api.db import get_db

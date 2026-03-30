@@ -7,6 +7,7 @@ from app.api.services.approval_service import (
     approve_draft_service,
     reject_draft_service,
     get_audit_service,
+    autopilot_approve_service,
 )
 from app.api.services.correct_draft_service import correct_draft
 
@@ -69,3 +70,8 @@ def correct_draft_route(draft_id: int, req: CorrectRequest):
 def get_audit_log(limit: int = 50, offset: int = 0):
     _validate_pagination(limit, offset)
     return get_audit_service(limit, offset)
+
+
+@router.post("/autopilot")
+def run_autopilot():
+    return autopilot_approve_service()

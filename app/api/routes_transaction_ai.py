@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.api.response_utils import ok_response, error_response
 from app.api.transaction_classifier import classify
+from app.api.services.approval_service import autopilot_approve_service
 
 router = APIRouter(prefix="/transaction-ai", tags=["transaction-ai"])
 
@@ -62,6 +63,14 @@ def analyze_transaction(data: TransactionAnalyzeRequest):
 
         result["input_amount"] = resolved_amount
         result["input_direction"] = resolved_direction
+
+        try:
+            autopilot_result = autopilot_approve_service()
+            result["autopilot_run"] = True
+            result["autopilot_result"] = autopilot_result.get("data", {})
+        except Exception as autopilot_error:
+            result["autopilot_run"] = False
+            result["autopilot_error"] = str(autopilot_error)
 
         return ok_response("Transaction analyzed", result)
 

@@ -1,5 +1,5 @@
 import psycopg2.extras
-
+ 
 from app.api.db import get_db
 from app.api.audit_service import log_event
 from app.api.services.feedback_service import save_feedback
@@ -17,6 +17,12 @@ PATTERN_SOURCES = {
     "pattern_active_fuzzy",
     "pattern_candidate",
     "pattern_candidate_fuzzy",
+}
+
+SIGNAL_WEIGHTS = {
+    "approve":  0.3,
+    "correct":  1.0,
+    "reject":  -0.5,
 }
 
 
@@ -122,6 +128,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+    weight = SIGNAL_WEIGHTS["approve"]
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -146,7 +153,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
                 final_reason=draft.get("reason"),
                 feedback_type="approve",
                 corrected_by=approved_by_mode,
-                notes=f"run_id=draft:{draft.get('id')}",
+                notes=f"run_id=draft:{draft.get('id')}; weight={weight}",
             )
 
             memory_result = save_transaction_memory(
@@ -184,6 +191,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
             "memory_result": memory_result,
             "erp_memory_saved": bool(erp_memory_result.get("ok")),
             "erp_memory_result": erp_memory_result,
+            "signal_weight": weight,
         },
     )
 
@@ -194,6 +202,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
         "pattern_update_result": pattern_update_result,
         "memory_result": memory_result,
         "erp_memory_result": erp_memory_result,
+        "signal_weight": weight,
     }
 
 
@@ -201,6 +210,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+    weight = SIGNAL_WEIGHTS["reject"]
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -225,7 +235,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
                 final_reason=None,
                 feedback_type="reject",
                 corrected_by="manual_review",
-                notes=f"run_id=draft:{draft.get('id')}; reason={reason}",
+                notes=f"run_id=draft:{draft.get('id')}; reason={reason}; weight={weight}",
             )
 
             generate_patterns_from_feedback()
@@ -248,6 +258,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
             "feedback_result": feedback_result,
             "classification_source": draft.get("classification_source"),
             "pattern_update_result": pattern_update_result,
+            "signal_weight": weight,
         },
     )
 
@@ -256,6 +267,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
         "duplicate_skipped": duplicate_skipped,
         "feedback_result": feedback_result,
         "pattern_update_result": pattern_update_result,
+        "signal_weight": weight,
     }
 
 
@@ -271,6 +283,7 @@ def apply_correct_learning(
     failure_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
+    weight = SIGNAL_WEIGHTS["correct"]
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -295,7 +308,7 @@ def apply_correct_learning(
                 final_reason=corrected_reason,
                 feedback_type="correct",
                 corrected_by=corrected_by,
-                notes=f"run_id=draft:{draft.get('id')}; {notes}",
+                notes=f"run_id=draft:{draft.get('id')}; weight={weight}; {notes}",
             )
 
             memory_result = save_transaction_memory(
@@ -338,6 +351,7 @@ def apply_correct_learning(
             "erp_memory_saved": bool(erp_memory_result.get("ok")),
             "erp_memory_result": erp_memory_result,
             "pattern_failure_result": failure_result,
+            "signal_weight": weight,
         },
     )
 
@@ -348,6 +362,7 @@ def apply_correct_learning(
         "memory_result": memory_result,
         "erp_memory_result": erp_memory_result,
         "pattern_failure_result": failure_result,
+        "signal_weight": weight,
     }
 
 
@@ -425,6 +440,7 @@ def get_learning_health_service():
             "manual_review_count": manual_review_count,
             "last_feedback_at": str(last_feedback_at) if last_feedback_at else None,
             "learning_ok": True,
+            "signal_weights": SIGNAL_WEIGHTS,
         }
 
     except Exception as e:
@@ -436,3 +452,16 @@ def get_learning_health_service():
     finally:
         cur.close()
         conn.close()
+
+
+def run_decay_service():
+    """
+    Pattern decay — ყოველ 1 საათში გაიშვება main.py decay_loop-იდან.
+    45 დღეზე მეტი გამოუყენებელი patterns-ები სუსტდება / inactive ხდება.
+    """
+    try:
+        from app.api.engines.pattern_engine import decay_old_patterns
+        result = decay_old_patterns()
+        return {"ok": True, "decayed": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

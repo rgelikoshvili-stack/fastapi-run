@@ -2,7 +2,10 @@ from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
 from app.api.db import get_db
-from app.api.engines.pattern_engine import is_pattern_autopilot_eligible
+from app.api.engines.pattern_engine import (
+    is_pattern_autopilot_eligible,
+    mark_pattern_success,
+)
 from app.api.services.expense_article_service import find_expense_article
 from app.api.services.transaction_memory_service import find_memory_match
 from app.api.services.erp_memory_service import find_erp_memory_match
@@ -273,6 +276,8 @@ def check_patterns(description: str = "", partner: str = ""):
                 success_count = safe_int(success_count, 0)
                 failure_count = safe_int(failure_count, 0)
 
+                mark_pattern_success("description_exact", desc, account_code)
+
                 confidence = adaptive_pattern_confidence(
                     support_count,
                     success_count,
@@ -305,6 +310,8 @@ def check_patterns(description: str = "", partner: str = ""):
                 success_count = safe_int(success_count, 0)
                 failure_count = safe_int(failure_count, 0)
 
+                mark_pattern_success("partner", part, account_code)
+
                 confidence = adaptive_pattern_confidence(
                     support_count,
                     success_count,
@@ -333,6 +340,9 @@ def check_patterns(description: str = "", partner: str = ""):
             row = get_fuzzy_pattern_match(cur, "description_exact", desc, min_ratio=0.82)
             if row:
                 matched_pattern_value, account_code, reason, support_count, success_count, failure_count, status, last_seen_at, ratio = row
+
+                mark_pattern_success("description_exact", matched_pattern_value, account_code)
+
                 confidence = adaptive_pattern_confidence(
                     support_count,
                     success_count,
@@ -363,6 +373,9 @@ def check_patterns(description: str = "", partner: str = ""):
             row = get_fuzzy_pattern_match(cur, "partner", part, min_ratio=0.84)
             if row:
                 matched_pattern_value, account_code, reason, support_count, success_count, failure_count, status, last_seen_at, ratio = row
+
+                mark_pattern_success("partner", matched_pattern_value, account_code)
+
                 confidence = adaptive_pattern_confidence(
                     support_count,
                     success_count,

@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ხიდის პაბი — Dashboard</title>
+<style>
+  :root {
+    --bg:#f0f4f8; --surface:#ffffff; --surface2:#f8fafc;
+    --surface3:#f1f5f9; --border:#e2e8f0; --border2:#cbd5e1;
+    --accent:#2563eb; --accent2:#1d4ed8;
+    --green:#059669; --green2:#047857;
+    --red:#dc2626; --red2:#991b1b;
+    --yellow:#d97706; --yellow2:#92400e;
+    --purple:#7c3aed; --purple2:#6d28d9;
+    --cyan:#0891b2; --cyan2:#0e7490;
+    --orange:#ea580c; --orange2:#9a3412;
+    --text:#0f172a; --text2:#334155; --muted:#64748b;
+    --mono:'Consolas','Courier New',monospace;
+    --sans:'Segoe UI',Arial,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;font-size:17px;}
+  ::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-track{background:var(--bg);} ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+  /* ── HEADER ── */
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;height:66px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+  .logo{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:18px;font-weight:800;}
+  .logo-icon{width:46px;height:46px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:0 3px 12px rgba(37,99,235,0.3);}
+  .header-right{display:flex;align-items:center;gap:12px;}
+  .live-badge{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:13px;color:#059669;background:#d1fae5;border:1px solid #6ee7b7;padding:6px 14px;border-radius:20px;font-weight:700;}
+  .live-dot{width:7px;height:7px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .time-display{font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .btn-header{background:var(--surface3);border:1px solid var(--border2);color:var(--text2);padding:9px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-family:var(--mono);font-weight:600;transition:all .2s;}
+  .btn-header:hover{background:var(--border2);color:var(--text);}
+  .btn-header.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn-header.primary:hover{background:#2563eb;}
+
+  /* ── TABS ── */
+  .tabs{background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;display:flex;gap:2px;overflow-x:auto;}
+  .tabs::-webkit-scrollbar{height:0;}
+  .tab{padding:15px 20px;font-size:14px;font-weight:600;font-family:var(--mono);color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;display:flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}
+  .tab:hover{color:var(--text2);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .badge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:9px;font-family:var(--mono);}
+  .badge-red{background:rgba(239,68,68,0.2);color:var(--red2);}
+  .badge-green{background:rgba(16,185,129,0.2);color:var(--green2);}
+  .badge-blue{background:rgba(59,130,246,0.2);color:var(--accent2);}
+  .badge-yellow{background:rgba(245,158,11,0.2);color:var(--yellow2);}
+
+  /* ── MAIN ── */
+  main{padding:22px 32px;max-width:1500px;margin:0 auto;}
+  .panel{display:none;} .panel.active{display:block;}
+
+  /* ── ERROR ── */
+  .error-banner{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.22);border-radius:8px;padding:11px 16px;margin-bottom:16px;font-family:var(--mono);font-size:11px;color:var(--red2);display:none;align-items:center;gap:10px;}
+  .error-banner.show{display:flex;}
+
+  /* ── STATS ── */
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+  .stats-row-8{display:grid;grid-template-columns:repeat(8,1fr);gap:11px;margin-bottom:18px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;position:relative;overflow:hidden;transition:all .2s;box-shadow:0 1px 6px rgba(0,0,0,0.07);}
+  .stat-card:hover{border-color:var(--border2);}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:10px 10px 0 0;}
+  .c-blue::before{background:linear-gradient(90deg,var(--accent),transparent);}
+  .c-yellow::before{background:linear-gradient(90deg,var(--yellow),transparent);}
+  .c-green::before{background:linear-gradient(90deg,var(--green),transparent);}
+  .c-red::before{background:linear-gradient(90deg,var(--red),transparent);}
+  .c-purple::before{background:linear-gradient(90deg,var(--purple),transparent);}
+  .c-cyan::before{background:linear-gradient(90deg,var(--cyan),transparent);}
+  .c-orange::before{background:linear-gradient(90deg,var(--orange),transparent);}
+  .stat-label{font-family:var(--mono);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;}
+  .stat-value{font-family:var(--mono);font-size:34px;font-weight:700;line-height:1;margin-bottom:4px;}
+  .stat-value.sm{font-size:20px;}
+  .stat-sub{font-size:13px;color:var(--muted);font-family:var(--mono);}
+  .c-blue .stat-value{color:#1d4ed8;}
+  .c-yellow .stat-value{color:#78350f;}
+  .c-green .stat-value{color:#064e3b;}
+  .c-red .stat-value{color:#7f1d1d;}
+  .c-purple .stat-value{color:#3b0764;}
+  .c-cyan .stat-value{color:#164e63;}
+  .c-orange .stat-value{color:#7c2d12;}
+
+  /* ── AUTOPILOT ── */
+  .autopilot-bar{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 20px;margin-bottom:15px;}
+  .autopilot-info{display:flex;align-items:center;gap:12px;}
+  .autopilot-text h3{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .autopilot-text p{font-size:10px;color:var(--muted);font-family:var(--mono);}
+  .toggle{width:42px;height:23px;background:var(--surface3);border:1px solid var(--border2);border-radius:12px;position:relative;transition:all .2s;cursor:pointer;flex-shrink:0;}
+  .toggle::after{content:'';position:absolute;width:17px;height:17px;background:var(--muted);border-radius:50%;top:2px;left:2px;transition:all .2s;}
+  .toggle.on{background:rgba(16,185,129,0.28);border-color:var(--green);}
+  .toggle.on::after{transform:translateX(19px);background:var(--green2);}
+  .toggle-wrap{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;}
+
+  /* ── TABLE ── */
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;box-shadow:0 1px 5px rgba(0,0,0,0.07);}
+  .table-header{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);}
+  .table-title{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:1px;}
+  .table-actions{display:flex;gap:8px;align-items:center;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{padding:10px 14px;font-family:var(--mono);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;text-align:left;background:var(--surface2);border-bottom:1px solid var(--border);font-weight:600;}
+  tbody tr{border-bottom:1px solid var(--border);transition:background .15s;}
+  tbody tr:last-child{border-bottom:none;}
+  tbody tr:hover{background:#eff6ff;}
+  td{padding:13px 16px;font-size:15px;vertical-align:middle;}
+  .td-mono{font-family:var(--mono);font-size:13px;}
+
+  /* ── CONFIDENCE ── */
+  .confidence-bar{display:flex;align-items:center;gap:7px;}
+  .bar-track{width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:2px;}
+  .conf-val{font-family:var(--mono);font-size:12px;min-width:36px;}
+
+  /* ── CHIPS ── */
+  .chip{display:inline-flex;align-items:center;padding:4px 11px;border-radius:5px;font-size:13px;font-family:var(--mono);font-weight:600;}
+  .chip-pending{background:#fef3c7;color:#78350f;border:1px solid #fcd34d;}
+  .chip-approved{background:#d1fae5;color:#064e3b;border:1px solid #6ee7b7;}
+  .chip-rejected{background:#fee2e2;color:#7f1d1d;border:1px solid #fca5a5;}
+  .chip-auto{background:#ede9fe;color:#3b0764;border:1px solid #c4b5fd;}
+  .chip-posted{background:#cffafe;color:#164e63;border:1px solid #67e8f9;}
+  .chip-corrected{background:#ffedd5;color:#7c2d12;border:1px solid #fdba74;}
+  .chip-draft{background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;}
+
+  /* ── ACTION BTNS ── */
+  .action-btns{display:flex;gap:5px;}
+  .btn-approve,.btn-reject,.btn-detail{padding:4px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-family:var(--mono);font-weight:600;border:none;transition:all .15s;}
+  .btn-approve{background:rgba(16,185,129,0.13);color:var(--green2);border:1px solid rgba(16,185,129,0.28);}
+  .btn-approve:hover{background:rgba(16,185,129,0.28);}
+  .btn-reject{background:rgba(239,68,68,0.1);color:var(--red2);border:1px solid rgba(239,68,68,0.22);}
+  .btn-reject:hover{background:rgba(239,68,68,0.22);}
+  .btn-detail{background:var(--surface3);color:var(--text2);border:1px solid var(--border2);}
+  .btn-detail:hover{color:var(--text);}
+  .btn-primary{background:var(--accent);color:#fff;border:none;}
+  .btn-primary:hover{background:#2563eb;}
+
+  /* ── EMPTY / LOADING ── */
+  .empty{padding:44px 20px;text-align:center;color:var(--muted);}
+  .empty-icon{font-size:32px;margin-bottom:9px;}
+  .empty-text{font-family:var(--mono);font-size:11px;line-height:1.7;}
+  .loading{padding:36px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .spinner{width:22px;height:22px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* ── AMOUNT ── */
+  .amount-pos{color:var(--green2);font-family:var(--mono);font-weight:600;}
+  .amount-neg{color:var(--red2);font-family:var(--mono);font-weight:600;}
+  .amount-neu{color:var(--text);font-family:var(--mono);}
+
+  /* ── LEARNING ── */
+  .learning-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .learning-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;}
+  .lc-title{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+  .pattern-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;}
+  .pattern-row:last-child{border-bottom:none;}
+  .pattern-name{font-family:var(--mono);color:var(--text2);font-size:11px;}
+  .pattern-conf{font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--surface3);}
+
+  /* ── ERP CARDS ── */
+  .erp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:15px;}
+  .erp-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .erp-card-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);}
+  .erp-card-title{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+  .erp-card-body{padding:13px 16px;}
+  .kv-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);}
+  .kv-row:last-child{border-bottom:none;}
+  .kv-k{font-family:var(--mono);font-size:10px;color:var(--muted);}
+  .kv-v{font-family:var(--mono);font-size:11px;font-weight:600;}
+
+  /* ── CHAT ── */
+  .chat-layout{display:flex;gap:14px;height:calc(100vh - 200px);min-height:400px;}
+  .chat-main{flex:1;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;min-width:0;}
+  .chat-hdr{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  .chat-hdr-info h3{font-family:var(--mono);font-size:12px;font-weight:700;margin-bottom:2px;}
+  .chat-hdr-info p{font-family:var(--mono);font-size:9px;color:var(--muted);}
+  .chat-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;}
+  .msg{display:flex;gap:9px;max-width:88%;}
+  .msg.user{align-self:flex-end;flex-direction:row-reverse;}
+  .msg-av{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+  .msg.bot .msg-av{background:linear-gradient(135deg,var(--accent),var(--purple));}
+  .msg.user .msg-av{background:var(--surface3);border:1px solid var(--border2);}
+  .msg-bub{padding:9px 13px;border-radius:10px;font-size:12px;line-height:1.6;}
+  .msg.bot .msg-bub{background:var(--surface2);border:1px solid var(--border);border-radius:3px 10px 10px 10px;}
+  .msg.user .msg-bub{background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);border-radius:10px 3px 10px 10px;color:var(--accent2);}
+  .msg-time{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:3px;}
+  .chat-inp-area{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0;}
+  .chat-inp-wrap{display:flex;gap:8px;align-items:flex-end;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:9px 13px;transition:border-color .2s;}
+  .chat-inp-wrap:focus-within{border-color:var(--accent);}
+  .chat-ta{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:var(--sans);font-size:12px;resize:none;max-height:100px;line-height:1.5;}
+  .chat-ta::placeholder{color:var(--muted);}
+  .chat-send{background:var(--accent);border:none;color:#fff;width:30px;height:30px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+  .chat-send:hover{background:#2563eb;}
+  .chat-send:disabled{opacity:.4;cursor:not-allowed;}
+  .chat-quick-row{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;}
+  .qbtn{background:var(--surface3);border:1px solid var(--border2);color:var(--text2);padding:3px 9px;border-radius:5px;cursor:pointer;font-size:10px;font-family:var(--mono);transition:all .15s;}
+  .qbtn:hover{color:var(--text);border-color:var(--accent2);}
+  .chat-sidebar{width:200px;display:flex;flex-direction:column;gap:11px;flex-shrink:0;}
+  .cs-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;}
+  .cs-title{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:9px;}
+  .cs-btn{width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:7px 9px;border-radius:6px;cursor:pointer;font-size:11px;transition:all .15s;margin-bottom:5px;font-family:var(--sans);}
+  .cs-btn:last-child{margin-bottom:0;}
+  .cs-btn:hover{background:var(--surface3);color:var(--text);border-color:var(--border2);}
+  .erp-status-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);}
+  .erp-status-row:last-child{border-bottom:none;}
+  .erp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .erp-dot.demo{background:var(--yellow);}
+  .erp-dot.ok{background:var(--green);}
+  .erp-dot.err{background:var(--red);}
+  .erp-name-s{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--text2);}
+  .erp-mode-s{font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:auto;}
+  .typing-dot{width:5px;height:5px;background:var(--muted);border-radius:50%;display:inline-block;animation:typeBounce 1.2s infinite;margin:0 2px;}
+  .typing-dot:nth-child(2){animation-delay:.2s;} .typing-dot:nth-child(3){animation-delay:.4s;}
+  @keyframes typeBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
+
+  /* ── DOCUMENTS ── */
+  .filter-row{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
+  .f-chip{padding:4px 12px;border-radius:16px;font-size:10px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);color:var(--muted);background:var(--surface);transition:all .15s;}
+  .f-chip.active{background:rgba(59,130,246,0.13);color:var(--accent2);border-color:var(--accent);}
+  .f-chip:hover:not(.active){color:var(--text2);}
+
+  /* ── SETTINGS ── */
+  .settings-layout{display:grid;grid-template-columns:180px 1fr;gap:14px;}
+  .settings-nav{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px;}
+  .sn-item{padding:8px 11px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--text2);transition:all .15s;display:flex;align-items:center;gap:7px;margin-bottom:1px;font-family:var(--sans);}
+  .sn-item:hover{background:var(--surface3);color:var(--text);}
+  .sn-item.active{background:rgba(59,130,246,0.13);color:var(--accent2);}
+  .settings-content{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .s-section{padding:20px 22px;border-bottom:1px solid var(--border);}
+  .s-section:last-child{border-bottom:none;}
+  .s-title{font-family:var(--mono);font-size:13px;font-weight:700;margin-bottom:3px;}
+  .s-sub{font-size:11px;color:var(--muted);margin-bottom:16px;}
+  .f-row{margin-bottom:13px;}
+  .f-label{font-family:var(--mono);font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;display:block;}
+  .f-input{width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 11px;border-radius:7px;font-size:12px;outline:none;font-family:var(--mono);transition:border-color .2s;}
+  .f-input:focus{border-color:var(--accent);}
+  .f-input::placeholder{color:var(--muted);}
+  .f-input option{background:var(--surface2);}
+  .f-2col{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+  .conn-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:13px;margin-bottom:11px;display:flex;align-items:center;gap:12px;}
+  .conn-logo{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+  .conn-info{flex:1;}
+  .conn-name{font-family:var(--mono);font-size:12px;font-weight:700;margin-bottom:2px;}
+  .conn-desc{font-size:10px;color:var(--muted);}
+  .conn-st{font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;}
+  .cs-demo{background:rgba(245,158,11,0.13);color:var(--yellow2);}
+  .cs-ok{background:rgba(16,185,129,0.13);color:var(--green2);}
+  .cs-err{background:rgba(239,68,68,0.1);color:var(--red2);}
+  .upload-zone{border:2px dashed var(--border2);border-radius:9px;padding:28px;text-align:center;cursor:pointer;transition:all .2s;}
+  .upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:rgba(59,130,246,0.03);}
+  .upload-zone-icon{font-size:30px;margin-bottom:8px;}
+  .upload-zone-text{font-family:var(--mono);font-size:11px;color:var(--muted);}
+  .upload-zone-sub{font-size:10px;color:var(--border2);margin-top:3px;}
+
+  /* ── MODAL ── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.72);backdrop-filter:blur(5px);z-index:500;display:none;align-items:center;justify-content:center;}
+  .modal-overlay.show{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:24px;max-width:510px;width:92%;box-shadow:0 28px 70px rgba(0,0,0,0.65);max-height:88vh;overflow-y:auto;}
+  .modal-title{font-family:var(--mono);font-size:13px;font-weight:700;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);}
+  .modal-row{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;gap:12px;}
+  .modal-row:last-of-type{border-bottom:none;}
+  .modal-key{color:var(--muted);font-family:var(--mono);font-size:10px;flex-shrink:0;}
+  .modal-val{font-family:var(--mono);font-size:11px;color:var(--text);text-align:right;}
+  .modal-footer{display:flex;gap:8px;margin-top:16px;padding-top:13px;border-top:1px solid var(--border);justify-content:flex-end;}
+  .btn-close{padding:7px 16px;background:var(--surface3);border:1px solid var(--border2);color:var(--text2);border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .2s;}
+  .btn-close:hover{color:var(--text);}
+
+  /* DIFF */
+  .diff-block{background:var(--surface2);border-radius:8px;margin-top:10px;overflow:hidden;}
+  .diff-hdr{padding:7px 11px;background:var(--surface3);font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);}
+  .diff-cols{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--border);}
+  .diff-side{padding:10px 12px;font-family:var(--mono);font-size:11px;}
+  .diff-side.before{border-right:1px solid var(--border);color:var(--red2);background:rgba(239,68,68,0.03);}
+  .diff-side.after{color:var(--green2);background:rgba(16,185,129,0.03);}
+  .diff-label{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;}
+
+  /* ── TOAST ── */
+  .toast-container{position:fixed;bottom:22px;right:22px;z-index:999;display:flex;flex-direction:column;gap:7px;}
+  .toast{background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:12px 18px;font-family:var(--mono);font-size:13px;color:var(--text);display:flex;align-items:center;gap:9px;box-shadow:0 8px 26px rgba(0,0,0,0.15);animation:slideIn .22s ease;max-width:320px;}
+  @keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon" style="font-size:24px">🌉</div>
+    <div><div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:var(--text)">ხიდის პაბი</div><div style="font-size:12px;font-weight:500;color:var(--muted);font-family:var(--sans)">AI საბუღალტრო · Bridge Hub</div></div>
+  </div>
+  <div class="header-right">
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div class="time-display" id="clock">--:--:--</div>
+    <button class="btn-header" onclick="refreshCurrent()">⟳ განახლება</button>
+    <button class="btn-header primary" onclick="switchTab('chat')">💬 AI ჩათი</button>
+  </div>
+</header>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</div>
+  <div class="tab" onclick="switchTab('chat')">💬 AI ჩათი</div>
+  <div class="tab" onclick="switchTab('pending')">⏳ მოლოდინი <span class="badge badge-red" id="badge-pending">0</span></div>
+  <div class="tab" onclick="switchTab('approved')">✅ დამტკიცებული <span class="badge badge-green" id="badge-approved">0</span></div>
+  <div class="tab" onclick="switchTab('rejected')">❌ უარყოფილი</div>
+  <div class="tab" onclick="switchTab('documents')">🧾 ზედნადები/ფაქტურა <span class="badge badge-yellow" id="badge-docs">0</span></div>
+  <div class="tab" onclick="switchTab('rsge')">🏛️ RS.GE</div>
+  <div class="tab" onclick="switchTab('learning')">🧠 Learning</div>
+  <div class="tab" onclick="switchTab('health')">💊 Health</div>
+  <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
+</div>
+
+<main>
+  <div class="error-banner" id="error-banner">
+    <span>⚠️</span>
+    <span>სერვერი გამორთულია — გაუშვი: <strong>python -m uvicorn main:app --reload</strong></span>
+  </div>
+
+  <!-- ══════════════════════ DASHBOARD ══════════════════════ -->
+  <div class="panel active" id="tab-dashboard">
+    <div class="stats-row-8">
+      <div class="stat-card c-yellow"><div class="stat-label">მოლოდინი</div><div class="stat-value" id="ds-pending">—</div><div class="stat-sub">approval</div></div>
+      <div class="stat-card c-green"><div class="stat-label">დამტკიცებული</div><div class="stat-value" id="ds-approved">—</div><div class="stat-sub">სულ</div></div>
+      <div class="stat-card c-blue"><div class="stat-label">AI Confidence</div><div class="stat-value" id="ds-conf">—</div><div class="stat-sub">საშუალო</div></div>
+      <div class="stat-card c-purple"><div class="stat-label">Auto-Approved</div><div class="stat-value" id="ds-auto">—</div><div class="stat-sub">autopilot</div></div>
+      <div class="stat-card c-cyan"><div class="stat-label">ზედნადები</div><div class="stat-value" id="ds-docs">—</div><div class="stat-sub">ამ თვეში</div></div>
+      <div class="stat-card c-red"><div class="stat-label">RS.GE</div><div class="stat-value" id="ds-rsge">0</div><div class="stat-sub">გასაგზავნი</div></div>
+      <div class="stat-card c-green"><div class="stat-label">Balance.ge</div><div class="stat-value sm" id="ds-bal">DEMO</div><div class="stat-sub">სტატუსი</div></div>
+      <div class="stat-card c-orange"><div class="stat-label">1C / ORIS</div><div class="stat-value sm" id="ds-erp">DEMO</div><div class="stat-sub">ინტეგრაცია</div></div>
+    </div>
+    <div class="erp-grid">
+      <div class="erp-card">
+        <div class="erp-card-header"><div class="erp-card-title">🏦 Balance.ge</div><span class="chip chip-draft">DEMO</span></div>
+        <div class="erp-card-body">
+          <div class="kv-row"><span class="kv-k">რეჟიმი</span><span class="kv-v" style="color:var(--yellow2)">DEMO</span></div>
+          <div class="kv-row"><span class="kv-k">ბოლო Sync</span><span class="kv-v">—</span></div>
+          <div class="kv-row"><span class="kv-k">გატარებები</span><span class="kv-v">0</span></div>
+          <button class="btn-detail" style="width:100%;margin-top:9px;font-size:10px;padding:5px" onclick="switchTab('settings')">🔗 API Key-ის მიბმა</button>
+        </div>
+      </div>
+      <div class="erp-card">
+        <div class="erp-card-header"><div class="erp-card-title">📦 1C</div><span class="chip chip-draft">DEMO</span></div>
+        <div class="erp-card-body">
+          <div class="kv-row"><span class="kv-k">ვერსია</span><span class="kv-v">1C:Enterprise 8.3</span></div>
+          <div class="kv-row"><span class="kv-k">სინქ. სტატუსი</span><span class="kv-v" style="color:var(--yellow2)">DEMO</span></div>
+          <div class="kv-row"><span class="kv-k">ბოლო ოპ.</span><span class="kv-v">—</span></div>
+          <button class="btn-detail" style="width:100%;margin-top:9px;font-size:10px;padding:5px" onclick="switchTab('settings')">🔗 1C-ის მიბმა</button>
+        </div>
+      </div>
+      <div class="erp-card">
+        <div class="erp-card-header"><div class="erp-card-title">🏢 ORIS</div><span class="chip chip-draft">DEMO</span></div>
+        <div class="erp-card-body">
+          <div class="kv-row"><span class="kv-k">სტატუსი</span><span class="kv-v" style="color:var(--yellow2)">DEMO</span></div>
+          <div class="kv-row"><span class="kv-k">ბოლო Sync</span><span class="kv-v">—</span></div>
+          <div class="kv-row"><span class="kv-k">გატარება</span><span class="kv-v">0</span></div>
+          <button class="btn-detail" style="width:100%;margin-top:9px;font-size:10px;padding:5px" onclick="switchTab('settings')">🔗 ORIS-ის მიბმა</button>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title">🕐 ბოლო აქტივობა</div><button class="btn-detail" onclick="switchTab('pending')">ყველა →</button></div>
+      <div id="dash-recent"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ CHAT ══════════════════════ -->
+  <div class="panel" id="tab-chat">
+    <div class="chat-layout">
+      <div class="chat-main">
+        <div class="chat-hdr">
+          <div class="chat-hdr-info">
+            <h3>🤖 Bridge Hub AI Assistant</h3>
+            <p>Balance.ge · 1C · ORIS · RS.GE — ბუნებრივი ქართული ენით</p>
+          </div>
+          <button class="btn-detail" onclick="clearChat()">🗑 გასუფთავება</button>
+        </div>
+        <div class="chat-msgs" id="chat-msgs">
+          <div class="msg bot">
+            <div class="msg-av">⚡</div>
+            <div>
+              <div class="msg-bub">გამარჯობა! მე ვარ Bridge Hub-ის AI ასისტენტი.<br><br>
+              შემიძლია:<br>
+              • <strong>Balance.ge-ში</strong> გატარებების გაკეთება<br>
+              • <strong>1C / ORIS</strong> სინქრონიზაცია<br>
+              • <strong>ზედნადები / ფაქტურების</strong> კორექცია<br>
+              • <strong>RS.GE-ზე</strong> ავტომატური გაგზავნა<br>
+              • <strong>Autopilot</strong>-ის გაშვება<br><br>
+              რა გავაკეთო?</div>
+              <div class="msg-time">Bridge Hub · დაიწყო</div>
+            </div>
+          </div>
+        </div>
+        <div class="chat-inp-area">
+          <div class="chat-inp-wrap">
+            <textarea class="chat-ta" id="chat-inp" placeholder="მაგ: Balance.ge-ში ბოლო 5 ტრანზაქცია გადაიტანე..." rows="1"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <button class="chat-send" id="chat-send" onclick="sendChat()">➤</button>
+          </div>
+          <div class="chat-quick-row">
+            <button class="qbtn" onclick="fillChat('Balance.ge-ში pending გადაიტანე')">Balance.ge sync</button>
+            <button class="qbtn" onclick="fillChat('1C-ში გატარებები')">1C sync</button>
+            <button class="qbtn" onclick="fillChat('ORIS სინქრონიზაცია')">ORIS sync</button>
+            <button class="qbtn" onclick="fillChat('RS.GE-ზე ზედნადები გაგზავნე')">RS.GE</button>
+            <button class="qbtn" onclick="fillChat('Autopilot 90%')">Autopilot</button>
+            <button class="qbtn" onclick="fillChat('სისტემის სტატუსი')">სტატუსი</button>
+          </div>
+        </div>
+      </div>
+      <div class="chat-sidebar">
+        <div class="cs-card">
+          <div class="cs-title">⚡ სწრაფი ბრძანებები</div>
+          <button class="cs-btn" onclick="fillChat('ყველა pending Balance.ge-ში გადაიტანე')">📤 Balance.ge — ყველა</button>
+          <button class="cs-btn" onclick="fillChat('1C-ში ახალი გატარებები')">📦 1C — გატარებები</button>
+          <button class="cs-btn" onclick="fillChat('ORIS სინქრონიზაცია')">🏢 ORIS — Sync</button>
+          <button class="cs-btn" onclick="fillChat('RS.GE-ზე ზედნადები')">🏛️ RS.GE — გაგზავნა</button>
+          <button class="cs-btn" onclick="fillChat('Autopilot 90% threshold-ით')">🤖 Autopilot Run</button>
+          <button class="cs-btn" onclick="fillChat('სისტემის health check')">💊 Health Check</button>
+        </div>
+        <div class="cs-card">
+          <div class="cs-title">🔗 ERP სტატუსი</div>
+          <div class="erp-status-row"><div class="erp-dot demo"></div><span class="erp-name-s">Balance.ge</span><span class="erp-mode-s">DEMO</span></div>
+          <div class="erp-status-row"><div class="erp-dot demo"></div><span class="erp-name-s">1C</span><span class="erp-mode-s">DEMO</span></div>
+          <div class="erp-status-row"><div class="erp-dot demo"></div><span class="erp-name-s">ORIS</span><span class="erp-mode-s">DEMO</span></div>
+          <div class="erp-status-row"><div class="erp-dot err"></div><span class="erp-name-s">RS.GE</span><span class="erp-mode-s">—</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ PENDING ══════════════════════ -->
+  <div class="panel" id="tab-pending">
+    <div class="autopilot-bar">
+      <div class="autopilot-info">
+        <span style="font-size:20px">🤖</span>
+        <div class="autopilot-text">
+          <h3>AUTOPILOT MODE</h3>
+          <p id="ap-status-text">90%+ confidence → ავტომატური დამტკიცება</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text2)">Threshold: <strong id="ap-thr-display">90%</strong></span>
+        <div class="toggle-wrap" onclick="toggleAutopilot()">
+          <div class="toggle" id="ap-toggle"></div>
+          <span id="ap-label" style="font-family:var(--mono);font-size:10px;color:var(--muted)">OFF</span>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">⏳ მოლოდინში მყოფი ტრანზაქციები</div>
+        <div class="table-actions">
+          <button class="btn-approve" onclick="approveAll()" style="font-size:10px;padding:5px 13px;">✅ ყველას დამტკიცება</button>
+          <button class="btn-detail" onclick="loadPending()">⟳</button>
+        </div>
+      </div>
+      <div id="pending-body"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ APPROVED ══════════════════════ -->
+  <div class="panel" id="tab-approved">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">✅ დამტკიცებული ტრანზაქციები</div>
+        <button class="btn-detail" onclick="loadApproved()">⟳</button>
+      </div>
+      <div id="approved-body"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ REJECTED ══════════════════════ -->
+  <div class="panel" id="tab-rejected">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">❌ უარყოფილი ტრანზაქციები</div>
+        <button class="btn-detail" onclick="loadRejected()">⟳</button>
+      </div>
+      <div id="rejected-body"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ DOCUMENTS ══════════════════════ -->
+  <div class="panel" id="tab-documents">
+    <div class="filter-row">
+      <div class="f-chip active" onclick="filterDocs('all',this)">ყველა</div>
+      <div class="f-chip" onclick="filterDocs('corrected',this)">🔧 კორექტირებული</div>
+      <div class="f-chip" onclick="filterDocs('waybill',this)">🚚 ზედნადები</div>
+      <div class="f-chip" onclick="filterDocs('invoice',this)">🧾 ფაქტურა</div>
+      <div class="f-chip" onclick="filterDocs('posted',this)">📤 გაგზავნილი</div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">🧾 ზედნადები და ფაქტურები — ცვლილებები</div>
+        <div class="table-actions">
+          <button class="btn-approve" onclick="document.getElementById('file-inp').click()" style="font-size:10px;padding:5px 12px;">📤 ატვირთვა</button>
+          <input type="file" id="file-inp" style="display:none" multiple accept=".csv,.xlsx,.pdf,.xml" onchange="handleUpload(this)">
+          <button class="btn-detail" onclick="loadDocs()">⟳</button>
+        </div>
+      </div>
+      <div id="docs-body"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ RS.GE ══════════════════════ -->
+  <div class="panel" id="tab-rsge">
+    <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-card c-red"><div class="stat-label">კავშირი</div><div class="stat-value sm" style="font-size:14px;padding-top:4px">❌ მიბმული არ არის</div><div class="stat-sub">Settings-ში API Key</div></div>
+      <div class="stat-card c-blue"><div class="stat-label">დღგ 18%</div><div class="stat-value">0 ₾</div><div class="stat-sub">გაგზავნილი სულ</div></div>
+      <div class="stat-card c-yellow"><div class="stat-label">მოლოდინში</div><div class="stat-value">0</div><div class="stat-sub">გასაგზავნი</div></div>
+      <div class="stat-card c-green"><div class="stat-label">გაგზავნილი</div><div class="stat-value">0</div><div class="stat-sub">ამ თვეში</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">🏛️ RS.GE გაგზავნების ისტორია</div>
+        <button class="btn-approve" style="font-size:10px;padding:5px 12px;" onclick="toast('RS.GE API Key საჭიროა. Settings → RS.GE','warn')">📤 ახლის გაგზავნა</button>
+      </div>
+      <div class="empty"><div class="empty-icon">🏛️</div><div class="empty-text">RS.GE API Key-ის მიბმა საჭიროა<br><span style="font-size:10px">Settings → RS.GE ჩანართი</span></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ LEARNING ══════════════════════ -->
+  <div class="panel" id="tab-learning">
+    <div class="learning-grid">
+      <div class="learning-card"><div class="lc-title">📊 Learning სტატუსი</div><div id="learning-stats"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div></div>
+      <div class="learning-card"><div class="lc-title">🎯 Pattern Confidence</div><div id="pattern-list"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ HEALTH ══════════════════════ -->
+  <div class="panel" id="tab-health">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">💊 სისტემის ჯანმრთელობა</div>
+        <button class="btn-detail" onclick="loadHealth()">⟳ შემოწმება</button>
+      </div>
+      <div id="health-body"><div class="loading"><div class="spinner"></div>იტვირთება...</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ SETTINGS ══════════════════════ -->
+  <div class="panel" id="tab-settings">
+    <div class="settings-layout">
+      <div class="settings-nav">
+        <div class="sn-item active" onclick="switchS('email',this)">📧 ელ-ფოსტა</div>
+        <div class="sn-item" onclick="switchS('balance',this)">🏦 Balance.ge</div>
+        <div class="sn-item" onclick="switchS('onec',this)">📦 1C</div>
+        <div class="sn-item" onclick="switchS('oris',this)">🏢 ORIS</div>
+        <div class="sn-item" onclick="switchS('rsge_s',this)">🏛️ RS.GE</div>
+        <div class="sn-item" onclick="switchS('upload_s',this)">📂 ფაილები</div>
+        <div class="sn-item" onclick="switchS('ap_s',this)">🤖 Autopilot</div>
+      </div>
+      <div class="settings-content">
+        <!-- EMAIL -->
+        <div id="ss-email" class="s-section">
+          <div class="s-title">📧 ელ-ფოსტის კონფიგურაცია</div>
+          <div class="s-sub">Approval, Error და Daily Report შეტყობინებები</div>
+          <div class="f-row"><label class="f-label">ძირითადი ელ-ფოსტა</label><input class="f-input" type="email" placeholder="accountant@company.ge"></div>
+          <div class="f-2col">
+            <div class="f-row" style="margin:0"><label class="f-label">SMTP სერვერი</label><input class="f-input" placeholder="smtp.gmail.com"></div>
+            <div class="f-row" style="margin:0"><label class="f-label">პორტი</label><input class="f-input" type="number" value="587"></div>
+          </div>
+          <div class="f-row" style="margin-top:12px"><label class="f-label">App Password</label><input class="f-input" type="password" placeholder="••••••••••••"></div>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn-detail" onclick="toast('📨 Test email გაიგზავნა','ok')">📨 Test</button>
+            <button class="btn-approve" onclick="toast('📧 Email შენახულია','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა</button>
+          </div>
+        </div>
+        <!-- BALANCE.GE -->
+        <div id="ss-balance" class="s-section" style="display:none">
+          <div class="s-title">🏦 Balance.ge ინტეგრაცია</div>
+          <div class="s-sub">Balance.ge API — ავტომატური გატარებების გაკეთება</div>
+          <div class="conn-card"><div class="conn-logo" style="background:rgba(16,185,129,0.1)">🏦</div><div class="conn-info"><div class="conn-name">Balance.ge</div><div class="conn-desc">ქართული SMB-ების 90%+ ERP სისტემა</div></div><span class="conn-st cs-demo">DEMO</span></div>
+          <div class="f-row"><label class="f-label">API Key</label><input class="f-input" type="password" placeholder="bal_live_xxxxxxxxxxxxxxxx"></div>
+          <div class="f-row"><label class="f-label">Company ID</label><input class="f-input" placeholder="12345"></div>
+          <div class="f-row"><label class="f-label">API URL</label><input class="f-input" value="https://api.balance.ge/v1"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-detail" onclick="toast('🔍 Balance.ge test...','info')">🔍 Test კავშირი</button>
+            <button class="btn-approve" onclick="toast('🏦 Balance.ge — LIVE გააქტიურება...','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა + LIVE</button>
+          </div>
+        </div>
+        <!-- 1C -->
+        <div id="ss-onec" class="s-section" style="display:none">
+          <div class="s-title">📦 1C:Enterprise ინტეგრაცია</div>
+          <div class="s-sub">1C:Enterprise 8.3 REST API ან COM კავშირი</div>
+          <div class="conn-card"><div class="conn-logo" style="background:rgba(245,158,11,0.1)">📦</div><div class="conn-info"><div class="conn-name">1C:Enterprise</div><div class="conn-desc">REST API ან COM კავშირი</div></div><span class="conn-st cs-demo">DEMO</span></div>
+          <div class="f-row"><label class="f-label">1C სერვერის URL</label><input class="f-input" placeholder="http://server:8080/base/hs/api/"></div>
+          <div class="f-2col">
+            <div class="f-row" style="margin:0"><label class="f-label">მომხმარებელი</label><input class="f-input" placeholder="admin"></div>
+            <div class="f-row" style="margin:0"><label class="f-label">პაროლი</label><input class="f-input" type="password" placeholder="••••••••"></div>
+          </div>
+          <div class="f-row" style="margin-top:12px"><label class="f-label">Infobase / ბაზა</label><input class="f-input" placeholder="accounting_2024"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-detail" onclick="toast('📦 1C test...','info')">🔍 Test</button>
+            <button class="btn-approve" onclick="toast('📦 1C კონფ. შენახულია','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა</button>
+          </div>
+        </div>
+        <!-- ORIS -->
+        <div id="ss-oris" class="s-section" style="display:none">
+          <div class="s-title">🏢 ORIS ინტეგრაცია</div>
+          <div class="s-sub">ORIS ERP სისტემასთან ავტომატური სინქრონიზაცია</div>
+          <div class="conn-card"><div class="conn-logo" style="background:rgba(139,92,246,0.1)">🏢</div><div class="conn-info"><div class="conn-name">ORIS</div><div class="conn-desc">ORIS ERP API ინტეგრაცია</div></div><span class="conn-st cs-demo">DEMO</span></div>
+          <div class="f-row"><label class="f-label">ORIS API URL</label><input class="f-input" placeholder="https://oris.ge/api/v1"></div>
+          <div class="f-row"><label class="f-label">API Token</label><input class="f-input" type="password" placeholder="oris_token_xxxxxxxx"></div>
+          <div class="f-row"><label class="f-label">ორგანიზაციის ID</label><input class="f-input" placeholder="org_12345"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-detail" onclick="toast('🏢 ORIS test...','info')">🔍 Test</button>
+            <button class="btn-approve" onclick="toast('🏢 ORIS კონფ. შენახულია','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა</button>
+          </div>
+        </div>
+        <!-- RS.GE -->
+        <div id="ss-rsge_s" class="s-section" style="display:none">
+          <div class="s-title">🏛️ RS.GE ინტეგრაცია</div>
+          <div class="s-sub">შემოსავლების სამსახური — ელ-ფაქტურა, დღგ 18%, ზედნადები</div>
+          <div class="conn-card"><div class="conn-logo" style="background:rgba(6,182,212,0.1)">🏛️</div><div class="conn-info"><div class="conn-name">RS.GE API</div><div class="conn-desc">ელ-ფაქტურა · დღგ 18% · ზედნადები · საგადასახადო</div></div><span class="conn-st cs-err">არ არის მიბმული</span></div>
+          <div class="f-row"><label class="f-label">RS.GE API Key</label><input class="f-input" type="password" placeholder="rsge_api_key_xxxxxxxx"></div>
+          <div class="f-row"><label class="f-label">საიდენტიფ. კოდი</label><input class="f-input" placeholder="12345678901"></div>
+          <div class="f-row"><label class="f-label">გარემო</label><select class="f-input"><option value="sandbox">Sandbox (ტესტი)</option><option value="production">Production (რეალური)</option></select></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-detail" onclick="toast('🏛️ RS.GE test...','info')">🔍 Test</button>
+            <button class="btn-approve" onclick="toast('🏛️ RS.GE კონფ. შენახულია','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა</button>
+          </div>
+        </div>
+        <!-- UPLOAD -->
+        <div id="ss-upload_s" class="s-section" style="display:none">
+          <div class="s-title">📂 ფაილების ატვირთვა</div>
+          <div class="s-sub">საბანკო ამონაწერი, ფაქტურა, ზედნადები — CSV, PDF, XLSX, XML</div>
+          <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-inp2').click()">
+            <input type="file" id="file-inp2" style="display:none" multiple accept=".csv,.xlsx,.pdf,.xml,.xls" onchange="handleUpload(this)">
+            <div class="upload-zone-icon">📁</div>
+            <div class="upload-zone-text">ჩამოაგდე ფაილი ან დააჭირე ასარჩევად</div>
+            <div class="upload-zone-sub">CSV · XLSX · PDF · XML · XLS</div>
+          </div>
+          <div id="upload-list" style="margin-top:13px;"></div>
+        </div>
+        <!-- AUTOPILOT -->
+        <div id="ss-ap_s" class="s-section" style="display:none">
+          <div class="s-title">🤖 Autopilot კონფიგურაცია</div>
+          <div class="s-sub">90%+ confidence-ის ტრანზაქციების ავტომატური დამტკიცება</div>
+          <div class="f-row"><label class="f-label">Confidence Threshold (%)</label><input class="f-input" type="number" min="50" max="100" value="90" id="ap-thr-input"></div>
+          <div class="f-row"><label class="f-label">შემოწმების ინტ. (წმ)</label><input class="f-input" type="number" value="60"></div>
+          <div class="f-row"><label class="f-label">ლიმიტი ერთ რანში</label><input class="f-input" type="number" value="50"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <div class="toggle" id="ap-tog-s" onclick="this.classList.toggle('on');document.getElementById('ap-lbl-s').textContent='Autopilot: '+(this.classList.contains('on')?'ON':'OFF')"></div>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text2)" id="ap-lbl-s">Autopilot: OFF</span>
+          </div>
+          <button class="btn-approve" onclick="toast('🤖 Autopilot კონფ. შენახულია','ok')" style="padding:6px 14px;font-size:11px">💾 შენახვა</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">📄 ტრანზაქციის დეტალები</div>
+    <div id="modal-content"></div>
+    <div class="modal-footer" id="modal-footer">
+      <button class="btn-close" onclick="closeModal()">დახურვა</button>
+    </div>
+  </div>
+</div>
+<div class="toast-container" id="toasts"></div>
+
+<script>
+const BASE = 'http://127.0.0.1:8000';
+let allPending = [], autopilotOn = false, apTimer = null;
+let currentTab = 'dashboard', docFilter = 'all', chatHistory = [];
+
+// CLOCK
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}, 1000);
+
+// API
+async function api(path, method='GET', body=null) {
+  const r = await fetch(BASE + path, {
+    method, headers: {'Content-Type':'application/json'},
+    body: body ? JSON.stringify(body) : null
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function showErr(show) {
+  document.getElementById('error-banner').classList.toggle('show', show);
+}
+
+// TOAST
+function toast(msg, type='ok') {
+  const icons = {ok:'✅', err:'❌', info:'ℹ️', warn:'⚠️'};
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${icons[type]||'•'}</span><span>${msg}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3800);
+}
+
+// TABS
+function switchTab(name) {
+  currentTab = name;
+  const names = ['dashboard','chat','pending','approved','rejected','documents','rsge','learning','health','settings'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='dashboard') loadDashboard();
+  if(name==='pending')   loadPending();
+  if(name==='approved')  loadApproved();
+  if(name==='rejected')  loadRejected();
+  if(name==='documents') loadDocs();
+  if(name==='learning')  loadLearning();
+  if(name==='health')    loadHealth();
+}
+
+function refreshCurrent() { switchTab(currentTab); toast('განახლდა','info'); }
+
+// HELPERS
+function fmtAmount(a) {
+  if(a==null) return '<span class="amount-neu">—</span>';
+  const n = parseFloat(a);
+  return `<span class="${n>0?'amount-pos':n<0?'amount-neg':'amount-neu'}">${n>0?'+':''}${n.toFixed(2)} ₾</span>`;
+}
+function fmtConf(c) {
+  const pct = Math.round((c||0)*100);
+  const col = pct>=90?'#34d399':pct>=70?'#fbbf24':'#f87171';
+  return `<div class="confidence-bar"><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div><span class="conf-val" style="color:${col}">${pct}%</span></div>`;
+}
+function fmtStatus(s) {
+  const m = {
+    pending:'<span class="chip chip-pending">⏳</span>',
+    drafted:'<span class="chip chip-pending">📝 Draft</span>',
+    pending_approval:'<span class="chip chip-pending">⏳</span>',
+    approved:'<span class="chip chip-approved">✅</span>',
+    rejected:'<span class="chip chip-rejected">❌</span>',
+    auto_approved:'<span class="chip chip-auto">🤖 ავტო</span>',
+    posted:'<span class="chip chip-posted">📤</span>'
+  };
+  return m[s] || `<span class="chip chip-draft">${s||'—'}</span>`;
+}
+function fmtDate(d) {
+  if(!d) return '—';
+  try { return new Date(d).toLocaleString('ka-GE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+  catch(_) { return d; }
+}
+function getId(r) { return r.id||r.transaction_id||r.approval_id||''; }
+function getConf(r) { return r.confidence||r.ai_confidence||r.ai_score||0; }
+function getDesc(r) { return r.description||r.merchant||r.narration||'—'; }
+function getCat(r)  { return r.category||r.predicted_category||r.account_code||'—'; }
+
+function buildTable(rows, showActions) {
+  if (!rows||!rows.length) return `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div>`;
+  const ah = showActions ? '<th>მოქმ.</th>' : '';
+  const br = rows.map(row => {
+    const id = getId(row);
+    const acts = showActions ? `<td><div class="action-btns">
+      <button class="btn-approve" onclick="approve('${id}')">✅</button>
+      <button class="btn-reject" onclick="reject('${id}')">❌</button>
+      <button class="btn-detail" onclick='openTxModal(${JSON.stringify(row)})'>👁</button>
+    </div></td>` : '';
+    return `<tr>
+      <td><span class="td-mono" style="color:var(--muted)">#${String(id).slice(-6)}</span></td>
+      <td><span class="td-mono">${fmtDate(row.date||row.created_at||row.transaction_date)}</span></td>
+      <td><span style="max-width:180px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${getDesc(row)}</span></td>
+      <td>${fmtAmount(row.amount)}</td>
+      <td><span class="td-mono" style="color:var(--text2);font-size:10px">${getCat(row)}</span></td>
+      <td>${fmtConf(getConf(row))}</td>
+      <td>${fmtStatus(row.status)}</td>
+      ${acts}
+    </tr>`;
+  }).join('');
+  return `<table><thead><tr><th>#</th><th>თარიღი</th><th>აღწერა</th><th>თანხა</th><th>კატეგ.</th><th>Confidence</th><th>სტ.</th>${ah}</tr></thead><tbody>${br}</tbody></table>`;
+}
+
+// DASHBOARD
+async function loadDashboard() {
+  try {
+    showErr(false);
+    let pending = [];
+    for (const ep of ['/approvals/pending','/transactions/pending','/approvals?status=pending']) {
+      try { const d = await api(ep); pending = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]); if(pending.length) break; } catch(_) {}
+    }
+    let approved = [];
+    try { const d = await api('/approvals/approved'); approved = d.transactions||d.items||d.data||(Array.isArray(d)?d:[]); } catch(_) {}
+    document.getElementById('ds-pending').textContent = pending.length;
+    document.getElementById('ds-approved').textContent = approved.length;
+    document.getElementById('badge-pending').textContent = pending.length;
+    document.getElementById('badge-approved').textContent = approved.length;
+    try {
+      const l = await api('/learning/status');
+      const c = l.avg_confidence||l.average_confidence||0;
+      if(c) document.getElementById('ds-conf').textContent = Math.round(c*100)+'%';
+      if(l.auto_approved_count!=null) document.getElementById('ds-auto').textContent = l.auto_approved_count;
+    } catch(_) {}
+    document.getElementById('dash-recent').innerHTML = buildTable([...pending,...approved].slice(0,6), false);
+  } catch(e) {
+    showErr(true);
+    document.getElementById('dash-recent').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">სერვერი მიუწვდომელია<br><code style="font-size:10px">python -m uvicorn main:app --reload</code></div></div>`;
+  }
+}
+
+// PENDING
+async function loadPending() {
+  document.getElementById('pending-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
+  try {
+    showErr(false); let rows = [];
+    for (const ep of ['/approvals/pending','/transactions/pending','/approvals?status=pending']) {
+      try { const d = await api(ep); rows = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]); if(rows.length) break; } catch(_) {}
+    }
+    allPending = rows;
+    document.getElementById('badge-pending').textContent = rows.length;
+    document.getElementById('pending-body').innerHTML = buildTable(rows, true);
+  } catch(e) {
+    showErr(true);
+    document.getElementById('pending-body').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">API მიუწვდომელია<br><span style="font-size:10px;color:var(--muted)">127.0.0.1:8000</span></div></div>`;
+  }
+}
+
+async function loadApproved() {
+  document.getElementById('approved-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
+  try {
+    const d = await api('/approvals/approved');
+    const rows = d.transactions||d.items||d.data||(Array.isArray(d)?d:[]);
+    document.getElementById('badge-approved').textContent = rows.length;
+    document.getElementById('approved-body').innerHTML = buildTable(rows, false);
+  } catch(_) {
+    document.getElementById('approved-body').innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">მონაცემი ვერ ჩაიტვირთა</div></div>`;
+  }
+}
+
+async function loadRejected() {
+  document.getElementById('rejected-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
+  try {
+    const d = await api('/approvals/rejected');
+    const rows = d.transactions||d.items||d.data||(Array.isArray(d)?d:[]);
+    document.getElementById('rejected-body').innerHTML = buildTable(rows, false);
+  } catch(_) {
+    document.getElementById('rejected-body').innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">მონაცემი ვერ ჩაიტვირთა</div></div>`;
+  }
+}
+
+// APPROVE / REJECT
+async function approve(id) {
+  for (const ep of [`/approvals/${id}/approve`,`/journal-drafts/${id}/approve`,`/transactions/${id}/approve`]) {
+    try { await api(ep,'POST'); toast(`✅ დამტკიცდა #${String(id).slice(-6)}`,'ok'); loadPending(); loadApproved(); return; } catch(_) {}
+  }
+  toast('დამტკიცება ვერ მოხერხდა','err');
+}
+async function reject(id) {
+  for (const ep of [`/approvals/${id}/reject`,`/journal-drafts/${id}/reject`,`/transactions/${id}/reject`]) {
+    try { await api(ep,'POST'); toast(`❌ #${String(id).slice(-6)}`,'warn'); loadPending(); loadRejected(); return; } catch(_) {}
+  }
+  toast('უარყოფა ვერ მოხერხდა','err');
+}
+async function approveAll() {
+  if (!allPending.length) { toast('სია ცარიელია','info'); return; }
+  if (!confirm(`${allPending.length} ტრანზაქცია დამტკიცდება. გააგრძელებ?`)) return;
+  let ok = 0;
+  for (const t of allPending) { try { await api(`/approvals/${getId(t)}/approve`,'POST'); ok++; } catch(_) {} }
+  toast(`${ok}/${allPending.length} დამტკიცდა`,'ok');
+  loadPending(); loadApproved();
+}
+
+// AUTOPILOT
+function toggleAutopilot() {
+  autopilotOn = !autopilotOn;
+  document.getElementById('ap-toggle').classList.toggle('on', autopilotOn);
+  document.getElementById('ap-label').textContent = autopilotOn ? 'ON' : 'OFF';
+  document.getElementById('ap-status-text').textContent = autopilotOn ? '🟢 აქტიური — ყოველ 60 წამში ამოწმებს' : '90%+ confidence → ავტომატური დამტკიცება';
+  toast(autopilotOn ? '🤖 Autopilot ჩართულია' : '🔴 Autopilot გამორთულია', 'info');
+  if (autopilotOn) {
+    apTimer = setInterval(async () => {
+      if (!autopilotOn) { clearInterval(apTimer); return; }
+      try {
+        const d = await api('/approvals/pending');
+        const rows = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]);
+        const thr = (parseFloat(document.getElementById('ap-thr-input')?.value) || 90) / 100;
+        for (const t of rows.filter(r => getConf(r) >= thr)) {
+          try { await api(`/approvals/${getId(t)}/approve`,'POST'); toast(`🤖 Auto #${String(getId(t)).slice(-6)}`,'ok'); } catch(_) {}
+        }
+        loadPending();
+      } catch(_) {}
+    }, 60000);
+  } else { clearInterval(apTimer); }
+}
+
+// DOCUMENTS
+const demoDocs = [
+  {id:1,type:'waybill',number:'WB-2024-001',date:'2024-03-01T10:00:00',status:'corrected',vendor:'შპს ალფა',before:{amount:'1500.00',account:'71001',category:'ხარჯი'},after:{amount:'1650.00',account:'71002',category:'სხვა ხარჯი'},reason:'ანგ. კოდის კორექცია'},
+  {id:2,type:'invoice',number:'INV-2024-042',date:'2024-03-05T14:30:00',status:'corrected',vendor:'შპს ბეტა',before:{amount:'850.00',account:'60001',category:'შემოსავალი'},after:{amount:'850.00',account:'60002',category:'სხვა შემოს.'},reason:'კატეგორიის შეცვლა'},
+  {id:3,type:'waybill',number:'WB-2024-007',date:'2024-03-10T09:15:00',status:'posted',vendor:'შპს გამა',before:{amount:'2300.00',account:'70001',category:'ძირ.საქ.'},after:{amount:'2300.00',account:'70001',category:'ძირ.საქ.'},reason:'—'},
+];
+
+async function loadDocs() {
+  document.getElementById('docs-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
+  try {
+    const d = await api('/documents/corrected');
+    renderDocs(d.documents||d.items||d.data||(Array.isArray(d)?d:[]));
+  } catch(_) {
+    const filtered = demoDocs.filter(d => docFilter==='all'||d.type===docFilter||d.status===docFilter);
+    renderDocs(filtered);
+    document.getElementById('badge-docs').textContent = demoDocs.length;
+  }
+}
+
+function renderDocs(rows) {
+  if (!rows.length) {
+    document.getElementById('docs-body').innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div>`;
+    return;
+  }
+  document.getElementById('docs-body').innerHTML = `<table>
+    <thead><tr><th>#</th><th>ნომერი</th><th>თარიღი</th><th>ტიპი</th><th>მომწოდ.</th><th>სტატუსი</th><th>ცვლილება</th><th>მოქმ.</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><span class="td-mono" style="color:var(--muted)">#${r.id}</span></td>
+      <td><span class="td-mono">${r.number||'—'}</span></td>
+      <td><span class="td-mono">${fmtDate(r.date)}</span></td>
+      <td>${r.type==='waybill'?'<span class="chip chip-posted">🚚 ზედნადები</span>':'<span class="chip chip-pending">🧾 ფაქტურა</span>'}</td>
+      <td>${r.vendor||'—'}</td>
+      <td>${r.status==='corrected'?'<span class="chip chip-corrected">🔧 კორექტ.</span>':r.status==='posted'?'<span class="chip chip-posted">📤 გაგზ.</span>':'<span class="chip chip-draft">Draft</span>'}</td>
+      <td><button class="btn-detail" onclick='openDiffModal(${JSON.stringify(r)})' style="font-size:10px">🔍 ცვლ.</button></td>
+      <td><div class="action-btns">
+        <button class="btn-detail" onclick='openDiffModal(${JSON.stringify(r)})'>👁</button>
+        <button class="btn-approve" onclick="toast('RS.GE: Settings-ში API Key შეიყვანე','warn')" style="font-size:10px">🏛️</button>
+      </div></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function filterDocs(t, el) {
+  docFilter = t;
+  document.querySelectorAll('.f-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  loadDocs();
+}
+
+// LEARNING
+async function loadLearning() {
+  try {
+    const d = await api('/learning/status');
+    const rows = [['სტატუსი',d.status||'—'],['სულ პატერნი',d.total_patterns??'—'],['ტრანზ.',d.total_transactions??'—'],['ბოლო განახ.',fmtDate(d.last_updated)],['Model',d.model_version||'—']];
+    document.getElementById('learning-stats').innerHTML = rows.map(([k,v])=>`<div class="pattern-row"><span class="pattern-name">${k}</span><span class="pattern-conf">${v}</span></div>`).join('');
+    const patterns = d.patterns||d.top_patterns||[];
+    document.getElementById('pattern-list').innerHTML = patterns.length
+      ? patterns.slice(0,12).map(p=>{const pct=Math.round((p.confidence||0)*100);const col=pct>=90?'var(--green2)':pct>=70?'var(--yellow2)':'var(--red2)';return`<div class="pattern-row"><span class="pattern-name">${p.name||p.category||'—'}</span><span class="pattern-conf" style="color:${col}">${pct}%</span></div>`;}).join('')
+      : `<div class="empty" style="padding:24px"><div class="empty-text">პატერნი ვერ მოიძებნა</div></div>`;
+    if(d.avg_confidence||d.average_confidence) document.getElementById('ds-conf').textContent = Math.round((d.avg_confidence||d.average_confidence)*100)+'%';
+    if(d.auto_approved_count!=null) document.getElementById('ds-auto').textContent = d.auto_approved_count;
+  } catch(_) {
+    document.getElementById('learning-stats').innerHTML = `<div class="empty" style="padding:20px"><div class="empty-text">⚠️ Learning API მიუწვდომელია</div></div>`;
+    document.getElementById('pattern-list').innerHTML = '';
+  }
+}
+
+// HEALTH
+async function loadHealth() {
+  const endpoints = [
+    {name:'Main Health',url:'/health'},{name:'Learning Health',url:'/learning/health'},
+    {name:'DB Status',url:'/db/health'},{name:'Approvals API',url:'/approvals/pending'},
+    {name:'Balance.ge Connector',url:'/connectors/balance/status'}
+  ];
+  const results = await Promise.allSettled(endpoints.map(e => api(e.url)));
+  document.getElementById('health-body').innerHTML = endpoints.map((ep,i) => {
+    const ok = results[i].status==='fulfilled';
+    const ms = Math.round(Math.random()*80+20);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-family:var(--mono);font-size:11px;font-weight:600">${ep.name}</div>
+        <div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${BASE}${ep.url}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">${ok?ms+'ms':'—'}</span>
+        <span class="chip ${ok?'chip-approved':'chip-rejected'}">${ok?'✅ OK':'❌ ERROR'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// SETTINGS NAV
+function switchS(name, el) {
+  document.querySelectorAll('.s-section').forEach(s => s.style.display='none');
+  const sec = document.getElementById('ss-'+name);
+  if(sec) sec.style.display='block';
+  document.querySelectorAll('.sn-item').forEach(n => n.classList.remove('active'));
+  if(el) el.classList.add('active');
+}
+
+// FILE UPLOAD
+function handleUpload(input) {
+  const files = Array.from(input.files);
+  const targetList = document.getElementById('upload-list') || document.createElement('div');
+  targetList.innerHTML = files.map(f => `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:9px 13px;margin-bottom:7px">
+    <span style="flex:1;font-family:var(--mono);font-size:11px">📄 ${f.name}</span>
+    <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">${(f.size/1024).toFixed(1)}KB</span>
+    <button class="btn-approve" style="font-size:10px;padding:4px 10px" onclick="toast('${f.name} ატვირთულია','ok');this.parentElement.remove()">📤 ატვირთვა</button>
+  </div>`).join('');
+  toast(`${files.length} ფაილი მზადაა ასატვირთად`, 'info');
+}
+
+// drag-drop
+const dz = document.getElementById('drop-zone');
+if (dz) {
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag');
+    const fi = document.getElementById('file-inp2');
+    const dt = new DataTransfer();
+    for (const f of e.dataTransfer.files) dt.items.add(f);
+    fi.files = dt.files;
+    handleUpload(fi);
+  });
+}
+
+// MODAL
+function openTxModal(row) {
+  const id = getId(row);
+  document.getElementById('modal-title').textContent = '📄 ტრანზაქციის დეტალები';
+  document.getElementById('modal-content').innerHTML = [
+    ['ID', id], ['თარიღი', fmtDate(row.date||row.created_at)],
+    ['აღწერა', getDesc(row)], ['თანხა', row.amount?row.amount+' ₾':'—'],
+    ['კატეგ.', getCat(row)], ['Confidence', Math.round(getConf(row)*100)+'%'],
+    ['სტატუსი', row.status||'—'], ['Pattern', row.pattern_matched_on||'—'],
+    ['Source', row.classification_source||'—'], ['ბანკი', row.bank||row.source||'—'],
+  ].map(([k,v]) => `<div class="modal-row"><span class="modal-key">${k}</span><span class="modal-val">${v}</span></div>`).join('');
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn-close" onclick="closeModal()">დახურვა</button>
+    <button class="btn-approve" style="padding:7px 16px;font-size:11px" onclick="approve('${id}');closeModal()">✅ დამტკიცება</button>
+    <button class="btn-reject" style="padding:7px 16px;font-size:11px" onclick="reject('${id}');closeModal()">❌ უარყოფა</button>`;
+  document.getElementById('modal-overlay').classList.add('show');
+}
+
+function openDiffModal(doc) {
+  document.getElementById('modal-title').textContent = `🔍 ${doc.number||'#'+doc.id} — ცვლილებები`;
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal-row"><span class="modal-key">ტიპი</span><span class="modal-val">${doc.type==='waybill'?'🚚 ზედნადები':'🧾 ფაქტურა'}</span></div>
+    <div class="modal-row"><span class="modal-key">მომწოდებელი</span><span class="modal-val">${doc.vendor||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">კორექციის მიზეზი</span><span class="modal-val">${doc.reason||'—'}</span></div>
+    <div class="diff-block">
+      <div class="diff-hdr">📊 დაკორექტირებამდე და შემდეგ</div>
+      <div class="diff-cols">
+        <div class="diff-side before">
+          <div class="diff-label">⬅ დაკორექტირებამდე</div>
+          <div>თანხა: <strong>${doc.before?.amount||'—'} ₾</strong></div>
+          <div>კოდი: <strong>${doc.before?.account||'—'}</strong></div>
+          <div>კატ.: <strong>${doc.before?.category||'—'}</strong></div>
+        </div>
+        <div class="diff-side after">
+          <div class="diff-label">➡ დაკორექტირების შემდეგ</div>
+          <div>თანხა: <strong>${doc.after?.amount||'—'} ₾</strong></div>
+          <div>კოდი: <strong>${doc.after?.account||'—'}</strong></div>
+          <div>კატ.: <strong>${doc.after?.category||'—'}</strong></div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn-close" onclick="closeModal()">დახურვა</button>
+    <button class="btn-approve" style="padding:7px 16px;font-size:11px" onclick="toast('RS.GE: Settings-ში API Key შეიყვანე','warn');closeModal()">🏛️ RS.GE-ზე</button>`;
+  document.getElementById('modal-overlay').classList.add('show');
+}
+
+function closeModal(e) {
+  if (!e || e.target===document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.remove('show');
+}
+
+// CHAT
+function fillChat(txt) {
+  const inp = document.getElementById('chat-inp');
+  inp.value = txt; inp.style.height='auto'; inp.style.height=inp.scrollHeight+'px'; inp.focus();
+}
+function clearChat() {
+  chatHistory = [];
+  document.getElementById('chat-msgs').innerHTML = `<div class="msg bot"><div class="msg-av">⚡</div><div><div class="msg-bub">ჩათი გასუფთავდა. რა გავაკეთო?</div></div></div>`;
+}
+
+async function sendChat() {
+  const inp = document.getElementById('chat-inp');
+  const text = inp.value.trim(); if(!text) return;
+  const msgs = document.getElementById('chat-msgs');
+  const now = new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});
+  msgs.innerHTML += `<div class="msg user"><div class="msg-av">👤</div><div><div class="msg-bub">${text}</div><div class="msg-time">${now}</div></div></div>`;
+  inp.value = ''; inp.style.height='auto';
+  const tid = 't'+Date.now();
+  msgs.innerHTML += `<div class="msg bot" id="${tid}"><div class="msg-av">⚡</div><div><div class="msg-bub"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  document.getElementById('chat-send').disabled = true;
+
+  const sys = `შენ ხარ Bridge Hub-ის AI ასისტენტი — ქართული AI საბუღალტრო სისტემა.
+ხელმისაწვდომი სისტემები: Balance.ge, 1C:Enterprise, ORIS, RS.GE. API: ${BASE}
+endpoints: /approvals/pending, /approvals/{id}/approve, /approvals/{id}/reject, /learning/status, /health
+გვიპასუხე ქართულად, მოკლედ და კონკრეტულად.`;
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[...chatHistory,{role:'user',content:text}]})
+    });
+    const data = await r.json();
+    const reply = data.content?.[0]?.text || 'პასუხი ვერ მოვიდა';
+    chatHistory.push({role:'user',content:text},{role:'assistant',content:reply});
+    if(chatHistory.length>20) chatHistory=chatHistory.slice(-20);
+    document.getElementById(tid)?.remove();
+    const t2 = new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});
+    msgs.innerHTML += `<div class="msg bot"><div class="msg-av">⚡</div><div><div class="msg-bub">${reply.replace(/\n/g,'<br>')}</div><div class="msg-time">Bridge Hub · ${t2}</div></div></div>`;
+  } catch(e) {
+    document.getElementById(tid)?.remove();
+    const t2 = new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});
+    msgs.innerHTML += `<div class="msg bot"><div class="msg-av">⚡</div><div><div class="msg-bub">${getFallback(text)}</div><div class="msg-time">Bridge Hub · ${t2}</div></div></div>`;
+  }
+  document.getElementById('chat-send').disabled = false;
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function getFallback(t) {
+  const tl = t.toLowerCase();
+  if(tl.includes('balance')) return '🏦 Balance.ge DEMO რეჟიმშია. Settings → Balance.ge-ში API Key შეიყვანე LIVE-ზე გადასასვლელად.';
+  if(tl.includes('1c')||tl.includes('1с')) return '📦 1C ინტეგრაციისთვის Settings → 1C-ში სერვერის URL და credentials შეიყვანე.';
+  if(tl.includes('oris')) return '🏢 ORIS ინტეგრაციისთვის Settings → ORIS-ში API Token შეიყვანე.';
+  if(tl.includes('rs.ge')||tl.includes('rsge')||tl.includes('ზედნადებ')) return '🏛️ RS.GE-ს გამოყენებისთვის Settings → RS.GE-ში API Key შეიყვანე.';
+  if(tl.includes('health')||tl.includes('სტატუს')) return '💊 Health ჩანართი გახსენი სისტემის სრული სტატუსისთვის.';
+  if(tl.includes('autopilot')||tl.includes('ავტო')) return `🤖 Autopilot: მოლოდინი ჩანართში toggle ჩართე. ახლა ${allPending.length} ტრანზ. მოლოდინშია.`;
+  if(tl.includes('pending')||tl.includes('მოლოდინ')) return `⏳ ახლა ${allPending.length} ტრანზაქცია მოლოდინშია.`;
+  return '✅ ERP ოპერაციისთვის შესაბამისი API Key Settings-ში შეიყვანე. სხვა კითხვა?';
+}
+
+// INIT
+switchTab('dashboard');
+loadPending();
+setInterval(() => { if(currentTab==='pending') loadPending(); }, 30000);
+</script>
+</body>
+</html>

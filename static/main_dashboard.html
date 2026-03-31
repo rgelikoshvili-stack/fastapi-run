@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Bridge Hub Dashboard</title>
+  <style>
+    body { font-family: Arial; margin: 24px; background: #f7f9fc; }
+    .card {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    h1 { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+
+<h1>Bridge Hub — Dashboard</h1>
+
+<div class="grid" id="stats"></div>
+
+<script>
+async function loadStats() {
+  const queue = await fetch('/approval/queue').then(r=>r.json());
+  const patterns = await fetch('/patterns').then(r=>r.json());
+
+  const totalQueue = queue?.data?.queue?.length || 0;
+  const totalPatterns = patterns?.data?.patterns?.length || 0;
+
+  const root = document.getElementById('stats');
+
+  root.innerHTML = `
+    <div class="card">Pending Drafts: ${totalQueue}</div>
+    <div class="card">Patterns: ${totalPatterns}</div>
+    <div class="card">System: ACTIVE</div>
+    <div class="card">Mode: Semi-Autonomous</div>
+  `;
+}
+
+loadStats();
+</script>
+
+</body>
+</html>

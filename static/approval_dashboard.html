@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bridge Hub Approval Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      background: #f7f9fc;
+      color: #1f2937;
+    }
+    h1 {
+      margin-bottom: 16px;
+    }
+    .toolbar {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+    }
+    button.secondary {
+      background: #6b7280;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 14px;
+      margin-top: 6px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+    .badge-confidence {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .badge-status {
+      background: #e5e7eb;
+      color: #374151;
+    }
+    .badge-autopilot {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    pre {
+      background: #111827;
+      color: #f9fafb;
+      padding: 12px;
+      border-radius: 10px;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Bridge Hub — Approval Dashboard</h1>
+
+  <div class="toolbar">
+    <button onclick="loadQueue()">Refresh Queue</button>
+    <button class="secondary" onclick="clearPreview()">Clear Preview</button>
+  </div>
+
+  <div id="queue"></div>
+
+  <h2>Preview</h2>
+  <pre id="preview">No preview loaded.</pre>
+
+  <script>
+    async function loadQueue() {
+      const res = await fetch('/approval/queue');
+      const data = await res.json();
+      const queue = data?.data?.queue || [];
+      const root = document.getElementById('queue');
+      root.innerHTML = '';
+
+      if (!queue.length) {
+        root.innerHTML = '<div class="card">Queue is empty.</div>';
+        return;
+      }
+
+      queue.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'card';
+
+        const confidence = item.confidence ?? 'N/A';
+        const status = item.status ?? 'unknown';
+
+        div.innerHTML = `
+          <div class="row">
+            <div>
+              <strong>${item.description || 'No description'}</strong>
+              <div class="meta">Partner: ${item.partner || 'N/A'}</div>
+              <div class="meta">Amount: ${item.amount ?? 'N/A'}</div>
+              <div class="meta">Account: ${item.account_code || 'N/A'}</div>
+            </div>
+            <div>
+              <span class="badge badge-confidence">Confidence: ${confidence}</span>
+              <span class="badge badge-status">Status: ${status}</span>
+              ${item.review_required ? '' : '<span class="badge badge-autopilot">Autopilot Candidate</span>'}
+            </div>
+          </div>
+          <div class="actions">
+            <button onclick="approveDraft(${item.id})">Approve</button>
+            <button onclick="rejectDraft(${item.id})">Reject</button>
+            <button class="secondary" onclick='previewDraft(${JSON.stringify({
+              description: item.description,
+              partner: item.partner,
+              amount: item.amount,
+              account_code: item.account_code,
+              confidence: item.confidence,
+              status: item.status
+            }).replace(/'/g, "&apos;")})'>Preview</button>
+          </div>
+        `;
+
+        root.appendChild(div);
+      });
+    }
+
+    async function approveDraft(id) {
+      const res = await fetch(`/approval/approve/${id}`, { method: 'POST' });
+      const data = await res.json();
+      alert(data.message || 'Approved');
+      loadQueue();
+    }
+
+    async function rejectDraft(id) {
+      const reason = prompt('Reject reason:', '') || '';
+      const res = await fetch(`/approval/reject/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      alert(data.message || 'Rejected');
+      loadQueue();
+    }
+
+    async function previewDraft(payload) {
+      const res = await fetch('/approval/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+    }
+
+    function clearPreview() {
+      document.getElementById('preview').textContent = 'No preview loaded.';
+    }
+
+    loadQueue();
+  </script>
+</body>
+</html>

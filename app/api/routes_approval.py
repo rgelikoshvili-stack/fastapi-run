@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
+from app.api.response_utils import error_response
 from app.api.services.approval_service import (
     get_queue_service,
     approve_draft_service,
@@ -10,6 +11,7 @@ from app.api.services.approval_service import (
     autopilot_approve_service,
 )
 from app.api.services.correct_draft_service import correct_draft
+from app.services.route_bridge_service import build_preview_response
 
 router = APIRouter(prefix="/approval", tags=["approval"])
 
@@ -75,3 +77,11 @@ def get_audit_log(limit: int = 50, offset: int = 0):
 @router.post("/autopilot")
 def run_autopilot():
     return autopilot_approve_service()
+
+
+@router.post("/preview")
+def preview_draft(payload: dict):
+    try:
+        return build_preview_response(payload)
+    except Exception as e:
+        return error_response("Preview failed", "PREVIEW_ERROR", str(e))

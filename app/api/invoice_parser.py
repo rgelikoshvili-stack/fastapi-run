@@ -4,6 +4,8 @@ from typing import Optional
 
 import pdfplumber
 
+from app.api.invoice_ocr_fallback import extract_text_with_ocr
+
 
 def _clean_amount(value: str) -> Optional[float]:
     if not value:
@@ -116,7 +118,10 @@ def _extract_labeled_amount(text: str, labels: list[str]) -> Optional[float]:
 
 
 def _extract_all_amounts(text: str) -> list[float]:
-    matches = re.findall(r"(?<!\d)(\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2}))(?!\d)", text)
+    matches = re.findall(
+        r"(?<!\d)(\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2}))(?!\d)",
+        text,
+    )
     amounts = []
     for raw in matches:
         value = _clean_amount(raw)
@@ -157,6 +162,18 @@ def _guess_vat_amount(text: str, total_amount: Optional[float]) -> Optional[floa
     return None
 
 
+def _extract_pdf_text(content: bytes) -> str:
+    text = ""
+
+    try:
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+    except Exception:
+        text = ""
+
+    return text or ""
+
+
 def parse_invoice_pdf(content: bytes) -> dict:
     result = {
         "invoice_number": None,
@@ -167,12 +184,20 @@ def parse_invoice_pdf(content: bytes) -> dict:
         "currency": "GEL",
         "items": [],
         "raw_text": "",
+        "ocr_used": False,
+        "extraction_confidence": 0.0,
+        "review_required": True,
     }
 
-    with pdfplumber.open(io.BytesIO(content)) as pdf:
-        full_text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+    text = _extract_pdf_text(content)
 
-    text = full_text or ""
+    # OCR fallback თუ ტექსტი ვერ ამოიკითხა ან ძალიან მოკლეა
+    if not text or len(text.strip()) < 20:
+        ocr_text = extract_text_with_ocr(content)
+        if ocr_text:
+            text = ocr_text
+            result["ocr_used"] = True
+
     result["raw_text"] = text[:4000]
 
     normalized_text = text.replace("\u00a0", " ")
@@ -186,7 +211,26 @@ def parse_invoice_pdf(content: bytes) -> dict:
     total_amount = _guess_total_amount(normalized_text)
     vat_amount = _guess_vat_amount(normalized_text, total_amount)
 
+    # VAT sanity check
+    if vat_amount and total_amount and vat_amount > total_amount:
+        vat_amount = None
+
     result["total_amount"] = total_amount
     result["vat_amount"] = vat_amount
+
+    # Field completeness score
+    fields = [
+        result["invoice_number"],
+        result["invoice_date"],
+        result["partner"],
+        result["total_amount"],
+    ]
+
+    filled = sum(1 for f in fields if f not in (None, "", 0))
+    score = filled / len(fields)
+    result["extraction_confidence"] = round(score, 2)
+
+    # Review flag
+    result["review_required"] = result["extraction_confidence"] < 0.5
 
     return result

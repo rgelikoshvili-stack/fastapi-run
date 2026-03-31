@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bridge Hub Audit Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      background: #f7f9fc;
+      color: #1f2937;
+    }
+    h1 {
+      margin-bottom: 16px;
+    }
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+      margin-bottom: 16px;
+    }
+    .event {
+      background: white;
+      border-left: 4px solid #2563eb;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+    pre {
+      background: #111827;
+      color: #f9fafb;
+      padding: 10px;
+      border-radius: 10px;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Bridge Hub — Audit Dashboard</h1>
+
+  <button onclick="loadAudit()">Refresh Audit</button>
+
+  <div id="audit"></div>
+
+  <script>
+    async function loadAudit() {
+      const res = await fetch('/approval/audit');
+      const data = await res.json();
+      const rows = data?.data?.events || [];
+      const root = document.getElementById('audit');
+      root.innerHTML = '';
+
+      if (!rows.length) {
+        root.innerHTML = '<div class="event">No audit events found.</div>';
+        return;
+      }
+
+      rows.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'event';
+        div.innerHTML = `
+          <strong>${item.event_type || 'event'}</strong>
+          <div class="meta">Actor: ${item.actor || 'system'}</div>
+          <div class="meta">Created At: ${item.created_at || 'N/A'}</div>
+          <pre>${JSON.stringify(item.details || {}, null, 2)}</pre>
+        `;
+        root.appendChild(div);
+      });
+    }
+
+    loadAudit();
+  </script>
+</body>
+</html>

@@ -183,6 +183,36 @@ def adaptive_pattern_confidence(
     return round(max(floor, min(base, ceiling)), 2)
 
 
+def check_partner_memory(conn, partner: str):
+    if not partner:
+        return None
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT account_code, confidence
+            FROM transaction_memory
+            WHERE LOWER(partner) = LOWER(%s)
+            ORDER BY confidence DESC
+            LIMIT 1
+            """,
+            (partner,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+
+    if row:
+        return {
+            "account_code": row[0],
+            "confidence": row[1],
+            "source": "partner_memory",
+        }
+
+    return None
+
+
 def get_exact_pattern_match(cur, pattern_type: str, value: str, statuses=("active", "candidate")):
     cur.execute(
         """
@@ -426,6 +456,33 @@ def classify(
     paid_in_value = to_float(paid_in)
     paid_out_value = to_float(paid_out)
     amount_for_history = paid_out_value if paid_out_value is not None else paid_in_value
+
+    # 0. PARTNER MEMORY OVERRIDE
+    conn = get_db()
+    try:
+        partner_override = check_partner_memory(conn, part)
+    finally:
+        conn.close()
+
+    if partner_override:
+        return {
+            "account_code": partner_override["account_code"],
+            "reason": "partner_memory_override",
+            "confidence": min(0.99, float(partner_override["confidence"])),
+            "review_required": False,
+            "status": "auto_approved",
+            "source": "partner_memory",
+            "pattern_support_count": None,
+            "pattern_success_count": None,
+            "pattern_failure_count": None,
+            "pattern_matched_on": "partner_memory",
+            "pattern_similarity": None,
+            "pattern_value_used": part,
+            "pattern_days_since_seen": None,
+            "pattern_recency_penalty": None,
+            "autopilot_eligible": True,
+            "autopilot_reason": "partner_memory_override",
+        }
 
     # 1. EXPENSE ARTICLE
     article = find_expense_article(desc, part)

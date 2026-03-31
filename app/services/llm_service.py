@@ -47,3 +47,30 @@ async def llm_text(prompt: str, provider: str = 'claude') -> str:
 
 async def llm_extract(prompt: str) -> dict:
     return await llm_json(prompt)
+
+def generate_preview_text(payload: dict) -> str:
+    description = payload.get("description", "N/A")
+    partner = payload.get("partner", "N/A")
+    amount = payload.get("amount", "N/A")
+    account_code = payload.get("account_code", "N/A")
+    confidence = payload.get("confidence", "N/A")
+
+    return (
+        f"Description: {description}\n"
+        f"Partner: {partner}\n"
+        f"Amount: {amount}\n"
+        f"Account Code: {account_code}\n"
+        f"Confidence: {confidence}"
+    )
+
+
+def classify_with_llm_gateway(payload: dict) -> dict:
+    """
+    Sprint 63 gateway placeholder.
+    აქედან უნდა გადიოდეს ყველა GPT/Claude/Gemini call ეტაპობრივად.
+    """
+    return {
+        "ok": True,
+        "message": "LLM gateway placeholder",
+        "payload": payload,
+    }

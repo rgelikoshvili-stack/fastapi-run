@@ -1,6 +1,8 @@
+import json
+
 from app.api.db import get_db
 from app.api.services.learning_service import apply_correct_learning
-import json
+from app.api.services.transaction_memory_service import save_transaction_memory
 
 
 PROMOTION_SUPPORT_THRESHOLD = 3
@@ -27,13 +29,15 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
     cur = conn.cursor()
 
     try:
-        # 1. წამოვიღოთ არსებული draft
-        cur.execute("""
+        cur.execute(
+            """
             SELECT id, description, partner, account_code, reason,
                    debit_account, credit_account, amount, classification_source
             FROM journal_drafts
             WHERE id = %s
-        """, (draft_id,))
+            """,
+            (draft_id,),
+        )
         row = cur.fetchone()
 
         if not row:
@@ -58,7 +62,6 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             "credit_account": payload.get("credit_account", original["credit_account"]),
         }
 
-        # 2. ვნახოთ რა შეიცვალა
         changed_fields = []
         delta_parts = []
 
@@ -69,8 +72,8 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
 
         delta_summary = ", ".join(delta_parts) if delta_parts else "no_change"
 
-        # 3. განვაახლოთ draft
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE journal_drafts
             SET account_code = %s,
                 reason = %s,
@@ -80,16 +83,18 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 approved_by_mode = 'human_correction',
                 updated_at = NOW()
             WHERE id = %s
-        """, (
-            final["account_code"],
-            final["reason"],
-            final["debit_account"],
-            final["credit_account"],
-            draft_id
-        ))
+            """,
+            (
+                final["account_code"],
+                final["reason"],
+                final["debit_account"],
+                final["credit_account"],
+                draft_id,
+            ),
+        )
 
-        # 4. human review log
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO human_reviews (
                 case_id,
                 review_action,
@@ -102,20 +107,22 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
             RETURNING id
-        """, (
-            draft_id,
-            "correct",
-            json.dumps(final),
-            final["account_code"],
-            final["reason"],
-            delta_summary,
-            user
-        ))
+            """,
+            (
+                draft_id,
+                "correct",
+                json.dumps(final),
+                final["account_code"],
+                final["reason"],
+                delta_summary,
+                user,
+            ),
+        )
 
         review_id = cur.fetchone()[0]
 
-        # 5. learning delta log (ეს არ უნდა წაშალო!)
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO learning_deltas (
                 case_id,
                 review_id,
@@ -127,19 +134,20 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 created_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-        """, (
-            draft_id,
-            review_id,
-            json.dumps(original),
-            json.dumps(final),
-            json.dumps(changed_fields),
-            delta_summary,
-            "corrected_mapping"
-        ))
+            """,
+            (
+                draft_id,
+                review_id,
+                json.dumps(original),
+                json.dumps(final),
+                json.dumps(changed_fields),
+                delta_summary,
+                "corrected_mapping",
+            ),
+        )
 
         conn.commit()
 
-        # ✅ 6. ცენტრალიზებული learning (ყველაზე მნიშვნელოვანი ნაწილი)
         learning_result = apply_correct_learning(
             draft={
                 "id": draft_id,
@@ -158,6 +166,13 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             notes=f"review_id={review_id}",
         )
 
+        memory_result = save_transaction_memory(
+            row[1],               # description
+            row[2],               # partner
+            row[7],               # amount
+            final["account_code"] # corrected account_code
+        )
+
         return {
             "ok": True,
             "message": "Draft corrected and learning updated",
@@ -166,9 +181,10 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 "review_id": review_id,
                 "changed_fields": changed_fields,
                 "delta_summary": delta_summary,
-                "learning_result": learning_result
+                "learning_result": learning_result,
+                "memory_result": memory_result,
             },
-            "error": None
+            "error": None,
         }
 
     except Exception as e:
@@ -179,8 +195,8 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             "data": None,
             "error": {
                 "code": "INTERNAL_ERROR",
-                "details": str(e)
-            }
+                "details": str(e),
+            },
         }
 
     finally:

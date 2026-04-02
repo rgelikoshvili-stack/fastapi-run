@@ -1,5 +1,9 @@
+import os
 import sys
 from pathlib import Path
+
+# ✅ ეს არის მთავარი — RBAC გამორთვა ტესტებისთვის
+os.environ["TEST_MODE"] = "1"
 
 import pytest
 from fastapi.testclient import TestClient

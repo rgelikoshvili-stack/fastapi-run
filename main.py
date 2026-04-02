@@ -1,10 +1,9 @@
 import os
+import sys
 import asyncio
 
-import sys
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
-
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 from fastapi import FastAPI, Request
@@ -18,6 +17,8 @@ from slowapi.errors import RateLimitExceeded
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from app.api.services.approval_service import autopilot_approve_service
 from app.api.services.learning_service import run_decay_service
+from app.api.middleware.tenant_middleware import tenant_middleware
+from app.api.middleware.rbac_middleware import rbac_middleware
 
 # --- APP ---
 app = FastAPI(title="Bridge Hub v1.0.0", version="1.0.0")
@@ -92,15 +93,17 @@ from app.api import routes_learning
 from app.api import routes_transaction_ai
 from app.api import routes_export_journal
 from app.api import routes_audit_log
-from app.api.routes_patterns import router as patterns_router
-from routes_version import router as version_router
 from app.api import routes_invoice
-from app.api.routes_expense_articles import router as expense_articles_router
 from app.api import routes_erp_memory
 from app.api import routes_erp_import
 from app.api import routes_erp_connectors
 from app.api import routes_transaction_memory
+from app.api import routes_qa
+
+from app.api.routes_patterns import router as patterns_router
+from app.api.routes_expense_articles import router as expense_articles_router
 from app.api.routes_learning_explain import router as learning_explain_router
+from routes_version import router as version_router
 
 
 # --- INCLUDE ROUTERS ---
@@ -125,62 +128,27 @@ app.include_router(routes_erp_import.router)
 app.include_router(routes_erp_connectors.router)
 app.include_router(routes_transaction_memory.router)
 app.include_router(learning_explain_router)
+app.include_router(routes_qa.router)
 
 
 # --- FUTURE ROUTES ---
-# Keep these disabled until each module is cleaned, tested, and reintroduced.
-#
 # from app.api import routes_pipeline
 # from app.api import routes_balance_ge
-# from app.api import routes_dashboard_ui
-# from app.api import routes_dashboard_v2
-# from app.api import routes_dashboard_full
-# from app.api import routes_dashboard_mobile
-# from app.api import routes_budget
-# from app.api import routes_tax
-# from app.api import routes_expenses
-# from app.api import routes_crm
-# from app.api import routes_contracts
-# from app.api import routes_tenants
-# from app.api import routes_tenants_v2
-# from app.api import routes_reconciliation
-# from app.api import routes_reconciliation_v2
-# from app.api import routes_financial_statements
-# from app.api import routes_fpa
-# from app.api import routes_reports
-# from app.api import routes_reports_dashboard
-# from app.api import routes_rbac
-# from app.api import routes_notifications
-# from app.api import routes_firestore
-# from app.api import routes_launch
-# from app.api import routes_chat
-# from app.api import routes_search
-# from app.api import routes_export
-# from app.api import routes_gates
-# from app.api import routes_security
-# from app.api import routes_webhooks_v2
-# from app.api import routes_supervisor
-# from app.api import routes_ai_journal
-# from app.api import routes_audit_engine
-# from app.api import routes_finance_engine
-# from app.api import routes_strategy
-# from app.api import routes_invoices
-# from app.api import routes_invoice
-# from app.api import routes_docs
-# from app.api import routes_api_docs
-# from app.api import routes_pdf_report
-# from app.api import routes_bank_accounts
-# from app.api import routes_currency
-# from app.api import routes_1c
-# from app.api import routes_bank
+# ... (დანარჩენი commented routes)
 
 
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
+# --- MIDDLEWARE (თანმიმდევრობა მნიშვნელოვანია!) ---
+# 1. tenant — პირველი: tenant_id-ს ადგენს request-ზე
+app.middleware("http")(tenant_middleware)
 
-# --- SECURITY HEADERS ---
+# 2. rbac — მეორე: tenant-ის შემდეგ, role-ს ამოწმებს
+app.middleware("http")(rbac_middleware)
+
+# 3. security headers — ბოლო: response-ზე headers-ს ამატებს
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -199,8 +167,7 @@ async def autopilot_loop():
             print(f"✅ Autopilot result: {result}")
         except Exception as e:
             print(f"❌ Autopilot error: {e}")
-
-        await asyncio.sleep(60)  # ყოველ 60 წამში
+        await asyncio.sleep(60)
 
 
 async def decay_loop():
@@ -212,8 +179,7 @@ async def decay_loop():
             print(f"✅ Decay result: {result}")
         except Exception as e:
             print(f"❌ Decay error: {e}")
-
-        await asyncio.sleep(3600)  # ყოველ 1 საათში
+        await asyncio.sleep(3600)
 
 
 @app.on_event("startup")
@@ -221,3 +187,7 @@ async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
+
+
+
+

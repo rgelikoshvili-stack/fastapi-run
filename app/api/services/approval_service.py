@@ -5,6 +5,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.services.feedback_service import save_feedback
 from app.api.services.transaction_memory_service import save_transaction_memory
+from app.api.services.qa_engine import evaluate_decision
 from app.api.engines.pattern_engine import (
     generate_patterns_from_feedback,
     mark_pattern_success,
@@ -131,6 +132,11 @@ def approve_draft_service(draft_id: int):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+    draft = None
+    updated = None
+    memory_result = {"ok": False, "message": "not_run"}
+    qa_result = {"ok": False, "score": 0, "issues": [], "recommendation": "unknown"}
+
     try:
         cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
         draft = cur.fetchone()
@@ -157,6 +163,8 @@ def approve_draft_service(draft_id: int):
                 "ALREADY_REJECTED",
                 f"Draft {draft_id} is already rejected and cannot be approved",
             )
+
+        qa_result = evaluate_decision(draft)
 
         cur.execute(
             """
@@ -218,7 +226,7 @@ def approve_draft_service(draft_id: int):
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft.get("classification_source") in (
+    if draft and draft.get("classification_source") in (
         "pattern_active",
         "pattern_active_fuzzy",
         "pattern_candidate",
@@ -230,14 +238,17 @@ def approve_draft_service(draft_id: int):
         "draft_approved",
         {
             "draft_id": draft_id,
-            "classification_source": draft.get("classification_source"),
-            "pattern_matched_on": draft.get("pattern_matched_on"),
-            "pattern_value_used": draft.get("pattern_value_used"),
-            "approved_by_mode": updated.get("approved_by_mode"),
+            "classification_source": draft.get("classification_source") if draft else None,
+            "pattern_matched_on": draft.get("pattern_matched_on") if draft else None,
+            "pattern_value_used": draft.get("pattern_value_used") if draft else None,
+            "approved_by_mode": updated.get("approved_by_mode") if updated else None,
             "pattern_update_result": pattern_update_result,
             "memory_saved": bool(memory_result.get("ok")),
             "memory_result": memory_result,
-            "bridge_from_erp_history": draft.get("classification_source") == "erp_history",
+            "bridge_from_erp_history": draft.get("classification_source") == "erp_history" if draft else False,
+            "qa_score": qa_result.get("score"),
+            "qa_issues": qa_result.get("issues"),
+            "qa_recommendation": qa_result.get("recommendation"),
         },
     )
 
@@ -246,7 +257,7 @@ def approve_draft_service(draft_id: int):
         {
             "id": draft_id,
             "status": "approved",
-            "approved_by_mode": updated.get("approved_by_mode"),
+            "approved_by_mode": updated.get("approved_by_mode") if updated else "human",
         },
     )
 
@@ -254,6 +265,9 @@ def approve_draft_service(draft_id: int):
 def reject_draft_service(draft_id: int, reason: str = ""):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    draft = None
+    updated = None
 
     try:
         cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
@@ -333,7 +347,7 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft.get("classification_source") in (
+    if draft and draft.get("classification_source") in (
         "pattern_active",
         "pattern_active_fuzzy",
         "pattern_candidate",
@@ -346,9 +360,9 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         {
             "draft_id": draft_id,
             "reason": reason,
-            "classification_source": draft.get("classification_source"),
-            "pattern_matched_on": draft.get("pattern_matched_on"),
-            "pattern_value_used": draft.get("pattern_value_used"),
+            "classification_source": draft.get("classification_source") if draft else None,
+            "pattern_matched_on": draft.get("pattern_matched_on") if draft else None,
+            "pattern_value_used": draft.get("pattern_value_used") if draft else None,
             "pattern_update_result": pattern_update_result,
         },
     )
@@ -388,6 +402,8 @@ def get_audit_service(limit: int, offset: int):
             "events": events,
         },
     )
+
+
 def autopilot_approve_service(confidence_threshold: float = 0.80):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -398,8 +414,8 @@ def autopilot_approve_service(confidence_threshold: float = 0.80):
             SELECT id, confidence, description, account_code
             FROM journal_drafts
             WHERE status IN ('drafted', 'pending_approval')
-  AND confidence >= %s
-  AND (review_required = false OR confidence >= 0.85)
+              AND confidence >= %s
+              AND (review_required = false OR confidence >= 0.85)
             ORDER BY confidence DESC
             """,
             (confidence_threshold,),
@@ -443,12 +459,15 @@ def autopilot_approve_service(confidence_threshold: float = 0.80):
             if updated:
                 approved_ids.append(draft_id)
 
-                log_event("draft_auto_approved", {
-                    "draft_id": draft_id,
-                    "confidence": draft.get("confidence"),
-                    "threshold": confidence_threshold,
-                    "account_code": draft.get("account_code"),
-                })
+                log_event(
+                    "draft_auto_approved",
+                    {
+                        "draft_id": draft_id,
+                        "confidence": draft.get("confidence"),
+                        "threshold": confidence_threshold,
+                        "account_code": draft.get("account_code"),
+                    },
+                )
             else:
                 failed_ids.append(draft_id)
 

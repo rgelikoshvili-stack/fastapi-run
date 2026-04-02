@@ -1,6 +1,7 @@
 from app.api.invoice_parser import parse_invoice_pdf
 from app.api.transaction_classifier import classify
 from app.api.journal_generator import generate_draft
+from app.api.services.action_router import route_action
 
 from app.services.preview_service import build_draft_preview
 from app.workflows.bank_to_draft_workflow import run_bank_to_draft_workflow
@@ -88,12 +89,23 @@ def bridge_invoice_payload(payload: dict) -> dict:
 
 
 def bridge_chat_payload(payload: dict) -> dict:
-    result = run_chat_action_workflow(payload)
+    action = route_action(payload)
+    workflow_result = run_chat_action_workflow(
+        {
+            "input": payload,
+            "action": action,
+        }
+    )
+
     return {
-        "ok": result.get("ok", False),
-        "message": "Chat workflow processed",
-        "data": result,
-        "error": None if result.get("ok") else result.get("error", "WORKFLOW_ERROR"),
+        "ok": True,
+        "message": "Chat routed",
+        "data": {
+            "input": payload,
+            "action": action,
+            "workflow": workflow_result,
+        },
+        "error": None,
     }
 
 

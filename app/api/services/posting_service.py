@@ -4,6 +4,7 @@ import psycopg2.extras
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+from app.api.services.retry_service import run_with_retry
 from app.api.balance_connector import (
     balance_config_status,
     balance_ping,
@@ -179,6 +180,7 @@ def _get_connector_executor(target_normalized: str):
             "target_system": "mock",
             "payload_builder": lambda draft: _build_generic_payload(draft),
             "executor": lambda payload, draft: {
+                "ok": True,
                 "target_system": "mock",
                 "status": "posted",
                 "message": "Mock posting completed successfully",
@@ -202,6 +204,17 @@ def _get_connector_executor(target_normalized: str):
         },
     }
     return connectors.get(target_normalized)
+
+
+def _execute_with_retry(connector: dict, payload: dict, draft) -> dict:
+    def operation():
+        return connector["executor"](payload, draft)
+
+    return run_with_retry(
+        operation,
+        max_attempts=3,
+        delay_seconds=1,
+    )
 
 
 def get_approved_drafts_service(limit: int, offset: int):
@@ -268,88 +281,6 @@ def get_posting_payload_service(draft_id: int):
         conn.close()
 
     return ok_response("Posting payload preview", {"draft": dict(draft), "payload": payload})
-
-
-def mock_posting_service(draft_id: int):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
-        if err:
-            return err
-
-        existing_post = _find_successful_post(cur, draft["id"], "mock")
-        if existing_post:
-            log_event(
-                "posting_duplicate_blocked",
-                {
-                    "draft_id": draft["id"],
-                    "target": "mock",
-                    "existing_log_id": existing_post["id"],
-                },
-            )
-            return error_response(
-                "Draft already posted",
-                "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to mock (log_id={existing_post['id']})",
-            )
-
-        log_event(
-            "posting_attempt_started",
-            {"draft_id": draft["id"], "target": "mock"},
-        )
-
-        payload = _build_generic_payload(draft)
-        mock_response = {
-            "target_system": "mock",
-            "status": "posted",
-            "message": "Mock posting completed successfully",
-            "posted_draft_id": draft["id"],
-        }
-
-        posting_log_id = _insert_posting_log(
-            cur,
-            draft["id"],
-            "mock",
-            payload,
-            mock_response,
-            "posted",
-            None,
-        )
-        conn.commit()
-
-        log_event(
-            "posting_attempt_finished",
-            {
-                "draft_id": draft["id"],
-                "target": "mock",
-                "posting_log_id": posting_log_id,
-                "status": "posted",
-            },
-        )
-
-    except Exception as e:
-        conn.rollback()
-        log_event(
-            "posting_attempt_failed",
-            {"draft_id": draft_id, "target": "mock", "error": str(e)},
-        )
-        return error_response("Mock posting failed", "MOCK_POSTING_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "Mock posting completed",
-        {
-            "posting_log_id": posting_log_id,
-            "draft_id": draft["id"],
-            "payload": payload,
-            "response": mock_response,
-        },
-    )
 
 
 def get_posting_logs_service(limit: int, offset: int, target_system: str | None = None, draft_id: int | None = None):
@@ -438,14 +369,7 @@ def get_posting_log_detail_service(log_id: int):
     return ok_response("Posting log detail", dict(row))
 
 
-def get_balance_status_service():
-    try:
-        return ok_response("Balance status", {"config": balance_config_status(), "ping": balance_ping()})
-    except Exception as e:
-        return error_response("Balance status check failed", "BALANCE_STATUS_ERROR", str(e))
-
-
-def post_draft_to_balance_service(draft_id: int):
+def _run_posting_attempt(draft_id: int, target_normalized: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -455,258 +379,12 @@ def post_draft_to_balance_service(draft_id: int):
         if err:
             return err
 
-        existing_post = _find_successful_post(cur, draft["id"], "balance")
-        if existing_post:
-            log_event(
-                "posting_duplicate_blocked",
-                {
-                    "draft_id": draft["id"],
-                    "target": "balance",
-                    "existing_log_id": existing_post["id"],
-                },
-            )
-            return error_response(
-                "Draft already posted",
-                "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to balance (log_id={existing_post['id']})",
-            )
-
-        log_event(
-            "posting_attempt_started",
-            {"draft_id": draft["id"], "target": "balance"},
-        )
-
-        payload = build_balance_payload(dict(draft))
-        balance_result = post_to_balance(payload)
-
-        posting_log_id = _insert_posting_log(
-            cur,
-            draft["id"],
-            "balance",
-            payload,
-            balance_result,
-            balance_result.get("status", "unknown"),
-            balance_result.get("error"),
-        )
-        conn.commit()
-
-        log_event(
-            "posting_attempt_finished",
-            {
-                "draft_id": draft["id"],
-                "target": "balance",
-                "posting_log_id": posting_log_id,
-                "status": balance_result.get("status", "unknown"),
-            },
-        )
-
-    except Exception as e:
-        conn.rollback()
-        log_event(
-            "posting_attempt_failed",
-            {"draft_id": draft_id, "target": "balance", "error": str(e)},
-        )
-        return error_response("Balance posting failed", "BALANCE_POSTING_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "Balance posting attempt completed",
-        {
-            "posting_log_id": posting_log_id,
-            "draft_id": draft["id"],
-            "payload": payload,
-            "balance_result": balance_result,
-        },
-    )
-
-
-def get_onec_status_service():
-    try:
-        return ok_response("1C status", {"config": onec_config_status(), "ping": onec_ping()})
-    except Exception as e:
-        return error_response("1C status check failed", "ONEC_STATUS_ERROR", str(e))
-
-
-def post_draft_to_onec_service(draft_id: int):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
-        if err:
-            return err
-
-        existing_post = _find_successful_post(cur, draft["id"], "1c")
-        if existing_post:
-            log_event(
-                "posting_duplicate_blocked",
-                {
-                    "draft_id": draft["id"],
-                    "target": "1c",
-                    "existing_log_id": existing_post["id"],
-                },
-            )
-            return error_response(
-                "Draft already posted",
-                "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to 1c (log_id={existing_post['id']})",
-            )
-
-        log_event(
-            "posting_attempt_started",
-            {"draft_id": draft["id"], "target": "1c"},
-        )
-
-        payload = build_onec_payload(dict(draft))
-        onec_result = post_to_onec(payload)
-
-        posting_log_id = _insert_posting_log(
-            cur,
-            draft["id"],
-            "1c",
-            payload,
-            onec_result,
-            onec_result.get("status", "unknown"),
-            onec_result.get("error"),
-        )
-        conn.commit()
-
-        log_event(
-            "posting_attempt_finished",
-            {
-                "draft_id": draft["id"],
-                "target": "1c",
-                "posting_log_id": posting_log_id,
-                "status": onec_result.get("status", "unknown"),
-            },
-        )
-
-    except Exception as e:
-        conn.rollback()
-        log_event(
-            "posting_attempt_failed",
-            {"draft_id": draft_id, "target": "1c", "error": str(e)},
-        )
-        return error_response("1C posting failed", "ONEC_POSTING_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "1C posting attempt completed",
-        {
-            "posting_log_id": posting_log_id,
-            "draft_id": draft["id"],
-            "payload": payload,
-            "onec_result": onec_result,
-        },
-    )
-
-
-def get_oris_status_service():
-    try:
-        return ok_response("ORIS status", {"config": oris_config_status(), "ping": oris_ping()})
-    except Exception as e:
-        return error_response("ORIS status check failed", "ORIS_STATUS_ERROR", str(e))
-
-
-def post_draft_to_oris_service(draft_id: int):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
-        if err:
-            return err
-
-        existing_post = _find_successful_post(cur, draft["id"], "oris")
-        if existing_post:
-            log_event(
-                "posting_duplicate_blocked",
-                {
-                    "draft_id": draft["id"],
-                    "target": "oris",
-                    "existing_log_id": existing_post["id"],
-                },
-            )
-            return error_response(
-                "Draft already posted",
-                "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to oris (log_id={existing_post['id']})",
-            )
-
-        log_event(
-            "posting_attempt_started",
-            {"draft_id": draft["id"], "target": "oris"},
-        )
-
-        payload = build_oris_payload(dict(draft))
-        oris_result = post_to_oris(payload)
-
-        posting_log_id = _insert_posting_log(
-            cur,
-            draft["id"],
-            "oris",
-            payload,
-            oris_result,
-            oris_result.get("status", "unknown"),
-            oris_result.get("error"),
-        )
-        conn.commit()
-
-        log_event(
-            "posting_attempt_finished",
-            {
-                "draft_id": draft["id"],
-                "target": "oris",
-                "posting_log_id": posting_log_id,
-                "status": oris_result.get("status", "unknown"),
-            },
-        )
-
-    except Exception as e:
-        conn.rollback()
-        log_event(
-            "posting_attempt_failed",
-            {"draft_id": draft_id, "target": "oris", "error": str(e)},
-        )
-        return error_response("ORIS posting failed", "ORIS_POSTING_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "ORIS posting attempt completed",
-        {
-            "posting_log_id": posting_log_id,
-            "draft_id": draft["id"],
-            "payload": payload,
-            "oris_result": oris_result,
-        },
-    )
-
-
-def apply_posting_service(draft_id: int, target: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
-        if err:
-            return err
-
-        target_normalized = (target or "").strip().lower()
         connector = _get_connector_executor(target_normalized)
         if not connector:
             return error_response(
                 "Unsupported target system",
                 "UNSUPPORTED_TARGET",
-                f"target={target} is not supported. Use mock, balance, 1c, oris",
+                f"target={target_normalized} is not supported. Use mock, balance, 1c, oris",
             )
 
         log_target = connector["target_system"]
@@ -756,18 +434,29 @@ def apply_posting_service(draft_id: int, target: str):
         )
 
         payload = connector["payload_builder"](draft)
-        result = connector["executor"](payload, draft)
+        result = _execute_with_retry(connector, payload, draft)
 
+        posting_status = result.get("status", result.get("result", "unknown"))
         posting_log_id = _insert_posting_log(
             cur,
             draft["id"],
             log_target,
             payload,
             result,
-            result.get("status", result.get("result", "unknown")),
+            posting_status,
             result.get("error"),
         )
         conn.commit()
+
+        log_event(
+            "posting_retry_info",
+            {
+                "draft_id": draft["id"],
+                "target": log_target,
+                "attempts": result.get("attempts_used"),
+                "retry_used": result.get("retry_applied"),
+            },
+        )
 
         log_event(
             "posting_attempt_finished",
@@ -775,7 +464,18 @@ def apply_posting_service(draft_id: int, target: str):
                 "draft_id": draft["id"],
                 "target": log_target,
                 "posting_log_id": posting_log_id,
-                "status": result.get("status", result.get("result", "unknown")),
+                "status": posting_status,
+            },
+        )
+
+        return ok_response(
+            f"{log_target} posting attempt completed",
+            {
+                "posting_log_id": posting_log_id,
+                "draft_id": draft["id"],
+                "target": log_target,
+                "payload": payload,
+                "result": result,
             },
         )
 
@@ -783,20 +483,55 @@ def apply_posting_service(draft_id: int, target: str):
         conn.rollback()
         log_event(
             "posting_attempt_failed",
-            {"draft_id": draft_id, "target": target, "error": str(e)},
+            {"draft_id": draft_id, "target": target_normalized, "error": str(e)},
         )
-        return error_response("Unified posting apply failed", "POSTING_APPLY_ERROR", str(e))
+        return error_response(
+            "Posting failed",
+            "POSTING_EXECUTION_ERROR",
+            str(e),
+        )
     finally:
         cur.close()
         conn.close()
 
-    return ok_response(
-        "Posting apply completed",
-        {
-            "posting_log_id": posting_log_id,
-            "draft_id": draft["id"],
-            "target": log_target,
-            "payload": payload,
-            "result": result,
-        },
-    )
+
+def mock_posting_service(draft_id: int):
+    return _run_posting_attempt(draft_id, "mock")
+
+
+def get_balance_status_service():
+    try:
+        return ok_response("Balance status", {"config": balance_config_status(), "ping": balance_ping()})
+    except Exception as e:
+        return error_response("Balance status check failed", "BALANCE_STATUS_ERROR", str(e))
+
+
+def post_draft_to_balance_service(draft_id: int):
+    return _run_posting_attempt(draft_id, "balance")
+
+
+def get_onec_status_service():
+    try:
+        return ok_response("1C status", {"config": onec_config_status(), "ping": onec_ping()})
+    except Exception as e:
+        return error_response("1C status check failed", "ONEC_STATUS_ERROR", str(e))
+
+
+def post_draft_to_onec_service(draft_id: int):
+    return _run_posting_attempt(draft_id, "1c")
+
+
+def get_oris_status_service():
+    try:
+        return ok_response("ORIS status", {"config": oris_config_status(), "ping": oris_ping()})
+    except Exception as e:
+        return error_response("ORIS status check failed", "ORIS_STATUS_ERROR", str(e))
+
+
+def post_draft_to_oris_service(draft_id: int):
+    return _run_posting_attempt(draft_id, "oris")
+
+
+def apply_posting_service(draft_id: int, target: str):
+    target_normalized = (target or "").strip().lower()
+    return _run_posting_attempt(draft_id, target_normalized)

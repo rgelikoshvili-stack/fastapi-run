@@ -787,7 +787,7 @@ async function loadDashboard() {
   try {
     showErr(false);
     let pending = [];
-    for (const ep of ['/approval/queue','/approvals/pending','/transactions/pending']) {
+    for (const ep of ['/approval/queue']) {
       try { const d = await api(ep); pending = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]); if(pending.length) break; } catch(_) {}
     }
     let approved = [];
@@ -814,7 +814,7 @@ async function loadPending() {
   document.getElementById('pending-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
   try {
     showErr(false); let rows = [];
-    for (const ep of ['/approval/queue','/approvals/pending','/transactions/pending']) {
+    for (const ep of ['/approval/queue']) {
       try { const d = await api(ep); rows = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]); if(rows.length) break; } catch(_) {}
     }
     allPending = rows;

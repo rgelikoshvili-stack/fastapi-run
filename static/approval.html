@@ -1098,10 +1098,11 @@ function clearChat() {
 
 async function sendChat() {
   const inp = document.getElementById('chat-inp');
-  const text = inp.value.trim(); if(!text) return;
+  const text = inp.value.trim() || (window._chatFile ? 'გააანალიზე ეს ფაილი' : ''); if(!text && !window._chatFile) return;
   const msgs = document.getElementById('chat-msgs');
   const now = new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});
-  msgs.innerHTML += `<div class="msg user"><div class="msg-av">👤</div><div><div class="msg-bub">${text}</div><div class="msg-time">${now}</div></div></div>`;
+  const fileLabel = window._chatFile ? ` <span style="font-size:10px;background:rgba(59,130,246,0.15);padding:2px 6px;border-radius:4px;"> ${window._chatFile.name}</span>` : "";
+  msgs.innerHTML += `<div class="msg user"><div class="msg-av">👤</div><div><div class="msg-bub">${text}${fileLabel}</div><div class="msg-time">${now}</div></div></div>`;
   inp.value = ''; inp.style.height='auto';
   const tid = 't'+Date.now();
   msgs.innerHTML += `<div class="msg bot" id="${tid}"><div class="msg-av">⚡</div><div><div class="msg-bub"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div></div>`;
@@ -1134,6 +1135,10 @@ endpoints: /approvals/pending, /approvals/{id}/approve, /approvals/{id}/reject, 
     const t2 = new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});
     msgs.innerHTML += `<div class="msg bot"><div class="msg-av">⚡</div><div><div class="msg-bub">${getFallback(text)}</div><div class="msg-time">Bridge Hub · ${t2}</div></div></div>`;
   }
+  window._chatFile = null;
+  document.getElementById('chat-file-name').textContent = '';
+  document.getElementById('chat-file-clear').style.display = 'none';
+  document.getElementById('chat-file-inp').value = '';
   document.getElementById('chat-send').disabled = false;
   msgs.scrollTop = msgs.scrollHeight;
 }

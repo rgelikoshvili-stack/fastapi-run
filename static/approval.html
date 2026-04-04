@@ -391,6 +391,12 @@
           </div>
         </div>
         <div class="chat-inp-area">
+          <div style="margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+            <input type="file" id="chat-file-inp" style="display:none" accept=".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.txt,.py,.js,.json" onchange="if(this.files[0]){window._chatFile=this.files[0];document.getElementById('chat-file-name').textContent=' '+this.files[0].name;document.getElementById('chat-file-clear').style.display='inline';}">
+            <button onclick="document.getElementById('chat-file-inp').click()" style="background:var(--surface3);border:1px solid var(--border2);border-radius:6px;cursor:pointer;font-size:13px;padding:5px 10px;color:var(--text2)"> ფაილი</button>
+            <span id="chat-file-name" style="font-size:11px;color:var(--accent);font-family:var(--mono)"></span>
+            <button onclick="window._chatFile=null;document.getElementById('chat-file-name').textContent='';document.getElementById('chat-file-inp').value=''" style="display:none" id="chat-file-clear" style="background:none;border:none;cursor:pointer;color:var(--red)"></button>
+          </div>
           <div class="chat-inp-wrap">
             <input type="file" id="chat-file-inp" style="display:none" accept=".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.txt"
             onchange="window._chatFile=this.files[0];document.getElementById('chat-file-name').textContent=' '+this.files[0].name;this.value=''">

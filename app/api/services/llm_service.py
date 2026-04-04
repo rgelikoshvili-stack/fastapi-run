@@ -14,7 +14,7 @@ MODEL_COSTS = {
     "gpt-4o":            {"in": 0.0000025,  "out": 0.000010},
     "gpt-4o-mini":       {"in": 0.00000015, "out": 0.0000006},
     "claude-sonnet-4-6": {"in": 0.000003,   "out": 0.000015},
-    "gemini-1.5-pro":    {"in": 0.00000125, "out": 0.000005},
+    "gemini-2.5-flash":  {"in": 0.00000125, "out": 0.000005},
 }
 
 _cache: dict = {}
@@ -121,12 +121,12 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
 
 def analyze_error(error_text: str, context: dict, tenant_id: str = "default") -> str:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        resp  = model.generate_content(
-            f"Balance.ge შეცდომა: {error_text}\nახსენი ქართულად 2 წინადადებით.")
-        _log_cost(tenant_id, "gemini-1.5-pro",
+        from google import genai
+        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=f"Balance.ge შეცდომა: {error_text}\nახსენი ქართულად 2 წინადადებით.")
+        _log_cost(tenant_id, "gemini-2.5-flash",
                   len(error_text) // 4, len(resp.text) // 4)
         return resp.text.strip()
     except Exception as e:
@@ -136,12 +136,11 @@ def analyze_error(error_text: str, context: dict, tenant_id: str = "default") ->
 def analyze_correction(original: str, corrected: str,
                         description: str, tenant_id: str = "default") -> dict:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model  = genai.GenerativeModel("gemini-1.5-pro")
+        from google import genai
+        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         prompt = (f"კორექცია: '{description}' — {original}  {corrected}. "
                   f"JSON: {{\"pattern_keyword\":\"...\",\"confidence_boost\":0.1}}")
-        resp = model.generate_content(prompt)
+        resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         text = resp.text.strip().replace("```json","").replace("```","")
         data = json.loads(text)
         return {

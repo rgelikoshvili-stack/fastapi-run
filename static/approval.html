@@ -290,7 +290,8 @@
   <div class="header-right">
     <div class="live-badge"><div class="live-dot"></div>LIVE</div>
     <div class="time-display" id="clock">--:--:--</div>
-    <button class="btn-header" onclick="refreshCurrent()">⟳ განახლება</button>
+    <select id="tenantSel" onchange="changeTenant(this.value)" style="padding:7px 12px;border:1px solid var(--border2);border-radius:6px;font-size:13px;background:var(--surface3);cursor:pointer;margin-right:8px;"><option value="default">default</option></select>
+  <button class="btn-header" onclick="refreshCurrent()">⟳ განახლება</button>
     <button class="btn-header primary" onclick="switchTab('chat')">💬 AI ჩათი</button>
   </div>
 </header>
@@ -665,6 +666,7 @@
 
 <script>
 const BASE = 'http://127.0.0.1:8000';
+let TENANT_ID = localStorage.getItem('tenant_id') || 'default';
 let allPending = [], autopilotOn = false, apTimer = null;
 let currentTab = 'dashboard', docFilter = 'all', chatHistory = [];
 
@@ -677,7 +679,7 @@ setInterval(() => {
 // API
 async function api(path, method='GET', body=null) {
   const r = await fetch(BASE + path, {
-    method, headers: {'Content-Type':'application/json'},
+    method, headers: {'Content-Type':'application/json','X-Tenant-ID':TENANT_ID},
     body: body ? JSON.stringify(body) : null
   });
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -749,11 +751,18 @@ function getConf(r) { return r.confidence||r.ai_confidence||r.ai_score||0; }
 function getDesc(r) { return r.description||r.merchant||r.narration||'—'; }
 function getCat(r)  { return r.category||r.predicted_category||r.account_code||'—'; }
 
+
+function changeTenant(val){TENANT_ID=val;localStorage.setItem('tenant_id',val);refreshCurrent();}
+function fmtAnomaly(row){if(!row.anomaly_flag)return '';return '<span style="color:#dc2626;font-weight:700;">⚨ ANOMALY</span>';}
+function fmtVat(row){const vi=row.vat_info||{};if(!vi.suggested&&!row.vat_suggested)return '';return '<span style="font-size:11px;background:#dbeafe;color:#1d4ed8;padding:2px 6px;border-radius:4px;">VAT '+(vi.amount||row.vat_amount||'')+'</span>';}
 function buildTable(rows, showActions) {
   if (!rows||!rows.length) return `<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div>`;
   const ah = showActions ? '<th>მოქმ.</th>' : '';
   const br = rows.map(row => {
     const id = getId(row);
+    const anomalyBadge = fmtAnomaly(row);
+    const vatBadge = fmtVat(row);
+    const expl = row.explanation ? '<div style="font-size:11px;color:#64748b;">' + row.explanation + '</div>' : '';
     const acts = showActions ? `<td><div class="action-btns">
       <button class="btn-approve" onclick="approve('${id}')">✅</button>
       <button class="btn-reject" onclick="reject('${id}')">❌</button>
@@ -1093,7 +1102,7 @@ endpoints: /approvals/pending, /approvals/{id}/approve, /approvals/{id}/reject, 
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json','X-Tenant-ID':TENANT_ID},
       body: JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[...chatHistory,{role:'user',content:text}]})
     });
     const data = await r.json();

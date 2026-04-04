@@ -60,6 +60,13 @@ async def rbac_middleware(request: Request, call_next):
         "/transaction-memory/",
         "/expense-articles/",
         "/tenants/",
+        "/auth/",
+        "/balance-ge/",
+        "/erp-connectors/",
+        "/search/",
+        "/reports/",
+        "/dashboard/",
+        "/ui/",
     )
     if request.url.path.startswith(public_prefixes):
         return await call_next(request)

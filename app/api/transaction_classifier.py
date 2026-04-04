@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from difflib import SequenceMatcher
 import math
 
@@ -11,6 +11,10 @@ from app.api.engines.pattern_engine import (
 from app.api.services.expense_article_service import find_expense_article
 from app.api.services.transaction_memory_service import find_memory_match
 from app.api.services.erp_memory_service import find_erp_memory_match
+from app.policy.localization import georgia_pack
+import app.api.services.llm_service as llm_service
+from app.policy.localization import georgia_pack
+import app.api.services.llm_service as llm_service
 
 
 RULES = [
@@ -656,22 +660,38 @@ def classify(
             confidence = min(confidence + 0.05, 1.0)
 
     if not keyword_matched:
-        if paid_in_value is not None and paid_out_value is None:
-            matched_account = "6100"
-            matched_reason = "income_direction"
-            confidence = 0.65
-        elif paid_out_value is not None and paid_in_value is None:
-            matched_account = "7190"
-            matched_reason = "expense_direction"
-            confidence = 0.55
-        else:
-            matched_account = "7190"
-            matched_reason = "default_expense"
-            confidence = 0.4
+        try:
+            llm_result = llm_service.classify(
+                description, {"partner": part, "amount": amount_for_history}, tenant_id
+            )
+            if llm_result.get("account_code") and float(llm_result.get("confidence", 0)) > 0.55:
+                matched_account = llm_result["account_code"]
+                matched_reason  = "llm:gpt"
+                confidence      = float(llm_result["confidence"])
+                keyword_matched = True
+            else:
+                raise ValueError("low confidence")
+        except Exception:
+            if paid_in_value is not None and paid_out_value is None:
+                matched_account = "6100"
+                matched_reason = "income_direction"
+                confidence = 0.65
+            elif paid_out_value is not None and paid_in_value is None:
+                matched_account = "7190"
+                matched_reason = "expense_direction"
+                confidence = 0.55
+            else:
+                matched_account = "7190"
+                matched_reason = "default_expense"
+                confidence = 0.4
 
     confidence = round(min(confidence, 1.0), 2)
     review_required = confidence < 0.75
     anomaly = check_anomaly(amount_for_history, matched_account, tenant_id)
+    georgia_enriched = georgia_pack.apply_rules(
+        {"description": description, "amount": amount_for_history or 0,
+         "account_code": matched_account}, tenant_id
+    )
 
     return {
         "account_code": matched_account,
@@ -692,4 +712,8 @@ def classify(
         "autopilot_reason": "rules_path",
         "anomaly_flag": anomaly.get("anomaly_flag", False),
         "anomaly_reason": anomaly.get("anomaly_reason"),
+        "vat_suggested": georgia_enriched.get("vat_suggested", False),
+        "vat_amount": georgia_enriched.get("vat_amount"),
+        "payg_required": georgia_enriched.get("payg_required", False),
+        "payg_amount": georgia_enriched.get("payg_amount"),
     }

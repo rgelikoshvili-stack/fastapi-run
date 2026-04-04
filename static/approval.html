@@ -1101,12 +1101,12 @@ endpoints: /approvals/pending, /approvals/{id}/approve, /approvals/{id}/reject, 
 გვიპასუხე ქართულად, მოკლედ და კონკრეტულად.`;
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch(BASE + '/chat/message', {
       method:'POST', headers:{'Content-Type':'application/json','X-Tenant-ID':TENANT_ID},
-      body: JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[...chatHistory,{role:'user',content:text}]})
+      body: JSON.stringify({message: text, session_id: TENANT_ID})
     });
     const data = await r.json();
-    const reply = data.content?.[0]?.text || 'პასუხი ვერ მოვიდა';
+    const reply = data.data?.reply || data.data?.message || data.message || 'პასუხი ვერ მოვიდა';
     chatHistory.push({role:'user',content:text},{role:'assistant',content:reply});
     if(chatHistory.length>20) chatHistory=chatHistory.slice(-20);
     document.getElementById(tid)?.remove();

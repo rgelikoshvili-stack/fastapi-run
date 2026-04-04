@@ -405,7 +405,8 @@
             <span id="chat-file-name" style="font-size:10px;color:var(--accent);font-family:var(--mono)"></span>
             <textarea class="chat-ta" id="chat-inp" placeholder="მაგ: ამ CSV-ში ანომალია ხომ არ არის? ან Balance.ge-ში გადაიტანე..." rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
-              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+              oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"
+              onpaste="setTimeout(()=>{if(this.value.length>500){window._pastedText=this.value;this.value='';document.getElementById('chat-file-name').textContent=' ტექსტი ('+window._pastedText.length+' სიმბ.)';window._chatFile=new File([window._pastedText],'pasted_text.txt',{type:'text/plain'});}},10)"></textarea>
           </div>
             <button class="chat-send" id="chat-send" onclick="sendChat()">➤</button>
           </div>

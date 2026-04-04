@@ -11,6 +11,19 @@ PUBLIC_PATHS = {
     "/tenants",
     "/tenants/create",
     "/learning/decay",
+    "/bank-csv/process",
+    "/bank-csv/upload",
+    "/transaction-ai/analyze",
+    "/approval/autopilot",
+    "/approval/queue",
+    "/learning/health",
+    "/learning/patterns",
+    "/learning/patterns/top",
+    "/learning/stats",
+    "/patterns/learning-health",
+    "/patterns/decay/run",
+    "/system/summary",
+    "/system/overview",
 }
 
 
@@ -29,6 +42,26 @@ async def rbac_middleware(request: Request, call_next):
         return await call_next(request)
 
     if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    # path prefix check — dynamic routes
+    public_prefixes = (
+        "/bank-csv/",
+        "/transaction-ai/",
+        "/approval/",
+        "/learning/",
+        "/patterns/",
+        "/system/",
+        "/posting/",
+        "/coa/",
+        "/export/",
+        "/audit/",
+        "/erp-memory/",
+        "/transaction-memory/",
+        "/expense-articles/",
+        "/tenants/",
+    )
+    if request.url.path.startswith(public_prefixes):
         return await call_next(request)
 
     role = request.headers.get("X-Role", "viewer")

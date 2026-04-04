@@ -12,3 +12,6 @@ __pycache__/
 venv/
 *.zip
 .env
+test_llm.py
+fix_*.py
+.env

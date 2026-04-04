@@ -80,7 +80,7 @@ def _call_gpt(description, context, model, tenant_id):
     resp = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "შენ ხარ ქართული საბუღალტრო AI. დააბრუნე მხოლოდ JSON: {\"account_code\":\"XXXX\",\"confidence\":0.0,\"reasoning\":\"\"}"},
+            {"role": "system", "content": "შენ ხარ ქართული საბუღალტრო AI. გაანალიზე ტრანზაქცია და დააბრუნე JSON ობიექტი. account_code უნდა იყოს რეალური 4-ნიშნა საბუღალტრო კოდი (7110=ხელფასი, 7130=კომუნალური, 7190=სხვა ხარჯი, 6100=შემოსავალი). confidence=0.0-1.0. reasoning=მოკლე ახსნა."},
             {"role": "user",   "content": prompt}
         ],
         response_format={"type": "json_object"},

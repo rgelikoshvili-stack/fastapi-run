@@ -1,7 +1,18 @@
-from typing import Any, Dict, Optional
-
-from app.api.connectors.connector_factory import get_connector
+﻿from typing import Any, Dict, Optional
+from app.api.connectors.balance_connector import BalanceConnector
+from app.api.connectors.onec_connector import OneCConnector
 from app.api.services.erp_import_service import import_erp_history
+
+
+def get_connector(source_system: str, mode: str = "demo"):
+    if source_system == "balance":
+        return BalanceConnector()
+    elif source_system == "1c":
+        return OneCConnector()
+    else:
+        class _Demo:
+            def history(self, **kwargs): return []
+        return _Demo()
 
 
 def import_posted_history_from_connector(
@@ -12,18 +23,8 @@ def import_posted_history_from_connector(
     limit: int = 100,
 ) -> Dict[str, Any]:
     connector = get_connector(source_system=source_system, mode=mode)
-
-    items = connector.fetch_posted_history(
-        date_from=date_from,
-        date_to=date_to,
-        limit=limit,
-    )
-
-    result = import_erp_history(
-        items=items,
-        default_source_system=source_system,
-    )
-
+    items = connector.history(tenant_id="default", limit=limit)
+    result = import_erp_history(items=items, default_source_system=source_system)
     return {
         "ok": True,
         "source_system": source_system,

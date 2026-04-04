@@ -26,7 +26,7 @@ def _days_since(last_used_at):
     return max(0, (now - last_used_at).days)
 
 
-def save_transaction_memory(description, partner, amount, account_code):
+def save_transaction_memory(description, partner, amount, account_code, tenant_id: str = "default"):
     desc = _norm(description)
     part = _norm(partner)
 
@@ -41,12 +41,13 @@ def save_transaction_memory(description, partner, amount, account_code):
             """
             SELECT id, usage_count
             FROM transaction_memory
-            WHERE COALESCE(description, '') = %s
+            WHERE tenant_id = %s
+              AND COALESCE(description, '') = %s
               AND COALESCE(partner, '') = %s
               AND account_code = %s
             LIMIT 1
             """,
-            (desc, part, account_code),
+            (tenant_id, desc, part, account_code),
         )
         row = cur.fetchone()
 
@@ -60,15 +61,17 @@ def save_transaction_memory(description, partner, amount, account_code):
                     updated_at = NOW(),
                     amount = %s
                 WHERE id = %s
+                  AND tenant_id = %s
                 RETURNING id, usage_count
                 """,
-                (amount, row["id"]),
+                (amount, row["id"], tenant_id),
             )
             updated = cur.fetchone()
             conn.commit()
             return {
                 "ok": True,
                 "mode": "updated",
+                "tenant_id": tenant_id,
                 "id": updated["id"],
                 "usage_count": updated["usage_count"],
             }
@@ -76,6 +79,7 @@ def save_transaction_memory(description, partner, amount, account_code):
         cur.execute(
             """
             INSERT INTO transaction_memory (
+                tenant_id,
                 description,
                 partner,
                 amount,
@@ -86,10 +90,10 @@ def save_transaction_memory(description, partner, amount, account_code):
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
             RETURNING id, usage_count
             """,
-            (desc, part, amount, account_code, 1.0, 1),
+            (tenant_id, desc, part, amount, account_code, 1.0, 1),
         )
         inserted = cur.fetchone()
         conn.commit()
@@ -97,6 +101,7 @@ def save_transaction_memory(description, partner, amount, account_code):
         return {
             "ok": True,
             "mode": "inserted",
+            "tenant_id": tenant_id,
             "id": inserted["id"],
             "usage_count": inserted["usage_count"],
         }
@@ -106,7 +111,7 @@ def save_transaction_memory(description, partner, amount, account_code):
         conn.close()
 
 
-def find_memory_match(description, partner):
+def find_memory_match(description, partner, tenant_id: str = "default"):
     desc = _norm(description)
     part = _norm(partner)
 
@@ -127,14 +132,11 @@ def find_memory_match(description, partner):
                 usage_count,
                 last_used_at
             FROM transaction_memory
-            WHERE
-                (
-                    %s <> '' AND COALESCE(description, '') = %s
-                )
-                OR
-                (
-                    %s <> '' AND COALESCE(partner, '') = %s
-                )
+            WHERE tenant_id = %s
+              AND (
+                    (%s <> '' AND COALESCE(description, '') = %s)
+                 OR (%s <> '' AND COALESCE(partner, '') = %s)
+              )
             ORDER BY
                 CASE
                     WHEN %s <> '' AND %s <> ''
@@ -152,6 +154,7 @@ def find_memory_match(description, partner):
             LIMIT 1
             """,
             (
+                tenant_id,
                 desc, desc,
                 part, part,
                 desc, part, desc, part,
@@ -195,6 +198,7 @@ def find_memory_match(description, partner):
         confidence = round(max(0.50, min(confidence, 0.99)), 2)
 
         return {
+            "tenant_id": tenant_id,
             "account_code": row["account_code"],
             "reason": "memory_match",
             "confidence": confidence,
@@ -211,7 +215,7 @@ def find_memory_match(description, partner):
         conn.close()
 
 
-def list_transaction_memory(limit: int = 100):
+def list_transaction_memory(limit: int = 100, tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -220,6 +224,7 @@ def list_transaction_memory(limit: int = 100):
             """
             SELECT
                 id,
+                tenant_id,
                 description,
                 partner,
                 amount,
@@ -230,10 +235,11 @@ def list_transaction_memory(limit: int = 100):
                 created_at,
                 updated_at
             FROM transaction_memory
+            WHERE tenant_id = %s
             ORDER BY id DESC
             LIMIT %s
             """,
-            (limit,),
+            (tenant_id, limit),
         )
         return [dict(row) for row in cur.fetchall()]
     finally:

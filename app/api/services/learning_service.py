@@ -1,5 +1,5 @@
 import psycopg2.extras
- 
+
 from app.api.db import get_db
 from app.api.audit_service import log_event
 from app.api.services.feedback_service import save_feedback
@@ -11,7 +11,6 @@ from app.api.engines.pattern_engine import (
     mark_pattern_failure,
 )
 
-
 PATTERN_SOURCES = {
     "pattern_active",
     "pattern_active_fuzzy",
@@ -20,21 +19,22 @@ PATTERN_SOURCES = {
 }
 
 SIGNAL_WEIGHTS = {
-    "approve":  0.3,
-    "correct":  1.0,
-    "reject":  -0.5,
+    "approve": 1.0,
+    "correct": 2.0,
+    "reject": 1.5,
 }
 
 
-def _feedback_exists(cur, draft_id: int, feedback_type: str) -> bool:
+def _feedback_exists(cur, draft_id: int, feedback_type: str, tenant_id: str) -> bool:
     cur.execute(
         """
         SELECT COUNT(*) AS cnt
         FROM learning_feedback
         WHERE draft_id = %s
           AND feedback_type = %s
+          AND tenant_id = %s
         """,
-        (draft_id, feedback_type),
+        (draft_id, feedback_type, tenant_id),
     )
     row = cur.fetchone()
     return bool(row and row["cnt"] > 0)
@@ -52,7 +52,7 @@ def _get_pattern_value_for_draft(draft: dict):
     return None
 
 
-def _mark_success_for_draft(draft: dict):
+def _mark_success_for_draft(draft: dict, tenant_id: str, weight: float = 1.0):
     matched_on = draft.get("pattern_matched_on")
     account_code = draft.get("account_code")
     pattern_value = _get_pattern_value_for_draft(draft)
@@ -61,18 +61,18 @@ def _mark_success_for_draft(draft: dict):
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
+        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_exact":
-        return mark_pattern_success("partner", pattern_value, account_code)
+        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "description_fuzzy":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
+        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_fuzzy":
-        return mark_pattern_success("partner", pattern_value, account_code)
+        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
 
     return {"updated": 0}
 
 
-def _mark_failure_for_draft(draft: dict):
+def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
     matched_on = draft.get("pattern_matched_on")
     account_code = draft.get("account_code")
     pattern_value = _get_pattern_value_for_draft(draft)
@@ -81,18 +81,18 @@ def _mark_failure_for_draft(draft: dict):
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
+        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_exact":
-        return mark_pattern_failure("partner", pattern_value, account_code)
+        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "description_fuzzy":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
+        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_fuzzy":
-        return mark_pattern_failure("partner", pattern_value, account_code)
+        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
 
     return {"updated": 0}
 
 
-def _save_erp_memory_from_draft(draft: dict, account_code: str):
+def _save_erp_memory_from_draft(draft: dict, account_code: str, tenant_id: str):
     try:
         debit_account = draft.get("debit_account")
         credit_account = draft.get("credit_account")
@@ -117,12 +117,17 @@ def _save_erp_memory_from_draft(draft: dict, account_code: str):
             account_code=account_code,
             direction=direction,
             posting_date=str(draft.get("date")) if draft.get("date") is not None else None,
+            tenant_id=tenant_id,
         )
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review"):
+def apply_approve_learning(
+    draft: dict,
+    approved_by_mode: str = "manual_review",
+    tenant_id: str = "default",
+):
     memory_result = {"ok": False}
     erp_memory_result = {"ok": False}
     pattern_update_result = {"updated": 0}
@@ -134,7 +139,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        if _feedback_exists(cur, draft["id"], "approve"):
+        if _feedback_exists(cur, draft["id"], "approve", tenant_id):
             duplicate_skipped = True
         else:
             feedback_result = save_feedback(
@@ -154,6 +159,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
                 feedback_type="approve",
                 corrected_by=approved_by_mode,
                 notes=f"run_id=draft:{draft.get('id')}; weight={weight}",
+                tenant_id=tenant_id,
             )
 
             memory_result = save_transaction_memory(
@@ -161,14 +167,16 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
                 draft.get("partner"),
                 draft.get("amount"),
                 draft.get("account_code"),
+                tenant_id=tenant_id,
             )
 
             erp_memory_result = _save_erp_memory_from_draft(
                 draft,
                 draft.get("account_code"),
+                tenant_id=tenant_id,
             )
 
-            generate_patterns_from_feedback()
+            generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -177,11 +185,12 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
         conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
-        pattern_update_result = _mark_success_for_draft(draft)
+        pattern_update_result = _mark_success_for_draft(draft, tenant_id, weight=weight)
 
     log_event(
         "draft_approved_learning_applied",
         {
+            "tenant_id": tenant_id,
             "draft_id": draft.get("id"),
             "duplicate_skipped": duplicate_skipped,
             "feedback_result": feedback_result,
@@ -197,6 +206,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
 
     return {
         "ok": True,
+        "tenant_id": tenant_id,
         "duplicate_skipped": duplicate_skipped,
         "feedback_result": feedback_result,
         "pattern_update_result": pattern_update_result,
@@ -206,7 +216,7 @@ def apply_approve_learning(draft: dict, approved_by_mode: str = "manual_review")
     }
 
 
-def apply_reject_learning(draft: dict, reason: str = ""):
+def apply_reject_learning(draft: dict, reason: str = "", tenant_id: str = "default"):
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
@@ -216,7 +226,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        if _feedback_exists(cur, draft["id"], "reject"):
+        if _feedback_exists(cur, draft["id"], "reject", tenant_id):
             duplicate_skipped = True
         else:
             feedback_result = save_feedback(
@@ -236,9 +246,10 @@ def apply_reject_learning(draft: dict, reason: str = ""):
                 feedback_type="reject",
                 corrected_by="manual_review",
                 notes=f"run_id=draft:{draft.get('id')}; reason={reason}; weight={weight}",
+                tenant_id=tenant_id,
             )
 
-            generate_patterns_from_feedback()
+            generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -247,11 +258,12 @@ def apply_reject_learning(draft: dict, reason: str = ""):
         conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
-        pattern_update_result = _mark_failure_for_draft(draft)
+        pattern_update_result = _mark_failure_for_draft(draft, tenant_id, weight=weight)
 
     log_event(
         "draft_rejected_learning_applied",
         {
+            "tenant_id": tenant_id,
             "draft_id": draft.get("id"),
             "reason": reason,
             "duplicate_skipped": duplicate_skipped,
@@ -264,6 +276,7 @@ def apply_reject_learning(draft: dict, reason: str = ""):
 
     return {
         "ok": True,
+        "tenant_id": tenant_id,
         "duplicate_skipped": duplicate_skipped,
         "feedback_result": feedback_result,
         "pattern_update_result": pattern_update_result,
@@ -277,10 +290,12 @@ def apply_correct_learning(
     corrected_reason: str = "manual_correction",
     corrected_by: str = "manual_review",
     notes: str = "",
+    tenant_id: str = "default",
 ):
     memory_result = {"ok": False}
     erp_memory_result = {"ok": False}
     failure_result = {"updated": 0}
+    success_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
     weight = SIGNAL_WEIGHTS["correct"]
@@ -289,7 +304,7 @@ def apply_correct_learning(
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        if _feedback_exists(cur, draft["id"], "correct"):
+        if _feedback_exists(cur, draft["id"], "correct", tenant_id):
             duplicate_skipped = True
         else:
             feedback_result = save_feedback(
@@ -309,6 +324,7 @@ def apply_correct_learning(
                 feedback_type="correct",
                 corrected_by=corrected_by,
                 notes=f"run_id=draft:{draft.get('id')}; weight={weight}; {notes}",
+                tenant_id=tenant_id,
             )
 
             memory_result = save_transaction_memory(
@@ -316,6 +332,7 @@ def apply_correct_learning(
                 draft.get("partner"),
                 draft.get("amount"),
                 corrected_account_code,
+                tenant_id=tenant_id,
             )
 
             corrected_draft = dict(draft)
@@ -325,9 +342,10 @@ def apply_correct_learning(
             erp_memory_result = _save_erp_memory_from_draft(
                 corrected_draft,
                 corrected_account_code,
+                tenant_id=tenant_id,
             )
 
-            generate_patterns_from_feedback()
+            generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -336,11 +354,21 @@ def apply_correct_learning(
         conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
-        failure_result = _mark_failure_for_draft(draft)
+        # ძველი ანგარიში — failure (AI შეცდა)
+        failure_result = _mark_failure_for_draft(draft, tenant_id, weight=weight)
+
+    if not duplicate_skipped:
+        # სწორი ანგარიში — success weight=2.0 (ძლიერი სიგნალი)
+        corrected_draft_for_learning = dict(draft)
+        corrected_draft_for_learning["account_code"] = corrected_account_code
+        success_result = _mark_success_for_draft(
+            corrected_draft_for_learning, tenant_id, weight=weight
+        )
 
     log_event(
         "draft_corrected_learning_applied",
         {
+            "tenant_id": tenant_id,
             "draft_id": draft.get("id"),
             "corrected_account_code": corrected_account_code,
             "corrected_reason": corrected_reason,
@@ -351,35 +379,47 @@ def apply_correct_learning(
             "erp_memory_saved": bool(erp_memory_result.get("ok")),
             "erp_memory_result": erp_memory_result,
             "pattern_failure_result": failure_result,
+            "pattern_success_result": success_result,
             "signal_weight": weight,
         },
     )
 
     return {
         "ok": True,
+        "tenant_id": tenant_id,
         "duplicate_skipped": duplicate_skipped,
         "feedback_result": feedback_result,
         "memory_result": memory_result,
         "erp_memory_result": erp_memory_result,
         "pattern_failure_result": failure_result,
+        "pattern_success_result": success_result,
         "signal_weight": weight,
     }
 
 
-def get_learning_health_service():
+def get_learning_health_service(tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        cur.execute("SELECT COUNT(*) AS total_feedback FROM learning_feedback")
+        cur.execute(
+            """
+            SELECT COUNT(*) AS total_feedback
+            FROM learning_feedback
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        )
         total_feedback = cur.fetchone()["total_feedback"]
 
         cur.execute(
             """
             SELECT feedback_type, COUNT(*) AS count
             FROM learning_feedback
+            WHERE tenant_id = %s
             GROUP BY feedback_type
-            """
+            """,
+            (tenant_id,),
         )
         feedback_by_type = {r["feedback_type"]: r["count"] for r in cur.fetchall()}
 
@@ -387,7 +427,9 @@ def get_learning_health_service():
             """
             SELECT COALESCE(MAX(created_at), NOW()) AS last_feedback_at
             FROM learning_feedback
-            """
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
         )
         last_feedback_at = cur.fetchone()["last_feedback_at"]
 
@@ -400,8 +442,10 @@ def get_learning_health_service():
                 """
                 SELECT status, COUNT(*) AS count
                 FROM learning_patterns
+                WHERE tenant_id = %s
                 GROUP BY status
-                """
+                """,
+                (tenant_id,),
             )
             pattern_rows = cur.fetchall()
             pattern_map = {r["status"]: r["count"] for r in pattern_rows}
@@ -421,7 +465,9 @@ def get_learning_health_service():
                     SUM(CASE WHEN status = 'auto_approved' THEN 1 ELSE 0 END) AS auto_approved_count,
                     SUM(CASE WHEN status IN ('drafted', 'pending_approval') THEN 1 ELSE 0 END) AS manual_review_count
                 FROM journal_drafts
-                """
+                WHERE tenant_id = %s
+                """,
+                (tenant_id,),
             )
             row = cur.fetchone()
             auto_approved_count = row.get("auto_approved_count") or 0
@@ -431,6 +477,7 @@ def get_learning_health_service():
 
         return {
             "ok": True,
+            "tenant_id": tenant_id,
             "total_feedback": total_feedback,
             "feedback_by_type": feedback_by_type,
             "active_patterns": active_patterns,
@@ -446,6 +493,7 @@ def get_learning_health_service():
     except Exception as e:
         return {
             "ok": False,
+            "tenant_id": tenant_id,
             "error": str(e),
             "learning_ok": False,
         }
@@ -454,14 +502,10 @@ def get_learning_health_service():
         conn.close()
 
 
-def run_decay_service():
-    """
-    Pattern decay — ყოველ 1 საათში გაიშვება main.py decay_loop-იდან.
-    45 დღეზე მეტი გამოუყენებელი patterns-ები სუსტდება / inactive ხდება.
-    """
+def run_decay_service(tenant_id: str = "default"):
     try:
         from app.api.engines.pattern_engine import decay_old_patterns
-        result = decay_old_patterns()
-        return {"ok": True, "decayed": result}
+        result = decay_old_patterns(tenant_id=tenant_id)
+        return {"ok": True, "tenant_id": tenant_id, "decayed": result}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "tenant_id": tenant_id, "error": str(e)}

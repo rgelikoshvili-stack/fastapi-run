@@ -1,18 +1,23 @@
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Request
 from typing import Optional
 import hashlib
+
 from app.api.response_utils import ok_response, error_response
 from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/bank-csv", tags=["bank"])
 
 
 @router.post("/upload")
 async def upload_bank_file(
+    request: Request,
     file: UploadFile = File(...),
     bank: Optional[str] = Form(default="UNKNOWN")
 ):
     try:
+        tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
         content = await file.read()
         name = (file.filename or "").lower()
         file_hash = hashlib.sha256(content).hexdigest()
@@ -28,10 +33,11 @@ async def upload_bank_file(
                 """
                 SELECT batch_id, created_at
                 FROM bank_transactions
-                WHERE raw::json->>'hash' = %s
+                WHERE tenant_id = %s
+                  AND raw::json->>'hash' = %s
                 LIMIT 1
                 """,
-                (file_hash,)
+                (tenant_id, file_hash)
             )
             existing = cur.fetchone()
 
@@ -42,6 +48,7 @@ async def upload_bank_file(
                     "Duplicate file detected",
                     {
                         "duplicate": True,
+                        "tenant_id": tenant_id,
                         "original_batch_id": str(existing["batch_id"]),
                         "message": "ეს ფაილი უკვე ატვირთულია"
                     }
@@ -81,11 +88,12 @@ async def upload_bank_file(
                 cur.execute(
                     """
                     INSERT INTO bank_transactions
-                    (id, batch_id, bank, date, amount, description, balance, raw, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    (id, tenant_id, batch_id, bank, date, amount, description, balance, raw, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (
                         str(uuid.uuid4()),
+                        tenant_id,
                         batch_id,
                         bank,
                         str(row.get("date", ""))[:10],
@@ -108,6 +116,7 @@ async def upload_bank_file(
             {
                 "filename": file.filename,
                 "bank": bank,
+                "tenant_id": tenant_id,
                 "file_hash": file_hash,
                 "duplicate": False,
                 "rows_count": len(rows),
@@ -122,9 +131,11 @@ async def upload_bank_file(
 
 
 @router.get("/history")
-def bank_csv_history():
+def bank_csv_history(request: Request):
     from app.api.db import get_db
     import psycopg2.extras
+
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -140,10 +151,12 @@ def bank_csv_history():
                 MAX(date) as to_date,
                 MIN(created_at) as uploaded_at
             FROM bank_transactions
+            WHERE tenant_id = %s
             GROUP BY batch_id, bank
             ORDER BY uploaded_at DESC
             LIMIT 20
-            """
+            """,
+            (tenant_id,)
         )
         rows = [dict(r) for r in cur.fetchall()]
     except Exception:
@@ -152,4 +165,11 @@ def bank_csv_history():
         cur.close()
         conn.close()
 
-    return ok_response("Bank CSV history", {"count": len(rows), "history": rows})
+    return ok_response(
+        "Bank CSV history",
+        {
+            "count": len(rows),
+            "tenant_id": tenant_id,
+            "history": rows
+        }
+    )

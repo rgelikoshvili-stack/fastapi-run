@@ -1,11 +1,12 @@
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.response_utils import ok_response, error_response
 from app.api.transaction_classifier import classify
 from app.api.services.approval_service import autopilot_approve_service
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/transaction-ai", tags=["transaction-ai"])
 
@@ -47,9 +48,56 @@ def _resolve_amount_and_direction(data: TransactionAnalyzeRequest):
     return None, amount, amount, "out"
 
 
+def _build_explanation(result: dict) -> str:
+    source = result.get("source", "")
+    confidence = result.get("confidence", 0)
+    support_count = result.get("pattern_support_count")
+    success_count = result.get("pattern_success_count")
+    pattern_value = result.get("pattern_value_used")
+    pattern_days = result.get("pattern_days_since_seen")
+    similarity = result.get("pattern_similarity")
+
+    if source == "expense_article":
+        return f"ხარჯის სტატიის წესი: '{pattern_value}'"
+
+    if source == "partner_memory":
+        return f"პარტნიორის მეხსიერება: '{pattern_value}' — ადრე ყოველთვის ეს ანგარიში"
+
+    if source == "transaction_memory":
+        return "ტრანზაქციის ისტორია: ადრე იგივე ტრანზაქცია ამ ანგარიშზე გავიდა"
+
+    if source == "erp_history":
+        return "ERP ისტორია: Balance.ge-ში ადრე ასე გატარდა"
+
+    if source in ("pattern_active", "pattern_active_fuzzy"):
+        parts = [f"ნასწავლი pattern (აქტიური): '{pattern_value}'"]
+        if support_count:
+            parts.append(f"{support_count}-ჯერ გამოყენებული")
+        if success_count and support_count:
+            parts.append(f"{success_count}/{support_count} სწორი")
+        if pattern_days is not None:
+            parts.append(f"ბოლო გამოყენება {pattern_days} დღის წინ")
+        if similarity:
+            parts.append(f"მსგავსება: {int(similarity * 100)}%")
+        return ", ".join(parts)
+
+    if source in ("pattern_candidate", "pattern_candidate_fuzzy"):
+        parts = [f"სწავლის პროცესში pattern: '{pattern_value}'"]
+        if support_count:
+            parts.append(f"{support_count}-ჯერ გამოყენებული")
+        return ", ".join(parts)
+
+    if source == "rules":
+        return f"საკვანძო სიტყვის წესი (confidence: {int(confidence * 100)}%)"
+
+    return f"კლასიფიკაცია: {source}"
+
+
 @router.post("/analyze")
-def analyze_transaction(data: TransactionAnalyzeRequest):
+def analyze_transaction(data: TransactionAnalyzeRequest, request: Request):
     try:
+        tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
         paid_in, paid_out, resolved_amount, resolved_direction = _resolve_amount_and_direction(data)
 
         result = classify(
@@ -59,13 +107,16 @@ def analyze_transaction(data: TransactionAnalyzeRequest):
             partner=data.partner or "",
             operation_code=data.operation_code or "",
             doc_type=data.doc_type or "",
+            tenant_id=tenant_id,
         )
 
         result["input_amount"] = resolved_amount
         result["input_direction"] = resolved_direction
+        result["explanation"] = _build_explanation(result)
+        result["tenant_id"] = tenant_id
 
         try:
-            autopilot_result = autopilot_approve_service()
+            autopilot_result = autopilot_approve_service(tenant_id=tenant_id)
             result["autopilot_run"] = True
             result["autopilot_result"] = autopilot_result.get("data", {})
         except Exception as autopilot_error:

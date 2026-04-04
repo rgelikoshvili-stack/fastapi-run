@@ -12,28 +12,48 @@ from app.api.engines.pattern_engine import (
     mark_pattern_failure,
 )
 
+AUTOPILOT_MIN_CONFIDENCE = 0.80
+AUTOPILOT_MIN_USAGE_COUNT = 5
+AUTOPILOT_MIN_SUCCESS_RATE = 0.80
+AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
 
-def get_queue_service(status: str, limit: int, offset: int):
+PATTERN_SOURCES = {
+    "pattern_active",
+    "pattern_active_fuzzy",
+    "pattern_candidate",
+    "pattern_candidate_fuzzy",
+}
+
+SIGNAL_WEIGHTS = {
+    "approve": 1.0,
+    "reject": 1.5,
+}
+
+
+def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         if status:
             cur.execute(
-                "SELECT COUNT(*) AS total FROM journal_drafts WHERE status = %s",
-                (status,),
+                """
+                SELECT COUNT(*) AS total
+                FROM journal_drafts
+                WHERE status = %s AND tenant_id = %s
+                """,
+                (status, tenant_id),
             )
             total = cur.fetchone()["total"]
-
             cur.execute(
                 """
                 SELECT *
                 FROM journal_drafts
-                WHERE status = %s
+                WHERE status = %s AND tenant_id = %s
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (status, limit, offset),
+                (status, tenant_id, limit, offset),
             )
         else:
             cur.execute(
@@ -41,19 +61,21 @@ def get_queue_service(status: str, limit: int, offset: int):
                 SELECT COUNT(*) AS total
                 FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved')
-                """
+                  AND tenant_id = %s
+                """,
+                (tenant_id,),
             )
             total = cur.fetchone()["total"]
-
             cur.execute(
                 """
                 SELECT *
                 FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved')
+                  AND tenant_id = %s
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (limit, offset),
+                (tenant_id, limit, offset),
             )
 
         items = [dict(r) for r in cur.fetchall()]
@@ -72,63 +94,61 @@ def get_queue_service(status: str, limit: int, offset: int):
             "limit": limit,
             "offset": offset,
             "queue": items,
+            "tenant_id": tenant_id,
         },
     )
 
 
 def _get_pattern_value_for_draft(draft: dict):
     matched_on = draft.get("pattern_matched_on")
-
     if matched_on in ("description_exact", "description_fuzzy"):
         return draft.get("pattern_value_used") or draft.get("description")
-
     if matched_on in ("partner_exact", "partner_fuzzy"):
         return draft.get("pattern_value_used") or draft.get("partner")
-
     return None
 
 
-def _mark_success_for_draft(draft: dict):
+def _mark_success_for_draft(draft: dict, tenant_id: str, weight: float = 1.0):
     matched_on = draft.get("pattern_matched_on")
     account_code = draft.get("account_code")
     pattern_value = _get_pattern_value_for_draft(draft)
 
-    if not pattern_value:
+    if not pattern_value or not account_code:
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
+        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_exact":
-        return mark_pattern_success("partner", pattern_value, account_code)
+        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "description_fuzzy":
-        return mark_pattern_success("description_exact", pattern_value, account_code)
+        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_fuzzy":
-        return mark_pattern_success("partner", pattern_value, account_code)
+        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
 
     return {"updated": 0}
 
 
-def _mark_failure_for_draft(draft: dict):
+def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
     matched_on = draft.get("pattern_matched_on")
     account_code = draft.get("account_code")
     pattern_value = _get_pattern_value_for_draft(draft)
 
-    if not pattern_value:
+    if not pattern_value or not account_code:
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
+        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_exact":
-        return mark_pattern_failure("partner", pattern_value, account_code)
+        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "description_fuzzy":
-        return mark_pattern_failure("description_exact", pattern_value, account_code)
+        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
     if matched_on == "partner_fuzzy":
-        return mark_pattern_failure("partner", pattern_value, account_code)
+        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
 
     return {"updated": 0}
 
 
-def approve_draft_service(draft_id: int):
+def approve_draft_service(draft_id: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -138,56 +158,47 @@ def approve_draft_service(draft_id: int):
     qa_result = {"ok": False, "score": 0, "issues": [], "recommendation": "unknown"}
 
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
+        cur.execute(
+            """
+            SELECT * FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s
+            """,
+            (draft_id, tenant_id),
+        )
         draft = cur.fetchone()
 
         if not draft:
-            return error_response(
-                "Not found",
-                "NOT_FOUND",
-                f"Draft {draft_id} not found",
-            )
+            return error_response("Not found", "NOT_FOUND",
+                f"Draft {draft_id} not found for tenant {tenant_id}")
 
-        current_status = draft["status"]
+        if draft["status"] == "approved":
+            return error_response("Already approved", "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved")
 
-        if current_status == "approved":
-            return error_response(
-                "Already approved",
-                "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved",
-            )
-
-        if current_status == "rejected":
-            return error_response(
-                "Already rejected",
-                "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected and cannot be approved",
-            )
+        if draft["status"] == "rejected":
+            return error_response("Already rejected", "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected and cannot be approved")
 
         qa_result = evaluate_decision(draft)
 
         cur.execute(
             """
             UPDATE journal_drafts
-            SET
-                status = 'approved',
+            SET status = 'approved',
                 approved_by_mode = COALESCE(approved_by_mode, 'human'),
                 updated_at = NOW()
-            WHERE id = %s
+            WHERE id = %s AND tenant_id = %s
               AND status IN ('drafted', 'pending_approval', 'auto_approved')
             RETURNING *
             """,
-            (draft_id,),
+            (draft_id, tenant_id),
         )
         updated = cur.fetchone()
 
         if not updated:
             conn.rollback()
-            return error_response(
-                "Approve blocked",
-                "APPROVE_BLOCKED",
-                f"Draft {draft_id} could not be approved",
-            )
+            return error_response("Approve blocked", "APPROVE_BLOCKED",
+                f"Draft {draft_id} could not be approved for tenant {tenant_id}")
 
         save_feedback(
             draft_id=draft.get("id"),
@@ -206,6 +217,7 @@ def approve_draft_service(draft_id: int):
             feedback_type="approve",
             corrected_by=None,
             notes=None,
+            tenant_id=tenant_id,
         )
 
         memory_result = save_transaction_memory(
@@ -213,9 +225,10 @@ def approve_draft_service(draft_id: int):
             draft.get("partner"),
             draft.get("amount"),
             draft.get("account_code"),
+            tenant_id=tenant_id,
         )
 
-        generate_patterns_from_feedback()
+        generate_patterns_from_feedback(tenant_id=tenant_id)
         conn.commit()
 
     except Exception as e:
@@ -226,18 +239,16 @@ def approve_draft_service(draft_id: int):
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft and draft.get("classification_source") in (
-        "pattern_active",
-        "pattern_active_fuzzy",
-        "pattern_candidate",
-        "pattern_candidate_fuzzy",
-    ):
-        pattern_update_result = _mark_success_for_draft(draft)
+    if draft and draft.get("classification_source") in PATTERN_SOURCES:
+        pattern_update_result = _mark_success_for_draft(
+            draft, tenant_id, weight=SIGNAL_WEIGHTS["approve"]
+        )
 
     log_event(
         "draft_approved",
         {
             "draft_id": draft_id,
+            "tenant_id": tenant_id,
             "classification_source": draft.get("classification_source") if draft else None,
             "pattern_matched_on": draft.get("pattern_matched_on") if draft else None,
             "pattern_value_used": draft.get("pattern_value_used") if draft else None,
@@ -245,7 +256,6 @@ def approve_draft_service(draft_id: int):
             "pattern_update_result": pattern_update_result,
             "memory_saved": bool(memory_result.get("ok")),
             "memory_result": memory_result,
-            "bridge_from_erp_history": draft.get("classification_source") == "erp_history" if draft else False,
             "qa_score": qa_result.get("score"),
             "qa_issues": qa_result.get("issues"),
             "qa_recommendation": qa_result.get("recommendation"),
@@ -258,11 +268,12 @@ def approve_draft_service(draft_id: int):
             "id": draft_id,
             "status": "approved",
             "approved_by_mode": updated.get("approved_by_mode") if updated else "human",
+            "tenant_id": tenant_id,
         },
     )
 
 
-def reject_draft_service(draft_id: int, reason: str = ""):
+def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -270,53 +281,43 @@ def reject_draft_service(draft_id: int, reason: str = ""):
     updated = None
 
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (draft_id,))
+        cur.execute(
+            """
+            SELECT * FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s
+            """,
+            (draft_id, tenant_id),
+        )
         draft = cur.fetchone()
 
         if not draft:
-            return error_response(
-                "Not found",
-                "NOT_FOUND",
-                f"Draft {draft_id} not found",
-            )
+            return error_response("Not found", "NOT_FOUND",
+                f"Draft {draft_id} not found for tenant {tenant_id}")
 
-        current_status = draft["status"]
+        if draft["status"] == "rejected":
+            return error_response("Already rejected", "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected")
 
-        if current_status == "rejected":
-            return error_response(
-                "Already rejected",
-                "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected",
-            )
-
-        if current_status == "approved":
-            return error_response(
-                "Already approved",
-                "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved and cannot be rejected",
-            )
+        if draft["status"] == "approved":
+            return error_response("Already approved", "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved and cannot be rejected")
 
         cur.execute(
             """
             UPDATE journal_drafts
-            SET
-                status = 'rejected',
-                updated_at = NOW()
-            WHERE id = %s
+            SET status = 'rejected', updated_at = NOW()
+            WHERE id = %s AND tenant_id = %s
               AND status IN ('drafted', 'pending_approval', 'auto_approved')
             RETURNING *
             """,
-            (draft_id,),
+            (draft_id, tenant_id),
         )
         updated = cur.fetchone()
 
         if not updated:
             conn.rollback()
-            return error_response(
-                "Reject blocked",
-                "REJECT_BLOCKED",
-                f"Draft {draft_id} could not be rejected",
-            )
+            return error_response("Reject blocked", "REJECT_BLOCKED",
+                f"Draft {draft_id} could not be rejected for tenant {tenant_id}")
 
         save_feedback(
             draft_id=draft.get("id"),
@@ -335,6 +336,7 @@ def reject_draft_service(draft_id: int, reason: str = ""):
             feedback_type="reject",
             corrected_by=None,
             notes=reason,
+            tenant_id=tenant_id,
         )
 
         conn.commit()
@@ -347,18 +349,16 @@ def reject_draft_service(draft_id: int, reason: str = ""):
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft and draft.get("classification_source") in (
-        "pattern_active",
-        "pattern_active_fuzzy",
-        "pattern_candidate",
-        "pattern_candidate_fuzzy",
-    ):
-        pattern_update_result = _mark_failure_for_draft(draft)
+    if draft and draft.get("classification_source") in PATTERN_SOURCES:
+        pattern_update_result = _mark_failure_for_draft(
+            draft, tenant_id, weight=SIGNAL_WEIGHTS["reject"]
+        )
 
     log_event(
         "draft_rejected",
         {
             "draft_id": draft_id,
+            "tenant_id": tenant_id,
             "reason": reason,
             "classification_source": draft.get("classification_source") if draft else None,
             "pattern_matched_on": draft.get("pattern_matched_on") if draft else None,
@@ -369,23 +369,23 @@ def reject_draft_service(draft_id: int, reason: str = ""):
 
     return ok_response(
         "Draft rejected",
-        {"id": draft_id, "status": "rejected", "reason": reason},
+        {"id": draft_id, "status": "rejected", "reason": reason, "tenant_id": tenant_id},
     )
 
 
-def get_audit_service(limit: int, offset: int):
+def get_audit_service(limit: int, offset: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         cur.execute(
             """
-            SELECT *
-            FROM audit_events
+            SELECT * FROM audit_events
+            WHERE tenant_id = %s
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
-            (limit, offset),
+            (tenant_id, limit, offset),
         )
         events = [dict(r) for r in cur.fetchall()]
 
@@ -397,30 +397,44 @@ def get_audit_service(limit: int, offset: int):
 
     return ok_response(
         "Audit log",
-        {
-            "count": len(events),
-            "events": events,
-        },
+        {"count": len(events), "events": events, "tenant_id": tenant_id},
     )
 
 
-def autopilot_approve_service(confidence_threshold: float = 0.80):
+def autopilot_approve_service(tenant_id: str, confidence_threshold: float = AUTOPILOT_MIN_CONFIDENCE):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         cur.execute(
             """
-            SELECT id, confidence, description, account_code
-            FROM journal_drafts
-            WHERE status IN ('drafted', 'pending_approval')
-              AND confidence >= %s
-              AND (review_required = false OR confidence >= 0.85)
-            ORDER BY confidence DESC
+            SELECT
+                jd.id,
+                jd.confidence,
+                jd.description,
+                jd.account_code,
+                jd.tenant_id,
+                jd.classification_source,
+                jd.pattern_matched_on,
+                jd.pattern_value_used,
+                lp.success_count,
+                lp.failure_count,
+                lp.usage_count,
+                lp.last_used_at
+            FROM journal_drafts jd
+            LEFT JOIN learning_patterns lp
+                ON lp.tenant_id = jd.tenant_id
+                AND lp.account_code = jd.account_code
+                AND lp.status = 'active'
+            WHERE jd.status IN ('drafted', 'pending_approval')
+              AND jd.tenant_id = %s
+              AND jd.confidence >= %s
+              AND (jd.review_required = false OR jd.confidence >= 0.85)
+            ORDER BY jd.confidence DESC
             """,
-            (confidence_threshold,),
+            (tenant_id, confidence_threshold),
         )
-        candidates = [dict(r) for r in cur.fetchall()]
+        raw_candidates = [dict(r) for r in cur.fetchall()]
 
     except Exception as e:
         return error_response("Autopilot query failed", "AUTOPILOT_ERROR", str(e))
@@ -428,15 +442,56 @@ def autopilot_approve_service(confidence_threshold: float = 0.80):
         cur.close()
         conn.close()
 
+    # Advanced filtering
+    candidates = []
+    skipped = []
+
+    for draft in raw_candidates:
+        success_count = int(draft.get("success_count") or 0)
+        failure_count = int(draft.get("failure_count") or 0)
+        usage_count = int(draft.get("usage_count") or 0)
+        total = success_count + failure_count
+        success_rate = (success_count / total) if total > 0 else 0.0
+
+        skip_reason = None
+
+        # rules path — always skip
+        if draft.get("classification_source") == "rules":
+            skip_reason = "rules_path_not_eligible"
+        # usage_count check
+        elif usage_count < AUTOPILOT_MIN_USAGE_COUNT and draft.get("classification_source") not in ("expense_article", "partner_memory", "erp_history"):
+            skip_reason = f"usage_count_too_low:{usage_count}"
+        # success_rate check
+        elif total > 0 and success_rate < AUTOPILOT_MIN_SUCCESS_RATE:
+            skip_reason = f"success_rate_too_low:{round(success_rate, 2)}"
+        # failure check
+        elif failure_count > 0 and draft.get("classification_source") in (
+            "pattern_active", "pattern_candidate",
+            "pattern_active_fuzzy", "pattern_candidate_fuzzy"
+        ):
+            skip_reason = f"has_failures:{failure_count}"
+
+        if skip_reason:
+            skipped.append({"id": draft["id"], "reason": skip_reason})
+        else:
+            candidates.append(draft)
+
     if not candidates:
-        return ok_response("Autopilot: nothing to approve", {"approved": 0, "items": []})
+        return ok_response(
+            "Autopilot: nothing to approve",
+            {
+                "approved": 0,
+                "items": [],
+                "skipped": skipped,
+                "tenant_id": tenant_id,
+            },
+        )
 
     approved_ids = []
     failed_ids = []
 
     for draft in candidates:
         draft_id = draft["id"]
-
         conn2 = get_db()
         cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -447,25 +502,29 @@ def autopilot_approve_service(confidence_threshold: float = 0.80):
                 SET status = 'auto_approved',
                     approved_by_mode = 'autopilot',
                     updated_at = NOW()
-                WHERE id = %s
+                WHERE id = %s AND tenant_id = %s
                   AND status IN ('drafted', 'pending_approval')
                 RETURNING id
                 """,
-                (draft_id,),
+                (draft_id, tenant_id),
             )
             updated = cur2.fetchone()
             conn2.commit()
 
             if updated:
                 approved_ids.append(draft_id)
-
                 log_event(
                     "draft_auto_approved",
                     {
                         "draft_id": draft_id,
+                        "tenant_id": tenant_id,
                         "confidence": draft.get("confidence"),
                         "threshold": confidence_threshold,
                         "account_code": draft.get("account_code"),
+                        "usage_count": draft.get("usage_count"),
+                        "success_count": draft.get("success_count"),
+                        "failure_count": draft.get("failure_count"),
+                        "classification_source": draft.get("classification_source"),
                     },
                 )
             else:
@@ -483,8 +542,11 @@ def autopilot_approve_service(confidence_threshold: float = 0.80):
         {
             "approved": len(approved_ids),
             "failed": len(failed_ids),
+            "skipped": len(skipped),
+            "skipped_details": skipped,
             "threshold": confidence_threshold,
             "approved_ids": approved_ids,
             "failed_ids": failed_ids,
+            "tenant_id": tenant_id,
         },
     )

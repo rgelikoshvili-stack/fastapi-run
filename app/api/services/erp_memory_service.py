@@ -1,4 +1,3 @@
-from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
 from app.api.db import get_db
@@ -19,6 +18,7 @@ def upsert_erp_posting_memory(
     account_code: Optional[str] = None,
     direction: Optional[str] = None,
     posting_date: Optional[str] = None,
+    tenant_id: str = "default",
 ) -> Dict[str, Any]:
     conn = get_db()
     cur = conn.cursor()
@@ -30,13 +30,14 @@ def upsert_erp_posting_memory(
         """
         SELECT id, evidence_count
         FROM erp_posting_memory
-        WHERE source_system = %s
+        WHERE tenant_id = %s
+          AND source_system = %s
           AND COALESCE(external_entry_id, '') = COALESCE(%s, '')
           AND COALESCE(external_doc_id, '') = COALESCE(%s, '')
           AND COALESCE(account_code, '') = COALESCE(%s, '')
         LIMIT 1
         """,
-        (source_system, external_entry_id, external_doc_id, account_code),
+        (tenant_id, source_system, external_entry_id, external_doc_id, account_code),
     )
     existing = cur.fetchone()
 
@@ -60,6 +61,7 @@ def upsert_erp_posting_memory(
                 updated_at = NOW(),
                 last_seen_at = NOW()
             WHERE id = %s
+              AND tenant_id = %s
             RETURNING id, source_system, account_code, evidence_count
             """,
             (
@@ -76,12 +78,14 @@ def upsert_erp_posting_memory(
                 posting_date,
                 int(evidence_count or 0) + 1,
                 row_id,
+                tenant_id,
             ),
         )
     else:
         cur.execute(
             """
             INSERT INTO erp_posting_memory (
+                tenant_id,
                 source_system,
                 external_entry_id,
                 external_doc_id,
@@ -98,10 +102,11 @@ def upsert_erp_posting_memory(
                 direction,
                 posting_date
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, source_system, account_code, evidence_count
             """,
             (
+                tenant_id,
                 source_system,
                 external_entry_id,
                 external_doc_id,
@@ -129,6 +134,7 @@ def upsert_erp_posting_memory(
         "ok": True,
         "memory": {
             "id": row[0],
+            "tenant_id": tenant_id,
             "source_system": row[1],
             "account_code": row[2],
             "evidence_count": row[3],
@@ -141,6 +147,7 @@ def find_erp_memory_match(
     partner: Optional[str] = None,
     amount: Optional[float] = None,
     doc_type: Optional[str] = None,
+    tenant_id: str = "default",
 ) -> Optional[Dict[str, Any]]:
     conn = get_db()
     cur = conn.cursor()
@@ -148,23 +155,18 @@ def find_erp_memory_match(
     normalized_description = normalize_text(description)
     normalized_partner = normalize_text(partner)
 
-    # priority:
-    # 1) same partner + same normalized desc
-    # 2) same desc
-    # 3) same partner
-    # 4) nearest amount tolerance
-
     cur.execute(
         """
         SELECT id, account_code, debit_account, credit_account,
                description, partner, amount, doc_type, evidence_count, confidence
         FROM erp_posting_memory
-        WHERE normalized_partner = %s
+        WHERE tenant_id = %s
+          AND normalized_partner = %s
           AND normalized_description = %s
         ORDER BY evidence_count DESC, updated_at DESC
         LIMIT 1
         """,
-        (normalized_partner, normalized_description),
+        (tenant_id, normalized_partner, normalized_description),
     )
     row = cur.fetchone()
 
@@ -174,11 +176,12 @@ def find_erp_memory_match(
             SELECT id, account_code, debit_account, credit_account,
                    description, partner, amount, doc_type, evidence_count, confidence
             FROM erp_posting_memory
-            WHERE normalized_description = %s
+            WHERE tenant_id = %s
+              AND normalized_description = %s
             ORDER BY evidence_count DESC, updated_at DESC
             LIMIT 1
             """,
-            (normalized_description,),
+            (tenant_id, normalized_description),
         )
         row = cur.fetchone()
 
@@ -188,11 +191,12 @@ def find_erp_memory_match(
             SELECT id, account_code, debit_account, credit_account,
                    description, partner, amount, doc_type, evidence_count, confidence
             FROM erp_posting_memory
-            WHERE normalized_partner = %s
+            WHERE tenant_id = %s
+              AND normalized_partner = %s
             ORDER BY evidence_count DESC, updated_at DESC
             LIMIT 1
             """,
-            (normalized_partner,),
+            (tenant_id, normalized_partner),
         )
         row = cur.fetchone()
 
@@ -203,6 +207,7 @@ def find_erp_memory_match(
         return None
 
     return {
+        "tenant_id": tenant_id,
         "id": row[0],
         "account_code": row[1],
         "debit_account": row[2],
@@ -217,19 +222,20 @@ def find_erp_memory_match(
     }
 
 
-def list_erp_posting_memory(limit: int = 100) -> List[Dict[str, Any]]:
+def list_erp_posting_memory(limit: int = 100, tenant_id: str = "default") -> List[Dict[str, Any]]:
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
         """
-        SELECT id, source_system, description, partner, amount, account_code,
+        SELECT id, tenant_id, source_system, description, partner, amount, account_code,
                debit_account, credit_account, evidence_count, last_seen_at
         FROM erp_posting_memory
+        WHERE tenant_id = %s
         ORDER BY id DESC
         LIMIT %s
         """,
-        (limit,),
+        (tenant_id, limit),
     )
     rows = cur.fetchall()
 
@@ -240,15 +246,16 @@ def list_erp_posting_memory(limit: int = 100) -> List[Dict[str, Any]]:
     for r in rows:
         items.append({
             "id": r[0],
-            "source_system": r[1],
-            "description": r[2],
-            "partner": r[3],
-            "amount": float(r[4]) if r[4] is not None else None,
-            "account_code": r[5],
-            "debit_account": r[6],
-            "credit_account": r[7],
-            "evidence_count": r[8],
-            "last_seen_at": r[9].isoformat() if r[9] else None,
+            "tenant_id": r[1],
+            "source_system": r[2],
+            "description": r[3],
+            "partner": r[4],
+            "amount": float(r[5]) if r[5] is not None else None,
+            "account_code": r[6],
+            "debit_account": r[7],
+            "credit_account": r[8],
+            "evidence_count": r[9],
+            "last_seen_at": r[10].isoformat() if r[10] else None,
         })
 
     return items

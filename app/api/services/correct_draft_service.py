@@ -24,19 +24,21 @@ def _decide_pattern_status(support_count: int, success_count: int, failure_count
     return "candidate"
 
 
-def correct_draft(draft_id: int, payload: dict, user: str = "human"):
+def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor()
 
     try:
+        # 🔒 tenant filter დამატებულია
         cur.execute(
             """
             SELECT id, description, partner, account_code, reason,
                    debit_account, credit_account, amount, classification_source
             FROM journal_drafts
             WHERE id = %s
+              AND tenant_id = %s
             """,
-            (draft_id,),
+            (draft_id, tenant_id),
         )
         row = cur.fetchone()
 
@@ -45,7 +47,10 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 "ok": False,
                 "message": "Draft not found",
                 "data": None,
-                "error": {"code": "NOT_FOUND", "details": f"Draft {draft_id} not found"},
+                "error": {
+                    "code": "NOT_FOUND",
+                    "details": f"Draft {draft_id} not found for tenant {tenant_id}",
+                },
             }
 
         original = {
@@ -72,6 +77,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
 
         delta_summary = ", ".join(delta_parts) if delta_parts else "no_change"
 
+        # 🔒 UPDATE tenant-ით
         cur.execute(
             """
             UPDATE journal_drafts
@@ -83,6 +89,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 approved_by_mode = 'human_correction',
                 updated_at = NOW()
             WHERE id = %s
+              AND tenant_id = %s
             """,
             (
                 final["account_code"],
@@ -90,6 +97,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
                 final["debit_account"],
                 final["credit_account"],
                 draft_id,
+                tenant_id,
             ),
         )
 
@@ -167,10 +175,10 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
         )
 
         memory_result = save_transaction_memory(
-            row[1],               # description
-            row[2],               # partner
-            row[7],               # amount
-            final["account_code"] # corrected account_code
+            row[1],
+            row[2],
+            row[7],
+            final["account_code"]
         )
 
         return {
@@ -179,6 +187,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human"):
             "data": {
                 "draft_id": draft_id,
                 "review_id": review_id,
+                "tenant_id": tenant_id,
                 "changed_fields": changed_fields,
                 "delta_summary": delta_summary,
                 "learning_result": learning_result,

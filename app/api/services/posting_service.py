@@ -27,34 +27,35 @@ from app.api.oris_connector import (
 BLOCKING_POST_STATUSES = {"posted"}
 
 
-def _fetch_draft(cur, draft_id: int):
+def _fetch_draft(cur, draft_id: int, tenant_id: str):
     cur.execute(
         """
         SELECT
-            id, date, description, partner, amount,
+            id, tenant_id, date, description, partner, amount,
             debit_account, credit_account, account_code,
             reason, confidence, review_required, status,
             source_type, bank_file_id, created_at
         FROM journal_drafts
         WHERE id = %s
+          AND tenant_id = %s
         """,
-        (draft_id,),
+        (draft_id, tenant_id),
     )
     return cur.fetchone()
 
 
-def _validate_approved_draft(draft, draft_id: int):
+def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
     if not draft:
         return error_response(
             "Draft not found",
             "DRAFT_NOT_FOUND",
-            f"journal_drafts id={draft_id} does not exist",
+            f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
         )
     if draft["status"] != "approved":
         return error_response(
             "Draft is not approved",
             "DRAFT_NOT_APPROVED",
-            f"journal_drafts id={draft_id} has status={draft['status']}",
+            f"journal_drafts id={draft_id} has status={draft['status']} for tenant {tenant_id}",
         )
     return None
 
@@ -62,6 +63,7 @@ def _validate_approved_draft(draft, draft_id: int):
 def _build_generic_payload(draft):
     return {
         "draft_id": draft["id"],
+        "tenant_id": draft["tenant_id"],
         "transaction_date": str(draft["date"]) if draft["date"] is not None else None,
         "description": draft["description"],
         "partner": draft["partner"],
@@ -80,15 +82,16 @@ def _build_generic_payload(draft):
     }
 
 
-def _insert_posting_log(cur, draft_id, target_system, payload, response, status, error_message):
+def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, response, status, error_message):
     cur.execute(
         """
         INSERT INTO posting_logs
-        (draft_id, target_system, payload_json, response_json, status, error_message)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        (tenant_id, draft_id, target_system, payload_json, response_json, status, error_message)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
+            tenant_id,
             draft_id,
             target_system,
             json.dumps(payload, ensure_ascii=False),
@@ -100,18 +103,19 @@ def _insert_posting_log(cur, draft_id, target_system, payload, response, status,
     return cur.fetchone()["id"]
 
 
-def _find_successful_post(cur, draft_id: int, target_system: str):
+def _find_successful_post(cur, tenant_id: str, draft_id: int, target_system: str):
     cur.execute(
         """
         SELECT id, status
         FROM posting_logs
-        WHERE draft_id = %s
+        WHERE tenant_id = %s
+          AND draft_id = %s
           AND target_system = %s
           AND status = ANY(%s)
         ORDER BY created_at DESC, id DESC
         LIMIT 1
         """,
-        (draft_id, target_system, list(BLOCKING_POST_STATUSES)),
+        (tenant_id, draft_id, target_system, list(BLOCKING_POST_STATUSES)),
     )
     return cur.fetchone()
 
@@ -135,12 +139,12 @@ def _is_connector_ready(status: dict) -> bool:
     return False
 
 
-def _get_connector_readiness(target_normalized: str) -> dict:
+def _get_connector_readiness(target_normalized: str, tenant_id: str) -> dict:
     if target_normalized == "mock":
         return {
             "target": "mock",
             "ready": True,
-            "status": {"ok": True, "mode": "mock"},
+            "status": {"ok": True, "mode": "mock", "tenant_id": tenant_id},
         }
 
     if target_normalized == "balance":
@@ -148,7 +152,7 @@ def _get_connector_readiness(target_normalized: str) -> dict:
         return {
             "target": "balance",
             "ready": _is_connector_ready(status),
-            "status": status,
+            "status": {"tenant_id": tenant_id, **status},
         }
 
     if target_normalized == "1c":
@@ -156,7 +160,7 @@ def _get_connector_readiness(target_normalized: str) -> dict:
         return {
             "target": "1c",
             "ready": _is_connector_ready(status),
-            "status": status,
+            "status": {"tenant_id": tenant_id, **status},
         }
 
     if target_normalized == "oris":
@@ -164,13 +168,13 @@ def _get_connector_readiness(target_normalized: str) -> dict:
         return {
             "target": "oris",
             "ready": _is_connector_ready(status),
-            "status": status,
+            "status": {"tenant_id": tenant_id, **status},
         }
 
     return {
         "target": target_normalized,
         "ready": False,
-        "status": {"error": "unsupported_target"},
+        "status": {"error": "unsupported_target", "tenant_id": tenant_id},
     }
 
 
@@ -185,6 +189,7 @@ def _get_connector_executor(target_normalized: str):
                 "status": "posted",
                 "message": "Mock posting completed successfully",
                 "posted_draft_id": draft["id"],
+                "tenant_id": draft["tenant_id"],
             },
         },
         "balance": {
@@ -217,27 +222,36 @@ def _execute_with_retry(connector: dict, payload: dict, draft) -> dict:
     )
 
 
-def get_approved_drafts_service(limit: int, offset: int):
+def get_approved_drafts_service(limit: int, offset: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        cur.execute("SELECT COUNT(*) AS total FROM journal_drafts WHERE status = 'approved'")
+        cur.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM journal_drafts
+            WHERE status = 'approved'
+              AND tenant_id = %s
+            """,
+            (tenant_id,),
+        )
         total = cur.fetchone()["total"]
 
         cur.execute(
             """
             SELECT
-                id, date, description, partner, amount,
+                id, tenant_id, date, description, partner, amount,
                 debit_account, credit_account, account_code,
                 reason, confidence, review_required, status,
                 source_type, bank_file_id, created_at
             FROM journal_drafts
             WHERE status = 'approved'
+              AND tenant_id = %s
             ORDER BY created_at DESC, id DESC
             LIMIT %s OFFSET %s
             """,
-            (limit, offset),
+            (tenant_id, limit, offset),
         )
         items = [dict(r) for r in cur.fetchall()]
 
@@ -255,6 +269,7 @@ def get_approved_drafts_service(limit: int, offset: int):
         "Approved drafts",
         {
             "count": total,
+            "tenant_id": tenant_id,
             "limit": limit,
             "offset": offset,
             "items": items,
@@ -262,13 +277,13 @@ def get_approved_drafts_service(limit: int, offset: int):
     )
 
 
-def get_posting_payload_service(draft_id: int):
+def get_posting_payload_service(draft_id: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
+        draft = _fetch_draft(cur, draft_id, tenant_id)
+        err = _validate_approved_draft(draft, draft_id, tenant_id)
         if err:
             return err
 
@@ -280,16 +295,19 @@ def get_posting_payload_service(draft_id: int):
         cur.close()
         conn.close()
 
-    return ok_response("Posting payload preview", {"draft": dict(draft), "payload": payload})
+    return ok_response(
+        "Posting payload preview",
+        {"tenant_id": tenant_id, "draft": dict(draft), "payload": payload},
+    )
 
 
-def get_posting_logs_service(limit: int, offset: int, target_system: str | None = None, draft_id: int | None = None):
+def get_posting_logs_service(limit: int, offset: int, tenant_id: str, target_system: str | None = None, draft_id: int | None = None):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        where_clauses = []
-        params = []
+        where_clauses = ["tenant_id = %s"]
+        params = [tenant_id]
 
         if target_system:
             where_clauses.append("target_system = %s")
@@ -299,7 +317,7 @@ def get_posting_logs_service(limit: int, offset: int, target_system: str | None 
             where_clauses.append("draft_id = %s")
             params.append(draft_id)
 
-        where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        where_sql = "WHERE " + " AND ".join(where_clauses)
 
         cur.execute(f"SELECT COUNT(*) AS total FROM posting_logs {where_sql}", tuple(params))
         total = cur.fetchone()["total"]
@@ -307,7 +325,7 @@ def get_posting_logs_service(limit: int, offset: int, target_system: str | None 
         cur.execute(
             f"""
             SELECT
-                id, draft_id, target_system, payload_json,
+                id, tenant_id, draft_id, target_system, payload_json,
                 response_json, status, error_message, created_at
             FROM posting_logs
             {where_sql}
@@ -328,6 +346,7 @@ def get_posting_logs_service(limit: int, offset: int, target_system: str | None 
         "Posting logs",
         {
             "count": total,
+            "tenant_id": tenant_id,
             "limit": limit,
             "offset": offset,
             "filters": {"target_system": target_system, "draft_id": draft_id},
@@ -336,7 +355,7 @@ def get_posting_logs_service(limit: int, offset: int, target_system: str | None 
     )
 
 
-def get_posting_log_detail_service(log_id: int):
+def get_posting_log_detail_service(log_id: int, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -344,12 +363,13 @@ def get_posting_log_detail_service(log_id: int):
         cur.execute(
             """
             SELECT
-                id, draft_id, target_system, payload_json,
+                id, tenant_id, draft_id, target_system, payload_json,
                 response_json, status, error_message, created_at
             FROM posting_logs
             WHERE id = %s
+              AND tenant_id = %s
             """,
-            (log_id,),
+            (log_id, tenant_id),
         )
         row = cur.fetchone()
 
@@ -357,7 +377,7 @@ def get_posting_log_detail_service(log_id: int):
             return error_response(
                 "Posting log not found",
                 "POSTING_LOG_NOT_FOUND",
-                f"posting_logs id={log_id} does not exist",
+                f"posting_logs id={log_id} does not exist for tenant {tenant_id}",
             )
 
     except Exception as e:
@@ -369,13 +389,13 @@ def get_posting_log_detail_service(log_id: int):
     return ok_response("Posting log detail", dict(row))
 
 
-def _run_posting_attempt(draft_id: int, target_normalized: str):
+def _run_posting_attempt(draft_id: int, target_normalized: str, tenant_id: str):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        draft = _fetch_draft(cur, draft_id)
-        err = _validate_approved_draft(draft, draft_id)
+        draft = _fetch_draft(cur, draft_id, tenant_id)
+        err = _validate_approved_draft(draft, draft_id, tenant_id)
         if err:
             return err
 
@@ -389,11 +409,12 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
 
         log_target = connector["target_system"]
 
-        existing_post = _find_successful_post(cur, draft["id"], log_target)
+        existing_post = _find_successful_post(cur, tenant_id, draft["id"], log_target)
         if existing_post:
             log_event(
                 "posting_duplicate_blocked",
                 {
+                    "tenant_id": tenant_id,
                     "draft_id": draft["id"],
                     "target": log_target,
                     "existing_log_id": existing_post["id"],
@@ -402,14 +423,15 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
             return error_response(
                 "Draft already posted",
                 "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to {log_target} (log_id={existing_post['id']})",
+                f"draft_id={draft['id']} was already posted to {log_target} for tenant {tenant_id} (log_id={existing_post['id']})",
             )
 
-        readiness = _get_connector_readiness(target_normalized)
+        readiness = _get_connector_readiness(target_normalized, tenant_id)
         if not readiness["ready"]:
             log_event(
                 "connector_not_ready",
                 {
+                    "tenant_id": tenant_id,
                     "draft_id": draft["id"],
                     "target": log_target,
                     "readiness": readiness["status"],
@@ -420,6 +442,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
                 "CONNECTOR_NOT_READY",
                 json.dumps(
                     {
+                        "tenant_id": tenant_id,
                         "draft_id": draft["id"],
                         "target": log_target,
                         "readiness": readiness["status"],
@@ -430,7 +453,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
 
         log_event(
             "posting_attempt_started",
-            {"draft_id": draft["id"], "target": log_target},
+            {"tenant_id": tenant_id, "draft_id": draft["id"], "target": log_target},
         )
 
         payload = connector["payload_builder"](draft)
@@ -439,6 +462,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         posting_status = result.get("status", result.get("result", "unknown"))
         posting_log_id = _insert_posting_log(
             cur,
+            tenant_id,
             draft["id"],
             log_target,
             payload,
@@ -451,6 +475,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         log_event(
             "posting_retry_info",
             {
+                "tenant_id": tenant_id,
                 "draft_id": draft["id"],
                 "target": log_target,
                 "attempts": result.get("attempts_used"),
@@ -461,6 +486,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         log_event(
             "posting_attempt_finished",
             {
+                "tenant_id": tenant_id,
                 "draft_id": draft["id"],
                 "target": log_target,
                 "posting_log_id": posting_log_id,
@@ -471,6 +497,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         return ok_response(
             f"{log_target} posting attempt completed",
             {
+                "tenant_id": tenant_id,
                 "posting_log_id": posting_log_id,
                 "draft_id": draft["id"],
                 "target": log_target,
@@ -483,7 +510,7 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         conn.rollback()
         log_event(
             "posting_attempt_failed",
-            {"draft_id": draft_id, "target": target_normalized, "error": str(e)},
+            {"tenant_id": tenant_id, "draft_id": draft_id, "target": target_normalized, "error": str(e)},
         )
         return error_response(
             "Posting failed",
@@ -495,43 +522,52 @@ def _run_posting_attempt(draft_id: int, target_normalized: str):
         conn.close()
 
 
-def mock_posting_service(draft_id: int):
-    return _run_posting_attempt(draft_id, "mock")
+def mock_posting_service(draft_id: int, tenant_id: str):
+    return _run_posting_attempt(draft_id, "mock", tenant_id)
 
 
-def get_balance_status_service():
+def get_balance_status_service(tenant_id: str):
     try:
-        return ok_response("Balance status", {"config": balance_config_status(), "ping": balance_ping()})
+        return ok_response(
+            "Balance status",
+            {"tenant_id": tenant_id, "config": balance_config_status(), "ping": balance_ping()},
+        )
     except Exception as e:
         return error_response("Balance status check failed", "BALANCE_STATUS_ERROR", str(e))
 
 
-def post_draft_to_balance_service(draft_id: int):
-    return _run_posting_attempt(draft_id, "balance")
+def post_draft_to_balance_service(draft_id: int, tenant_id: str):
+    return _run_posting_attempt(draft_id, "balance", tenant_id)
 
 
-def get_onec_status_service():
+def get_onec_status_service(tenant_id: str):
     try:
-        return ok_response("1C status", {"config": onec_config_status(), "ping": onec_ping()})
+        return ok_response(
+            "1C status",
+            {"tenant_id": tenant_id, "config": onec_config_status(), "ping": onec_ping()},
+        )
     except Exception as e:
         return error_response("1C status check failed", "ONEC_STATUS_ERROR", str(e))
 
 
-def post_draft_to_onec_service(draft_id: int):
-    return _run_posting_attempt(draft_id, "1c")
+def post_draft_to_onec_service(draft_id: int, tenant_id: str):
+    return _run_posting_attempt(draft_id, "1c", tenant_id)
 
 
-def get_oris_status_service():
+def get_oris_status_service(tenant_id: str):
     try:
-        return ok_response("ORIS status", {"config": oris_config_status(), "ping": oris_ping()})
+        return ok_response(
+            "ORIS status",
+            {"tenant_id": tenant_id, "config": oris_config_status(), "ping": oris_ping()},
+        )
     except Exception as e:
         return error_response("ORIS status check failed", "ORIS_STATUS_ERROR", str(e))
 
 
-def post_draft_to_oris_service(draft_id: int):
-    return _run_posting_attempt(draft_id, "oris")
+def post_draft_to_oris_service(draft_id: int, tenant_id: str):
+    return _run_posting_attempt(draft_id, "oris", tenant_id)
 
 
-def apply_posting_service(draft_id: int, target: str):
+def apply_posting_service(draft_id: int, target: str, tenant_id: str):
     target_normalized = (target or "").strip().lower()
-    return _run_posting_attempt(draft_id, target_normalized)
+    return _run_posting_attempt(draft_id, target_normalized, tenant_id)

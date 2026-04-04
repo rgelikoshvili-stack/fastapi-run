@@ -37,7 +37,7 @@ def _build_tx_fingerprint(normalized_date: str, normalized_description: str, nor
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _find_existing_processed_file(cur, file_hash: str):
+def _find_existing_processed_file(cur, tenant_id: str, file_hash: str):
     cur.execute(
         """
         SELECT
@@ -45,32 +45,32 @@ def _find_existing_processed_file(cur, file_hash: str):
             drafted_count, review_count, failed_count,
             inserted_count, skipped_duplicates, created_at
         FROM processed_bank_files
-        WHERE file_hash = %s
+        WHERE tenant_id = %s AND file_hash = %s
         ORDER BY id DESC
         LIMIT 1
         """,
-        (file_hash,),
+        (tenant_id, file_hash),
     )
     row = cur.fetchone()
     return dict(row) if row else None
 
 
-def _find_existing_draft_by_fingerprint(cur, tx_fingerprint: str):
+def _find_existing_draft_by_fingerprint(cur, tenant_id: str, tx_fingerprint: str):
     cur.execute(
         """
         SELECT id, status
         FROM journal_drafts
-        WHERE tx_fingerprint = %s
+        WHERE tenant_id = %s AND tx_fingerprint = %s
         ORDER BY id DESC
         LIMIT 1
         """,
-        (tx_fingerprint,),
+        (tenant_id, tx_fingerprint),
     )
     row = cur.fetchone()
     return dict(row) if row else None
 
 
-def process_bank_file_workflow(filename: str, content: bytes):
+def process_bank_file_workflow(filename: str, content: bytes, tenant_id: str):
     conn = None
     cur = None
 
@@ -100,11 +100,12 @@ def process_bank_file_workflow(filename: str, content: bytes):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        existing_file = _find_existing_processed_file(cur, file_hash)
+        existing_file = _find_existing_processed_file(cur, tenant_id, file_hash)
         if existing_file:
             log_event(
                 "bank_file_duplicate_skipped",
                 {
+                    "tenant_id": tenant_id,
                     "filename": filename,
                     "file_hash": file_hash,
                     "existing_processed_file_id": existing_file["id"],
@@ -125,14 +126,14 @@ def process_bank_file_workflow(filename: str, content: bytes):
             """
             INSERT INTO processed_bank_files
             (
-                filename, file_hash, source_type, total_rows,
+                tenant_id, filename, file_hash, source_type, total_rows,
                 drafted_count, review_count, failed_count,
                 inserted_count, skipped_duplicates
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (filename, file_hash, source_type, total, 0, 0, 0, 0, 0),
+            (tenant_id, filename, file_hash, source_type, total, 0, 0, 0, 0, 0),
         )
         bank_file_id = cur.fetchone()["id"]
 
@@ -161,7 +162,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                     normalized_amount,
                 )
 
-                existing_draft = _find_existing_draft_by_fingerprint(cur, tx_fingerprint)
+                existing_draft = _find_existing_draft_by_fingerprint(cur, tenant_id, tx_fingerprint)
                 if existing_draft:
                     skipped_duplicates += 1
                     continue
@@ -185,6 +186,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                     """
                     INSERT INTO journal_drafts
                     (
+                        tenant_id,
                         date, description, partner, amount,
                         debit_account, credit_account, account_code,
                         reason, confidence, review_required, status,
@@ -195,6 +197,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                         autopilot_decision, autopilot_reason, approved_by_mode
                     )
                     VALUES (
+                        %s,
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s,
@@ -203,6 +206,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
                     RETURNING id
                     """,
                     (
+                        tenant_id,
                         draft.get("date"),
                         draft.get("description"),
                         draft.get("partner"),
@@ -267,6 +271,7 @@ def process_bank_file_workflow(filename: str, content: bytes):
         log_event(
             "bank_file_uploaded",
             {
+                "tenant_id": tenant_id,
                 "filename": filename,
                 "file_hash": file_hash,
                 "total_rows": total,

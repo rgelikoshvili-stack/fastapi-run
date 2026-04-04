@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+import math
 
 from app.api.db import get_db
 from app.api.engines.pattern_engine import (
     is_pattern_autopilot_eligible,
     mark_pattern_success,
+    update_pattern_usage,
 )
 from app.api.services.expense_article_service import find_expense_article
 from app.api.services.transaction_memory_service import find_memory_match
@@ -72,16 +74,13 @@ def normalize_text(value: str) -> str:
 def days_since(last_seen_at) -> int | None:
     if not last_seen_at:
         return None
-
     if isinstance(last_seen_at, str):
         try:
             last_seen_at = datetime.fromisoformat(last_seen_at.replace("Z", "+00:00"))
         except Exception:
             return None
-
     if last_seen_at.tzinfo is None:
         last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
-
     now = datetime.now(timezone.utc)
     return max(0, (now - last_seen_at).days)
 
@@ -95,7 +94,6 @@ def is_recent_enough_for_autopilot(last_seen_at, max_days: int = 45) -> bool:
 
 def recency_penalty_days(last_seen_at) -> float:
     days = days_since(last_seen_at)
-
     if days is None:
         return 0.08
     if days <= 7:
@@ -156,9 +154,7 @@ def adaptive_pattern_confidence(
     autopilot_eligible = (
         status == "active"
         and is_pattern_autopilot_eligible(
-            support_count,
-            success_count,
-            failure_count,
+            support_count, success_count, failure_count,
             last_seen_at=last_seen_at,
         )
         and is_recent_enough_for_autopilot(last_seen_at, max_days=45)
@@ -171,22 +167,69 @@ def adaptive_pattern_confidence(
     base -= penalty
 
     if status == "active":
-        floor = 0.68
-        ceiling = 0.99
+        floor, ceiling = 0.68, 0.99
     elif status == "candidate":
-        floor = 0.55
-        ceiling = 0.84
+        floor, ceiling = 0.55, 0.84
     else:
-        floor = 0.30
-        ceiling = 0.60
+        floor, ceiling = 0.30, 0.60
 
     return round(max(floor, min(base, ceiling)), 2)
 
 
-def check_partner_memory(conn, partner: str):
+def check_anomaly(
+    amount: float | None,
+    account_code: str | None,
+    tenant_id: str = "default",
+) -> dict:
+    if not amount or not account_code:
+        return {"anomaly_flag": False, "anomaly_reason": None}
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                AVG(amount) AS avg_amount,
+                STDDEV(amount) AS std_amount,
+                COUNT(*) AS tx_count
+            FROM journal_drafts
+            WHERE account_code = %s
+              AND tenant_id = %s
+              AND amount IS NOT NULL
+              AND amount > 0
+              AND created_at > NOW() - INTERVAL '90 days'
+            """,
+            (account_code, tenant_id),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row or not row[0] or int(row[2] or 0) < 5:
+        return {"anomaly_flag": False, "anomaly_reason": "insufficient_history"}
+
+    avg = float(row[0])
+    std = float(row[1] or 0)
+
+    if std == 0:
+        return {"anomaly_flag": False, "anomaly_reason": None}
+
+    z_score = abs(amount - avg) / std
+
+    if z_score > 3.0:
+        return {
+            "anomaly_flag": True,
+            "anomaly_reason": f"amount {amount} differs from baseline avg={round(avg, 2)} std={round(std, 2)} z={round(z_score, 2)}",
+        }
+
+    return {"anomaly_flag": False, "anomaly_reason": None}
+
+
+def check_partner_memory(conn, partner: str, tenant_id: str = "default"):
     if not partner:
         return None
-
     cur = conn.cursor()
     try:
         cur.execute(
@@ -194,69 +237,64 @@ def check_partner_memory(conn, partner: str):
             SELECT account_code, confidence
             FROM transaction_memory
             WHERE LOWER(partner) = LOWER(%s)
+              AND tenant_id = %s
             ORDER BY confidence DESC
             LIMIT 1
             """,
-            (partner,),
+            (partner, tenant_id),
         )
         row = cur.fetchone()
     finally:
         cur.close()
-
     if row:
-        return {
-            "account_code": row[0],
-            "confidence": row[1],
-            "source": "partner_memory",
-        }
-
+        return {"account_code": row[0], "confidence": row[1], "source": "partner_memory"}
     return None
 
 
-def get_exact_pattern_match(cur, pattern_type: str, value: str, statuses=("active", "candidate")):
+def get_exact_pattern_match(
+    cur,
+    pattern_type: str,
+    value: str,
+    tenant_id: str = "default",
+    statuses=("active", "candidate"),
+):
     cur.execute(
         """
-        SELECT
-            account_code,
-            reason,
-            support_count,
-            success_count,
-            failure_count,
-            status,
-            last_seen_at
+        SELECT account_code, reason, support_count, success_count,
+               failure_count, status, last_seen_at
         FROM learning_patterns
         WHERE pattern_type = %s
           AND pattern_value = %s
+          AND tenant_id = %s
           AND status = ANY(%s)
         ORDER BY
             CASE WHEN status = 'active' THEN 0 ELSE 1 END,
-            support_count DESC,
-            success_count DESC,
-            id DESC
+            support_count DESC, success_count DESC, id DESC
         LIMIT 1
         """,
-        (pattern_type, value, list(statuses)),
+        (pattern_type, value, tenant_id, list(statuses)),
     )
     return cur.fetchone()
 
 
-def get_fuzzy_pattern_match(cur, pattern_type: str, value: str, min_ratio: float = 0.82, statuses=("active", "candidate")):
+def get_fuzzy_pattern_match(
+    cur,
+    pattern_type: str,
+    value: str,
+    tenant_id: str = "default",
+    min_ratio: float = 0.82,
+    statuses=("active", "candidate"),
+):
     cur.execute(
         """
-        SELECT
-            pattern_value,
-            account_code,
-            reason,
-            support_count,
-            success_count,
-            failure_count,
-            status,
-            last_seen_at
+        SELECT pattern_value, account_code, reason, support_count,
+               success_count, failure_count, status, last_seen_at
         FROM learning_patterns
         WHERE pattern_type = %s
+          AND tenant_id = %s
           AND status = ANY(%s)
         """,
-        (pattern_type, list(statuses)),
+        (pattern_type, tenant_id, list(statuses)),
     )
     rows = cur.fetchall()
 
@@ -268,29 +306,25 @@ def get_fuzzy_pattern_match(cur, pattern_type: str, value: str, min_ratio: float
         pv = normalize_text(pattern_value)
         if not pv:
             continue
-
         ratio = similarity(value, pv)
         if value in pv or pv in value:
             ratio = max(ratio, 0.93)
-
         if ratio >= min_ratio and ratio > best_ratio:
             best_ratio = ratio
             best = (
-                pattern_value,
-                account_code,
-                reason,
-                safe_int(support_count, 1),
-                safe_int(success_count, 0),
-                safe_int(failure_count, 0),
-                status,
-                last_seen_at,
-                ratio,
+                pattern_value, account_code, reason,
+                safe_int(support_count, 1), safe_int(success_count, 0),
+                safe_int(failure_count, 0), status, last_seen_at, ratio,
             )
 
     return best
 
 
-def check_patterns(description: str = "", partner: str = ""):
+def check_patterns(
+    description: str = "",
+    partner: str = "",
+    tenant_id: str = "default",
+):
     conn = get_db()
     cur = conn.cursor()
 
@@ -299,24 +333,17 @@ def check_patterns(description: str = "", partner: str = ""):
         part = normalize_text(partner)
 
         if desc:
-            row = get_exact_pattern_match(cur, "description_exact", desc)
+            row = get_exact_pattern_match(cur, "description_exact", desc, tenant_id)
             if row:
                 account_code, reason, support_count, success_count, failure_count, status, last_seen_at = row
                 support_count = safe_int(support_count, 1)
                 success_count = safe_int(success_count, 0)
                 failure_count = safe_int(failure_count, 0)
-
-                mark_pattern_success("description_exact", desc, account_code)
-
+                update_pattern_usage("description_exact", desc, account_code, tenant_id=tenant_id)
                 confidence = adaptive_pattern_confidence(
-                    support_count,
-                    success_count,
-                    failure_count,
-                    status=status,
-                    last_seen_at=last_seen_at,
+                    support_count, success_count, failure_count,
+                    status=status, last_seen_at=last_seen_at,
                 )
-                pattern_days = days_since(last_seen_at)
-                pattern_penalty = recency_penalty_days(last_seen_at)
                 return {
                     "account_code": account_code,
                     "reason": reason,
@@ -328,29 +355,22 @@ def check_patterns(description: str = "", partner: str = ""):
                     "matched_on": "description_exact",
                     "source": "pattern_active" if status == "active" else "pattern_candidate",
                     "pattern_value_used": desc,
-                    "pattern_days_since_seen": pattern_days,
-                    "pattern_recency_penalty": pattern_penalty,
+                    "pattern_days_since_seen": days_since(last_seen_at),
+                    "pattern_recency_penalty": recency_penalty_days(last_seen_at),
                 }
 
         if part:
-            row = get_exact_pattern_match(cur, "partner", part)
+            row = get_exact_pattern_match(cur, "partner", part, tenant_id)
             if row:
                 account_code, reason, support_count, success_count, failure_count, status, last_seen_at = row
                 support_count = safe_int(support_count, 1)
                 success_count = safe_int(success_count, 0)
                 failure_count = safe_int(failure_count, 0)
-
-                mark_pattern_success("partner", part, account_code)
-
+                update_pattern_usage("partner", part, account_code, tenant_id=tenant_id)
                 confidence = adaptive_pattern_confidence(
-                    support_count,
-                    success_count,
-                    failure_count,
-                    status=status,
-                    last_seen_at=last_seen_at,
+                    support_count, success_count, failure_count,
+                    status=status, last_seen_at=last_seen_at,
                 )
-                pattern_days = days_since(last_seen_at)
-                pattern_penalty = recency_penalty_days(last_seen_at)
                 return {
                     "account_code": account_code,
                     "reason": reason,
@@ -362,27 +382,19 @@ def check_patterns(description: str = "", partner: str = ""):
                     "matched_on": "partner_exact",
                     "source": "pattern_active" if status == "active" else "pattern_candidate",
                     "pattern_value_used": part,
-                    "pattern_days_since_seen": pattern_days,
-                    "pattern_recency_penalty": pattern_penalty,
+                    "pattern_days_since_seen": days_since(last_seen_at),
+                    "pattern_recency_penalty": recency_penalty_days(last_seen_at),
                 }
 
         if desc:
-            row = get_fuzzy_pattern_match(cur, "description_exact", desc, min_ratio=0.82)
+            row = get_fuzzy_pattern_match(cur, "description_exact", desc, tenant_id, min_ratio=0.82)
             if row:
                 matched_pattern_value, account_code, reason, support_count, success_count, failure_count, status, last_seen_at, ratio = row
-
-                mark_pattern_success("description_exact", matched_pattern_value, account_code)
-
+                update_pattern_usage("description_exact", matched_pattern_value, account_code, tenant_id=tenant_id)
                 confidence = adaptive_pattern_confidence(
-                    support_count,
-                    success_count,
-                    failure_count,
-                    fuzzy_ratio=ratio,
-                    status=status,
-                    last_seen_at=last_seen_at,
+                    support_count, success_count, failure_count,
+                    fuzzy_ratio=ratio, status=status, last_seen_at=last_seen_at,
                 )
-                pattern_days = days_since(last_seen_at)
-                pattern_penalty = recency_penalty_days(last_seen_at)
                 return {
                     "account_code": account_code,
                     "reason": reason,
@@ -395,27 +407,19 @@ def check_patterns(description: str = "", partner: str = ""):
                     "source": "pattern_active_fuzzy" if status == "active" else "pattern_candidate_fuzzy",
                     "pattern_similarity": round(ratio, 2),
                     "pattern_value_used": matched_pattern_value,
-                    "pattern_days_since_seen": pattern_days,
-                    "pattern_recency_penalty": pattern_penalty,
+                    "pattern_days_since_seen": days_since(last_seen_at),
+                    "pattern_recency_penalty": recency_penalty_days(last_seen_at),
                 }
 
         if part:
-            row = get_fuzzy_pattern_match(cur, "partner", part, min_ratio=0.84)
+            row = get_fuzzy_pattern_match(cur, "partner", part, tenant_id, min_ratio=0.84)
             if row:
                 matched_pattern_value, account_code, reason, support_count, success_count, failure_count, status, last_seen_at, ratio = row
-
-                mark_pattern_success("partner", matched_pattern_value, account_code)
-
+                update_pattern_usage("partner", matched_pattern_value, account_code, tenant_id=tenant_id)
                 confidence = adaptive_pattern_confidence(
-                    support_count,
-                    success_count,
-                    failure_count,
-                    fuzzy_ratio=ratio,
-                    status=status,
-                    last_seen_at=last_seen_at,
+                    support_count, success_count, failure_count,
+                    fuzzy_ratio=ratio, status=status, last_seen_at=last_seen_at,
                 )
-                pattern_days = days_since(last_seen_at)
-                pattern_penalty = recency_penalty_days(last_seen_at)
                 return {
                     "account_code": account_code,
                     "reason": reason,
@@ -428,8 +432,8 @@ def check_patterns(description: str = "", partner: str = ""):
                     "source": "pattern_active_fuzzy" if status == "active" else "pattern_candidate_fuzzy",
                     "pattern_similarity": round(ratio, 2),
                     "pattern_value_used": matched_pattern_value,
-                    "pattern_days_since_seen": pattern_days,
-                    "pattern_recency_penalty": pattern_penalty,
+                    "pattern_days_since_seen": days_since(last_seen_at),
+                    "pattern_recency_penalty": recency_penalty_days(last_seen_at),
                 }
 
         return None
@@ -446,6 +450,7 @@ def classify(
     partner: str = "",
     operation_code: str = "",
     doc_type: str = "",
+    tenant_id: str = "default",
 ):
     desc = normalize_text(description)
     part = normalize_text(partner)
@@ -460,11 +465,12 @@ def classify(
     # 0. PARTNER MEMORY OVERRIDE
     conn = get_db()
     try:
-        partner_override = check_partner_memory(conn, part)
+        partner_override = check_partner_memory(conn, part, tenant_id=tenant_id)
     finally:
         conn.close()
 
     if partner_override:
+        anomaly = check_anomaly(amount_for_history, partner_override["account_code"], tenant_id)
         return {
             "account_code": partner_override["account_code"],
             "reason": "partner_memory_override",
@@ -482,11 +488,14 @@ def classify(
             "pattern_recency_penalty": None,
             "autopilot_eligible": True,
             "autopilot_reason": "partner_memory_override",
+            "anomaly_flag": anomaly.get("anomaly_flag", False),
+            "anomaly_reason": anomaly.get("anomaly_reason"),
         }
 
     # 1. EXPENSE ARTICLE
     article = find_expense_article(desc, part)
     if article:
+        anomaly = check_anomaly(amount_for_history, article["linked_account_code"], tenant_id)
         return {
             "account_code": article["linked_account_code"],
             "reason": "expense_article",
@@ -504,14 +513,16 @@ def classify(
             "pattern_recency_penalty": None,
             "autopilot_eligible": True,
             "autopilot_reason": "expense_article_rule",
+            "anomaly_flag": anomaly.get("anomaly_flag", False),
+            "anomaly_reason": anomaly.get("anomaly_reason"),
         }
 
     # 2. TRANSACTION MEMORY
-    memory = find_memory_match(desc, part)
+    memory = find_memory_match(desc, part, tenant_id=tenant_id)
     if memory:
         confidence = float(memory.get("confidence") or 0.0)
         usage_count = safe_int(memory.get("memory_usage_count"), 0)
-
+        anomaly = check_anomaly(amount_for_history, memory["account_code"], tenant_id)
         return {
             "account_code": memory["account_code"],
             "reason": memory["reason"],
@@ -529,6 +540,8 @@ def classify(
             "pattern_recency_penalty": None,
             "autopilot_eligible": confidence >= 0.90 and usage_count >= 3,
             "autopilot_reason": "memory_match" if confidence >= 0.90 and usage_count >= 3 else "memory_needs_review",
+            "anomaly_flag": anomaly.get("anomaly_flag", False),
+            "anomaly_reason": anomaly.get("anomaly_reason"),
         }
 
     # 3. ERP MEMORY
@@ -537,11 +550,12 @@ def classify(
         partner=partner,
         amount=amount_for_history,
         doc_type=doc_type,
+        tenant_id=tenant_id,
     )
     if erp_match:
         confidence = min(float(erp_match.get("confidence") or 0.90), 0.94)
         auto_ok = confidence >= 0.93
-
+        anomaly = check_anomaly(amount_for_history, erp_match.get("account_code"), tenant_id)
         return {
             "account_code": erp_match.get("account_code"),
             "reason": "erp_history_match",
@@ -559,10 +573,12 @@ def classify(
             "pattern_recency_penalty": None,
             "autopilot_eligible": auto_ok,
             "autopilot_reason": "erp_history_rule" if auto_ok else "erp_history_needs_review",
+            "anomaly_flag": anomaly.get("anomaly_flag", False),
+            "anomaly_reason": anomaly.get("anomaly_reason"),
         }
 
     # 4. LEARNING PATTERNS
-    learned = check_patterns(desc, part)
+    learned = check_patterns(desc, part, tenant_id=tenant_id)
     if learned:
         support_count = safe_int(learned.get("support_count"), 0)
         success_count = safe_int(learned.get("success_count"), 0)
@@ -579,7 +595,6 @@ def classify(
             status = "auto_approved"
 
         autopilot_reason = "not_eligible"
-
         if learned_status != "active":
             autopilot_reason = "status_not_active"
         elif (pattern_days if pattern_days is not None else 999999) > 45:
@@ -595,6 +610,7 @@ def classify(
         else:
             autopilot_reason = "eligible_for_autopilot"
 
+        anomaly = check_anomaly(amount_for_history, learned["account_code"], tenant_id)
         return {
             "account_code": learned["account_code"],
             "reason": learned["reason"],
@@ -612,6 +628,8 @@ def classify(
             "pattern_recency_penalty": learned.get("pattern_recency_penalty"),
             "autopilot_eligible": status == "auto_approved",
             "autopilot_reason": autopilot_reason,
+            "anomaly_flag": anomaly.get("anomaly_flag", False),
+            "anomaly_reason": anomaly.get("anomaly_reason"),
         }
 
     # 5. FALLBACK RULES
@@ -631,10 +649,8 @@ def classify(
     if keyword_matched and doc:
         if matched_reason in doc or matched_account in doc:
             confidence = min(confidence + 0.05, 0.95)
-
     if keyword_matched and part:
         confidence = min(confidence + 0.05, 0.95)
-
     if keyword_matched and op:
         if matched_reason in op or matched_account in op:
             confidence = min(confidence + 0.05, 1.0)
@@ -655,6 +671,7 @@ def classify(
 
     confidence = round(min(confidence, 1.0), 2)
     review_required = confidence < 0.75
+    anomaly = check_anomaly(amount_for_history, matched_account, tenant_id)
 
     return {
         "account_code": matched_account,
@@ -673,4 +690,6 @@ def classify(
         "pattern_recency_penalty": None,
         "autopilot_eligible": False,
         "autopilot_reason": "rules_path",
+        "anomaly_flag": anomaly.get("anomaly_flag", False),
+        "anomaly_reason": anomaly.get("anomaly_reason"),
     }

@@ -2,6 +2,18 @@ import os
 from fastapi import Request, HTTPException
 
 
+PUBLIC_PATHS = {
+    "/",
+    "/health",
+    "/health/",
+    "/docs",
+    "/openapi.json",
+    "/tenants",
+    "/tenants/create",
+    "/learning/decay",
+}
+
+
 def check_permission(role: str, action: str) -> bool:
     if role == "admin":
         return True
@@ -13,8 +25,10 @@ def check_permission(role: str, action: str) -> bool:
 
 
 async def rbac_middleware(request: Request, call_next):
-    # ✅ TEST MODE BYPASS
     if os.getenv("TEST_MODE") == "1":
+        return await call_next(request)
+
+    if request.url.path in PUBLIC_PATHS:
         return await call_next(request)
 
     role = request.headers.get("X-Role", "viewer")

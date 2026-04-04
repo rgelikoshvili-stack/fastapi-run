@@ -21,7 +21,10 @@ from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
 
 # --- APP ---
-app = FastAPI(title="Bridge Hub v1.0.0", version="1.0.0")
+app = FastAPI(
+    title="Bridge Hub v1.0.0",
+    version="1.0.0",
+)
 
 # --- STATIC FILES ---
 os.makedirs("static", exist_ok=True)
@@ -99,6 +102,7 @@ from app.api import routes_erp_import
 from app.api import routes_erp_connectors
 from app.api import routes_transaction_memory
 from app.api import routes_qa
+from app.api import routes_tenants
 
 from app.api.routes_patterns import router as patterns_router
 from app.api.routes_expense_articles import router as expense_articles_router
@@ -129,6 +133,7 @@ app.include_router(routes_erp_connectors.router)
 app.include_router(routes_transaction_memory.router)
 app.include_router(learning_explain_router)
 app.include_router(routes_qa.router)
+app.include_router(routes_tenants.router)
 
 
 # --- FUTURE ROUTES ---
@@ -140,6 +145,7 @@ app.include_router(routes_qa.router)
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 
 # --- MIDDLEWARE (თანმიმდევრობა მნიშვნელოვანია!) ---
 # 1. tenant — პირველი: tenant_id-ს ადგენს request-ზე
@@ -163,7 +169,10 @@ async def autopilot_loop():
         try:
             print("🤖 Autopilot running...")
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, autopilot_approve_service)
+            result = await loop.run_in_executor(
+                None,
+                lambda: autopilot_approve_service("default")
+            )
             print(f"✅ Autopilot result: {result}")
         except Exception as e:
             print(f"❌ Autopilot error: {e}")
@@ -187,7 +196,3 @@ async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
-
-
-
-

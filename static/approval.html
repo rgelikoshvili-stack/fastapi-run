@@ -392,9 +392,15 @@
         </div>
         <div class="chat-inp-area">
           <div class="chat-inp-wrap">
-            <textarea class="chat-ta" id="chat-inp" placeholder="მაგ: Balance.ge-ში ბოლო 5 ტრანზაქცია გადაიტანე..." rows="1"
+            <input type="file" id="chat-file-inp" style="display:none" accept=".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.txt"
+            onchange="window._chatFile=this.files[0];document.getElementById('chat-file-name').textContent=' '+this.files[0].name;this.value=''">
+          <button onclick="document.getElementById('chat-file-inp').click()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:0 4px" title="ფაილის ატვირთვა"></button>
+          <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+            <span id="chat-file-name" style="font-size:10px;color:var(--accent);font-family:var(--mono)"></span>
+            <textarea class="chat-ta" id="chat-inp" placeholder="მაგ: ამ CSV-ში ანომალია ხომ არ არის? ან Balance.ge-ში გადაიტანე..." rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
               oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+          </div>
             <button class="chat-send" id="chat-send" onclick="sendChat()">➤</button>
           </div>
           <div class="chat-quick-row">
@@ -1101,9 +1107,13 @@ endpoints: /approvals/pending, /approvals/{id}/approve, /approvals/{id}/reject, 
 გვიპასუხე ქართულად, მოკლედ და კონკრეტულად.`;
 
   try {
+    const fd = new FormData();
+    fd.append('message', text);
+    fd.append('session_id', TENANT_ID);
+    if(window._chatFile) { fd.append('file', window._chatFile); window._chatFile=null; document.getElementById('chat-file-name').textContent=''; }
     const r = await fetch(BASE + '/chat/message', {
-      method:'POST', headers:{'Content-Type':'application/json','X-Tenant-ID':TENANT_ID},
-      body: JSON.stringify({message: text, session_id: TENANT_ID})
+      method:'POST', headers:{'X-Tenant-ID':TENANT_ID},
+      body: fd
     });
     const data = await r.json();
     const reply = data.data?.reply || data.data?.message || data.message || 'პასუხი ვერ მოვიდა';

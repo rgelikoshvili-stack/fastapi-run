@@ -2,48 +2,105 @@
 from typing import Optional
 from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
-import os, anthropic, base64, json, psycopg2
+import os, anthropic, base64, json
 from app.api.db import get_db
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-# In-memory conversation history per session
 _sessions: dict = {}
 
-SYSTEM_PROMPT = """შენ ხარ Bridge Hub-ის AI ასისტენტი — ქართული AI საბუღალტრო სისტემა.
+SYSTEM_PROMPT = """შენ ხარ Bridge Hub-ის სუპერ AI ასისტენტი — ქართული AI საბუღალტრო სისტემა.
 
 შენ შეგიძლია:
-1. ბუღალტრული კითხვების პასუხი (VAT 18%, PAYG 2%, account codes)
-2. CSV/Excel ფაილების ანალიზი — ტრანზაქციების კლასიფიკაცია
-3. PDF ინვოისების parsing — draft-ების შექმნა
-4. Balance.ge, 1C, ORIS, RS.GE ოპერაციების დახმარება
-5. ფინანსური ანგარიშგება და ანალიზი
-6. ანომალიების პოვნა ტრანზაქციებში
+1. PDF ინვოისების/ქვითრების წაკითხვა და გატარებების შექმნა
+2. CSV/Excel საბანკო ამონაწერის ანალიზი და ავტო-კლასიფიკაცია
+3. სურათებიდან (ქვითარი, ფაქტურა) ინფორმაციის ამოღება
+4. ფინანსური ანომალიების გამოვლენა
+5. VAT 18%, PAYG 2% გათვლები
+6. ამ თვის/კვარტლის ხარჯების ანგარიში
+7. ტრანზაქციების კლასიფიკაცია account code-ებით
+8. Balance.ge, 1C, ORIS, RS.GE ოპერაციები
+9. პატერნების პოვნა და learning
+10. Multi-turn — კონტექსტი ახსოვს
 
-ქართული საბუღალტრო account codes:
-7110=ხელფასი, 7130=კომუნალური, 7150=საბანკო კომისია,
-7190=სხვა ხარჯი, 6100=შემოსავალი, 3100=გადასახადი,
-1010=საბანკო ანგარიში, 3310=VAT output, 3330=VAT input
+ქართული account codes:
+7110=ხელფასი, 7120=სოციალური, 7130=კომუნალური, 7140=software,
+7150=საბანკო კომისია, 7160=სატრანსპორტო, 7170=მარკეტინგი,
+7180=საოფისე, 7190=სხვა ხარჯი, 6100=შემოსავალი,
+3100=გადასახადი, 3310=VAT output, 3330=VAT input,
+1010=საბანკო ანგარიში, 1210=გადარიცხვა
 
-გვიპასუხე ქართულად, კონკრეტულად და სასარგებლოდ.
-თუ ფაილი მოგცეს — გააანალიზე და კონკრეტული შედეგი მიეცი."""
+CSV ანალიზისას:
+- ყოველ სტრიქონს account code მიანიჭე
+- ანომალიები მონიშნე
+- VAT გამოყავი სადაც საჭიროა
+- ჯამები და სტატისტიკა მოამზადე
+
+გვიპასუხე ქართულად, კონკრეტულად. ფაილი თუ მოგცეს — სრული ანალიზი გაუკეთე."""
 
 
 def _get_db_context(tenant_id: str) -> str:
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM journal_drafts WHERE tenant_id=%s AND status IN ('drafted','pending_approval')", (tenant_id,))
-        pending = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM journal_drafts WHERE tenant_id=%s AND status='approved'", (tenant_id,))
-        approved = cur.fetchone()[0]
+        cur.execute("""
+            SELECT 
+                COUNT(*) FILTER (WHERE status IN ('drafted','pending_approval')) as pending,
+                COUNT(*) FILTER (WHERE status='approved') as approved,
+                COUNT(*) FILTER (WHERE status='rejected') as rejected,
+                COALESCE(SUM(amount) FILTER (WHERE status='approved'), 0) as total_approved
+            FROM journal_drafts WHERE tenant_id=%s
+        """, (tenant_id,))
+        r = cur.fetchone()
         cur.execute("SELECT COUNT(*) FROM learning_patterns WHERE tenant_id=%s AND status='active'", (tenant_id,))
         patterns = cur.fetchone()[0]
+        cur.execute("""
+            SELECT account_code, COUNT(*) as cnt 
+            FROM journal_drafts WHERE tenant_id=%s AND status='approved'
+            GROUP BY account_code ORDER BY cnt DESC LIMIT 3
+        """, (tenant_id,))
+        top = cur.fetchall()
         cur.close()
         conn.close()
-        return f"\nDB სტატუსი: {pending} pending, {approved} approved, {patterns} active patterns"
-    except:
-        return ""
+        top_str = ", ".join([f"{row[0]}({row[1]})" for row in top])
+        return (f"\nDB: {r[0]} pending, {r[1]} approved, {r[2]} rejected"
+                f"\nდამტკ. ჯამი: {round(float(r[3]),2)} GEL"
+                f"\nActive patterns: {patterns}"
+                f"\nTop accounts: {top_str}")
+    except Exception as e:
+        return f"\nDB: მიუწვდომელია ({e})"
+
+
+async def _process_file(file: UploadFile) -> list:
+    content = []
+    file_bytes = await file.read()
+    fname = file.filename.lower()
+    
+    if fname.endswith(('.jpg','.jpeg','.png','.gif','.webp')):
+        b64 = base64.standard_b64encode(file_bytes).decode()
+        mt = file.content_type or "image/jpeg"
+        content.append({"type":"image","source":{"type":"base64","media_type":mt,"data":b64}})
+    elif fname.endswith('.pdf'):
+        b64 = base64.standard_b64encode(file_bytes).decode()
+        content.append({"type":"document","source":{"type":"base64","media_type":"application/pdf","data":b64}})
+    elif fname.endswith(('.xlsx','.xls')):
+        try:
+            import openpyxl
+            from io import BytesIO
+            wb = openpyxl.load_workbook(BytesIO(file_bytes))
+            ws = wb.active
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                if any(v is not None for v in row):
+                    rows.append("\t".join([str(v) if v is not None else "" for v in row]))
+            text = "\n".join(rows[:200])
+            content.append({"type":"text","text":f"[Excel: {file.filename}]\n```\n{text}\n```"})
+        except:
+            content.append({"type":"text","text":f"[Excel: {file.filename}] — ვერ გაიხსნა"})
+    else:
+        text = file_bytes.decode("utf-8", errors="replace")[:10000]
+        content.append({"type":"text","text":f"[{file.filename}]\n```\n{text}\n```"})
+    
+    return content
 
 
 @router.post("/message")
@@ -65,32 +122,20 @@ async def send_message(
         system = SYSTEM_PROMPT + db_ctx + f"\nTenant: {tenant_id}"
 
         content = []
-
-        if file:
-            file_bytes = await file.read()
-            fname = file.filename.lower()
-            if fname.endswith(('.jpg','.jpeg','.png','.gif','.webp')):
-                b64 = base64.standard_b64encode(file_bytes).decode()
-                mt = file.content_type or "image/jpeg"
-                content.append({"type":"image","source":{"type":"base64","media_type":mt,"data":b64}})
-                content.append({"type":"text","text":f"{message}\n\n[ფაილი: {file.filename}]"})
-            elif fname.endswith('.pdf'):
-                b64 = base64.standard_b64encode(file_bytes).decode()
-                content.append({"type":"document","source":{"type":"base64","media_type":"application/pdf","data":b64}})
-                content.append({"type":"text","text":f"{message}\n\n[PDF: {file.filename}]"})
-            else:
-                text_content = file_bytes.decode("utf-8", errors="replace")[:8000]
-                content.append({"type":"text","text":f"{message}\n\n[ფაილი: {file.filename}]\n```\n{text_content}\n```"})
+        if file and file.filename:
+            file_content = await _process_file(file)
+            content.extend(file_content)
+            content.append({"type":"text","text":f"{message}\n[ფაილი: {file.filename}]"})
         else:
             content.append({"type":"text","text":message})
 
         history.append({"role":"user","content":content})
-        if len(history) > 20:
-            history = history[-20:]
+        if len(history) > 30:
+            history = history[-30:]
 
         resp = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1500,
+            max_tokens=2000,
             system=system,
             messages=history
         )
@@ -102,7 +147,8 @@ async def send_message(
             "reply": reply,
             "tenant_id": tenant_id,
             "session_id": session_id,
-            "tokens": resp.usage.input_tokens + resp.usage.output_tokens
+            "tokens": resp.usage.input_tokens + resp.usage.output_tokens,
+            "has_file": bool(file and file.filename)
         })
     except Exception as e:
         return error_response("Chat failed", "CHAT_ERROR", str(e))
@@ -118,5 +164,6 @@ def clear_session(session_id: str):
 def chat_history(session_id: str = "default"):
     return ok_response("Chat history", {
         "session_id": session_id,
+        "count": len(_sessions.get(session_id, [])),
         "messages": _sessions.get(session_id, [])
     })

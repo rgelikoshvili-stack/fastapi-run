@@ -100,6 +100,7 @@ from app.api import routes_invoice
 from app.api import routes_erp_memory
 from app.api import routes_erp_import
 from app.api import routes_erp_connectors
+from app.api import routes_auth
 from app.api import routes_transaction_memory
 from app.api import routes_qa
 from app.api import routes_tenants
@@ -130,6 +131,7 @@ app.include_router(expense_articles_router)
 app.include_router(routes_erp_memory.router)
 app.include_router(routes_erp_import.router)
 app.include_router(routes_erp_connectors.router)
+app.include_router(routes_auth.router)
 app.include_router(routes_transaction_memory.router)
 app.include_router(learning_explain_router)
 app.include_router(routes_qa.router)

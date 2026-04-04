@@ -797,7 +797,7 @@ async function loadDashboard() {
     document.getElementById('badge-pending').textContent = pending.length;
     document.getElementById('badge-approved').textContent = approved.length;
     try {
-      const l = await api('/learning/status');
+      const l = await api('/learning/health');
       const c = l.avg_confidence||l.average_confidence||0;
       if(c) document.getElementById('ds-conf').textContent = Math.round(c*100)+'%';
       if(l.auto_approved_count!=null) document.getElementById('ds-auto').textContent = l.auto_approved_count;
@@ -946,7 +946,7 @@ function filterDocs(t, el) {
 // LEARNING
 async function loadLearning() {
   try {
-    const d = await api('/learning/status');
+    const d = await api('/learning/health');
     const rows = [['სტატუსი',d.status||'—'],['სულ პატერნი',d.total_patterns??'—'],['ტრანზ.',d.total_transactions??'—'],['ბოლო განახ.',fmtDate(d.last_updated)],['Model',d.model_version||'—']];
     document.getElementById('learning-stats').innerHTML = rows.map(([k,v])=>`<div class="pattern-row"><span class="pattern-name">${k}</span><span class="pattern-conf">${v}</span></div>`).join('');
     const patterns = d.patterns||d.top_patterns||[];
@@ -965,7 +965,7 @@ async function loadLearning() {
 async function loadHealth() {
   const endpoints = [
     {name:'Main Health',url:'/health'},{name:'Learning Health',url:'/learning/health'},
-    {name:'DB Status',url:'/db/health'},{name:'Approvals API',url:'/approvals/pending'},
+    {name:'DB Status',url:'/db/health'},{name:'Approvals API',url:'/approval/queue'},
     {name:'Balance.ge Connector',url:'/connectors/balance/status'}
   ];
   const results = await Promise.allSettled(endpoints.map(e => api(e.url)));

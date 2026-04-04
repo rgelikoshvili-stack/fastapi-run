@@ -101,6 +101,29 @@ from app.api import routes_erp_memory
 from app.api import routes_erp_import
 from app.api import routes_erp_connectors
 from app.api import routes_auth
+from app.api import routes_chat
+from app.api import routes_1c
+from app.api import routes_notifications
+from app.api import routes_tax
+from app.api import routes_search
+from app.api import routes_audit_engine
+from app.api import routes_ai_journal
+from app.api import routes_bank_accounts
+from app.api import routes_budget
+from app.api import routes_contracts
+from app.api import routes_crm
+from app.api import routes_currency
+from app.api import routes_expenses
+from app.api import routes_invoices
+from app.api import routes_pdf_report
+from app.api import routes_rbac
+from app.api import routes_reconciliation
+from app.api import routes_reports
+from app.api import routes_security
+from app.api import routes_webhooks_v2
+from app.api import routes_api_docs
+from app.api import routes_dashboard
+from app.api import routes_docs
 from app.api import routes_transaction_memory
 from app.api import routes_qa
 from app.api import routes_tenants
@@ -132,6 +155,29 @@ app.include_router(routes_erp_memory.router)
 app.include_router(routes_erp_import.router)
 app.include_router(routes_erp_connectors.router)
 app.include_router(routes_auth.router)
+app.include_router(routes_chat.router)
+app.include_router(routes_1c.router)
+app.include_router(routes_notifications.router)
+app.include_router(routes_tax.router)
+app.include_router(routes_search.router)
+app.include_router(routes_audit_engine.router)
+app.include_router(routes_ai_journal.router)
+app.include_router(routes_bank_accounts.router)
+app.include_router(routes_budget.router)
+app.include_router(routes_contracts.router)
+app.include_router(routes_crm.router)
+app.include_router(routes_currency.router)
+app.include_router(routes_expenses.router)
+app.include_router(routes_invoices.router)
+app.include_router(routes_pdf_report.router)
+app.include_router(routes_rbac.router)
+app.include_router(routes_reconciliation.router)
+app.include_router(routes_reports.router)
+app.include_router(routes_security.router)
+app.include_router(routes_webhooks_v2.router)
+app.include_router(routes_api_docs.router)
+app.include_router(routes_dashboard.router)
+app.include_router(routes_docs.router)
 app.include_router(routes_transaction_memory.router)
 app.include_router(learning_explain_router)
 app.include_router(routes_qa.router)

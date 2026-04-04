@@ -788,10 +788,10 @@ async function loadDashboard() {
     showErr(false);
     let pending = [];
     for (const ep of ['/approval/queue']) {
-      try { const d = await api(ep); pending = d.transactions||d.queue||d.items||d.data||(Array.isArray(d)?d:[]); if(pending.length) break; } catch(_) {}
+      try { const d = await api(ep); pending = d.data?.queue||d.data?.items||d.transactions||d.queue||d.items||(Array.isArray(d.data)?d.data:[]); if(pending.length) break; } catch(_) {}
     }
     let approved = [];
-    try { const d = await api('/approval/queue?status=approved'); approved = d.transactions||d.items||d.data||(Array.isArray(d)?d:[]); } catch(_) {}
+    try { const d = await api('/approval/queue?status=approved'); approved = d.data?.queue||d.data?.items||d.transactions||d.items||(Array.isArray(d.data)?d.data:[]); } catch(_) {}
     document.getElementById('ds-pending').textContent = pending.length;
     document.getElementById('ds-approved').textContent = approved.length;
     document.getElementById('badge-pending').textContent = pending.length;
@@ -830,7 +830,7 @@ async function loadApproved() {
   document.getElementById('approved-body').innerHTML = `<div class="loading"><div class="spinner"></div>იტვირთება...</div>`;
   try {
     const d = await api('/approval/queue?status=approved');
-    const rows = d.transactions||d.items||d.data||(Array.isArray(d)?d:[]);
+    const rows = d.data?.queue||d.data?.items||d.transactions||d.items||(Array.isArray(d.data)?d.data:[]);
     document.getElementById('badge-approved').textContent = rows.length;
     document.getElementById('approved-body').innerHTML = buildTable(rows, false);
   } catch(_) {

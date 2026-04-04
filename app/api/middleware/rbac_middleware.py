@@ -61,6 +61,7 @@ async def rbac_middleware(request: Request, call_next):
         "/expense-articles/",
         "/tenants/",
         "/auth/",
+        "/chat/",
         "/balance-ge/",
         "/erp-connectors/",
         "/search/",

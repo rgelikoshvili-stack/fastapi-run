@@ -22,7 +22,7 @@ from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
 
 
-# --- GEORGIAN JSON RESPONSE (encoding fix) ---
+# --- GEORGIAN JSON RESPONSE ---
 class GeorgianJSONResponse(JSONResponse):
     def render(self, content) -> bytes:
         return json.dumps(
@@ -60,45 +60,28 @@ def root():
 async def global_exception_handler(request: Request, exc: Exception):
     return GeorgianJSONResponse(
         status_code=500,
-        content={
-            "ok": False,
-            "message": "Internal server error",
-            "data": None,
-            "error": {"code": "INTERNAL_ERROR", "details": str(exc)},
-        },
+        content={"ok": False, "message": "Internal server error", "data": None,
+                 "error": {"code": "INTERNAL_ERROR", "details": str(exc)}},
     )
-
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return GeorgianJSONResponse(
         status_code=422,
-        content={
-            "ok": False,
-            "message": "Validation failed",
-            "data": None,
-            "error": {
-                "code": "VALIDATION_ERROR",
-                "details": jsonable_encoder(exc.errors()),
-            },
-        },
+        content={"ok": False, "message": "Validation failed", "data": None,
+                 "error": {"code": "VALIDATION_ERROR", "details": jsonable_encoder(exc.errors())}},
     )
-
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     return GeorgianJSONResponse(
         status_code=exc.status_code,
-        content={
-            "ok": False,
-            "message": "HTTP error",
-            "data": None,
-            "error": {"code": f"HTTP_{exc.status_code}", "details": str(exc.detail)},
-        },
+        content={"ok": False, "message": "HTTP error", "data": None,
+                 "error": {"code": f"HTTP_{exc.status_code}", "details": str(exc.detail)}},
     )
 
 
-# --- CORE ROUTES IMPORTS ---
+# --- ROUTES IMPORTS ---
 from app.api import routes_health
 from app.api import routes_debug
 from app.api import routes_bank_csv
@@ -143,6 +126,7 @@ from app.api import routes_docs
 from app.api import routes_transaction_memory
 from app.api import routes_qa
 from app.api import routes_tenants
+from app.api import routes_export_v2
 
 from app.api.routes_patterns import router as patterns_router
 from app.api.routes_expense_articles import router as expense_articles_router
@@ -199,6 +183,7 @@ app.include_router(routes_transaction_memory.router)
 app.include_router(learning_explain_router)
 app.include_router(routes_qa.router)
 app.include_router(routes_tenants.router)
+app.include_router(routes_export_v2.router)
 
 
 # --- RATE LIMITING ---
@@ -225,8 +210,7 @@ async def autopilot_loop():
             print("🤖 Autopilot running...")
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None,
-                lambda: autopilot_approve_service("default")
+                None, lambda: autopilot_approve_service("default")
             )
             print(f"✅ Autopilot result: {result}")
         except Exception as e:

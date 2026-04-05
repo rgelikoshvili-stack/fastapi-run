@@ -1,6 +1,7 @@
 import os
 import sys
 import asyncio
+import json
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
@@ -20,10 +21,24 @@ from app.api.services.learning_service import run_decay_service
 from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
 
+
+# --- GEORGIAN JSON RESPONSE (encoding fix) ---
+class GeorgianJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
 # --- APP ---
 app = FastAPI(
     title="Bridge Hub v1.0.0",
     version="1.0.0",
+    default_response_class=GeorgianJSONResponse,
 )
 
 # --- STATIC FILES ---
@@ -43,7 +58,7 @@ def root():
 # --- EXCEPTION HANDLERS ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
+    return GeorgianJSONResponse(
         status_code=500,
         content={
             "ok": False,
@@ -56,7 +71,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
+    return GeorgianJSONResponse(
         status_code=422,
         content={
             "ok": False,
@@ -72,7 +87,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
+    return GeorgianJSONResponse(
         status_code=exc.status_code,
         content={
             "ok": False,
@@ -186,24 +201,15 @@ app.include_router(routes_qa.router)
 app.include_router(routes_tenants.router)
 
 
-# --- FUTURE ROUTES ---
-# from app.api import routes_pipeline
-# # ... (დანარჩენი commented routes)
-
-
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
-# --- MIDDLEWARE (თანმიმდევრობა მნიშვნელოვანია!) ---
-# 1. tenant — პირველი: tenant_id-ს ადგენს request-ზე
+# --- MIDDLEWARE ---
 app.middleware("http")(tenant_middleware)
-
-# 2. rbac — მეორე: tenant-ის შემდეგ, role-ს ამოწმებს
 app.middleware("http")(rbac_middleware)
 
-# 3. security headers — ბოლო: response-ზე headers-ს ამატებს
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)

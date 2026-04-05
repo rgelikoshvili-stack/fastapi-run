@@ -38,7 +38,7 @@ def fetch_invoice_emails(
         mail.login(IMAP_USER, IMAP_PASS)
         mail.select(folder)
 
-        search_criteria = f'(SUBJECT "{subject_filter}" UNSEEN)'
+        search_criteria = f'(SUBJECT "{subject_filter}")'
         _, msg_ids = mail.search(None, search_criteria)
 
         emails = []

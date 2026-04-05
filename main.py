@@ -136,6 +136,7 @@ from app.api import routes_ocr
 from app.api import routes_notifications_ws
 from app.api import routes_collaboration
 from app.api import routes_dashboard_live
+from app.api import routes_client_portal
 
 
 
@@ -193,6 +194,7 @@ app.include_router(routes_ocr.router)
 app.include_router(routes_notifications_ws.router)
 app.include_router(routes_collaboration.router)
 app.include_router(routes_dashboard_live.router)
+app.include_router(routes_client_portal.router)
 
 
 # --- RATE LIMITING ---

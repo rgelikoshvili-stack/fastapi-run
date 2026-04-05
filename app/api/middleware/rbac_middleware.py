@@ -24,6 +24,7 @@ PUBLIC_PATHS = {
     "/patterns/decay/run",
     "/system/summary",
     "/system/overview",
+    "/client/",
 }
 
 

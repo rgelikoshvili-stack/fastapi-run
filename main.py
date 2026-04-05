@@ -132,6 +132,7 @@ from app.api.routes_patterns import router as patterns_router
 from app.api.routes_expense_articles import router as expense_articles_router
 from app.api.routes_learning_explain import router as learning_explain_router
 from routes_version import router as version_router
+from app.api import routes_ocr
 
 
 # --- INCLUDE ROUTERS ---
@@ -184,6 +185,7 @@ app.include_router(learning_explain_router)
 app.include_router(routes_qa.router)
 app.include_router(routes_tenants.router)
 app.include_router(routes_export_v2.router)
+app.include_router(routes_ocr.router)
 
 
 # --- RATE LIMITING ---

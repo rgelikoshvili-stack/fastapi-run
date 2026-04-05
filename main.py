@@ -138,6 +138,7 @@ from app.api import routes_collaboration
 from app.api import routes_dashboard_live
 from app.api import routes_client_portal
 from app.api import routes_payroll
+from app.api import routes_email_invoice
 
 
 
@@ -197,6 +198,7 @@ app.include_router(routes_collaboration.router)
 app.include_router(routes_dashboard_live.router)
 app.include_router(routes_client_portal.router)
 app.include_router(routes_payroll.router)
+app.include_router(routes_email_invoice.router)
 
 
 # --- RATE LIMITING ---

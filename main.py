@@ -135,6 +135,7 @@ from routes_version import router as version_router
 from app.api import routes_ocr
 from app.api import routes_notifications_ws
 from app.api import routes_collaboration
+from app.api import routes_dashboard_live
 
 
 
@@ -191,6 +192,7 @@ app.include_router(routes_export_v2.router)
 app.include_router(routes_ocr.router)
 app.include_router(routes_notifications_ws.router)
 app.include_router(routes_collaboration.router)
+app.include_router(routes_dashboard_live.router)
 
 
 # --- RATE LIMITING ---

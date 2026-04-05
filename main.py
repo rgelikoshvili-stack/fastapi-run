@@ -134,6 +134,8 @@ from app.api.routes_learning_explain import router as learning_explain_router
 from routes_version import router as version_router
 from app.api import routes_ocr
 from app.api import routes_notifications_ws
+from app.api import routes_collaboration
+
 
 
 # --- INCLUDE ROUTERS ---
@@ -188,6 +190,7 @@ app.include_router(routes_tenants.router)
 app.include_router(routes_export_v2.router)
 app.include_router(routes_ocr.router)
 app.include_router(routes_notifications_ws.router)
+app.include_router(routes_collaboration.router)
 
 
 # --- RATE LIMITING ---

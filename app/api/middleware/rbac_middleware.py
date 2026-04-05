@@ -69,6 +69,8 @@ async def rbac_middleware(request: Request, call_next):
         "/dashboard/",
         "/ui/",
         "/ocr/",
+        "/collaboration/",
+        "/notifications/",
     )
     
     if request.url.path.startswith(public_prefixes):

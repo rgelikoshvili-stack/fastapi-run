@@ -70,6 +70,7 @@ async def rbac_middleware(request: Request, call_next):
         "/ui/",
         "/ocr/",
     )
+    
     if request.url.path.startswith(public_prefixes):
         return await call_next(request)
 

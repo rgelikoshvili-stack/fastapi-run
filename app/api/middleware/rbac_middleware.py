@@ -75,6 +75,7 @@ async def rbac_middleware(request: Request, call_next):
         "/client/",
         "/payroll/",
         "/email-invoice/",
+        "/bank-sync/",
     )
     
     if request.url.path.startswith(public_prefixes):

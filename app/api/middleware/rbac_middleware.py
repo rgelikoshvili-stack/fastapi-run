@@ -24,7 +24,7 @@ PUBLIC_PATHS = {
     "/patterns/decay/run",
     "/system/summary",
     "/system/overview",
-    "/client/",
+    
 }
 
 
@@ -72,6 +72,8 @@ async def rbac_middleware(request: Request, call_next):
         "/ocr/",
         "/collaboration/",
         "/notifications/",
+        "/client/",
+        "/payroll/",
     )
     
     if request.url.path.startswith(public_prefixes):

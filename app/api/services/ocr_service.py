@@ -1,9 +1,8 @@
 """
 app/api/services/ocr_service.py
 Bridge Hub — Invoice OCR Service
-doc_analyzer.py-ს გამოიყენებს ინვოისებიდან მონაცემების ამოსაღებად.
+Duplicate detection + doc_analyzer.py
 """
-import io
 import re
 from datetime import datetime
 from typing import Optional
@@ -11,13 +10,9 @@ from app.api.doc_analyzer import analyze, to_dict
 
 
 def extract_invoice_fields(filename: str, data: bytes) -> dict:
-    """
-    PDF/სურათი/Excel-იდან ინვოისის ველების ამოღება.
-    """
     result = analyze(filename, data)
     fields = to_dict(result)
 
-    # თანხა
     amount = None
     currency = "GEL"
     amounts = fields.get("amounts", [])
@@ -26,28 +21,23 @@ def extract_invoice_fields(filename: str, data: bytes) -> dict:
         amount = largest.get("value")
         currency = largest.get("currency") or "GEL"
 
-    # თარიღი
     date = None
     dates = fields.get("dates", [])
     if dates:
         date = _parse_date(dates[0])
 
-    # პარტნიორი
     partner = None
     names = fields.get("names", [])
     if names:
         partner = names[0][:100]
 
-    # ინვოისის ნომერი
     invoice_number = _extract_invoice_number(fields.get("ids", []))
 
-    # IBAN
     iban = None
     ibans = fields.get("ibans", [])
     if ibans:
         iban = ibans[0]
 
-    # VAT
     vat_amount = None
     if amount:
         vat_amount = round(amount * 0.18 / 1.18, 2)
@@ -75,9 +65,11 @@ def create_draft_from_invoice(
     invoice_fields: dict,
     tenant_id: str = "default",
     source_type: str = "invoice_ocr",
+    force: bool = False,
 ) -> dict:
     """
     OCR შედეგიდან journal draft-ის შექმნა.
+    force=True — duplicate-ის შემთხვევაშიც ქმნის ახალ draft-ს.
     """
     from app.api.db import get_db
     import psycopg2.extras
@@ -90,7 +82,6 @@ def create_draft_from_invoice(
     date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
     description = f"Invoice {invoice_fields.get('invoice_number', '')} — {partner}"
 
-    # Georgia Pack-ის გამოყენება
     from app.policy.localization.georgia_pack import get_account
     debit_account = get_account("cost_of_service")
     credit_account = get_account("bank")
@@ -98,6 +89,37 @@ def create_draft_from_invoice(
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        # ── DUPLICATE CHECK ──
+        if not force:
+            cur.execute("""
+                SELECT id, description, amount, status, created_at
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND ABS(amount - %s) < 0.01
+                  AND created_at >= NOW() - INTERVAL '30 days'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (tenant_id, amount))
+            duplicate = cur.fetchone()
+
+            if duplicate:
+                return {
+                    "ok": False,
+                    "duplicate": True,
+                    "draft_id": duplicate["id"],
+                    "message": f"⚠️ ეს ინვოისი უკვე დამუშავებულია!",
+                    "existing_draft": {
+                        "id": duplicate["id"],
+                        "description": duplicate["description"],
+                        "amount": float(duplicate["amount"]),
+                        "status": duplicate["status"],
+                        "created_at": str(duplicate["created_at"]),
+                    },
+                    "action_required": "confirm_reprocess",
+                    "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
+                }
+
+        # ── CREATE DRAFT ──
         cur.execute("""
             INSERT INTO journal_drafts (
                 date, description, partner, amount,
@@ -131,6 +153,7 @@ def create_draft_from_invoice(
             "confidence": 0.75,
             "status": "pending_approval",
             "tenant_id": tenant_id,
+            "forced": force,
         }
     except Exception as e:
         conn.rollback()
@@ -141,9 +164,6 @@ def create_draft_from_invoice(
 
 
 def _parse_date(date_str: str) -> Optional[str]:
-    """
-    სხვადასხვა ფორმატის თარიღის YYYY-MM-DD-ზე გადაყვანა.
-    """
     formats = [
         "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y",
         "%Y.%m.%d", "%Y/%m/%d", "%Y-%m-%d",
@@ -158,9 +178,6 @@ def _parse_date(date_str: str) -> Optional[str]:
 
 
 def _extract_invoice_number(ids: list) -> Optional[str]:
-    """
-    ID სიიდან ინვოისის ნომრის ამოღება.
-    """
     if not ids:
         return None
     for id_val in ids:

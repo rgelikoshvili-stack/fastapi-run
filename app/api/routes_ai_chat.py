@@ -108,25 +108,27 @@ async def ai_chat(request: ChatRequest):
         context = get_context_for_llm(message)
 
     if LLM_AVAILABLE and _client:
-        try:
-            content = f"კონტექსტი:\n{context}\n\nკითხვა: {message}" if context else message
-            resp = _client.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": content}
-                ],
-                temperature=0.3,
-                max_tokens=800
-            )
-            return ChatResponse(
-                answer=resp.choices[0].message.content,
-                sources=[f"{r['category']}: {r['source']}" for r in results],
-                confidence=0.92,
-                session_id=request.session_id
-            )
-        except Exception as e:
-            return ChatResponse(answer=f"⚠️ შეცდომა: {str(e)}", confidence=0.3)
+        content = f"კონტექსტი:\n{context}\n\nკითხვა: {message}" if context else message
+        for model in ["google/gemini-flash-1.5", "openai/gpt-4o-mini"]:
+            try:
+                resp = _client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": content}
+                    ],
+                    temperature=0.3,
+                    max_tokens=800
+                )
+                return ChatResponse(
+                    answer=resp.choices[0].message.content,
+                    sources=[f"{r['category']}: {r['source']}" for r in results],
+                    confidence=0.92,
+                    session_id=request.session_id
+                )
+            except Exception:
+                continue
+        return ChatResponse(answer="⚠️ AI დროებით მიუწვდომელია", confidence=0.3)
 
     if results:
         answer = "\n".join([f"• {r['text']}" for r in results[:3]])

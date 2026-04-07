@@ -1156,8 +1156,7 @@ async function sendMsg(){
   else{
     const fd=new FormData();fd.append('message',text||'ფაილი');fd.append('session_id',TENANT);
     if(aiFile){fd.append('file',aiFile);aiFile=null;}
-    try{const r=await fetch(`${BASE}/api/ai/chat`,{method:'POST',headers:{'X-Tenant-ID':TENANT},body:fd});const d=await r.json();reply=d.answer||d.data?.reply||d.message||'Bridge Hub AI ✅';}
-    catch{reply='✅ Bridge Hub AI — ready. Settings-ში API key-ები შეიყვანე.';}
+    try{const r=await fetch(`${BASE}/api/ai/chat`,{method:'POST',headers:{'X-Tenant-ID':TENANT,'Content-Type':'application/json'},body:JSON.stringify({message:text})});const d=await r.json();reply=d.answer||d.data?.reply||d.message||'Bridge Hub AI ✅';}catch{reply='✅ Bridge Hub AI — ready. Settings-ში API key-ები შეიყვანე.';}
   }
   setTimeout(()=>{const el=document.getElementById(tid);if(el)el.innerHTML=reply;box.scrollTop=box.scrollHeight;},400);
 }

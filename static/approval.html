@@ -1140,7 +1140,7 @@ function loadPage(){
 function qp(t){document.getElementById('chatInp').value=t;document.getElementById('chatInp').focus();}
 function setAIFile(inp){aiFile=inp.files[0];toast(`📎 ${aiFile.name}`,'info');}
 async function sendMsg(){
-  const inp=document.getElementById('chatInp');const text=inp.value.trim();if(!text&&!aiFile)return;
+  const inp=document.getElementById('chatInp');const text=inp.value.trim()||'ფაილი გაანალიზე';
   const box=document.getElementById('chatMsgs');
   const fileL=aiFile?` 📎${aiFile.name}`:'';
   box.innerHTML+=`<div class="msg user">${text||'ფაილი'}${fileL}</div>`;inp.value='';

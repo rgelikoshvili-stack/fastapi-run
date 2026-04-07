@@ -140,6 +140,7 @@ from app.api import routes_client_portal
 from app.api import routes_payroll
 from app.api import routes_email_invoice
 from app.api import routes_bank_sync
+from app.api import routes_ai_chat
 
 
 
@@ -201,6 +202,7 @@ app.include_router(routes_client_portal.router)
 app.include_router(routes_payroll.router)
 app.include_router(routes_email_invoice.router)
 app.include_router(routes_bank_sync.router)
+app.include_router(routes_ai_chat.router)
 
 
 # --- RATE LIMITING ---

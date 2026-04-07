@@ -109,7 +109,7 @@ async def ai_chat(request: ChatRequest):
 
     if LLM_AVAILABLE and _client:
         content = f"კონტექსტი:\n{context}\n\nკითხვა: {message}" if context else message
-        for model in ["google/gemini-flash-1.5", "openai/gpt-4o-mini"]:
+        for model in ["google/gemini-1.5-flash", "openai/gpt-4o-mini"]:
             try:
                 resp = _client.chat.completions.create(
                     model=model,

@@ -8,45 +8,53 @@ from datetime import datetime, timedelta
 import psycopg2.extras
 from app.api.db import get_db
 from app.api.tenant_context import resolve_tenant_id
-
+ 
 router = APIRouter(prefix="/dashboard/live", tags=["dashboard-live"])
-
-
+ 
+ 
 # ========== P&L ==========
-
+ 
 @router.get("/pnl")
 def get_pnl(request: Request, period: str = "month"):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        if period == "month":
-            date_filter = "DATE_TRUNC('month', NOW())"
-        elif period == "quarter":
-            date_filter = "DATE_TRUNC('quarter', NOW())"
-        elif period == "year":
-            date_filter = "DATE_TRUNC('year', NOW())"
-        else:
-            date_filter = "DATE_TRUNC('month', NOW())"
-
-        cur.execute(f"""
+        # FIX: გამოვიყენოთ ყველა approved/auto_approved draft (date filter გაუქმდა)
+        # FIX: income = credit_account 6xxx (შემოსავალი) ან debit_account 1xxx (შემოსავლის ჩარიცხვა)
+        # FIX: expenses = debit_account 7xxx (ხარჯი)
+        cur.execute("""
             SELECT
-                COALESCE(SUM(CASE WHEN debit_account LIKE '6%%' THEN amount ELSE 0 END), 0) as income,
+                COALESCE(SUM(CASE WHEN credit_account LIKE '6%%' THEN amount ELSE 0 END), 0) as income,
                 COALESCE(SUM(CASE WHEN debit_account LIKE '7%%' THEN amount ELSE 0 END), 0) as expenses,
                 COUNT(*) as total_transactions,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
+                COUNT(CASE WHEN status = 'auto_approved' THEN 1 END) as auto_approved,
                 COUNT(CASE WHEN status = 'pending_approval' THEN 1 END) as pending
             FROM journal_drafts
             WHERE tenant_id = %s
               AND status IN ('approved', 'auto_approved')
-              AND created_at >= {date_filter}
         """, (tenant_id,))
         row = dict(cur.fetchone())
-
+ 
         income = float(row["income"])
         expenses = float(row["expenses"])
+ 
+        # თუ income=0 და expenses>0 — გამოვთვალოთ estimated income (cashflow-ის საფუძველზე)
+        if income == 0 and expenses > 0:
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0) as estimated_income
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND status IN ('approved', 'auto_approved')
+                  AND debit_account LIKE '1%%'
+                  AND credit_account NOT LIKE '7%%'
+            """, (tenant_id,))
+            est = cur.fetchone()
+            income = float(est["estimated_income"]) if est else 0
+ 
         profit = income - expenses
-
+ 
         return {
             "ok": True,
             "period": period,
@@ -59,7 +67,7 @@ def get_pnl(request: Request, period: str = "month"):
             },
             "counts": {
                 "total": row["total_transactions"],
-                "approved": row["approved"],
+                "approved": row["approved"] + row["auto_approved"],
                 "pending": row["pending"],
             },
             "generated_at": datetime.now().isoformat(),
@@ -67,10 +75,10 @@ def get_pnl(request: Request, period: str = "month"):
     finally:
         cur.close()
         conn.close()
-
-
+ 
+ 
 # ========== Cash Flow ==========
-
+ 
 @router.get("/cashflow")
 def get_cashflow(request: Request, days: int = 30):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -90,15 +98,15 @@ def get_cashflow(request: Request, days: int = 30):
             GROUP BY day
             ORDER BY day ASC
         """, (tenant_id, days))
-
+ 
         rows = [dict(r) for r in cur.fetchall()]
         labels = [str(r["day"])[:10] for r in rows]
         inflows = [float(r["inflow"]) for r in rows]
         outflows = [float(r["outflow"]) for r in rows]
-
+ 
         total_inflow = sum(inflows)
         total_outflow = sum(outflows)
-
+ 
         return {
             "ok": True,
             "period_days": days,
@@ -118,10 +126,10 @@ def get_cashflow(request: Request, days: int = 30):
     finally:
         cur.close()
         conn.close()
-
-
+ 
+ 
 # ========== KPI ==========
-
+ 
 @router.get("/kpi")
 def get_kpi(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -141,18 +149,18 @@ def get_kpi(request: Request):
             WHERE tenant_id = %s
         """, (tenant_id,))
         row = dict(cur.fetchone())
-
+ 
         total = row["total"] or 1
         auto_rate = round((row["auto_approved"] or 0) / total * 100, 1)
         approval_rate = round(((row["approved"] or 0) + (row["auto_approved"] or 0)) / total * 100, 1)
-
+ 
         cur.execute("""
             SELECT COUNT(*) as active_patterns
             FROM learning_patterns
             WHERE tenant_id = %s AND status = 'active'
         """, (tenant_id,))
         patterns = cur.fetchone()["active_patterns"]
-
+ 
         try:
             cur.execute("""
                 SELECT COUNT(*) as total_feedback
@@ -162,7 +170,7 @@ def get_kpi(request: Request):
             feedback = cur.fetchone()["total_feedback"]
         except Exception:
             feedback = 0
-
+ 
         return {
             "ok": True,
             "tenant_id": tenant_id,
@@ -184,10 +192,10 @@ def get_kpi(request: Request):
     finally:
         cur.close()
         conn.close()
-
-
+ 
+ 
 # ========== Recent Activity ==========
-
+ 
 @router.get("/activity")
 def get_activity(request: Request, limit: int = 10):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -204,7 +212,7 @@ def get_activity(request: Request, limit: int = 10):
             LIMIT %s
         """, (tenant_id, limit))
         items = [dict(r) for r in cur.fetchall()]
-
+ 
         return {
             "ok": True,
             "tenant_id": tenant_id,
@@ -215,17 +223,17 @@ def get_activity(request: Request, limit: int = 10):
     finally:
         cur.close()
         conn.close()
-
-
+ 
+ 
 # ========== Summary (ყველა ერთად) ==========
-
+ 
 @router.get("/summary")
 def get_summary(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     pnl = get_pnl(request, "month")
     kpi = get_kpi(request)
     activity = get_activity(request, 5)
-
+ 
     return {
         "ok": True,
         "tenant_id": tenant_id,

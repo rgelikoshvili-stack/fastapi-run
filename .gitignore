@@ -18,3 +18,4 @@ fix_*.py
 
 chroma_db/
 knowledge_files/
+!knowledge_files/ 

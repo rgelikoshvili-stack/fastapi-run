@@ -78,9 +78,21 @@ def create_draft_from_invoice(
     if not amount:
         return {"ok": False, "error": "თანხა ვერ ამოიღო ინვოისიდან"}
 
-    partner = invoice_fields.get("partner", "")
+    partner = invoice_fields.get("partner") or ""
     date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
-    description = f"Invoice {invoice_fields.get('invoice_number', '')} — {partner}"
+
+    _inv_num = invoice_fields.get("invoice_number")
+    _inv_num = str(_inv_num) if (_inv_num and str(_inv_num).lower() not in ("none", "null", "")) else None
+    _partner = partner.strip() if partner and partner.lower() not in ("none", "null") else None
+
+    if _inv_num and _partner:
+        description = f"Invoice {_inv_num} — {_partner}"
+    elif _partner:
+        description = f"Invoice — {_partner}"
+    elif _inv_num:
+        description = f"Invoice #{_inv_num}"
+    else:
+        description = "Invoice (OCR)"
 
     from app.policy.localization.georgia_pack import get_account
     debit_account = get_account("cost_of_service")
@@ -89,7 +101,6 @@ def create_draft_from_invoice(
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        # ── DUPLICATE CHECK ──
         if not force:
             cur.execute("""
                 SELECT id, description, amount, status, created_at
@@ -107,7 +118,7 @@ def create_draft_from_invoice(
                     "ok": False,
                     "duplicate": True,
                     "draft_id": duplicate["id"],
-                    "message": f"⚠️ ეს ინვოისი უკვე დამუშავებულია!",
+                    "message": "⚠️ ეს ინვოისი უკვე დამუშავებულია!",
                     "existing_draft": {
                         "id": duplicate["id"],
                         "description": duplicate["description"],
@@ -119,7 +130,6 @@ def create_draft_from_invoice(
                     "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
                 }
 
-        # ── CREATE DRAFT ──
         cur.execute("""
             INSERT INTO journal_drafts (
                 date, description, partner, amount,

@@ -443,19 +443,57 @@ input,select,textarea{font-family:inherit}
 
     <!-- PAYROLL -->
     <div id="pg-payroll" class="page">
-      <div class="row-2">
-        <div class="card">
-          <div class="card-header"><div class="card-title">💰 Payroll · PAYG 2% + PIT 20%</div><div class="card-actions"><input type="month" id="pay-period" value="2026-04" class="select-tenant"/><button class="btn btn-blue btn-sm" onclick="calcPayroll()">⚡ გამოთვლა</button></div></div>
-          <div class="card-body">
-            <div id="emp-list">
-              <div class="pay-emp-row"><input class="finput" id="e1n" type="text" value="გიორგი გელიქაშვილი" placeholder="სახელი"/><input class="finput" id="e1s" type="number" value="3000" placeholder="ხელფასი"/></div>
-              <div class="pay-emp-row"><input class="finput" id="e2n" type="text" value="ნინო ბერიძე" placeholder="სახელი"/><input class="finput" id="e2s" type="number" value="2500" placeholder="ხელფასი"/></div>
-              <div class="pay-emp-row"><input class="finput" id="e3n" type="text" value="დავით კობახიძე" placeholder="სახელი"/><input class="finput" id="e3s" type="number" value="4000" placeholder="ხელფასი"/></div>
-            </div>
-            <button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%;" onclick="genDrafts()">📋 Draft-ები შექმნა</button>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">💰 Payroll Calculator</div>
+          <div class="card-actions" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="calcMode" value="gross" onchange="recalculateAllRows()"> Gross input</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="calcMode" value="net" checked onchange="recalculateAllRows()"> Net input</label>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="addRow()">+ თანამშრომლის დამატება</button>
+            <button type="button" class="btn btn-blue btn-sm" onclick="calculatePayroll()">⚡ გაანგარიშება</button>
           </div>
         </div>
-        <div class="card"><div class="card-header"><div class="card-title">შედეგი</div></div><div class="card-body" id="pay-result"><div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">გაუშვი გამოთვლა</div></div></div></div>
+        <div class="card-body">
+          <div style="margin-bottom:12px;padding:10px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12px;line-height:1.6;color:var(--gray-600);">
+            📌 <b>Gross input</b> → PIT 20% + Employee Pension 2% = Net &nbsp;|&nbsp;
+            📌 <b>Net input</b> → Gross = Net ÷ 0.78 (pension ON) / ÷ 0.80 (pension OFF)<br>
+            📌 Employer Pension 2% — კომპანიის ხარჯი, თანამშრომელს <b>არ</b> აკლდება
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;margin-bottom:14px;min-width:680px;">
+              <thead><tr style="background:var(--gray-50);">
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:left;font-size:12px;">სახელი</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:left;font-size:12px;">პირადობის ნომ.</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:left;font-size:12px;">თანხა</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:center;font-size:12px;">საპენსიო</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:left;font-size:12px;color:var(--purple);">Gross</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);text-align:left;font-size:12px;color:var(--green);">Net</th>
+                <th style="padding:10px;border-bottom:1px solid var(--gray-200);"></th>
+              </tr></thead>
+              <tbody id="payrollBody">
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-name" value="გიორგი გელიქაშვილი"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-id-number" value="01001001010" style="font-size:11px;"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="number" class="finput emp-amount" value="2000" step="0.01" oninput="recalculateRow(this)"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);text-align:center;"><input type="checkbox" class="emp-pension" checked onchange="recalculateRow(this)" style="width:16px;height:16px;accent-color:var(--green);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-gross" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--purple);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-net" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--green);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><button type="button" class="btn btn-red btn-sm" onclick="removeRow(this)">✕</button></td>
+                </tr>
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-name" value="ნინო ბერიძე"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-id-number" value="" style="font-size:11px;"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="number" class="finput emp-amount" value="1800" step="0.01" oninput="recalculateRow(this)"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);text-align:center;"><input type="checkbox" class="emp-pension" onchange="recalculateRow(this)" style="width:16px;height:16px;accent-color:var(--green);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-gross" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--purple);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-net" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--green);"></td>
+                  <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><button type="button" class="btn btn-red btn-sm" onclick="removeRow(this)">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="resultsContainer"></div>
+        </div>
       </div>
     </div>
 
@@ -682,35 +720,151 @@ function showBankResult(d){
   el.innerHTML=`<table class="tbl"><thead><tr><th>ბანკი</th><th>Tx</th><th>Mode</th></tr></thead><tbody>${rows.map(([b,c,m])=>`<tr><td>${b}</td><td style="font-weight:700">${c}</td><td><span class="card-badge badge-gray">${m}</span></td></tr>`).join('')}</tbody></table>`;
 }
 
-async function calcPayroll(){
-  const emps=[];
-  for(let i=1;i<=3;i++){const n=document.getElementById(`e${i}n`)?.value;const s=parseFloat(document.getElementById(`e${i}s`)?.value||0);if(n&&s>0)emps.push({name:n,gross_salary:s});}
-  if(!emps.length){toast('თანამშრომლები ცარიელია','warn');return;}
-  const period=document.getElementById('pay-period')?.value||'2026-04';
-  toast('💰 Payroll...','info');
-  const d=await api('/payroll/calculate','POST',{employees:emps,period});
-  if(d&&d.ok){
-    const t=d.totals;
-    document.getElementById('pay-result').innerHTML=`<div style="margin-bottom:14px;font-size:12px;font-weight:600;color:var(--gray-600)">${d.employee_count} თანამშრომელი · ${period}</div>${d.employees.map(e=>`<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--r);padding:12px;margin-bottom:10px;"><div style="font-weight:700;margin-bottom:8px;font-size:13px;">${e.employee_name}</div>${[['Gross',e.gross_salary+' ₾',''],['PAYG 2%',e.payg_2pct+' ₾','color:var(--red)'],['PIT 20%',e.pit_20pct+' ₾','color:var(--red)'],['Net',e.net_salary+' ₾','color:var(--green);font-weight:700']].map(([k,v,s])=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--gray-200);"><span style="color:var(--gray-500)">${k}</span><span style="${s}">${v}</span></div>`).join('')}</div>`).join('')}<div style="background:var(--blue-s);border:1px solid rgba(29,107,243,.15);border-radius:var(--r);padding:12px;"><div style="font-weight:700;margin-bottom:8px;">TOTAL</div>${[['Gross',t.gross+' ₾',''],['Tax',t.total_deductions+' ₾','color:var(--red)'],['Net',t.net+' ₾','color:var(--green);font-weight:700;font-size:15px']].map(([k,v,s])=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(29,107,243,.1);"><span style="color:var(--gray-600)">${k}</span><span style="${s}">${v}</span></div>`).join('')}</div>`;
-    toast(`✅ Net: ${t.net} ₾`,'ok');
-  }
-}
-async function genDrafts(){
-  const emps=[];
-  for(let i=1;i<=3;i++){const n=document.getElementById(`e${i}n`)?.value;const s=parseFloat(document.getElementById(`e${i}s`)?.value||0);if(n&&s>0)emps.push({name:n,gross_salary:s});}
-  const period=document.getElementById('pay-period')?.value||'2026-04';
-  const d=await api('/payroll/generate-drafts','POST',{employees:emps,period});
-  if(d&&d.ok){toast(`✅ ${d.drafts.drafts_created} draft შეიქმნა`,'ok');loadPending();loadKPI();}
+// ── PAYROLL HELPERS ──────────────────────────────────────────────────────────
+function round2(v){return Math.round((Number(v)+Number.EPSILON)*100)/100;}
+function formatMoney(v){return Number(v||0).toFixed(2)+' ₾';}
+function getMode(){const s=document.querySelector('input[name="calcMode"]:checked');return s?s.value:'net';}
+
+function addRow(){
+  const tbody=document.getElementById('payrollBody');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-name" value=""></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-id-number" value="" style="font-size:11px;"></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="number" class="finput emp-amount" value="0" step="0.01" oninput="recalculateRow(this)"></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);text-align:center;"><input type="checkbox" class="emp-pension" onchange="recalculateRow(this)" style="width:16px;height:16px;accent-color:var(--green);"></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-gross" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--purple);"></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-net" value="0.00" readonly style="background:var(--gray-50);font-weight:700;color:var(--green);"></td>
+    <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><button type="button" class="btn btn-red btn-sm" onclick="removeRow(this)">✕</button></td>
+  `;
+  tbody.appendChild(tr);
 }
 
-async function loadCollab(){
-  const d=await api('/collaboration/summary');if(!d||!d.ok)return;
-  const n=d.total_comments;
-  document.getElementById('collab-cnt').textContent=n+' comments';
-  const totEl=document.getElementById('collab-total');if(totEl)totEl.textContent=n+' comments';
-  const html=n===0?`<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-text">კომენტარები არ არის</div></div>`:`<div class="collab-item"><div class="collab-avatar">BH</div><div><div style="display:flex;justify-content:space-between;"><span class="collab-name">Summary</span><span class="collab-time">live</span></div><div class="collab-text">სულ ${n} კომენტარი · ${d.unassigned_pending} unassigned pending</div></div></div>${(d.assignments||[]).slice(0,4).map(a=>`<div class="collab-item"><div class="collab-avatar">${a.assigned_to.slice(0,2).toUpperCase()}</div><div><div style="display:flex;justify-content:space-between;"><span class="collab-name">${a.assigned_to}</span><span class="collab-time">${a.priority}</span></div><div class="collab-text">${a.count} draft assigned</div></div></div>`).join('')}`;
-  ['dash-collab','collab-list'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=html;});
+function removeRow(btn){btn.closest('tr').remove();}
+
+function recalculateRow(el){
+  const row=el.closest('tr');if(!row)return;
+  const mode=getMode();
+  const amount=parseFloat(row.querySelector('.emp-amount').value||'0');
+  const pension=row.querySelector('.emp-pension').checked;
+  const ep=pension?0.02:0;
+  let gross=0,net=0;
+  if(amount<=0){row.querySelector('.emp-gross').value='0.00';row.querySelector('.emp-net').value='0.00';return;}
+  if(mode==='gross'){gross=amount;net=gross-(gross*0.20)-(gross*ep);}
+  else{net=amount;gross=net/(1-0.20-ep);}
+  row.querySelector('.emp-gross').value=round2(gross).toFixed(2);
+  row.querySelector('.emp-net').value=round2(net).toFixed(2);
 }
+
+function recalculateAllRows(){
+  document.querySelectorAll('#payrollBody tr').forEach(row=>{
+    const a=row.querySelector('.emp-amount');if(a)recalculateRow(a);
+  });
+}
+
+function collectEmployees(){
+  const rows=document.querySelectorAll('#payrollBody tr');
+  const emps=[];
+  rows.forEach(row=>{
+    const name=row.querySelector('.emp-name').value.trim();
+    const pid=row.querySelector('.emp-id-number').value.trim();
+    const amount=parseFloat(row.querySelector('.emp-amount').value||'0');
+    const pension=row.querySelector('.emp-pension').checked;
+    if(name&&amount>0)emps.push({name,personal_id:pid,amount,is_pension_member:pension});
+  });
+  return emps;
+}
+
+function _calcOnePayroll(amount,mode,pension){
+  const ep=pension?0.02:0, erp=pension?0.02:0;
+  let gross,net,pit,emp_pension,employer_pension;
+  if(mode==='gross'){
+    gross=amount;pit=gross*0.20;emp_pension=gross*ep;net=gross-pit-emp_pension;employer_pension=gross*erp;
+  }else{
+    net=amount;gross=net/(1-0.20-ep);pit=gross*0.20;emp_pension=gross*ep;employer_pension=gross*erp;
+  }
+  return{gross:round2(gross),pit:round2(pit),employee_pension:round2(emp_pension),employer_pension:round2(employer_pension),net:round2(net),total:round2(gross+employer_pension)};
+}
+
+async function calculatePayroll(){
+  const mode=getMode();
+  const emps=collectEmployees();
+  if(!emps.length){toast('მინიმუმ ერთი თანამშრომელი შეიყვანე.','warn');return;}
+  const results=[];
+  const totals={gross:0,pit:0,employee_pension:0,employer_pension:0,net:0,total:0};
+  emps.forEach(emp=>{
+    const r=_calcOnePayroll(emp.amount,mode,emp.is_pension_member);
+    results.push({...emp,...r});
+    Object.keys(totals).forEach(k=>totals[k]+=r[k]);
+  });
+  Object.keys(totals).forEach(k=>totals[k]=round2(totals[k]));
+  renderPayrollResults({results,totals});
+  toast('Payroll დათვლილია ✅','ok');
+}
+
+function journalLines(r){
+  let lines=`<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:8px;background:var(--gray-50);border-radius:6px;font-weight:700;font-size:11px;margin-bottom:4px;"><div>მხარე</div><div>ანგარიში</div><div>თანხა</div></div>`;
+  const row=(side,acc,amt,col='')=>`<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:5px 0;border-bottom:1px dashed var(--gray-200);font-size:11px;font-family:var(--mono);"><div style="font-weight:700;color:${side==='Dr'?'var(--blue)':'var(--red)'}">${side}</div><div>${acc}</div><div style="font-weight:600;${col}">${formatMoney(amt)}</div></div>`;
+  lines+=row('Dr','7210 Salary Expense',r.gross);
+  lines+=row('Cr','3320 PIT Payable',r.pit,'color:var(--red)');
+  if(r.employee_pension>0)lines+=row('Cr','3330 Employee Pension Payable',r.employee_pension,'color:var(--red)');
+  lines+=row('Cr','3130 Salary Payable / Cash',r.net,'color:var(--green)');
+  if(r.employer_pension>0){lines+=row('Dr','7220 Employer Pension Expense',r.employer_pension);lines+=row('Cr','3340 Employer Pension Payable',r.employer_pension,'color:var(--amber)');}
+  return lines;
+}
+
+function renderPayrollResults(data){
+  const container=document.getElementById('resultsContainer');
+  container.innerHTML='';
+  data.results.forEach(item=>{
+    const card=document.createElement('div');
+    card.style.cssText='background:var(--white);border:1px solid var(--gray-200);border-radius:var(--r);padding:14px;margin-bottom:12px;';
+    card.innerHTML=`
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+        <span>${item.name}</span>
+        <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:${item.is_pension_member?'var(--green-s)':'var(--gray-100)'};color:${item.is_pension_member?'var(--green)':'var(--gray-400)'};">
+          ${item.is_pension_member?'✅ საპენსიო':'— საპენსიო გარეშე'}
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
+        <div style="color:var(--gray-500);">პირადობის ნომ.</div><div>${item.personal_id||'—'}</div>
+        <div style="color:var(--gray-500);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(item.gross)}</div>
+        <div style="color:var(--gray-500);">PIT (20%)</div><div style="color:var(--red);">${formatMoney(item.pit)}</div>
+        <div style="color:var(--gray-500);">Employee Pension (2%)</div><div style="color:var(--red);">${formatMoney(item.employee_pension)}</div>
+        <div style="color:var(--gray-500);font-weight:700;">Net (ხელზე)</div><div style="color:var(--green);font-weight:700;font-size:13px;">${formatMoney(item.net)}</div>
+        <div style="color:var(--gray-500);">Employer Pension (2%)</div><div style="color:var(--amber);">${formatMoney(item.employer_pension)}</div>
+        <div style="color:var(--gray-700);font-weight:700;">Total Employer Cost</div><div style="font-weight:700;">${formatMoney(item.total)}</div>
+      </div>
+      <div style="border-top:1px solid var(--gray-100);padding-top:10px;">
+        <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 ბუღალტრული გატარება</div>
+        ${journalLines(item)}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+  // TOTAL card
+  const t=data.totals;
+  const totalCard=document.createElement('div');
+  totalCard.style.cssText='background:var(--blue-s);border:1px solid rgba(37,99,235,.15);border-radius:var(--r);padding:14px;';
+  totalCard.innerHTML=`
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px;">TOTAL (${data.results.length} თანამშ.)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
+      <div style="color:var(--gray-600);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(t.gross)}</div>
+      <div style="color:var(--gray-600);">PIT</div><div style="color:var(--red);">${formatMoney(t.pit)}</div>
+      <div style="color:var(--gray-600);">Employee Pension</div><div style="color:var(--red);">${formatMoney(t.employee_pension)}</div>
+      <div style="color:var(--gray-600);font-weight:700;">Net</div><div style="color:var(--green);font-weight:700;font-size:14px;">${formatMoney(t.net)}</div>
+      <div style="color:var(--gray-600);">Employer Pension</div><div style="color:var(--amber);">${formatMoney(t.employer_pension)}</div>
+      <div style="color:var(--gray-700);font-weight:700;">Total Cost</div><div style="font-weight:700;font-size:14px;">${formatMoney(t.total)}</div>
+    </div>
+    <div style="border-top:1px solid rgba(37,99,235,.15);padding-top:10px;">
+      <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 TOTAL Journal</div>
+      ${journalLines(t)}
+    </div>
+  `;
+  container.appendChild(totalCard);
+}
+
+window.addEventListener('load',function(){recalculateAllRows();});
 
 // LEARNING — სწორი ვერსია (fixed, no duplicate)
 async function loadLearning(){

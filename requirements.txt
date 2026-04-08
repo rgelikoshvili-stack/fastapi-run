@@ -73,4 +73,5 @@ websockets==16.0
 wrapt==2.1.1
 PyJWT==2.8.0
 anthropic==0.49.0
-pdfplumber==0.11.4python-docx
+pdfplumber==0.11.4
+python-docx

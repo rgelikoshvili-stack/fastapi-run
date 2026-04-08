@@ -813,31 +813,46 @@ function journalLines(r){
   return lines;
 }
 
+function toggleDetails(btn){
+  const details=btn.closest('.pay-card').querySelector('.pay-details');
+  const open=details.style.display!=='none';
+  details.style.display=open?'none':'block';
+  btn.textContent=open?'▼ დეტალები':'▲ დახურვა';
+}
+
 function renderPayrollResults(data){
   const container=document.getElementById('resultsContainer');
   container.innerHTML='';
   data.results.forEach(item=>{
     const card=document.createElement('div');
-    card.style.cssText='background:var(--white);border:1px solid var(--gray-200);border-radius:var(--r);padding:14px;margin-bottom:12px;';
+    card.className='pay-card';
+    card.style.cssText='background:var(--white);border:1px solid var(--gray-200);border-radius:var(--r);margin-bottom:10px;overflow:hidden;';
     card.innerHTML=`
-      <div style="font-weight:700;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-        <span>${item.name}</span>
-        <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:${item.is_pension_member?'var(--green-s)':'var(--gray-100)'};color:${item.is_pension_member?'var(--green)':'var(--gray-400)'};">
-          ${item.is_pension_member?'✅ საპენსიო':'— საპენსიო გარეშე'}
-        </span>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:var(--gray-50);border-bottom:1px solid var(--gray-100);" onclick="toggleDetails(this)">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-weight:700;font-size:13px;">${item.name}</span>
+          <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:${item.is_pension_member?'var(--green-s)':'var(--gray-100)'};color:${item.is_pension_member?'var(--green)':'var(--gray-400)'};">${item.is_pension_member?'✅ საპენსიო':'— საპენსიო გარეშე'}</span>
+          ${item.personal_id?`<span style="font-size:10px;color:var(--gray-400);font-family:var(--mono);">${item.personal_id}</span>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:13px;font-weight:700;color:var(--green);">${formatMoney(item.net)} <span style="font-size:10px;color:var(--gray-400);font-weight:500;">ხელზე</span></span>
+          <button onclick="event.stopPropagation();toggleDetails(this)" class="btn btn-ghost btn-sm pay-card" style="font-size:11px;padding:4px 10px;">▼ დეტალები</button>
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
-        <div style="color:var(--gray-500);">პირადობის ნომ.</div><div>${item.personal_id||'—'}</div>
-        <div style="color:var(--gray-500);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(item.gross)}</div>
-        <div style="color:var(--gray-500);">PIT (20%)</div><div style="color:var(--red);">${formatMoney(item.pit)}</div>
-        <div style="color:var(--gray-500);">Employee Pension (2%)</div><div style="color:var(--red);">${formatMoney(item.employee_pension)}</div>
-        <div style="color:var(--gray-500);font-weight:700;">Net (ხელზე)</div><div style="color:var(--green);font-weight:700;font-size:13px;">${formatMoney(item.net)}</div>
-        <div style="color:var(--gray-500);">Employer Pension (2%)</div><div style="color:var(--amber);">${formatMoney(item.employer_pension)}</div>
-        <div style="color:var(--gray-700);font-weight:700;">Total Employer Cost</div><div style="font-weight:700;">${formatMoney(item.total)}</div>
-      </div>
-      <div style="border-top:1px solid var(--gray-100);padding-top:10px;">
-        <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 ბუღალტრული გატარება</div>
-        ${journalLines(item)}
+      <div class="pay-details" style="display:none;padding:14px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
+          <div style="color:var(--gray-500);">პირადობის ნომ.</div><div style="font-family:var(--mono);font-size:11px;">${item.personal_id||'—'}</div>
+          <div style="color:var(--gray-500);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(item.gross)}</div>
+          <div style="color:var(--gray-500);">PIT (20%)</div><div style="color:var(--red);">${formatMoney(item.pit)}</div>
+          <div style="color:var(--gray-500);">Employee Pension (2%)</div><div style="color:var(--red);">${formatMoney(item.employee_pension)}</div>
+          <div style="color:var(--gray-500);font-weight:700;">Net (ხელზე)</div><div style="color:var(--green);font-weight:700;font-size:13px;">${formatMoney(item.net)}</div>
+          <div style="color:var(--gray-500);">Employer Pension (2%)</div><div style="color:var(--amber);">${formatMoney(item.employer_pension)}</div>
+          <div style="color:var(--gray-700);font-weight:700;">Total Employer Cost</div><div style="font-weight:700;">${formatMoney(item.total)}</div>
+        </div>
+        <div style="border-top:1px solid var(--gray-100);padding-top:10px;">
+          <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 ბუღალტრული გატარება</div>
+          ${journalLines(item)}
+        </div>
       </div>
     `;
     container.appendChild(card);
@@ -845,20 +860,30 @@ function renderPayrollResults(data){
   // TOTAL card
   const t=data.totals;
   const totalCard=document.createElement('div');
-  totalCard.style.cssText='background:var(--blue-s);border:1px solid rgba(37,99,235,.15);border-radius:var(--r);padding:14px;';
+  totalCard.className='pay-card';
+  totalCard.style.cssText='background:var(--blue-s);border:1px solid rgba(37,99,235,.15);border-radius:var(--r);overflow:hidden;';
   totalCard.innerHTML=`
-    <div style="font-weight:700;font-size:13px;margin-bottom:10px;">TOTAL (${data.results.length} თანამშ.)</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
-      <div style="color:var(--gray-600);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(t.gross)}</div>
-      <div style="color:var(--gray-600);">PIT</div><div style="color:var(--red);">${formatMoney(t.pit)}</div>
-      <div style="color:var(--gray-600);">Employee Pension</div><div style="color:var(--red);">${formatMoney(t.employee_pension)}</div>
-      <div style="color:var(--gray-600);font-weight:700;">Net</div><div style="color:var(--green);font-weight:700;font-size:14px;">${formatMoney(t.net)}</div>
-      <div style="color:var(--gray-600);">Employer Pension</div><div style="color:var(--amber);">${formatMoney(t.employer_pension)}</div>
-      <div style="color:var(--gray-700);font-weight:700;">Total Cost</div><div style="font-weight:700;font-size:14px;">${formatMoney(t.total)}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;border-bottom:1px solid rgba(37,99,235,.1);" onclick="toggleDetails(this)">
+      <span style="font-weight:700;font-size:13px;">📊 TOTAL (${data.results.length} თანამშ.)</span>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:14px;font-weight:700;color:var(--green);">${formatMoney(t.net)} <span style="font-size:10px;color:var(--gray-400);font-weight:500;">ჯამ. ხელზე</span></span>
+        <span style="font-size:13px;font-weight:700;color:var(--gray-700);">${formatMoney(t.total)} <span style="font-size:10px;color:var(--gray-400);font-weight:500;">კომპ. ხარჯი</span></span>
+        <button onclick="event.stopPropagation();toggleDetails(this)" class="btn btn-ghost btn-sm pay-card" style="font-size:11px;padding:4px 10px;">▼ დეტალები</button>
+      </div>
     </div>
-    <div style="border-top:1px solid rgba(37,99,235,.15);padding-top:10px;">
-      <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 TOTAL Journal</div>
-      ${journalLines(t)}
+    <div class="pay-details" style="display:none;padding:14px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
+        <div style="color:var(--gray-600);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(t.gross)}</div>
+        <div style="color:var(--gray-600);">PIT</div><div style="color:var(--red);">${formatMoney(t.pit)}</div>
+        <div style="color:var(--gray-600);">Employee Pension</div><div style="color:var(--red);">${formatMoney(t.employee_pension)}</div>
+        <div style="color:var(--gray-600);font-weight:700;">Net</div><div style="color:var(--green);font-weight:700;font-size:14px;">${formatMoney(t.net)}</div>
+        <div style="color:var(--gray-600);">Employer Pension</div><div style="color:var(--amber);">${formatMoney(t.employer_pension)}</div>
+        <div style="color:var(--gray-700);font-weight:700;">Total Cost</div><div style="font-weight:700;font-size:14px;">${formatMoney(t.total)}</div>
+      </div>
+      <div style="border-top:1px solid rgba(37,99,235,.15);padding-top:10px;">
+        <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:var(--gray-600);">📒 TOTAL Journal</div>
+        ${journalLines(t)}
+      </div>
     </div>
   `;
   container.appendChild(totalCard);

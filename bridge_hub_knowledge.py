@@ -1,612 +1,558 @@
 """
-Bridge Hub Knowledge Base — V2 (Self-Learning + Deep Rules)
-ახალი შესაძლებლობები:
-  ✅ გამონაკლისების ლოგიკა (VAT-ისგან გათავისუფლება, ექსპორტი)
-  ✅ IFRS 15/16 ალგორითმები
-  ✅ learn_new_rule() — ბუღალტერი ასწავლის AI-ს ახალ წესს
-  ✅ Tenant-specific ცოდნა (კომპანიის მიხედვით)
-  ✅ Confidence-based კლასიფიკაცია
-  ✅ ავტომატური ლოგირება (სად გაუჭირდა)
+bridge_hub_knowledge.py  —  Bridge Hub Knowledge Base V4
+სრული გაერთიანებული ვერსია (V2 + V3 merged)
+ 
+წყაროები:
+  knowledge_files/997097182-საგადასახადო.docx
+  knowledge_files/457292620-ბუღალტრული-აღრიცხვა-pdf.pdf
+ 
+შესაძლებლობები:
+  ✅ 2 ფაილის ავტომ. წაკითხვა
+  ✅ VAT/PIT/CIT/Withholding/Property სრული გაანგ.
+  ✅ Dr/Cr journal + Balance.ge payload
+  ✅ Self-learning (learned_rules.json)
+  ✅ Tenant-specific წესები
+  ✅ IFRS 15/16, IAS 2/16, F2/F9
+  ✅ ტრანზ. ავტ. კლასიფ.
+  ✅ LLM კონტ. გამოძახება
 """
-
-import json
-import os
-import re
-from datetime import datetime
+ 
+import json, os, re
+from datetime import date, datetime
 from typing import Optional
-
+ 
 # ══════════════════════════════════════════════════════════════
-# 1. საგადასახადო სისტემა — სრული ლოგიკა + გამონაკლისები
+# 1. FILE LOADING
 # ══════════════════════════════════════════════════════════════
-
+ 
+_TAX_TEXT = ""
+_ACC_TEXT = ""
+_FILES_LOADED = False
+ 
+def _load_files():
+    global _TAX_TEXT, _ACC_TEXT, _FILES_LOADED
+    if _FILES_LOADED:
+        return
+    dirs = [
+        "knowledge_files",
+        "/app/knowledge_files",
+        os.path.dirname(os.path.abspath(__file__)) + "/knowledge_files",
+    ]
+    for d in dirs:
+        if not os.path.exists(d):
+            continue
+        for fn in os.listdir(d):
+            fp = os.path.join(d, fn)
+            try:
+                if "საგადასახადო" in fn and fn.endswith(".docx") and not _TAX_TEXT:
+                    import docx as _docx
+                    doc = _docx.Document(fp)
+                    _TAX_TEXT = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                    print(f"✅ Tax: {len(_TAX_TEXT)} chars [{fn}]")
+                elif "ბუღალტრული" in fn and fn.endswith(".pdf") and not _ACC_TEXT:
+                    import fitz
+                    pdf = fitz.open(fp)
+                    _ACC_TEXT = "".join(pdf[i].get_text() for i in range(len(pdf)))
+                    print(f"✅ Acc: {len(_ACC_TEXT)} chars [{fn}]")
+            except Exception as e:
+                print(f"⚠️ {fn}: {e}")
+    _FILES_LOADED = True
+ 
+ 
+def _find(text, kw, size=3000):
+    i = text.find(kw)
+    return text[i:i+size].strip() if i >= 0 else ""
+ 
+ 
+def get_tax_section(topic):
+    _load_files()
+    kws = {"vat":"დღგ-ის გადამხდელ","pit":"საშემოსავლო გადასახად",
+           "cit":"განაწილებული მოგება","withholding":"გადახდის წყაროსთან",
+           "property":"ქონების გადასახად","penalty":"საგადასახადო სანქცი",
+           "non_resident":"არარეზიდენტ","micro":"მცირე ბიზნეს"}
+    return _find(_TAX_TEXT, kws.get(topic, topic), 4000)
+ 
+ 
+def get_accounting_section(topic):
+    _load_files()
+    kws = {"principles":"ბუღალტრული აღრიცხვის პრინციპები",
+           "vat":"დამატებული ღირებულების გადასახადის (დღგ) აღრიცხვა",
+           "inventory":"სასაქონლო-მატერიალური ფასეულობების",
+           "receivables":"მოკლევადიანი მოთხოვნების",
+           "payables":"მოკლევადიანი ვალდებულებების",
+           "salary":"შრომის ანაზღაურ","dividends":"გადასახდელი დივიდენდები",
+           "fixed_assets":"ძირითადი საშუალებ","depreciation":"ამორტიზაცი",
+           "capital":"საკუთარი კაპიტალ","shortage":"დანაკლისი","loan":"სასესხო"}
+    return _find(_ACC_TEXT, kws.get(topic, topic), 4000)
+ 
+ 
+# ══════════════════════════════════════════════════════════════
+# 2. TAX RULES (full logic + exceptions)
+# ══════════════════════════════════════════════════════════════
+ 
 TAX_RULES = {
     "VAT": {
-        "rate": 0.18,
+        "rate": 0.18, "threshold": 100000, "registration_days": 2,
         "description": "დამატებული ღირებულების გადასახადი — 18%",
         "rules": [
             "VAT = ნეტო × 0.18",
-            "ნეტო = ბრუტო ÷ 1.18 (VAT-ჩათვლილი ფასიდან)",
-            "VAT = ბრუტო - ნეტო",
-            "გატარება: Dr 1310 / Cr 6110 (ნეტო) + Cr 3310 (VAT)",
-            "VAT-ის ჩათვლა: Dr 3310 / Cr 1310",
-            "VAT-ის გადახდა: Dr 3310 / Cr 1110",
-            "VAT-ის დეკლარაცია: ყოველი კვარტლის ბოლოს",
-            "VAT-ის გადამხდელი: ბრუნვა > 100,000₾/წელ",
+            "ნეტო = ბრუტო ÷ 1.18 (VAT-ჩათვლ.)",
+            "ბრ. > 100,000₾ → 2 სამ. დღეში რეგ.",
+            "Paid: Dr1120/Cr6110/Cr3310 | Unpaid: Dr1210/Cr6110/Cr3310",
+            "დეკლ.: კვ. 15-ე",
         ],
-        # გათავისუფლება ჩათვლის უფლების გარეშე (Zero-rated)
         "exempt_no_credit": [
-            "სამედიცინო მომსახურება და მედიკამენტები",
-            "საგანმანათლებლო მომსახურება",
-            "ფინანსური მომსახურება (სესხი, დეპოზიტი, სადაზღვევო)",
-            "მიწის ნაკვეთის მიწოდება",
-            "ლოტო, ლატარია, სათამაშო ბიზნესი",
-            "ბინის (საცხოვრებელი) გაქირავება",
+            "სამედ. მომს. და მედიკ.",
+            "განათ. მომს.",
+            "ფინ. მომს. (სესხი, დეპ., სადაზღ.)",
+            "საც. ბინ. გაქ.",
         ],
-        # ჩათვლის უფლებით გათავისუფლება (Zero VAT + Credit)
         "exempt_with_credit": [
-            "ექსპორტი (საქართველოს ფარგლებს გარეთ მიწოდება) — 0%",
-            "საერთაშორისო სატრანსპორტო მომსახურება",
-            "თავისუფალ ინდუსტრიულ ზონაში (FIZ) მიწოდება",
-            "ტურისტული ზონის სასტუმრო (სპეც. სტატუსი)",
+            "ექსპ. — 0% + ჩათვ. უფ.",
+            "საერთ. სატრ. მომს.",
+            "FIZ მიწ.",
         ],
-        # უკუდაბეგვრა (Reverse Charge)
         "reverse_charge": [
-            "არარეზიდენტისგან ელექტრონული მომსახურების შეძენა (Google, Facebook, Netflix)",
-            "არარეზიდენტისგან კონსულტაციის შეძენა",
-            "გატარება: Dr 3310 (Input) / Cr 3310 (Output) — ნეტო ეფექტი ნული",
+            "არარეზ. ელ. მომს. (Google/FB/Netflix) — Dr3310/Cr3310",
         ],
-        "examples": [
-            {"gross": 5900, "net": 5000, "vat": 900},
-            {"gross": 1180, "net": 1000, "vat": 180},
-        ]
     },
     "PIT": {
-        "rate": 0.20,
-        "payg_rate": 0.02,
-        "description": "საშემოსავლო გადასახადი — 20% + PAYG 2%",
+        "rate": 0.20, "payg_employee": 0.02, "payg_employer": 0.02,
+        "description": "საშემოსავლო — 20% + PAYG 2%",
         "rules": [
-            "PIT = ხელფასი × 0.20",
-            "PAYG (დამსაქმებელი) = ხელფასი × 0.02",
-            "PAYG (თანამშრომელი) = ხელფასი × 0.02",
-            "ნეტო = ხელფასი - PIT - PAYG_თანამშრომელი",
-            "გატარება: Dr 7210 / Cr 2110 (ნეტო) + Cr 3320 (PIT) + Cr 3330 (PAYG)",
-            "გადახდა: ყოველი თვის 15-მდე RS.ge-ზე",
-            "ფორმა: N4",
+            "PIT = Gross × 20%",
+            "EmpPension = Gross × 2% (თანამ.)",
+            "EmplPension = Gross × 2% (კომ., თანამ. არ აკლდება)",
+            "Net = Gross - PIT - EmpPension",
+            "Gross-up: Gross = Net ÷ 0.78 (ON) / ÷ 0.80 (OFF)",
+            "Dr7210/Cr3320/Cr3330/Cr3360 + Dr7220/Cr3335",
+            "ვ.: თვ. 15-ე (ფ.N4)",
         ],
-        "exempt": [
-            "სამედიცინო ხარჯების კომპენსაცია (ლიმიტამდე)",
-            "სამგზავრო ხარჯები (ლიმიტამდე)",
-            "ჯანდაცვის დაზღვევა (ლიმიტამდე)",
-        ],
-        "examples": [
-            {"gross": 3000, "pit": 600, "payg": 60, "net": 2340},
-            {"gross": 2000, "pit": 400, "payg": 40, "net": 1560},
-        ]
     },
     "CIT": {
-        "rate": 0.15,
-        "description": "მოგების გადასახადი — ესტონური მოდელი 15%",
+        "rate": 0.15, "divisor": 0.85,
+        "description": "მოგ. გადასახ. — ესტ. მოდ. 15%",
         "rules": [
-            "CIT = განაწილებული_მოგება × 0.15",
-            "ესტონური მოდელი: გადასახადი მხოლოდ განაწილებულ მოგებაზე",
-            "განაწილებული მოგება: დივიდენდი, არარეზიდენტზე გადახდა, ჩუქება",
-            "გატარება: Dr 3340 / Cr 1110",
-            "გადახდა: დივიდენდიდან 15 დღეში",
-            "ფორმა: N101",
+            "მხ. განაწ. მოგ. (ესტ. მოდ.)",
+            "ბაზა = განაც ÷ 0.85",
+            "CIT = ბაზა × 15%",
+            "Dr4210/Cr3370 → Dr3370/Cr3340/Cr1120",
+            "ვ.: 15 დღე (ფ.N101)",
         ],
-        "deemed_distribution": [
-            "წარმომადგენლობითი ხარჯი > 1% შემოსავლიდან — ზედმეტი ნაწილი იბეგრება",
-            "არარეზიდენტზე პროცენტის გადახდა",
-            "არარეზიდენტზე ლიცენზიის საფასურის გადახდა (Royalty)",
-            "კომპანიის ქონების პირადი მიზნებისთვის გამოყენება",
-        ]
+        "deemed": [
+            "წარმ.ხ. > 1% შემ. — ზედ. ნაწ.",
+            "არარეზ. პროც./Royalty",
+        ],
+    },
+    "WITHHOLDING": {
+        "rates": {"dividend":0.05,"interest":0.05,"royalty":0.10,"services":0.10},
+        "description": "გადახდ. წ. გადასახ.",
+        "rules": ["არარ.დივ.:5% | Royalty:10% | პროც.:5% | მომს.:10% | ვ.:15დ."],
     },
     "PROPERTY_TAX": {
         "rate_max": 0.01,
-        "description": "ქონების გადასახადი — 1%-მდე",
-        "rules": [
-            "განაკვეთი: 0%-დან 1%-მდე (ადგილობრივი ორგანო განსაზღვრავს)",
-            "ბაზა: ქონების საბაზრო ღირებულება",
-            "გადახდა: წელიწადში ორჯერ (15 ივნისი და 15 დეკემბერი)",
-            "ფიზიკური პირი: 40,000₾-მდე ქონება — გათავისუფლებული",
-        ]
+        "rules": ["მაქს.1% საბ.ღ-ბ. | ფიზ.: 40,000₾-გათ. | 15ივ.+15დეკ."],
     },
-    "WITHHOLDING": {
-        "description": "გადახდის წყაროსთან დაკავება",
-        "rates": {
-            "dividend_resident": 0.05,
-            "dividend_nonresident": 0.05,
-            "interest_nonresident": 0.05,
-            "royalty_nonresident": 0.10,
-            "rent_nonresident": 0.10,
-        },
-        "rules": [
-            "არარეზიდენტზე დივიდენდი: 5% — Dr 4210 / Cr 3350",
-            "არარეზიდენტზე პროცენტი: 5% — Dr 7910 / Cr 3350",
-            "არარეზიდენტზე Royalty: 10% — Dr 7810 / Cr 3350",
-        ]
-    }
+    "MICRO_SMALL": {
+        "rules": ["მიკ.: <30,000₾→0% | მც.: <500,000₾→1% ან 3%"],
+    },
 }
-
+ 
+TAX_RATES = {
+    "vat":0.18,"vat_threshold":100000,"vat_registration_days":2,
+    "pit":0.20,"payg_employee":0.02,"payg_employer":0.02,
+    "cit":0.15,"cit_divisor":0.85,
+    "withholding_dividend":0.05,"withholding_royalty":0.10,
+    "withholding_interest":0.05,"withholding_services":0.10,
+    "property_max":0.01,"micro_business":0.01,"small_business":0.03,
+}
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 2. ანგარიშთა გეგმა (Chart of Accounts)
+# 3. CHART OF ACCOUNTS
 # ══════════════════════════════════════════════════════════════
-
+ 
 CHART_OF_ACCOUNTS = {
-    "1110": {"name": "სალარო / ნაღდი ფული", "type": "asset", "keywords": ["ნაღდი", "სალარო", "cash", "კასა"]},
-    "1120": {"name": "საბანკო ანგარიში", "type": "asset", "keywords": ["ბანკი", "tbc", "bog", "bank", "გადარიცხვა"]},
-    "1210": {"name": "მოთხოვნები მყიდველებზე", "type": "asset", "keywords": ["მოთხოვნა", "დებიტორი", "receivable"]},
-    "1310": {"name": "სასაქონლო-მატერიალური მარაგები", "type": "asset", "keywords": ["საქონელი", "მარაგი", "inventory"]},
-    "1410": {"name": "წინასწარ გადახდილი ხარჯები", "type": "asset", "keywords": ["წინასწარ", "prepaid", "ავანსი"]},
-    "1510": {"name": "ძირითადი საშუალებები", "type": "asset", "keywords": ["ძირითადი", "fixed asset", "შენობა", "მანქანა", "ტექნიკა"]},
-    "1520": {"name": "დარიცხული ამორტიზაცია", "type": "asset_contra", "keywords": ["ამორტიზაცია", "depreciation"]},
-    "1610": {"name": "არამატერიალური აქტივები", "type": "asset", "keywords": ["პატენტი", "ლიცენზია", "intangible", "software", "პროგრამა"]},
-    "1710": {"name": "ROU აქტივი (IFRS 16)", "type": "asset", "keywords": ["rou", "right of use", "ifrs 16", "ლიზინგი", "leasing"]},
-    "2110": {"name": "გასახდელი ხელფასი", "type": "liability", "keywords": ["ხელფასი", "salary", "payroll"]},
-    "2210": {"name": "მოკლევადიანი სესხები", "type": "liability", "keywords": ["სესხი", "loan", "კრედიტი"]},
-    "2310": {"name": "მიწოდებლებზე გადასახდელი", "type": "liability", "keywords": ["მიწოდებელი", "კრედიტორი", "payable"]},
-    "2410": {"name": "სალიზინგო ვალდებულება (IFRS 16)", "type": "liability", "keywords": ["ლიზინგი", "leasing", "ifrs 16"]},
-    "3310": {"name": "დღგ გადასახდელი", "type": "liability", "keywords": ["დღგ", "vat", "დამატებული ღირებულება"]},
-    "3320": {"name": "PIT გადასახდელი", "type": "liability", "keywords": ["pit", "საშემოსავლო", "income tax"]},
-    "3330": {"name": "PAYG გადასახდელი", "type": "liability", "keywords": ["payg", "pension", "საპენსიო"]},
-    "3340": {"name": "CIT გადასახდელი", "type": "liability", "keywords": ["cit", "მოგება", "profit tax", "dividend"]},
-    "3350": {"name": "Withholding Tax გადასახდელი", "type": "liability", "keywords": ["withholding", "გადახდის წყარო", "არარეზიდენტი"]},
-    "4110": {"name": "საწესდებო კაპიტალი", "type": "equity", "keywords": ["კაპიტალი", "equity", "capital"]},
-    "4210": {"name": "გაუნაწილებელი მოგება", "type": "equity", "keywords": ["მოგება", "retained earnings"]},
-    "6110": {"name": "გაყიდვებიდან შემოსავალი", "type": "revenue", "keywords": ["გაყიდვა", "revenue", "income", "შემოსავალი"]},
-    "6120": {"name": "მომსახურებიდან შემოსავალი", "type": "revenue", "keywords": ["მომსახურება", "service", "კონსულტაცია"]},
-    "6130": {"name": "სხვა საოპერაციო შემოსავალი", "type": "revenue", "keywords": ["სხვა შემოსავალი", "other income"]},
-    "7110": {"name": "გაყიდული საქონლის ღირებულება (COGS)", "type": "expense", "keywords": ["cogs", "cost of goods", "ღირებულება"]},
-    "7210": {"name": "ხელფასის ხარჯი", "type": "expense", "keywords": ["ხელფასი", "salary expense", "payroll"]},
-    "7310": {"name": "ქირის ხარჯი", "type": "expense", "keywords": ["ქირა", "rent", "იჯარა", "ოფისი"]},
-    "7410": {"name": "კომუნალური ხარჯი", "type": "expense", "keywords": ["კომუნალური", "utilities", "დენი", "electricity", "წყალი", "გაზი"]},
-    "7510": {"name": "საბანკო საკომისიო", "type": "expense", "keywords": ["საკომისიო", "commission", "bank fee", "tbc", "bog", "სერვის"]},
-    "7610": {"name": "ამორტიზაციის ხარჯი", "type": "expense", "keywords": ["ამორტიზაცია", "depreciation"]},
-    "7710": {"name": "სარეკლამო ხარჯი", "type": "expense", "keywords": ["რეკლამა", "marketing", "advertising", "facebook", "google", "instagram"]},
-    "7720": {"name": "წარმომადგენლობითი ხარჯი", "type": "expense", "keywords": ["წარმომადგენლობითი", "entertainment", "representative", "რესტორანი", "სასტუმრო"]},
-    "7810": {"name": "სხვა ხარჯები", "type": "expense", "keywords": ["სხვა", "other", "miscellaneous"]},
-    "7910": {"name": "პროცენტის ხარჯი", "type": "expense", "keywords": ["პროცენტი", "interest", "სარგებელი"]},
+    "1110":{"name":"სალარო (ნაღდი)","type":"asset","keywords":["ნაღდი","სალარო","cash","კასა"]},
+    "1120":{"name":"საბანკო ანგ.","type":"asset","keywords":["ბანკი","tbc","bog","bank","გადარ"]},
+    "1130":{"name":"სხვა ფ.ეკვ.","type":"asset","keywords":[]},
+    "1210":{"name":"მოთხ. კლ-ზე","type":"asset","keywords":["მოთხ","დებ","receivable"]},
+    "1220":{"name":"სათ. მოთხ.","type":"asset","keywords":[]},
+    "1310":{"name":"მარ. / საქ.","type":"asset","keywords":["საქ","მარ","inventory","stock","product"]},
+    "1320":{"name":"მზა პროდ.","type":"asset","keywords":[]},
+    "1330":{"name":"უდ. წარმ.","type":"asset","keywords":[]},
+    "1410":{"name":"სხვ. მოკლ. მოთხ.","type":"asset","keywords":["წინ","prepaid"]},
+    "1420":{"name":"გადახ. ავ.","type":"asset","keywords":["ავანს","advance","prepay"]},
+    "1430":{"name":"წინ. გადახ. ხ.","type":"asset","keywords":[]},
+    "1510":{"name":"ძირ. საშ.","type":"asset","keywords":["ძირ","fixed","შენ","მანქ","ტექ","equipment"]},
+    "1520":{"name":"დარ. ამ. (კ.)","type":"contra_asset","keywords":["ამ","depreciation"]},
+    "1610":{"name":"არ. აქტ.","type":"asset","keywords":["პატ","ლიც","intangible","software","პრ"]},
+    "1620":{"name":"გრ.ვ.ინვ.","type":"asset","keywords":[]},
+    "1710":{"name":"ROU (IFRS16)","type":"asset","keywords":["rou","ifrs 16","ლიზ","leasing"]},
+    "3110":{"name":"კრ. დავ.","type":"liability","keywords":["მიწ","კრედ","payable","AP"]},
+    "3120":{"name":"მიღ. ავ.","type":"liability","keywords":["ავ","advance"]},
+    "3130":{"name":"გად. ხ.","type":"liability","keywords":[]},
+    "3310":{"name":"დღგ გად.","type":"liability","keywords":["დღგ","vat","დამ.ღ"]},
+    "3311":{"name":"ჩათვ. დღგ","type":"asset","keywords":["vat input","ჩათ.დღგ","3311"]},
+    "3320":{"name":"PIT / საშ.","type":"liability","keywords":["pit","საშ","income tax"]},
+    "3330":{"name":"დასაქ. საპ.","type":"liability","keywords":["payg","pension","საპ"]},
+    "3335":{"name":"დამ. საპ.","type":"liability","keywords":[]},
+    "3340":{"name":"CIT / მოგ.","type":"liability","keywords":["cit","მოგ","profit tax"]},
+    "3350":{"name":"Withholding","type":"liability","keywords":["withholding","არარ","nonres"]},
+    "3360":{"name":"გად.ხ.Net","type":"liability","keywords":[]},
+    "3370":{"name":"გად. დივ.","type":"liability","keywords":["დივ","dividend"]},
+    "3380":{"name":"ქ.გ. გად.","type":"liability","keywords":[]},
+    "3410":{"name":"სასეხ.ვ.მ.","type":"liability","keywords":["სესხ","loan","კრ"]},
+    "3420":{"name":"გ.თ.","type":"liability","keywords":[]},
+    "3430":{"name":"ფ.იჯ.(IFRS16)","type":"liability","keywords":["ლიზ","ifrs 16"]},
+    "3510":{"name":"გ.ვ.სესხ.ვ.","type":"liability","keywords":[]},
+    "4110":{"name":"საწ.კაპ.","type":"equity","keywords":["კაპ","equity","capital","საწ"]},
+    "4120":{"name":"დამ.კაპ.","type":"equity","keywords":[]},
+    "4210":{"name":"გ.მ.(RE)","type":"equity","keywords":["მოგ","retained","RE"]},
+    "4220":{"name":"სარ.კაპ.","type":"equity","keywords":[]},
+    "6110":{"name":"გ-ვ. შემ.","type":"revenue","keywords":["გ-ვ","revenue","income","შემ","invoice","ინვ","sale"]},
+    "6120":{"name":"მომ. შემ.","type":"revenue","keywords":["მომ","service","კონს"]},
+    "6130":{"name":"სხვ.ო.შ.","type":"revenue","keywords":[]},
+    "6140":{"name":"პ.შ.","type":"revenue","keywords":[]},
+    "6150":{"name":"სხვ.შ.","type":"revenue","keywords":[]},
+    "7110":{"name":"COGS","type":"expense","keywords":["cogs","cost of goods","ღ-ბ"]},
+    "7120":{"name":"პ.ხ.","type":"expense","keywords":[]},
+    "7210":{"name":"ხ.ხ.","type":"expense","keywords":["ხელფ","salary","payroll","მუშ","თანამ"]},
+    "7220":{"name":"დ.სპ.ხ.","type":"expense","keywords":[]},
+    "7230":{"name":"სხ.შ.ხ.","type":"expense","keywords":[]},
+    "7310":{"name":"ქ.ხ.","type":"expense","keywords":["ქ-ა","rent","იჯ","ოფ","office"]},
+    "7320":{"name":"ო.ლ.ხ.","type":"expense","keywords":[]},
+    "7410":{"name":"კ.ხ.","type":"expense","keywords":["კომ","utilities","electric","წყ","გ","gas"]},
+    "7510":{"name":"სბ.სკ.","type":"expense","keywords":["საკ","commission","bank fee","tbc","bog","სრვ"]},
+    "7520":{"name":"სბ.პ.","type":"expense","keywords":["პ","interest","სარგ"]},
+    "7610":{"name":"ამ.ხ.","type":"expense","keywords":["ამ","depreciation"]},
+    "7710":{"name":"რ.ხ.","type":"expense","keywords":["რ","marketing","advertising","facebook","google ad","instagram"]},
+    "7720":{"name":"წ.ხ.","type":"expense","keywords":["წ","entertainment","representative","რ-ნ","wolt","glovo"]},
+    "7730":{"name":"ს.ხ.","type":"expense","keywords":["სატ","transport","taxi","bolt"]},
+    "7810":{"name":"სხ.ა.ხ.","type":"expense","keywords":["aws","amazon","azure","cloud","software"]},
+    "7910":{"name":"სხვ.ხ.","type":"expense","keywords":["სხვ","other","misc"]},
+    "7920":{"name":"გ.კ.ზ.","type":"expense","keywords":["გ-ვ","exchange"]},
 }
-
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 3. კლასიფიკაციის წესები
+# 4. IFRS / ACCA
 # ══════════════════════════════════════════════════════════════
-
-CLASSIFICATION_RULES = [
-    {"keywords": ["tbc", "bog", "საკომისიო", "bank fee", "commission", "სერვის", "ბანკი"], "account": "7510", "confidence": 0.95},
-    {"keywords": ["tbc transfer", "bog transfer", "გადარიცხვა", "transfer"], "account": "1120", "confidence": 0.90},
-    {"keywords": ["ხელფასი", "salary", "payroll", "მუშაკი", "თანამშრომელი"], "account": "7210", "confidence": 0.95},
-    {"keywords": ["ქირა", "rent", "იჯარა", "ოფისი", "office"], "account": "7310", "confidence": 0.92},
-    {"keywords": ["კომუნალური", "utilities", "დენი", "electricity", "წყალი", "water", "გაზი", "gas"], "account": "7410", "confidence": 0.93},
-    {"keywords": ["გაყიდვა", "sale", "invoice", "ინვოისი"], "account": "6110", "confidence": 0.88},
-    {"keywords": ["მომსახურება", "service", "კონსულტაცია"], "account": "6120", "confidence": 0.85},
-    {"keywords": ["დღგ", "vat", "დამატებული ღირებულება"], "account": "3310", "confidence": 0.97},
-    {"keywords": ["pit", "საშემოსავლო", "income tax"], "account": "3320", "confidence": 0.97},
-    {"keywords": ["payg", "pension", "საპენსიო"], "account": "3330", "confidence": 0.97},
-    {"keywords": ["cit", "მოგება", "profit tax", "dividend", "დივიდენდი"], "account": "3340", "confidence": 0.97},
-    {"keywords": ["რეკლამა", "marketing", "advertising", "facebook ads", "google ads", "instagram"], "account": "7710", "confidence": 0.90},
-    {"keywords": ["წარმომადგენლობითი", "entertainment", "representative", "რესტორანი"], "account": "7720", "confidence": 0.88},
-    {"keywords": ["პროცენტი", "interest", "სარგებელი", "loan interest"], "account": "7910", "confidence": 0.93},
-    {"keywords": ["ამორტიზაცია", "depreciation", "amortization"], "account": "7610", "confidence": 0.95},
-    {"keywords": ["ნაღდი", "cash", "სალარო", "კასა"], "account": "1110", "confidence": 0.90},
-    {"keywords": ["ლიზინგი", "leasing", "ifrs 16", "rou"], "account": "1710", "confidence": 0.92},
-    {"keywords": ["არარეზიდენტი", "nonresident", "withholding"], "account": "3350", "confidence": 0.90},
-    # Wolt, Glovo, Bolt — ხშირი ქართული ბიზნეს ხარჯები
-    {"keywords": ["wolt", "glovo", "bolt food"], "account": "7720", "confidence": 0.85},
-    {"keywords": ["bolt"], "account": "7810", "confidence": 0.80},
-    {"keywords": ["amazon", "aws", "google cloud", "azure"], "account": "7810", "confidence": 0.85},
-]
-
-# ══════════════════════════════════════════════════════════════
-# 4. ACCA + IFRS სტანდარტები — ალგორითმებით
-# ══════════════════════════════════════════════════════════════
-
+ 
 ACCA_STANDARDS = {
-    "IFRS_15_REVENUE": {
-        "title": "IFRS 15 — შემოსავლის აღიარება (5-ნაბიჯიანი მოდელი)",
-        "steps": [
-            "ნაბიჯი 1: გამოავლინე კონტრაქტი მომხმარებელთან",
-            "ნაბიჯი 2: გამოავლინე შესრულების ვალდებულებები (Performance Obligations)",
-            "ნაბიჯი 3: განსაზღვრე ტრანზაქციის ფასი",
-            "ნაბიჯი 4: გაანაწილე ფასი შესრულების ვალდებულებებზე",
-            "ნაბიჯი 5: აღიარე შემოსავალი ვალდებულების შესრულებისას",
-        ],
-        "key_rules": [
-            "კონტროლი გადაეცა? → შემოსავლის აღიარება",
-            "დროში გაწელილი შესრულება: %-ით (Percentage of Completion)",
-            "ვარიაბელური ანაზღაურება: მხოლოდ Highly Probable ნაწილი",
-        ]
-    },
-    "IFRS_16_LEASES": {
-        "title": "IFRS 16 — იჯარა",
-        "lessee_accounting": [
-            "ROU აქტივი = PV(სალიზინგო გადასახდელები) + საწყისი პირდაპირი ხარჯები",
-            "სალიზინგო ვალდებულება = PV(სალიზინგო გადასახდელები)",
-            "ამორტიზაცია: ROU ÷ იჯარის ვადა",
-            "პროცენტი: ვალდებულება × საპროცენტო განაკვეთი",
-            "გატარება (დასაწყისი): Dr 1710 (ROU) / Cr 2410 (ვალდებულება)",
-            "გატარება (გადახდა): Dr 2410 / Dr 7910 (პროცენტი) / Cr 1120",
-            "გამონაკლისი: < 12 თვე ან < $5,000 — შეიძლება ოპერაციულ ხარჯად",
-        ]
-    },
-    "IAS_2_INVENTORIES": {
-        "title": "IAS 2 — მარაგები",
-        "rules": [
-            "შეფასება: ღირებულება ან NRV (Net Realisable Value) — რომელიც დაბალია",
-            "ღირებულება: შეძენის ფასი + პირდაპირი ხარჯები",
-            "NRV = სავარაუდო გასაყიდი ფასი - სავარაუდო ხარჯები",
-            "FIFO ან Weighted Average — LIFO დაუშვებელია IFRS-ით",
-            "ჩამოწერა: Dr 7110 / Cr 1310",
-        ]
-    },
-    "IAS_16_PPE": {
-        "title": "IAS 16 — ძირითადი საშუალებები",
-        "rules": [
-            "საწყისი აღიარება: ღირებულება (Cost Model) ან გადაფასება (Revaluation Model)",
-            "ამორტიზაცია: Straight-line = (ღირებულება - ნარჩენი) ÷ სასარგებლო ვადა",
-            "ამორტიზაცია: Reducing Balance = საბალანსო ღირებულება × %",
-            "გატარება: Dr 7610 / Cr 1520",
-            "ჩამოწერა: Dr 1520 + Dr ზარალი / Cr 1510",
-        ]
-    },
-    "F2_MANAGEMENT": {
-        "title": "F2 — მენეჯმენტის აღრიცხვა",
-        "formulas": [
-            "Break-even = Fixed Costs ÷ Contribution per unit",
-            "Contribution = Selling Price - Variable Cost",
-            "Margin of Safety = (Actual - Break-even) ÷ Actual × 100%",
-            "Absorption Costing: Fixed overhead → product cost",
-            "Marginal Costing: Fixed overhead → period cost",
-        ]
-    },
-    "F9_FINANCE": {
-        "title": "F9 — ფინანსური მენეჯმენტი",
-        "formulas": [
-            "NPV = Σ (CF ÷ (1+r)^t) - Initial Investment",
-            "IRR: discount rate where NPV = 0",
-            "WACC = (E/V × Re) + (D/V × Rd × (1-T))",
-            "CAPM: Re = Rf + β × (Rm - Rf)",
-            "Current Ratio = Current Assets ÷ Current Liabilities",
-            "Quick Ratio = (CA - Inventory) ÷ CL",
-            "Debt/Equity = Total Debt ÷ Total Equity",
-        ]
-    }
+    "IFRS_15":{"title":"IFRS 15 — შემ. აღ. (5-ნ.)","steps":["1.კ-ტ","2.PO","3.ფ-ი","4.გ-ა","5.შ.ვ."]},
+    "IFRS_16":{"title":"IFRS 16 — იჯ.","lessee_accounting":[
+        "ROU=PV(გ-ბ)+საწ. Dr1710/Cr3430",
+        "ამ: Dr7610/Cr1520. პ: Dr7520/Cr3430",
+        "<12თ/<$5k→ოპ.ხ."]},
+    "IAS_2":{"title":"IAS 2 — მარ.","rules":["ღ. ან NRV","FIFO/WAvg (LIFO დ.)","ჩ: Dr7110/Cr1310"]},
+    "IAS_16":{"title":"IAS 16 — ძ.საშ.","rules":["SL=(Cost-Res)÷Life","DB=BV×%","Dr7610/Cr1520"]},
+    "F2":{"title":"F2 Mgmt","formulas":["BE=Fix÷Contrib/u","Contrib=SP-VC"]},
+    "F9":{"title":"F9 Finance","formulas":["NPV=Σ(CF÷(1+r)^t)-I0","WACC=E/V×Re+D/V×Rd×(1-T)","CAPM:Re=Rf+β×(Rm-Rf)"]},
 }
-
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 5. Bridge Hub — სისტემის ცოდნა
+# 5. SELF-LEARNING
 # ══════════════════════════════════════════════════════════════
-
-BRIDGE_HUB_KNOWLEDGE = {
-    "integrations": {
-        "balance_ge": "Balance.ge — ქართული ბუღალტრული სისტემა (API ინტეგრაცია)",
-        "1c": "1C:Enterprise — ERP სისტემა (XML ექსპორტი)",
-        "tbc": "TBC Bank — ბანკის ამონაწერი (CSV/API)",
-        "bog": "Bank of Georgia — ბანკის ამონაწერი (CSV/API)",
-        "rs_ge": "RS.ge — შემოსავლების სამსახური (ელ-ფაქტურა, PIT, VAT)",
-        "gmail": "Gmail IMAP — ინვოისების ავტო-პროცესინგი",
-    },
-    "endpoints": {
-        "health": "GET /health",
-        "ai_chat": "POST /api/ai/chat",
-        "ai_search": "GET /api/ai/search",
-        "ai_stats": "GET /api/ai/stats",
-        "ai_vat": "POST /api/ai/vat",
-        "ai_payroll": "POST /api/ai/payroll",
-        "ai_classify": "POST /api/ai/classify",
-        "classify": "POST /api/classify",
-        "approve": "POST /api/approve",
-        "export": "GET /api/export",
-        "payroll": "POST /api/payroll/calculate",
-        "ocr": "POST /api/ocr/upload",
-        "bank_sync": "POST /api/bank-sync",
-    }
-}
-
-# ══════════════════════════════════════════════════════════════
-# 6. Tenant-Specific ცოდნა (კომპანიის მიხედვით)
-# ══════════════════════════════════════════════════════════════
-
-# ეს ფაილი ინახება: learned_rules.json
-LEARNED_RULES_FILE = os.path.join(os.path.dirname(__file__), "learned_rules.json")
-
-def _load_learned_rules() -> list:
-    """ნასწავლი წესების ჩატვირთვა."""
+ 
+LEARNED_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "learned_rules.json")
+ 
+def _load_learned():
     if os.path.exists(LEARNED_RULES_FILE):
         try:
-            with open(LEARNED_RULES_FILE, "r", encoding="utf-8") as f:
+            with open(LEARNED_RULES_FILE,"r",encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except:
             return []
     return []
-
-def _save_learned_rules(rules: list):
-    """ნასწავლი წესების შენახვა."""
-    with open(LEARNED_RULES_FILE, "w", encoding="utf-8") as f:
-        json.dump(rules, f, ensure_ascii=False, indent=2)
-
-
-def learn_new_rule(description_pattern: str, account: str, tenant_id: str = "global", note: str = "") -> dict:
-    """
-    ბუღალტერი ასწავლის AI-ს ახალ წესს.
-
-    გამოყენება:
-        learn_new_rule("Wolt", "7720", tenant_id="company_abc", note="Wolt = წარმომადგენლობითი")
-        learn_new_rule("AWS", "7810", note="Amazon AWS = IT ხარჯი")
-    """
-    rules = _load_learned_rules()
-
-    # შევამოწმოთ, უკვე არ არსებობს
+ 
+def _save_learned(rules):
+    try:
+        with open(LEARNED_RULES_FILE,"w",encoding="utf-8") as f:
+            json.dump(rules,f,ensure_ascii=False,indent=2)
+    except Exception as e:
+        print(f"⚠️ save: {e}")
+ 
+ 
+def learn_new_rule(pattern, account, tenant_id="global", note=""):
+    """ბუღ. ასწავლის AI-ს. learn_new_rule('Wolt','7720',note='წარმ.')"""
+    rules = _load_learned()
     for r in rules:
-        if r["pattern"].lower() == description_pattern.lower() and r["tenant_id"] == tenant_id:
-            r["account"] = account
-            r["note"] = note
-            r["updated_at"] = datetime.now().isoformat()
-            _save_learned_rules(rules)
-            return {"status": "updated", "rule": r}
-
-    new_rule = {
-        "pattern": description_pattern,
-        "account": account,
-        "tenant_id": tenant_id,
-        "note": note,
-        "confidence": 0.99,
-        "created_at": datetime.now().isoformat(),
-        "source": "human_correction",
-    }
-    rules.append(new_rule)
-    _save_learned_rules(rules)
-
-    account_name = CHART_OF_ACCOUNTS.get(account, {}).get("name", "უცნობი")
-    return {
-        "status": "learned",
-        "message": f"✅ ვისწავლე: '{description_pattern}' → {account} ({account_name})",
-        "rule": new_rule
-    }
-
-
+        if r["pattern"].lower()==pattern.lower() and r["tenant_id"]==tenant_id:
+            r["account"],r["note"]=account,note
+            r["updated_at"]=datetime.now().isoformat()
+            _save_learned(rules)
+            return {"status":"updated","rule":r}
+    new_r={"pattern":pattern,"account":account,"tenant_id":tenant_id,
+            "note":note,"confidence":0.99,"created_at":datetime.now().isoformat(),"source":"human"}
+    rules.append(new_r)
+    _save_learned(rules)
+    return {"status":"learned","message":f"✅ '{pattern}'→{account} ({CHART_OF_ACCOUNTS.get(account,{}).get('name',account)})","rule":new_r}
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 7. კლასიფიკაციის ძრავი
+# 6. CLASSIFICATION
 # ══════════════════════════════════════════════════════════════
-
-def classify_transaction(description: str, tenant_id: str = "global") -> dict:
-    """ტრანზაქციის კლასიფიკაცია — Tenant + Global წესებით."""
-    desc_lower = description.lower()
-
-    # 1. Tenant-specific ნასწავლი წესები (უმაღლესი პრიორიტეტი)
-    learned = _load_learned_rules()
-    for rule in learned:
-        if rule["tenant_id"] in (tenant_id, "global"):
-            if rule["pattern"].lower() in desc_lower:
-                account_code = rule["account"]
-                account_info = CHART_OF_ACCOUNTS.get(account_code, {})
-                return {
-                    "account": account_code,
-                    "name": account_info.get("name", "უცნობი"),
-                    "confidence": rule["confidence"],
-                    "source": "learned_rule",
-                    "note": rule.get("note", ""),
-                }
-
-    # 2. სტანდარტული კლასიფიკაციის წესები
-    best_match = None
-    best_score = 0
-    for rule in CLASSIFICATION_RULES:
-        score = sum(1 for kw in rule["keywords"] if kw.lower() in desc_lower)
-        if score > best_score:
-            best_score = score
-            best_match = rule
-
-    if best_match and best_score > 0:
-        account_code = best_match["account"]
-        account_info = CHART_OF_ACCOUNTS.get(account_code, {})
-        confidence = best_match["confidence"]
-        return {
-            "account": account_code,
-            "name": account_info.get("name", "უცნობი"),
-            "confidence": confidence,
-            "source": "rules_engine",
-            "needs_review": confidence < 0.80,
-        }
-
-    # 3. Fallback
-    return {
-        "account": "7810",
-        "name": "სხვა ხარჯები",
-        "confidence": 0.40,
-        "source": "fallback",
-        "needs_review": True,
-    }
-
-
+ 
+_CLS_RULES=[
+    (["tbc საკომ","bog საკომ","bank fee","commission","საბ. საკ"],"7510",0.95),
+    (["ხელფ","salary","wage","payroll","მუშ","თანამ"],"7210",0.93),
+    (["ქირ","rent","იჯ","ოფ"],"7310",0.92),
+    (["კომ","utilities","electric","წყ","გაზ","gas"],"7410",0.91),
+    (["რეკლ","marketing","advertising","facebook","google ad"],"7710",0.90),
+    (["wolt","glovo","წარმ","entertainment","representative","რ-ნ"],"7720",0.88),
+    (["bolt","taxi","სატ"],"7730",0.85),
+    (["ამ","depreciation"],"7610",0.93),
+    (["პ","interest","სარგ"],"7520",0.87),
+    (["დივ","dividend"],"3370",0.97),
+    (["დღგ","vat"],"3310",0.87),
+    (["pit","საშ"],"3320",0.92),
+    (["cit","მოგ","profit tax"],"3340",0.92),
+    (["withholding","არარ"],"3350",0.92),
+    (["ინვ","invoice","გ-ვ","sale","revenue","შემ"],"6110",0.85),
+    (["მომ","service","კონს"],"6120",0.83),
+    (["მარ","inventory","stock","საქ","product"],"1310",0.82),
+    (["ძირ","equipment","machine","asset","მანქ"],"1510",0.82),
+    (["სალ","cash","ნაღ"],"1110",0.87),
+    (["ბანკ","bank","transfer"],"1120",0.85),
+    (["ავ","advance","prepay"],"1420",0.82),
+    (["სესხ","loan","kredit"],"3410",0.82),
+    (["კაპ","capital"],"4110",0.80),
+    (["მოთხ","receiv","დებ"],"1210",0.80),
+    (["კრ","payable","ვალდ","AP"],"3110",0.80),
+    (["დანაკლ","shortage"],"7110",0.75),
+    (["aws","amazon","azure","google cloud"],"7810",0.83),
+]
+ 
+ 
+def classify_transaction(description, tenant_id="global"):
+    desc=description.lower()
+    for r in _load_learned():
+        if r["tenant_id"] in (tenant_id,"global") and r["pattern"].lower() in desc:
+            return {"account":r["account"],"account_name":CHART_OF_ACCOUNTS.get(r["account"],{}).get("name",""),"confidence":r["confidence"],"matched_on":r["pattern"],"source":"learned"}
+    for code,info in CHART_OF_ACCOUNTS.items():
+        for kw in info.get("keywords",[]):
+            if kw and kw in desc:
+                return {"account":code,"account_name":info["name"],"confidence":0.88,"matched_on":kw,"source":"coa"}
+    for kws,acc,conf in _CLS_RULES:
+        for kw in kws:
+            if kw in desc:
+                return {"account":acc,"account_name":CHART_OF_ACCOUNTS.get(acc,{}).get("name",acc),"confidence":conf,"matched_on":kw,"source":"rules"}
+    return {"account":"7910","account_name":"სხვ.ხ.","confidence":0.30,"matched_on":"default","source":"fallback"}
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 8. საგადასახადო კალკულატორები
+# 7. UTILITY
 # ══════════════════════════════════════════════════════════════
-
-def calculate_vat(amount: float, inclusive: bool = True, service_type: str = "standard") -> dict:
-    """VAT-ის გაანგარიშება გამონაკლისების გათვალისწინებით."""
-    # გამონაკლისების შემოწმება
-    exempt_types = {
-        "medical": ("სამედიცინო მომსახურება — VAT-ისგან გათავისუფლებული", 0.0),
-        "education": ("საგანმანათლებლო მომსახურება — VAT-ისგან გათავისუფლებული", 0.0),
-        "export": ("ექსპორტი — 0% VAT (ჩათვლის უფლებით)", 0.0),
-        "financial": ("ფინანსური მომსახურება — VAT-ისგან გათავისუფლებული", 0.0),
-    }
-    if service_type in exempt_types:
-        note, rate = exempt_types[service_type]
-        return {"gross": amount, "net": amount, "vat": 0.0, "rate": "0%", "note": note}
-
-    # სტანდარტული გაანგარიშება
+ 
+def _fmt(a): return f"{a:,.2f}₾"
+ 
+def _jl(side,acc,amount):
+    name=CHART_OF_ACCOUNTS.get(acc,{}).get("name",acc)
+    return f"  {side} {acc} {name}{' '*(max(0,34-len(f'{side} {acc} {name}')))} {_fmt(amount)}"
+ 
+def _journal(*lines): return "\n".join(_jl(s,a,v) for s,a,v in lines)
+ 
+def _payload(desc,lines,dt=None):
+    return {"journal_date":dt or date.today().isoformat(),"description":desc,
+            "lines":[{"account_code":a,"debit":dr,"credit":cr} for a,dr,cr in lines]}
+ 
+ 
+# ══════════════════════════════════════════════════════════════
+# 8. CALCULATORS
+# ══════════════════════════════════════════════════════════════
+ 
+def calculate_vat(amount, inclusive=True, service_type="standard"):
+    """VAT — საგ.კოდ. თ.XIII / ბუღ.ლ.4"""
+    _load_files()
+    exempt={"medical":"სამედ.გათ.","education":"განათ.გათ.",
+            "export":"ექსპ.0%+ჩათვ.","financial":"ფინ.გათ.","apartment":"ბინ.გათ."}
+    for k,note in exempt.items():
+        if k in service_type.lower():
+            return {"vat":0,"net":amount,"gross":amount,"rate":"0%","note":note,"source":"საგ.კოდ.მ.168-172"}
+    r=TAX_RATES["vat"]
     if inclusive:
-        net = round(amount / 1.18, 2)
-        vat = round(amount - net, 2)
+        net=round(amount/(1+r),2); vat=round(amount-net,2); gross=amount
     else:
-        net = amount
-        vat = round(amount * 0.18, 2)
-
+        net=amount; vat=round(amount*r,2); gross=round(amount+vat,2)
     return {
-        "gross": round(net + vat, 2),
-        "net": net,
-        "vat": vat,
-        "rate": "18%",
-        "journal": f"Dr 1310 {net}₾ / Cr 6110 {net}₾, Cr 3310 {vat}₾",
-        "service_type": service_type,
+        "net":net,"vat":vat,"gross":gross,"rate":18,
+        "journal_paid":   _journal(("Dr","1120",gross),("Cr","6110",net),("Cr","3310",vat)),
+        "journal_unpaid": _journal(("Dr","1210",gross),("Cr","6110",net),("Cr","3310",vat)),
+        "balance_ge_paid":_payload("VAT sale",[("1120",gross,0),("6110",0,net),("3310",0,vat)]),
+        "note":f"{'ჩ-ვ' if inclusive else 'დ-ბ'}: net={_fmt(net)},vat={_fmt(vat)}",
+        "deadline":"კვ.15-ე","source":"საგ.კოდ.მ.160-172/ბუღ.ლ.4",
     }
-
-
-def calculate_payroll(gross: float, include_employee_payg: bool = True) -> dict:
-    """ხელფასის გაანგარიშება."""
-    pit = round(gross * 0.20, 2)
-    payg_employee = round(gross * 0.02, 2) if include_employee_payg else 0.0
-    payg_employer = round(gross * 0.02, 2)
-    net = round(gross - pit - payg_employee, 2)
-    return {
-        "gross": gross,
-        "pit": pit,
-        "payg_employee": payg_employee,
-        "payg_employer": payg_employer,
-        "net": net,
-        "total_employer_cost": round(gross + payg_employer, 2),
-        "journal": f"Dr 7210 {gross}₾ / Cr 2110 {net}₾, Cr 3320 {pit}₾, Cr 3330 {payg_employee + payg_employer}₾",
-        "deadline": "ყოველი თვის 15-მდე RS.ge-ზე (ფორმა N4)",
-    }
-
-
-def calculate_cit(distributed_profit: float) -> dict:
-    """CIT — ესტონური მოდელი."""
-    cit = round(distributed_profit * 0.15, 2)
-    net_dividend = round(distributed_profit - cit, 2)
-    return {
-        "distributed_profit": distributed_profit,
-        "cit": cit,
-        "net_dividend": net_dividend,
-        "rate": "15%",
-        "journal": f"Dr 4210 {distributed_profit}₾ / Cr 3340 {cit}₾, Cr 1120 {net_dividend}₾",
-        "deadline": "დივიდენდის გაცემიდან 15 დღეში (ფორმა N101)",
-    }
-
-
-def calculate_depreciation(cost: float, residual: float, useful_life_years: int, method: str = "straight_line") -> dict:
-    """ამორტიზაციის გაანგარიშება."""
-    if method == "straight_line":
-        annual = round((cost - residual) / useful_life_years, 2)
-        monthly = round(annual / 12, 2)
-        return {
-            "method": "Straight-Line",
-            "annual_depreciation": annual,
-            "monthly_depreciation": monthly,
-            "journal_monthly": f"Dr 7610 {monthly}₾ / Cr 1520 {monthly}₾",
-        }
-    elif method == "reducing_balance":
-        rate = round(1 - (residual / cost) ** (1 / useful_life_years), 4)
-        annual_year1 = round(cost * rate, 2)
-        return {
-            "method": "Reducing Balance",
-            "rate": f"{rate*100:.2f}%",
-            "annual_depreciation_year1": annual_year1,
-            "journal_monthly": f"Dr 7610 / Cr 1520 (ყოველი თვე)",
-        }
-    return {"error": "უცნობი მეთოდი"}
-
-
+ 
+ 
+def calculate_payroll(gross, include_pension=True, mode="gross"):
+    """Payroll — საგ.კოდ.მ.154 / ბუღ."""
+    _load_files()
+    ep=TAX_RATES["payg_employee"] if include_pension else 0.0
+    erp=TAX_RATES["payg_employer"] if include_pension else 0.0
+    p=TAX_RATES["pit"]
+    if mode=="net":
+        g=gross; gross=round(g/(1-p-ep),2)
+    pit=round(gross*p,2); emp_p=round(gross*ep,2)
+    net=round(gross-pit-emp_p,2); erp_a=round(gross*erp,2)
+    jl=[("Dr","7210",gross),("Cr","3320",pit)]
+    if emp_p: jl.append(("Cr","3330",emp_p))
+    jl.append(("Cr","3360",net))
+    j=_journal(*jl)
+    if erp_a: j+="\n\n  — დამ.საპ. —\n"+_journal(("Dr","7220",erp_a),("Cr","3335",erp_a))
+    pl=[("7210",gross,0),("3320",0,pit)]
+    if emp_p: pl.append(("3330",0,emp_p))
+    pl.append(("3360",0,net))
+    return {"gross":gross,"pit":pit,"payg_employee":emp_p,"payg_employer":erp_a,
+            "net":net,"total_employer_cost":round(gross+erp_a,2),
+            "journal":j,"balance_ge":_payload("Salary",pl),
+            "deadline":"თვ.15-ე(N4)","source":"საგ.კოდ.მ.154-155/ბუღ."}
+ 
+ 
+def calculate_cit(distributed_profit):
+    """CIT — ესტ.მოდ. საგ.კოდ.მ.97(3)"""
+    _load_files()
+    tb=round(distributed_profit/TAX_RATES["cit_divisor"],2)
+    cit=round(tb*TAX_RATES["cit"],2); nd=round(distributed_profit-cit,2)
+    j1=_journal(("Dr","4210",distributed_profit),("Cr","3370",distributed_profit))
+    j2=_journal(("Dr","3370",distributed_profit),("Cr","3340",cit),("Cr","1120",nd))
+    return {"distributed_profit":distributed_profit,"tax_base":tb,"cit":cit,"net_dividend":nd,
+            "journal":f"ეტ.1:\n{j1}\n\nეტ.2:\n{j2}",
+            "balance_ge_step1":_payload("Div.accrual",[("4210",distributed_profit,0),("3370",0,distributed_profit)]),
+            "balance_ge_step2":_payload("Div.payment",[("3370",distributed_profit,0),("3340",0,cit),("1120",0,nd)]),
+            "deadline":"15დ.","source":"საგ.კოდ.მ.97(3)/ბუღ.ლ.6"}
+ 
+ 
+def calculate_withholding(amount, payment_type="dividend", is_resident=True):
+    """Withholding — საგ.კოდ.მ.134"""
+    _load_files()
+    rate=TAX_RATES.get(f"withholding_{payment_type}",0.10)
+    if is_resident and payment_type not in ["royalty"]: rate=0
+    tax=round(amount*rate,2); net=round(amount-tax,2)
+    return {"amount":amount,"rate":int(rate*100),"tax":tax,"net":net,
+            "journal":_journal(("Dr","3350",tax),("Cr","1120",tax)) if tax else "",
+            "deadline":"15დ.","source":"საგ.კოდ.მ.134"}
+ 
+ 
+def calculate_depreciation(cost, residual, useful_life_years, method="straight_line"):
+    """ამ. — IAS16/ბუღ.ლ.8"""
+    _load_files()
+    ann=round((cost-residual)/useful_life_years,2) if method=="straight_line" else round(cost*0.20,2)
+    mon=round(ann/12,2)
+    return {"cost":cost,"residual":residual,"useful_life":useful_life_years,
+            "method":method,"annual":ann,"monthly":mon,
+            "journal":_journal(("Dr","7610",mon),("Cr","1520",mon)),
+            "source":"IAS16/ბუღ.ლ.8"}
+ 
+ 
+def calculate_inventory_shortage(shortage_amount, has_culprit=False):
+    """დ-სი — IAS2/ბუღ.ლ.3"""
+    _load_files()
+    lines=[("Dr","7110",shortage_amount),("Cr","1310",shortage_amount)]
+    if has_culprit: lines+=[("Dr","1210",shortage_amount),("Cr","7110",shortage_amount)]
+    return {"shortage":shortage_amount,"vat_liability":round(shortage_amount*TAX_RATES["vat"],2),
+            "journal":_journal(*lines),
+            "note":"⚠️ VAT!"+(" + თ.ანაზ." if has_culprit else ""),
+            "source":"IAS2/ბუღ.ლ.3/საგ.კოდ."}
+ 
+ 
 # ══════════════════════════════════════════════════════════════
-# 9. ძიების ძრავი
+# 9. KNOWLEDGE ITEMS + SEARCH
 # ══════════════════════════════════════════════════════════════
-
-def search_knowledge(query: str, top_k: int = 5) -> list:
-    """ცოდნის ბაზაში ძიება."""
-    query_lower = query.lower()
-    results = []
-
-    for tax_name, tax_data in TAX_RULES.items():
-        for rule in tax_data.get("rules", []):
-            if any(w in rule.lower() for w in query_lower.split() if len(w) > 2):
-                results.append({"category": "TAX", "source": tax_name, "text": rule, "relevance": 0.9})
-        for item in tax_data.get("exempt_no_credit", []):
-            if any(w in item.lower() for w in query_lower.split() if len(w) > 2):
-                results.append({"category": "TAX_EXEMPT", "source": tax_name, "text": item, "relevance": 0.88})
-        for item in tax_data.get("deemed_distribution", []):
-            if any(w in item.lower() for w in query_lower.split() if len(w) > 2):
-                results.append({"category": "CIT_DEEMED", "source": tax_name, "text": item, "relevance": 0.87})
-
-    for code, account in CHART_OF_ACCOUNTS.items():
-        if any(kw in query_lower for kw in account["keywords"]):
-            results.append({"category": "COA", "source": f"ანგარიში {code}", "text": f"{code} — {account['name']}", "relevance": 0.85})
-
-    for std_name, std_data in ACCA_STANDARDS.items():
-        for key in ["steps", "rules", "key_rules", "formulas", "lessee_accounting"]:
-            for item in std_data.get(key, []):
-                if any(w in item.lower() for w in query_lower.split() if len(w) > 3):
-                    results.append({"category": "ACCA", "source": std_name, "text": item, "relevance": 0.80})
-
-    results.sort(key=lambda x: x["relevance"], reverse=True)
-    return results[:top_k]
-
-
-def get_context_for_llm(query: str, max_chars: int = 3000) -> str:
-    """LLM-ისთვის კონტექსტის მომზადება."""
-    results = search_knowledge(query, top_k=12)
-    context_parts = []
-    total_chars = 0
-    for r in results:
-        text = f"[{r['category']}] {r['source']}: {r['text']}"
-        if total_chars + len(text) > max_chars:
-            break
-        context_parts.append(text)
-        total_chars += len(text)
-    return "\n".join(context_parts)
-
-
-def get_stats() -> dict:
-    """სტატისტიკა."""
-    learned = _load_learned_rules()
+ 
+_KB=[
+    {"title":"VAT/დღგ 18%","content":"18%. >100k→2სამ.დ.რეგ. ექ:0%. Paid:Dr1120/Cr6110/Cr3310. Unp:Dr1210/Cr6110/Cr3310. კვ.15-ე.","keywords":["vat","დღგ","18%","100000","ექ","invoice"],"category":"vat","source":"საგ.კ.მ.160-172|ბ.ლ.4"},
+    {"title":"PIT 20%+PAYG2%","content":"PIT20%.EmpP2%.EmplP2%.Net=Gr×0.78/0.80.Gross-up:÷0.78.Dr7210/Cr3320/Cr3330/Cr3360+Dr7220/Cr3335.თვ.15-ე(N4).","keywords":["pit","საშ","ხ","20%","payg","pension","salary","2%","net","gross"],"category":"pit","source":"საგ.კ.მ.154"},
+    {"title":"CIT 15% ესტ.","content":"მხ.განაწ.მოგ.15%.ბ=გან÷0.85.CIT=ბ×15%.Dr4210/Cr3370→Dr3370/Cr3340/Cr1120.15დ.(N101).","keywords":["cit","მოგ","15%","დივ","ესტ","0.85","განაწ","profit"],"category":"cit","source":"საგ.კ.მ.97(3)"},
+    {"title":"Withholding","content":"არარ.დ:5%.Ry:10%.პ:5%.მ:10%.15დ.","keywords":["withholding","არარ","royalty","5%","10%","non-res"],"category":"wth","source":"საგ.კ.მ.134"},
+    {"title":"ბუღ.პრინც.","content":"Dr=Cr.ყ.ოპ.≥2ანგ.Aktiv=Liab+Eq.FIFO/WAvg.Dr↑Akt.Cr↑Liab.","keywords":["ორმ","double","Dr","Cr","ბალ","aktiv"],"category":"prin","source":"ბ.ლ.1"},
+    {"title":"VAT გ-ა","content":"paid:Dr1120/Cr6110/Cr3310. unpaid:Dr1210/Cr6110/Cr3310. შ.(ჩ.):Dr1310+Dr3311/Cr1120.","keywords":["vat გ","dghg","6110","3310","3311","ჩ"],"category":"vat_p","source":"ბ.ლ.4"},
+    {"title":"ხ.გ-ა","content":"Dr7210=Gr.Cr3320=PIT.Cr3330=EmpP.Cr3360=Net.Dr7220/Cr3335=EmplP.","keywords":["7210","3320","3330","3360","salary","payroll"],"category":"sal_p","source":"ბ."},
+    {"title":"დ-ს გ-ა","content":"ეტ.1:Dr4210/Cr3370. ეტ.2:Dr3370/Cr3340/Cr1120.","keywords":["4210","3370","3340","dividend"],"category":"div_p","source":"ბ.ლ.6"},
+    {"title":"მარ.გ-ა","content":"შ:Dr1310/Cr3110.COGS:Dr7110/Cr1310.დ-სი:Dr7110/Cr1310+VAT!FIFO/LIFO.","keywords":["1310","7110","inventory","COGS","FIFO","LIFO","დ-სი","მარ"],"category":"inv","source":"ბ.ლ.3"},
+    {"title":"ძ.საშ.+ამ.","content":"შ:Dr1510/Cr1120.ამ:Dr7610/Cr1520.SL=(C-R)÷L.DB=BV×%.","keywords":["1510","1520","7610","dep","ამ","fixed","FA"],"category":"fa","source":"IAS16/ბ.ლ.8"},
+    {"title":"მოთხ.","content":"Dr1210/Cr6110.გ:Dr1120/Cr1210.ჩ:Dr7910/Cr1210.","keywords":["receivable","მოთხ","1210","bad","უიმ"],"category":"rec","source":"ბ.ლ.5"},
+    {"title":"ვალდ.","content":"Dr1310/Cr3110.გ:Dr3110/Cr1120.ავ:Dr1120/Cr3120.","keywords":["payable","3110","3120","ვალდ","AP","ავ"],"category":"pay","source":"ბ.ლ.6"},
+    {"title":"კაპ.","content":"გ-ა:Dr1120/Cr4110.მ:Dr6/Cr4210.ზ:Dr4210/Cr7.დ:Dr4210/Cr3370.","keywords":["4110","4210","RE","equity","capital","კაპ"],"category":"cap","source":"ბ.ლ.9"},
+    {"title":"ქ.გ-ა","content":"მ.1%.ფ:40k-გ.15ივ+15დ.","keywords":["ქ","property","1%"],"category":"prop","source":"საგ.კ."},
+    {"title":"მ/მ ბ-ი","content":"მ:<30k→0%.მც:<500k→1%/3%.","keywords":["მ","small","micro","30000","500000"],"category":"ms","source":"საგ.კ."},
+    {"title":"სესხი","content":"მ:Dr1120/Cr3410.პ:Dr7520/Cr3xxx.დ:Dr3410/Cr1120.","keywords":["სესხ","loan","3410","7520","ვალ"],"category":"loan","source":"ბ.ლ.7"},
+    {"title":"IFRS16","content":"ROU=PV(გ-ბ)+საწ.Dr1710/Cr3430.ამ:Dr7610/Cr1520.პ:Dr7520.<12თ→ოპ.","keywords":["ifrs16","rou","leasing","ლ","1710","3430"],"category":"ifrs16","source":"IFRS16"},
+    {"title":"IFRS15","content":"5-ნ:კ-ტ→PO→ფ→გ-ა→შ.ვ.შ. კ.გ.→შ.ა.","keywords":["ifrs15","revenue","შ.აღ","performance"],"category":"ifrs15","source":"IFRS15"},
+]
+ 
+ 
+def search_knowledge(query, top_k=5):
+    _load_files()
+    q=query.lower()
+    sc=[]
+    for item in _KB:
+        s=sum(1 for kw in item["keywords"] if kw in q)
+        if s: sc.append((s,item))
+    for sn,sd in ACCA_STANDARDS.items():
+        for k in ["steps","rules","key_rules","formulas","lessee_accounting"]:
+            for t in sd.get(k,[]):
+                if any(w in t.lower() for w in q.split() if len(w)>3):
+                    sc.append((0.5,{"title":sd["title"],"content":t,"source":sn,"category":"acca"}))
+    for tn,td in TAX_RULES.items():
+        for r in td.get("rules",[]):
+            if any(w in r.lower() for w in q.split() if len(w)>2):
+                sc.append((0.6,{"title":tn,"content":r,"source":tn,"category":"tax"}))
+    sc.sort(key=lambda x:-x[0])
+    res=[i for _,i in sc[:top_k]]
+    if _TAX_TEXT and len(res)<2:
+        s=_find(_TAX_TEXT,query[:20],1000)
+        if s: res.append({"title":f"საგ.კ.—{query[:20]}","content":s,"source":"საგ.კ.","category":"raw_t"})
+    if _ACC_TEXT and len(res)<3:
+        s=_find(_ACC_TEXT,query[:20],1000)
+        if s: res.append({"title":f"ბ.სხ.—{query[:20]}","content":s,"source":"ბ.სხ.","category":"raw_a"})
+    return res
+ 
+ 
+def get_context_for_llm(query, max_chars=3000):
+    res=search_knowledge(query,6)
+    parts,total=[],0
+    for r in res:
+        c=f"[{r['source']}]\n{r['content']}\n"
+        if total+len(c)>max_chars: break
+        parts.append(c); total+=len(c)
+    if _TAX_TEXT:
+        raw=_find(_TAX_TEXT,query[:25],800)
+        if raw and total+len(raw)<max_chars: parts.append(f"[საგ.კ.]\n{raw}\n")
+    if _ACC_TEXT:
+        raw=_find(_ACC_TEXT,query[:25],800)
+        if raw and total+len(raw)<max_chars: parts.append(f"[ბ.სხ.]\n{raw}\n")
+    return "\n".join(parts)
+ 
+ 
+# ══════════════════════════════════════════════════════════════
+# 10. STATS
+# ══════════════════════════════════════════════════════════════
+ 
+def get_stats():
+    _load_files()
+    lr=_load_learned()
     return {
-        "tax_rules": len(TAX_RULES),
-        "accounts": len(CHART_OF_ACCOUNTS),
-        "classification_rules": len(CLASSIFICATION_RULES),
-        "acca_standards": len(ACCA_STANDARDS),
-        "learned_rules": len(learned),
-        "total_knowledge_items": (
-            len(TAX_RULES) +
-            len(CHART_OF_ACCOUNTS) +
-            len(CLASSIFICATION_RULES) +
-            sum(len(v.get("topics", [])) + len(v.get("steps", [])) + len(v.get("rules", [])) + len(v.get("formulas", [])) for v in ACCA_STANDARDS.values()) +
-            sum(len(v.get("rules", [])) + len(v.get("exempt_no_credit", [])) + len(v.get("deemed_distribution", [])) for v in TAX_RULES.values()) +
-            len(learned)
-        )
+        "tax_rules":len(TAX_RULES),"acca":len(ACCA_STANDARDS),
+        "accounts":len(CHART_OF_ACCOUNTS),"cls_rules":len(_CLS_RULES),
+        "knowledge_items":len(_KB),"learned":len(lr),
+        "tax_loaded":bool(_TAX_TEXT),"acc_loaded":bool(_ACC_TEXT),
+        "tax_chars":len(_TAX_TEXT),"acc_chars":len(_ACC_TEXT),
+        "total":len(_KB)+len(_CLS_RULES)+len(CHART_OF_ACCOUNTS)+len(TAX_RULES)+len(ACCA_STANDARDS)+len(lr),
     }
-
-
+ 
+ 
 # ══════════════════════════════════════════════════════════════
 # TEST
 # ══════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    print("🧪 Bridge Hub Knowledge Base V2 — ტესტი\n")
-
-    vat = calculate_vat(5900, inclusive=True)
-    print(f"✅ VAT: 5900₾ → ნეტო={vat['net']}₾, VAT={vat['vat']}₾")
-
-    vat_export = calculate_vat(5000, inclusive=False, service_type="export")
-    print(f"✅ ექსპორტი VAT: {vat_export['note']}")
-
-    pay = calculate_payroll(3000)
-    print(f"✅ Payroll: PIT={pay['pit']}₾, PAYG={pay['payg_employee']}₾, ნეტო={pay['net']}₾")
-
-    cit = calculate_cit(10000)
-    print(f"✅ CIT: 10000₾ → CIT={cit['cit']}₾, ნეტო={cit['net_dividend']}₾")
-
-    dep = calculate_depreciation(12000, 2000, 5)
-    print(f"✅ ამორტიზაცია: {dep['annual_depreciation']}₾/წელ, {dep['monthly_depreciation']}₾/თვე")
-
-    cls = classify_transaction("TBC საბანკო საკომისიო 45₾")
-    print(f"✅ კლასიფიკაცია: {cls['account']} ({cls['confidence']*100:.0f}%)")
-
-    # Self-learning ტესტი
-    result = learn_new_rule("Wolt", "7720", note="Wolt = წარმომადგენლობითი ხარჯი")
-    print(f"✅ Self-learning: {result['message']}")
-
-    cls2 = classify_transaction("Wolt 35₾")
-    print(f"✅ ნასწავლი წესი: Wolt → {cls2['account']} ({cls2['source']})")
-
-    stats = get_stats()
-    print(f"\n📊 სტატისტიკა: {stats['total_knowledge_items']} ელემენტი, {stats['learned_rules']} ნასწავლი წესი")
+if __name__=="__main__":
+    print("🧪 Bridge Hub KB V4\n")
+    v=calculate_vat(5900); print(f"✅ VAT: net={v['net']}₾ vat={v['vat']}₾\n{v['journal_paid']}")
+    p=calculate_payroll(2000); print(f"\n✅ Payroll: pit={p['pit']}₾ net={p['net']}₾\n{p['journal']}")
+    c=calculate_cit(10000); print(f"\n✅ CIT: cit={c['cit']}₾ nd={c['net_dividend']}₾\n{c['journal']}")
+    d=calculate_depreciation(12000,2000,5); print(f"\n✅ Depr: {d['annual']}₾/y {d['monthly']}₾/m")
+    cl=classify_transaction("TBC საბანკო საკომ 45₾"); print(f"\n✅ Cls: {cl['account']} ({cl['confidence']*100:.0f}%)")
+    r=learn_new_rule("Wolt","7720","global","წარმ."); print(f"✅ Learn: {r['message']}")
+    cl2=classify_transaction("Wolt 35₾"); print(f"✅ Learned: {cl2['account']} ({cl2['source']})")
+    st=get_stats(); print(f"\n📊 total={st['total']} | tax={st['tax_chars']} | acc={st['acc_chars']}")

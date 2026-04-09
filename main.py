@@ -254,3 +254,11 @@ async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
+    # Knowledge Base preload
+    try:
+        from bridge_hub_knowledge import _load_files as _kb_load
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _kb_load)
+        print("✅ Knowledge Base loaded!")
+    except Exception as e:
+        print(f"⚠️ KB load error: {e}")

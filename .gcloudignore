@@ -1,5 +1,6 @@
 .venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.pyd
@@ -9,5 +10,19 @@ venv/
 build/
 dist/
 *.log
+*.db
+*.zip
+
 .git/
 .gitignore
+
+chroma_db/
+tests/
+examples/
+
+server.log
+uvicorn.log
+pending_queue.json
+patterns_top.json
+
+.env

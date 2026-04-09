@@ -44,12 +44,12 @@ def _load_files():
         for fn in os.listdir(d):
             fp = os.path.join(d, fn)
             try:
-                if ("საგადასახადო" in fn or fn == "tax_code.docx") and fn.endswith(".docx") and not _TAX_TEXT:
+                if fn == "tax_code.docx" and not _TAX_TEXT:
                     import docx as _docx
                     doc = _docx.Document(fp)
                     _TAX_TEXT = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
                     print(f"✅ Tax: {len(_TAX_TEXT)} chars [{fn}]")
-                elif ("ბუღალტრული" in fn or fn == "accounting.pdf") and fn.endswith(".pdf") and not _ACC_TEXT:
+                elif fn == "accounting.pdf" and not _ACC_TEXT:
                     import fitz
                     pdf = fitz.open(fp)
                     _ACC_TEXT = "".join(pdf[i].get_text() for i in range(len(pdf)))

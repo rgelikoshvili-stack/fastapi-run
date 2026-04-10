@@ -1,0 +1,562 @@
+"""
+Bridge Hub — AI Chat Service (FINAL)
+→ app/api/services/ai_chat_service.py
+
+Memory Learning + LLM Combine
+- file → process_document → draft
+- text → local rules / KB / vector / memory-first / LLM-second
+- "გატარე" → draft creation
+- direct OpenAI call ❌
+- unified llm_service ✅
+"""
+
+import os
+import re
+import tempfile
+from typing import Optional, List, Dict, Any
+
+from app.api.services.accounting_engine import process_document
+from app.api.services.llm_service import classify as llm_classify
+from app.api.services.llm_service import generate_preview
+
+
+# ─────────────────────────────────────────────────────────────
+# Knowledge Base
+# ─────────────────────────────────────────────────────────────
+try:
+    from bridge_hub_knowledge import (
+        calculate_vat,
+        calculate_payroll,
+        calculate_cit,
+        calculate_depreciation,
+        classify_transaction,
+        search_knowledge,
+        learn_new_rule,
+        get_context_for_llm,
+        get_stats,
+        CHART_OF_ACCOUNTS,
+        build_journal_from_text,
+    )
+    KB_LOADED = True
+except ImportError:
+    KB_LOADED = False
+    CHART_OF_ACCOUNTS = {}
+
+
+# ─────────────────────────────────────────────────────────────
+# Vector DB
+# ─────────────────────────────────────────────────────────────
+_vector_db_available = False
+try:
+    from bridge_hub_vector_db import (
+        hybrid_search,
+        learn_from_correction,
+        get_vector_stats,
+        index_files,
+        get_context_for_llm_hybrid,
+    )
+    _vector_db_available = True
+except ImportError:
+    pass
+
+
+# ─────────────────────────────────────────────────────────────
+# Accounting Rules
+# ─────────────────────────────────────────────────────────────
+try:
+    from app.api.services.accounting_rules import (
+        build_vat_posting,
+        build_dividend_posting,
+        format_gel,
+    )
+    ACCT_RULES_LOADED = True
+except ImportError:
+    ACCT_RULES_LOADED = False
+
+    def format_gel(a):
+        return f"{a:,.2f}₾"
+
+
+# ─────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────
+def _extract_amount(text: str) -> Optional[float]:
+    normalized = text.lower().replace("₾", " ₾ ").replace("ლარი", " ლარი ")
+    m = re.search(r"(\d+(?:[.,]\d+)?)", normalized)
+    if not m:
+        return None
+    return float(m.group(1).replace(",", "."))
+
+
+def _contains_any(text: str, words: List[str]) -> bool:
+    return any(w in text for w in words)
+
+
+def _format_sources(results) -> List[str]:
+    return [f"{r.get('category', 'kb')}: {r.get('source', 'unknown')}" for r in results]
+
+
+def _create_draft_from_result(result: dict, tenant_id: str) -> dict:
+    from app.api.services.posting_service import create_journal_draft
+
+    return create_journal_draft(
+        description=result.get("description", "AI Draft"),
+        lines=result.get("lines", []),
+        tenant_id=tenant_id,
+    )
+
+
+def _build_memory_context(message: str, tenant_id: str) -> Dict[str, Any]:
+    """
+    Memory / learned rules first.
+    იყენებს bridge_hub_knowledge.classify_transaction()-ს როგორც
+    learned rules / patterns / memory წყაროს.
+    """
+    if not KB_LOADED:
+        return {
+            "matched": False,
+            "account_code": None,
+            "confidence": 0.0,
+            "reasoning": "",
+            "source": "kb_unavailable",
+        }
+
+    try:
+        result = classify_transaction(message, tenant_id)
+        account_code = result.get("account") or result.get("account_code")
+        confidence = float(result.get("confidence", 0.0))
+        source = result.get("source", "memory")
+        reason = result.get("reason") or result.get("reasoning") or ""
+
+        return {
+            "matched": bool(account_code),
+            "account_code": account_code,
+            "confidence": confidence,
+            "reasoning": reason,
+            "source": source,
+        }
+    except Exception as e:
+        return {
+            "matched": False,
+            "account_code": None,
+            "confidence": 0.0,
+            "reasoning": f"memory error: {str(e)}",
+            "source": "memory_error",
+        }
+
+
+def _local_answer(message: str) -> Optional[str]:
+    if not KB_LOADED:
+        return None
+
+    msg = message.lower()
+
+    if _contains_any(msg, ["დივიდენდი", "dividend"]):
+        amount = _extract_amount(msg)
+        if amount is None:
+            return None
+
+        if ACCT_RULES_LOADED:
+            d = build_dividend_posting(amount)
+            return (
+                f"📊 **დივიდენდის 2-ეტაპიანი გატარება — {format_gel(amount)}**\n\n"
+                f"**ეტაპი 1 — დარიცხვა:**\n```\n{d['step1']['human_readable']}\n```\n\n"
+                f"**ეტაპი 2 — გადახდა + CIT:**\n```\n{d['step2']['human_readable']}\n```"
+            )
+
+        r = calculate_cit(amount)
+        return (
+            f"📊 **CIT გაანგარიშება — {format_gel(amount)}**\n\n"
+            f"📒 **გატარება:**\n```\n{r['journal']}\n```"
+        )
+
+    if _contains_any(msg, ["cit", "მოგება", "profit"]) and "დივიდენდი" not in msg:
+        amount = _extract_amount(msg)
+        if amount is None:
+            return None
+
+        r = calculate_cit(amount)
+        return (
+            f"📊 **CIT გაანგარიშება — {format_gel(amount)}**\n\n"
+            f"| | |\n|---|---|\n"
+            f"| განაწილებული მოგება | **{format_gel(r['distributed_profit'])}** |\n"
+            f"| CIT (15%) | **{format_gel(r['cit'])}** |\n"
+            f"| **ნეტო** | **{format_gel(r['net_dividend'])}** |"
+        )
+
+    if _contains_any(msg, ["ხელფასი", "salary", "payroll", "pit", "payg", "ხელზე"]):
+        amount = _extract_amount(msg)
+        if amount is None:
+            return None
+
+        mode = "net" if "ხელზე" in msg else "gross"
+        r = calculate_payroll(amount, mode=mode)
+
+        return (
+            f"👤 **ხელფასის გაანგარიშება — {format_gel(amount)}**\n\n"
+            f"| | |\n|---|---|\n"
+            f"| დათვლილი ბრუტო | **{format_gel(r['gross'])}** |\n"
+            f"| PIT (20%) | **{format_gel(r['pit'])}** |\n"
+            f"| PAYG თანამშრომელი (2%) | **{format_gel(r['payg_employee'])}** |\n"
+            f"| **ნეტო** | **{format_gel(r['net'])}** |"
+        )
+
+    if _contains_any(msg, ["vat", "დღგ", "ამოიღე", "გამოყავი"]):
+        amount = _extract_amount(msg)
+        if amount is None:
+            return None
+
+        inclusive = not _contains_any(msg, ["გარეშე", "without", "exclusive"])
+        payment_status = "unpaid" if _contains_any(msg, ["ინვოისი", "invoice", "unpaid", "მოთხოვნა"]) else "paid"
+
+        if ACCT_RULES_LOADED:
+            p = build_vat_posting(amount, payment_status=payment_status)
+            return (
+                f"💰 **VAT გაანგარიშება — {format_gel(amount)}**\n\n"
+                f"| | |\n|---|---|\n"
+                f"| ნეტო | **{format_gel(p['net'])}** |\n"
+                f"| დღგ | **{format_gel(p['vat'])}** |\n"
+                f"| ბრუტო | **{format_gel(p['gross'])}** |"
+            )
+
+        r = calculate_vat(amount, inclusive=inclusive)
+        return (
+            f"💰 **VAT გაანგარიშება — {format_gel(amount)}**\n\n"
+            f"| | |\n|---|---|\n"
+            f"| ნეტო | **{format_gel(r['net'])}** |\n"
+            f"| დღგ | **{format_gel(r['vat'])}** |\n"
+            f"| ბრუტო | **{format_gel(r['gross'])}** |"
+        )
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────
+# MAIN CHAT HANDLER
+# ─────────────────────────────────────────────────────────────
+async def handle_ai_chat(
+    message: str,
+    session_id: Optional[str] = None,
+    tenant_id: str = "global",
+    use_vector_search: bool = True,
+    file=None,
+) -> Dict[str, Any]:
+    message = (message or "").strip()
+
+    # 1. FILE → OCR / PARSE / DRAFT
+    if file:
+        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            temp_path = tmp.name
+
+        try:
+            result = process_document(temp_path)
+
+            if result.get("lines"):
+                draft = _create_draft_from_result(result, tenant_id)
+                return {
+                    "answer": (
+                        f"{result.get('message', 'დოკუმენტი დამუშავდა')}\n\n"
+                        f"🧾 Draft შეიქმნა ხიდში ✅\n"
+                        f"📌 Draft ID: {draft.get('id')}\n\n"
+                        f"➡️ გახსენი approval გვერდზე და გადაამოწმე"
+                    ),
+                    "sources": ["document"],
+                    "confidence": 0.95,
+                    "search_method": "document_analysis",
+                    "session_id": session_id,
+                }
+
+            return {
+                "answer": result.get("message", "დოკუმენტი დამუშავდა, მაგრამ draft ვერ შეიქმნა"),
+                "sources": ["document"],
+                "confidence": 0.70,
+                "search_method": "document_analysis",
+                "session_id": session_id,
+            }
+
+        except Exception as e:
+            return {
+                "answer": f"⚠️ დოკუმენტის დამუშავების შეცდომა: {str(e)}",
+                "sources": ["document"],
+                "confidence": 0.30,
+                "search_method": "document_analysis",
+                "session_id": session_id,
+            }
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+    # 2. TEXT → DRAFT
+    if message and ("გატარე" in message.lower() or "post" in message.lower()):
+        try:
+            if not KB_LOADED:
+                return {
+                    "answer": "⚠️ Knowledge Base არ არის ჩატვირთული",
+                    "sources": ["accounting_engine"],
+                    "confidence": 0.30,
+                    "search_method": "auto_posting",
+                    "session_id": session_id,
+                }
+
+            result = build_journal_from_text(message)
+
+            if result.get("lines"):
+                draft = _create_draft_from_result(result, tenant_id)
+                return {
+                    "answer": (
+                        f"{result.get('message', 'გატარება მომზადდა')}\n\n"
+                        f"🧾 Draft შეიქმნა ✅\n"
+                        f"📌 ID: {draft.get('id')}"
+                    ),
+                    "sources": ["accounting_engine"],
+                    "confidence": 0.95,
+                    "search_method": "auto_posting",
+                    "session_id": session_id,
+                }
+
+            return {
+                "answer": result.get("message", "ვერ დამუშავდა"),
+                "sources": ["accounting_engine"],
+                "confidence": 0.70,
+                "search_method": "auto_posting",
+                "session_id": session_id,
+            }
+
+        except Exception as e:
+            return {
+                "answer": f"⚠️ შეცდომა: {str(e)}",
+                "sources": ["accounting_engine"],
+                "confidence": 0.30,
+                "search_method": "auto_posting",
+                "session_id": session_id,
+            }
+
+    # 3. LOCAL RULES
+    if KB_LOADED:
+        local = _local_answer(message)
+        if local:
+            return {
+                "answer": local,
+                "sources": ["kb"],
+                "confidence": 0.98,
+                "search_method": "local_rules",
+                "session_id": session_id,
+            }
+
+    # 4. CONTEXT SEARCH
+    context = ""
+    sources = []
+    search_method = "keyword"
+
+    if use_vector_search and _vector_db_available:
+        try:
+            context = get_context_for_llm_hybrid(message, max_chars=4000)
+            search_method = "hybrid"
+            sources = ["ChromaDB + KB"]
+        except Exception:
+            pass
+
+    if not context and KB_LOADED:
+        context = get_context_for_llm(message, max_chars=3000)
+        results = search_knowledge(message, top_k=5)
+        sources = _format_sources(results)
+
+    # 5. MEMORY FIRST
+    memory_result = _build_memory_context(message, tenant_id)
+
+    if memory_result.get("matched") and float(memory_result.get("confidence", 0.0)) >= 0.85:
+        preview = generate_preview(
+            {
+                "account_dr": memory_result.get("account_code"),
+                "account_cr": "",
+                "amount": 0,
+                "description": memory_result.get("reasoning") or message,
+            },
+            tenant_id=tenant_id,
+        )
+
+        return {
+            "answer": preview or memory_result.get("reasoning") or "ნასწავლი წესით დამუშავდა",
+            "sources": sources + [f"memory:{memory_result.get('source', 'local')}"],
+            "confidence": float(memory_result.get("confidence", 0.85)),
+            "search_method": "memory_first",
+            "session_id": session_id,
+        }
+
+    # 6. MEMORY + CONTEXT → LLM
+    llm_result = llm_classify(
+        description=message,
+        context={
+            "context": context,
+            "memory_account_code": memory_result.get("account_code"),
+            "memory_confidence": memory_result.get("confidence"),
+            "memory_reasoning": memory_result.get("reasoning"),
+            "sources": sources,
+        },
+        tenant_id=tenant_id,
+    )
+
+    preview = generate_preview(
+        {
+            "account_dr": llm_result.get("account_code"),
+            "account_cr": "",
+            "amount": 0,
+            "description": llm_result.get("reasoning") or message,
+        },
+        tenant_id=tenant_id,
+    )
+
+    return {
+        "answer": preview or llm_result.get("reasoning") or "დამუშავდა",
+        "sources": sources + [f"llm:{llm_result.get('source', 'gateway')}"],
+        "confidence": float(llm_result.get("confidence", 0.70)),
+        "search_method": "memory_plus_llm",
+        "session_id": session_id,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# SUPPORT FUNCTIONS FOR routes_ai_chat.py
+# ─────────────────────────────────────────────────────────────
+def get_ai_system_stats():
+    return {
+        "kb_loaded": KB_LOADED,
+        "vector_db_available": _vector_db_available,
+        "accounting_rules_loaded": ACCT_RULES_LOADED,
+    }
+
+
+def run_ai_search(q: str, top_k: int = 5, use_vector: bool = True):
+    if use_vector and _vector_db_available:
+        try:
+            return {"query": q, "results": hybrid_search(q, top_k), "method": "hybrid"}
+        except Exception:
+            pass
+
+    if KB_LOADED:
+        return {"query": q, "results": search_knowledge(q, top_k), "method": "keyword"}
+
+    return {"query": q, "results": [], "method": "unavailable"}
+
+
+def run_vat_calc(request):
+    if ACCT_RULES_LOADED:
+        return build_vat_posting(
+            request.amount,
+            payment_status=request.payment_status or "paid",
+        )
+
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    return calculate_vat(request.amount, request.inclusive, request.service_type)
+
+
+def run_dividend_calc(request):
+    if ACCT_RULES_LOADED:
+        return build_dividend_posting(request.gross_amount, request.cit_rate)
+
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    return calculate_cit(request.gross_amount)
+
+
+def run_payroll_calc(request):
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    return calculate_payroll(
+        request.gross,
+        request.include_employee_payg,
+        request.mode or "gross",
+    )
+
+
+def run_cit_calc(request):
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    return calculate_cit(request.distributed_profit)
+
+
+def run_depreciation_calc(request):
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    return calculate_depreciation(
+        request.cost,
+        request.residual,
+        request.useful_life_years,
+        request.method,
+    )
+
+
+def run_classify_tx(request):
+    if not KB_LOADED:
+        return {"error": "KB not loaded"}
+
+    result = classify_transaction(request.description, request.tenant_id)
+    return {
+        **result,
+        "account_type": CHART_OF_ACCOUNTS.get(
+            result.get("account") or result.get("account_code"),
+            {}
+        ).get("type", "unknown"),
+    }
+
+
+def run_learn_rule(request):
+    if not KB_LOADED:
+        return {"status": "error", "message": "KB not loaded"}
+
+    results = {
+        "python_rules": learn_new_rule(
+            request.pattern,
+            request.account,
+            request.tenant_id,
+            request.note,
+        )
+    }
+
+    if request.use_vector and _vector_db_available:
+        try:
+            results["vector_db"] = learn_from_correction(
+                request.pattern,
+                request.account,
+                tenant_id=request.tenant_id,
+                note=request.note,
+            )
+        except Exception as e:
+            results["vector_db"] = {"status": "error", "error": str(e)}
+
+    account_name = CHART_OF_ACCOUNTS.get(request.account, {}).get("name", request.account)
+
+    return {
+        "status": "learned",
+        "message": f"✅ ვისწავლე: '{request.pattern}' → {request.account} ({account_name})",
+        "stored_in": list(results.keys()),
+    }
+
+
+def run_index_files(request):
+    if not _vector_db_available:
+        return {"status": "error", "detail": "ChromaDB არ არის"}
+
+    stats = index_files(request.files_dir, request.force_reindex)
+    return {"status": "success", **stats}
+
+
+def run_vector_stats():
+    if not _vector_db_available:
+        return {"available": False}
+
+    try:
+        return {"available": True, **get_vector_stats()}
+    except Exception as e:
+        return {"available": True, "error": str(e)}

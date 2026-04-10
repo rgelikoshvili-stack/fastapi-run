@@ -31,58 +31,88 @@ _FILES_LOADED = False
  
 def _load_files():
     global _TAX_TEXT, _ACC_TEXT, _FILES_LOADED
+
     if _FILES_LOADED:
         return
+
     dirs = [
-        "knowledge_files",
-        "/app/knowledge_files",
-        os.path.dirname(os.path.abspath(__file__)) + "/knowledge_files",
+        os.path.abspath("knowledge_files"),
+        os.path.abspath("/app/knowledge_files"),
+        os.path.abspath(os.path.dirname(__file__) + "/knowledge_files"),
     ]
+
     for d in dirs:
         if not os.path.exists(d):
             continue
-        for fn in os.listdir(d):
-            fp = os.path.join(d, fn)
-            try:
-                if fn == "tax_code.docx" and not _TAX_TEXT:
-                    import docx as _docx
-                    doc = _docx.Document(fp)
-                    _TAX_TEXT = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-                    print(f"✅ Tax: {len(_TAX_TEXT)} chars [{fn}]")
-                elif fn == "accounting.pdf" and not _ACC_TEXT:
-                    import fitz
-                    pdf = fitz.open(fp)
-                    _ACC_TEXT = "".join(pdf[i].get_text() for i in range(len(pdf)))
-                    print(f"✅ Acc: {len(_ACC_TEXT)} chars [{fn}]")
-            except Exception as e:
-                print(f"⚠️ {fn}: {e}")
+
+        for root, _, files in os.walk(d):
+            # ❌ გამოტოვე archive ფოლდერი
+            if "archive" in root:
+                continue
+
+            for fn in files:
+                fp = os.path.join(root, fn)
+
+                try:
+                    if fn.lower().endswith(".docx"):
+                        import docx
+                        doc = docx.Document(fp)
+                        text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                        _TAX_TEXT += "\n\n" + text
+
+                    elif fn.lower().endswith(".pdf"):
+                        import fitz
+                        pdf = fitz.open(fp)
+                        text = "".join(pdf[i].get_text() for i in range(len(pdf)))
+                        _ACC_TEXT += "\n\n" + text
+
+                except Exception as e:
+                    print(f"⚠️ KB load error: {fn}: {e}")
+
     _FILES_LOADED = True
- 
- 
+
+    print(f"✅ TAX TEXT: {len(_TAX_TEXT)} chars")
+    print(f"✅ ACC TEXT: {len(_ACC_TEXT)} chars")
+
+
 def _find(text, kw, size=3000):
-    i = text.find(kw)
+    if not text or not kw:
+        return ""
+    i = text.lower().find(kw.lower())
     return text[i:i+size].strip() if i >= 0 else ""
- 
- 
+
+
 def get_tax_section(topic):
     _load_files()
-    kws = {"vat":"დღგ-ის გადამხდელ","pit":"საშემოსავლო გადასახად",
-           "cit":"განაწილებული მოგება","withholding":"გადახდის წყაროსთან",
-           "property":"ქონების გადასახად","penalty":"საგადასახადო სანქცი",
-           "non_resident":"არარეზიდენტ","micro":"მცირე ბიზნეს"}
+    kws = {
+        "vat": "დღგ",
+        "pit": "საშემოსავლო",
+        "cit": "მოგების გადასახადი",
+        "withholding": "გადახდის წყაროსთან",
+        "property": "ქონების გადასახადი",
+        "penalty": "საგადასახადო სანქცია",
+        "non_resident": "არარეზიდენტ",
+        "micro": "მცირე ბიზნეს",
+    }
     return _find(_TAX_TEXT, kws.get(topic, topic), 4000)
- 
- 
+
+
 def get_accounting_section(topic):
     _load_files()
-    kws = {"principles":"ბუღალტრული აღრიცხვის პრინციპები",
-           "vat":"დამატებული ღირებულების გადასახადის (დღგ) აღრიცხვა",
-           "inventory":"სასაქონლო-მატერიალური ფასეულობების",
-           "receivables":"მოკლევადიანი მოთხოვნების",
-           "payables":"მოკლევადიანი ვალდებულებების",
-           "salary":"შრომის ანაზღაურ","dividends":"გადასახდელი დივიდენდები",
-           "fixed_assets":"ძირითადი საშუალებ","depreciation":"ამორტიზაცი",
-           "capital":"საკუთარი კაპიტალ","shortage":"დანაკლისი","loan":"სასესხო"}
+    kws = {
+        "principles": "ბუღალტრული აღრიცხვის პრინციპები",
+        "vat": "დღგ",
+        "inventory": "მარაგ",
+        "receivables": "მოთხოვნ",
+        "payables": "ვალდებულ",
+        "salary": "შრომის ანაზღაურ",
+        "dividends": "დივიდენდ",
+        "fixed_assets": "ძირითადი საშუალებ",
+        "depreciation": "ამორტიზაცი",
+        "capital": "კაპიტალ",
+        "shortage": "დანაკლის",
+        "loan": "სესხ",
+    }
     return _find(_ACC_TEXT, kws.get(topic, topic), 4000)
  
  
@@ -278,17 +308,37 @@ def _save_learned(rules):
 def learn_new_rule(pattern, account, tenant_id="global", note=""):
     """ბუღ. ასწავლის AI-ს. learn_new_rule('Wolt','7720',note='წარმ.')"""
     rules = _load_learned()
+
     for r in rules:
-        if r["pattern"].lower()==pattern.lower() and r["tenant_id"]==tenant_id:
-            r["account"],r["note"]=account,note
-            r["updated_at"]=datetime.now().isoformat()
+        if r["pattern"].lower() == pattern.lower() and r["tenant_id"] == tenant_id:
+            r["account"], r["note"] = account, note
+            r["updated_at"] = datetime.now().isoformat()
             _save_learned(rules)
-            return {"status":"updated","rule":r}
-    new_r={"pattern":pattern,"account":account,"tenant_id":tenant_id,
-            "note":note,"confidence":0.99,"created_at":datetime.now().isoformat(),"source":"human"}
+
+            return {
+                "status": "updated",
+                "message": f"♻️ '{pattern}' განახლდა → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
+                "rule": r
+            }
+
+    new_r = {
+        "pattern": pattern,
+        "account": account,
+        "tenant_id": tenant_id,
+        "note": note,
+        "confidence": 0.99,
+        "created_at": datetime.now().isoformat(),
+        "source": "human"
+    }
+
     rules.append(new_r)
     _save_learned(rules)
-    return {"status":"learned","message":f"✅ '{pattern}'→{account} ({CHART_OF_ACCOUNTS.get(account,{}).get('name',account)})","rule":new_r}
+
+    return {
+        "status": "learned",
+        "message": f"✅ '{pattern}' → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
+        "rule": new_r
+    }
  
  
 # ══════════════════════════════════════════════════════════════
@@ -546,13 +596,105 @@ def get_stats():
 # ══════════════════════════════════════════════════════════════
 # TEST
 # ══════════════════════════════════════════════════════════════
-if __name__=="__main__":
+if __name__ == "__main__":
     print("🧪 Bridge Hub KB V4\n")
-    v=calculate_vat(5900); print(f"✅ VAT: net={v['net']}₾ vat={v['vat']}₾\n{v['journal_paid']}")
-    p=calculate_payroll(2000); print(f"\n✅ Payroll: pit={p['pit']}₾ net={p['net']}₾\n{p['journal']}")
-    c=calculate_cit(10000); print(f"\n✅ CIT: cit={c['cit']}₾ nd={c['net_dividend']}₾\n{c['journal']}")
-    d=calculate_depreciation(12000,2000,5); print(f"\n✅ Depr: {d['annual']}₾/y {d['monthly']}₾/m")
-    cl=classify_transaction("TBC საბანკო საკომ 45₾"); print(f"\n✅ Cls: {cl['account']} ({cl['confidence']*100:.0f}%)")
-    r=learn_new_rule("Wolt","7720","global","წარმ."); print(f"✅ Learn: {r['message']}")
-    cl2=classify_transaction("Wolt 35₾"); print(f"✅ Learned: {cl2['account']} ({cl2['source']})")
-    st=get_stats(); print(f"\n📊 total={st['total']} | tax={st['tax_chars']} | acc={st['acc_chars']}")
+
+    v = calculate_vat(5900)
+    print(f"✅ VAT: net={v['net']}₾ vat={v['vat']}₾\n{v['journal_paid']}")
+
+    p = calculate_payroll(2000)
+    print(f"\n✅ Payroll: pit={p['pit']}₾ net={p['net']}₾\n{p['journal']}")
+
+    c = calculate_cit(10000)
+    print(f"\n✅ CIT: cit={c['cit']}₾ nd={c['net_dividend']}₾\n{c['journal']}")
+
+    d = calculate_depreciation(12000, 2000, 5)
+    print(f"\n✅ Depr: {d['annual']}₾/y {d['monthly']}₾/m")
+
+    cl = classify_transaction("TBC საბანკო საკომ 45₾")
+    print(f"\n✅ Cls: {cl['account']} ({cl['confidence'] * 100:.0f}%)")
+
+    r = learn_new_rule("Wolt", "7720", "global", "წარმ.")
+    learn_msg = r.get("message") or f"updated -> {r['rule']['account']}"
+    print(f"✅ Learn: {learn_msg}")
+
+    cl2 = classify_transaction("Wolt 35₾")
+    print(f"✅ Learned: {cl2['account']} ({cl2['source']})")
+
+    st = get_stats()
+    print(f"\n📊 total={st['total']} | tax={st['tax_chars']} | acc={st['acc_chars']}")
+
+    # ══════════════════════════════════════════════════════════════
+# 11. DOCUMENT → ACCOUNTING ENGINE
+# ══════════════════════════════════════════════════════════════
+
+def build_journal_from_text(text):
+    """
+    დოკუმენტის ტექსტიდან ბუღალტრული გატარება
+    """
+
+    text = text.lower()
+
+    # თანხის ამოღება
+    match = re.search(r'(\d[\d,\.]*)\s*(?:₾|lari|ლარი)', text)
+    if not match:
+        return {
+            "message": "❌ თანხა ვერ მოიძებნა",
+            "lines": []
+        }
+
+    amount = float(match.group(1).replace(",", ""))
+
+    # კლასიფიკაცია
+    cls = classify_transaction(text)
+    account = cls["account"]
+
+    # VAT detect
+    has_vat = "დღგ" in text or "vat" in text
+
+    if has_vat:
+        vat = round(amount * 0.18 / 1.18, 2)
+        net = round(amount - vat, 2)
+
+        lines = [
+            ("6110", 0, net),
+            ("3310", 0, vat),
+            ("1120", amount, 0),
+        ]
+
+        return {
+            "message": f"📊 გაყიდვა (VAT ჩათვლით)\nNet: {_fmt(net)} | VAT: {_fmt(vat)}",
+            "lines": lines,
+            "description": "VAT Sale"
+        }
+
+    # Expense
+    if CHART_OF_ACCOUNTS.get(account, {}).get("type") == "expense":
+        lines = [
+            (account, amount, 0),
+            ("1120", 0, amount),
+        ]
+
+        return {
+            "message": f"📊 ხარჯი ({account})",
+            "lines": lines,
+            "description": "Expense Posting"
+        }
+
+    # Revenue
+    if CHART_OF_ACCOUNTS.get(account, {}).get("type") == "revenue":
+        lines = [
+            ("1120", amount, 0),
+            (account, 0, amount),
+        ]
+
+        return {
+            "message": f"📊 შემოსავალი ({account})",
+            "lines": lines,
+            "description": "Revenue Posting"
+        }
+
+    return {
+        "message": "⚠️ ვერ განისაზღვრა ტიპი",
+        "lines": []
+    }

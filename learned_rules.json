@@ -1,0 +1,12 @@
+[
+  {
+    "pattern": "Wolt",
+    "account": "7720",
+    "tenant_id": "global",
+    "note": "წარმ.",
+    "confidence": 0.99,
+    "created_at": "2026-04-09T16:37:09.520728",
+    "source": "human",
+    "updated_at": "2026-04-09T16:50:15.626247"
+  }
+]

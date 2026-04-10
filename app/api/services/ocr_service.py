@@ -194,3 +194,22 @@ def _extract_invoice_number(ids: list) -> Optional[str]:
         if len(str(id_val)) < 9:
             return str(id_val)
     return str(ids[0]) if ids else None
+
+def extract_text(file_path: str) -> str:
+    """
+    მარტივი ტექსტის ამოღება (fallback)
+    """
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(file_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        return text
+
+    except Exception:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ""

@@ -17,5 +17,3 @@ fix_*.py
 .env
 
 chroma_db/
-knowledge_files/
-!knowledge_files/ 

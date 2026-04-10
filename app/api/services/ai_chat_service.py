@@ -424,11 +424,14 @@ async def handle_ai_chat(
 # SUPPORT FUNCTIONS FOR routes_ai_chat.py
 # ─────────────────────────────────────────────────────────────
 def get_ai_system_stats():
-    return {
+    result = {
         "kb_loaded": KB_LOADED,
         "vector_db_available": _vector_db_available,
         "accounting_rules_loaded": ACCT_RULES_LOADED,
     }
+    if KB_LOADED:
+        result["knowledge_base"] = get_stats()
+    return result
 
 
 def run_ai_search(q: str, top_k: int = 5, use_vector: bool = True):

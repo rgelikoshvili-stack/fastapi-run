@@ -12,7 +12,6 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 def debug_log(limit: int = 20):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     try:
         cur.execute(
             """
@@ -29,14 +28,12 @@ def debug_log(limit: int = 20):
     finally:
         cur.close()
         conn.close()
-
     return ok_response("Debug log", {"count": len(rows), "events": rows})
 
 
 @router.get("/openai")
 def debug_openai():
     api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
-
     return ok_response(
         "OpenAI debug",
         {
@@ -52,7 +49,6 @@ def debug_balance_ping():
     base_url = (os.getenv("BALANCE_API_URL", "") or "").strip()
     api_key = (os.getenv("BALANCE_API_KEY", "") or "").strip()
     company_id = (os.getenv("BALANCE_COMPANY_ID", "") or "").strip()
-
     return ok_response(
         "Balance config debug",
         {
@@ -61,3 +57,25 @@ def debug_balance_ping():
             "company_id": company_id,
         },
     )
+
+
+@router.get("/kb-files")
+async def debug_kb_files():
+    paths = [
+        "knowledge_files",
+        "/app/knowledge_files",
+        os.path.dirname(os.path.abspath(__file__)) + "/../../knowledge_files",
+    ]
+    result = {}
+    for p in paths:
+        try:
+            abs_p = os.path.abspath(p)
+            if os.path.exists(abs_p):
+                files = os.listdir(abs_p)
+                sizes = {f: os.path.getsize(os.path.join(abs_p, f)) for f in files}
+                result[abs_p] = sizes
+            else:
+                result[p] = "NOT FOUND"
+        except Exception as e:
+            result[p] = f"ERROR: {e}"
+    return result

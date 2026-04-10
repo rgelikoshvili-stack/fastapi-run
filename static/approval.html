@@ -555,180 +555,468 @@ input,select,textarea{font-family:inherit}
 <div class="toasts" id="toasts"></div>
 
 <script>
-const BASE=window.location.hostname==='127.0.0.1'?'http://127.0.0.1:8000':'https://fastapi-run-226875230147.us-central1.run.app';
-let TENANT=localStorage.getItem('tenant_id')||'default';
-let allPending=[],apOn=false,apTimer=null,curPage='dashboard',aiFile=null;
+const BASE = window.location.hostname === '127.0.0.1'
+  ? 'http://127.0.0.1:8000'
+  : 'https://fastapi-run-226875230147.us-central1.run.app';
 
-setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});},1000);
-function changeTenant(v){TENANT=v;localStorage.setItem('tenant_id',v);loadPage();}
+let TENANT = localStorage.getItem('tenant_id') || 'default';
+let allPending = [];
+let apOn = false;
+let apTimer = null;
+let curPage = 'dashboard';
+let aiFile = null;
 
-async function api(path,method='GET',body=null){
-  try{const r=await fetch(BASE+path,{method,headers:{'Content-Type':'application/json','X-Tenant-ID':TENANT},body:body?JSON.stringify(body):null});if(!r.ok)return null;return await r.json();}catch{return null;}
-}
+setInterval(() => {
+  const el = document.getElementById('clock');
+  if (el) {
+    el.textContent = new Date().toLocaleTimeString('ka-GE', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+}, 1000);
 
-function toast(msg,type='ok'){
-  const icons={ok:'✅',err:'❌',info:'ℹ️',warn:'⚠️'};
-  const el=document.createElement('div');el.className='toast';el.innerHTML=`<span>${icons[type]||'•'}</span><span>${msg}</span>`;
-  document.getElementById('toasts').appendChild(el);
-  setTimeout(()=>{el.style.opacity='0';el.style.transition='.2s';setTimeout(()=>el.remove(),220);},3200);
-}
-
-let aiOpen=false;
-function toggleAI(){aiOpen=!aiOpen;document.getElementById('aiPanel').classList.toggle('open',aiOpen);}
-
-function fmtAmt(a){if(a==null)return '—';const n=parseFloat(a);const c=n>0?'color:var(--green)':n<0?'color:var(--red)':'';return `<span style="${c};font-weight:600">${n>=0?'+':''}${n.toFixed(2)} ₾</span>`;}
-function fmtConf(c){const p=Math.round((c||0)*100);const col=p>=90?'var(--green)':p>=70?'var(--amber)':'var(--red)';return `<div class="conf-bar"><div class="cb-track"><div class="cb-fill" style="width:${p}%;background:${col}"></div></div><span class="cb-pct">${p}%</span></div>`;}
-function fmtStatus(s){const m={pending_approval:`<span class="chip chip-pending">⏳</span>`,pending:`<span class="chip chip-pending">⏳</span>`,approved:`<span class="chip chip-approved">✅</span>`,rejected:`<span class="chip chip-rejected">❌</span>`,auto_approved:`<span class="chip chip-auto">🤖</span>`,posted:`<span class="chip chip-posted">📤</span>`};return m[s]||`<span class="chip" style="background:var(--gray-100);color:var(--gray-600)">${s||'—'}</span>`;}
-function fmtDate(d){if(!d)return '—';try{return new Date(d).toLocaleString('ka-GE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}catch{return d;}}
-function getId(r){return r.id||r.transaction_id||'';}
-function getDesc(r){return r.description||r.merchant||'—';}
-function getConf(r){return r.confidence||r.ai_confidence||0;}
-function getCat(r){return r.category||r.account_code||'—';}
-
-function buildTr(r,showActs=false,extended=false){
-  const id=getId(r);
-  const acts=showActs?`<td><div class="act-wrap"><button class="act act-approve" onclick="approve('${id}')">✅</button><button class="act act-reject" onclick="reject('${id}')">❌</button><button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'","&#39;")})'>👁</button></div></td>`:`<td><button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'","&#39;")})'>👁</button></td>`;
-  const date=extended?`<td class="td-mono">${fmtDate(r.date||r.created_at)}</td>`:'';
-  const src=!showActs?`<td class="td-mono">${r.classification_source||'—'}</td>`:'';
-  return `<tr><td class="td-mono">#${String(id).slice(-5)}</td>${date}<td class="td-desc">${getDesc(r)}</td><td>${fmtAmt(r.amount)}</td><td class="td-mono">${getCat(r)}</td><td>${fmtConf(getConf(r))}</td><td>${fmtStatus(r.status)}</td>${src}${acts}</tr>`;
-}
-function setRows(rows,id,acts=false,extended=false){
-  const el=document.getElementById(id);
-  if(!rows||!rows.length){el.innerHTML=`<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div></td></tr>`;return;}
-  el.innerHTML=rows.map(r=>buildTr(r,acts,extended)).join('');
+function changeTenant(v) {
+  TENANT = v;
+  localStorage.setItem('tenant_id', v);
+  loadPage();
 }
 
-async function loadKPI(){
-  const d=await api('/dashboard/live/kpi');if(!d||!d.ok)return;
-  const k=d.kpi;
-  document.getElementById('kpi-pending').textContent=k.pending;
-  document.getElementById('kpi-approved').textContent=k.approved;
-  document.getElementById('kpi-auto').textContent=k.auto_approved;
-  document.getElementById('kpi-conf').textContent=Math.round((k.avg_confidence||0)*100)+'%';
-  document.getElementById('sb-pending').textContent=k.pending;
-}
+async function api(path, method = 'GET', body = null) {
+  try {
+    const opts = {
+      method,
+      headers: { 'X-Tenant-ID': TENANT }
+    };
 
-async function loadCashflow(){
-  const d=await api('/dashboard/live/cashflow');if(!d||!d.ok)return;
-  const s=d.summary;
-  document.getElementById('cf-in').textContent=s.total_inflow.toFixed(0)+' ₾';
-  document.getElementById('cf-out').textContent=s.total_outflow.toFixed(0)+' ₾';
-  const net=s.net;const netEl=document.getElementById('cf-net');
-  netEl.textContent=(net>=0?'+':'')+net.toFixed(0)+' ₾';netEl.style.color=net>=0?'var(--green)':'var(--red)';
-  document.getElementById('cf-period').textContent='30 დღე';
-  const labels=d.chart.labels||[];const ins=d.chart.inflow||[];const outs=d.chart.outflow||[];
-  const max=Math.max(...ins,...outs,1);
-  document.getElementById('cf-bars').innerHTML=labels.map((_,i)=>`<div class="bar-pair"><div class="bar-in" style="height:${Math.round((ins[i]||0)/max*88)}px"></div><div class="bar-out" style="height:${Math.round((outs[i]||0)/max*88)}px"></div></div>`).join('');
-  document.getElementById('cf-labels').innerHTML=labels.map(l=>`<div class="bar-lbl">${l.slice(5)}</div>`).join('');
-}
+    if (body && !(body instanceof FormData)) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    } else if (body instanceof FormData) {
+      opts.body = body;
+    }
 
-async function loadPL(){
-  const d=await api('/dashboard/live/pnl?period=month');if(!d||!d.ok)return;
-  const p=d.pnl;const max=Math.max(p.income,p.expenses,1);
-  document.getElementById('pl-income').textContent=(p.income||0).toFixed(0)+' ₾';
-  document.getElementById('pl-expense').textContent=(p.expenses||0).toFixed(0)+' ₾';
-  const profEl=document.getElementById('pl-profit');
-  profEl.textContent=(p.profit>=0?'+':'')+p.profit.toFixed(0)+' ₾';profEl.style.color=p.profit>=0?'var(--green)':'var(--red)';
-  document.getElementById('pl-income-bar').style.width=Math.round(p.income/max*100)+'%';
-  document.getElementById('pl-expense-bar').style.width=Math.round(p.expenses/max*100)+'%';
-}
-
-async function loadPending(){
-  document.getElementById('dash-rows').innerHTML=`<tr><td colspan="7"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
-  document.getElementById('pending-rows').innerHTML=`<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
-  const d=await api('/approval/queue');
-  if(!d){toast('სერვერი მიუწვდომელია','err');return;}
-  const rows=d.data?.queue||d.data?.items||d.items||d.transactions||[];
-  allPending=rows;setRows(rows,'dash-rows',true,false);setRows(rows,'pending-rows',true,true);
-}
-async function loadApproved(){
-  document.getElementById('approved-rows').innerHTML=`<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
-  const d=await api('/approval/queue?status=approved');setRows(d?.data?.queue||d?.data?.items||[],'approved-rows',false,true);
-}
-async function loadRejected(){
-  document.getElementById('rejected-rows').innerHTML=`<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
-  const d=await api('/approval/queue?status=rejected');setRows(d?.data?.queue||d?.data?.items||[],'rejected-rows',false,true);
-}
-
-async function approve(id){
-  for(const ep of[`/approval/approve/${id}`,`/approvals/${id}/approve`]){const r=await api(ep,'POST');if(r){toast(`✅ #${String(id).slice(-5)}`,'ok');loadPending();loadKPI();return;}}
-  toast('error','err');
-}
-async function reject(id){
-  for(const ep of[`/approval/reject/${id}`,`/approvals/${id}/reject`]){const r=await api(ep,'POST');if(r){toast(`❌ #${String(id).slice(-5)}`,'warn');loadPending();loadKPI();return;}}
-  toast('error','err');
-}
-async function approveAll(){
-  if(!allPending.length){toast('სია ცარიელია','info');return;}
-  if(!confirm(`${allPending.length} ტრანზ. დამტკიცდება?`))return;
-  let ok=0;for(const r of allPending){const res=await api(`/approval/approve/${getId(r)}`,'POST');if(res)ok++;}
-  toast(`${ok}/${allPending.length} დამტკიცდა`,'ok');loadPending();loadKPI();
-}
-
-function toggleAP(){
-  apOn=!apOn;
-  ['ap-toggle','ap-toggle2'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',apOn);});
-  ['ap-lbl','ap-lbl2'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=apOn?'ON':'OFF';});
-  ['ap-sub','ap-sub2'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=apOn?'🟢 ყოველ 60 წამში ამოწმებს':'OFF';});
-  toast(apOn?'🤖 Autopilot ON':'🔴 Autopilot OFF','info');
-  if(apOn){apTimer=setInterval(async()=>{const d=await api('/approval/queue');const rows=d?.data?.queue||[];for(const r of rows.filter(x=>(x.confidence||0)>=0.9)){await api(`/approval/approve/${getId(r)}`,'POST');}loadPending();loadKPI();},60000);}
-  else clearInterval(apTimer);
-}
-
-function doExport(fmt){
-  const s=document.getElementById('exp-status')?.value||'';const q=s?`?status=${s}`:'';
-  toast(`📥 ${fmt} export...`,'info');
-  window.open(`${BASE}/export/v2/journal/${fmt==='excel'?'excel':fmt}${q}`,'_blank');
-}
-
-async function doOCR(input){
-  const file=input.files[0];if(!file)return;
-  toast('🧾 OCR...','info');
-  const fd=new FormData();fd.append('file',file);
-  const el=document.getElementById('ocr-result');if(el)el.innerHTML=`<div class="loading-row"><span class="spinner"></span></div>`;
-  try{
-    const r=await fetch(`${BASE}/ocr/extract-and-draft`,{method:'POST',headers:{'X-Tenant-ID':TENANT},body:fd});
-    const d=await r.json();
-    if(d.ok&&el){
-      const f=d.extracted_fields,dr=d.draft;
-      el.innerHTML=`<div style="background:var(--green-s);border:1px solid rgba(5,150,105,.2);border-radius:var(--r);padding:14px;"><div style="font-weight:700;color:var(--green);margin-bottom:10px;">✅ OCR წარმატებულია</div>${[['ფაილი',f.filename],['თანხა',(f.amount||'—')+' '+(f.currency||'GEL')],['VAT',f.vat_amount||'—'],['პარტნიორი',f.partner||'—'],['Draft #','#'+dr.draft_id+' · '+dr.status]].map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(5,150,105,.15);font-size:12px;"><span style="color:var(--gray-600)">${k}</span><strong>${v}</strong></div>`).join('')}</div>`;
-      toast(`✅ Draft #${dr.draft_id}`,'ok');loadKPI();
-    }else if(el){el.innerHTML=`<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">${d.error||'OCR error'}</div></div>`;}
-  }catch{toast('OCR error','err');}
-  input.value='';
-}
-
-async function syncBank(b){
-  toast(`🏦 ${b.toUpperCase()}...`,'info');
-  const d=await api(`/bank-sync/${b}/sync`,'POST',{days:7});
-  if(d&&d.ok){toast(`✅ ${b.toUpperCase()}: ${d.count} tx`,'ok');showBankResult(d);}
-}
-async function syncAll(){
-  toast('🏦 Sync All...','info');
-  const d=await api('/bank-sync/sync-all','POST',{days:7});
-  if(d&&d.ok){
-    toast(`✅ TBC:${d.tbc.count} BOG:${d.bog.count} Queue:${d.saved_to_queue}`,'ok');
-    showBankResult(d);
-    document.getElementById('tbc-cnt').textContent=d.tbc.count+' tx';
-    document.getElementById('bog-cnt').textContent=d.bog.count+' tx';
-    loadPending();loadKPI();
+    const r = await fetch(BASE + path, opts);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
   }
 }
-function showBankResult(d){
-  const el=document.getElementById('bank-result');if(!el)return;
-  const rows=[[' TBC',d.tbc?.count||d.count||0,(d.tbc?.mode||d.mode||'demo')],['BOG',d.bog?.count||0,d.bog?.mode||'demo'],['Queue',d.saved_to_queue||0,'saved']];
-  el.innerHTML=`<table class="tbl"><thead><tr><th>ბანკი</th><th>Tx</th><th>Mode</th></tr></thead><tbody>${rows.map(([b,c,m])=>`<tr><td>${b}</td><td style="font-weight:700">${c}</td><td><span class="card-badge badge-gray">${m}</span></td></tr>`).join('')}</tbody></table>`;
+
+function toast(msg, type = 'ok') {
+  const icons = { ok: '✅', err: '❌', info: 'ℹ️', warn: '⚠️' };
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${icons[type] || '•'}</span><span>${msg}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transition = '.2s';
+    setTimeout(() => el.remove(), 220);
+  }, 3200);
 }
 
-// ── PAYROLL HELPERS ──────────────────────────────────────────────────────────
-function round2(v){return Math.round((Number(v)+Number.EPSILON)*100)/100;}
-function formatMoney(v){return Number(v||0).toFixed(2)+' ₾';}
-function getMode(){const s=document.querySelector('input[name="calcMode"]:checked');return s?s.value:'net';}
+let aiOpen = false;
+function toggleAI() {
+  aiOpen = !aiOpen;
+  document.getElementById('aiPanel')?.classList.toggle('open', aiOpen);
+}
 
-function addRow(){
-  const tbody=document.getElementById('payrollBody');
-  const tr=document.createElement('tr');
-  tr.innerHTML=`
+function fmtAmt(a) {
+  if (a == null) return '—';
+  const n = parseFloat(a);
+  const c = n > 0 ? 'color:var(--green)' : n < 0 ? 'color:var(--red)' : '';
+  return `<span style="${c};font-weight:600">${n >= 0 ? '+' : ''}${n.toFixed(2)} ₾</span>`;
+}
+
+function fmtConf(c) {
+  const p = Math.round((c || 0) * 100);
+  const col = p >= 90 ? 'var(--green)' : p >= 70 ? 'var(--amber)' : 'var(--red)';
+  return `<div class="conf-bar"><div class="cb-track"><div class="cb-fill" style="width:${p}%;background:${col}"></div></div><span class="cb-pct">${p}%</span></div>`;
+}
+
+function fmtStatus(s) {
+  const m = {
+    pending_approval: `<span class="chip chip-pending">⏳</span>`,
+    pending: `<span class="chip chip-pending">⏳</span>`,
+    approved: `<span class="chip chip-approved">✅</span>`,
+    rejected: `<span class="chip chip-rejected">❌</span>`,
+    auto_approved: `<span class="chip chip-auto">🤖</span>`,
+    posted: `<span class="chip chip-posted">📤</span>`
+  };
+  return m[s] || `<span class="chip" style="background:var(--gray-100);color:var(--gray-600)">${s || '—'}</span>`;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleString('ka-GE', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return d;
+  }
+}
+
+function getId(r) { return r.id || r.transaction_id || ''; }
+function getDesc(r) { return r.description || r.merchant || '—'; }
+function getConf(r) { return r.confidence || r.ai_confidence || 0; }
+function getCat(r) { return r.category || r.account_code || '—'; }
+
+function buildTr(r, showActs = false, extended = false) {
+  const id = getId(r);
+
+  const acts = showActs
+    ? `<td><div class="act-wrap">
+         <button class="act act-approve" onclick="approve('${id}')">✅</button>
+         <button class="act act-reject" onclick="reject('${id}')">❌</button>
+         <button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button>
+       </div></td>`
+    : `<td><button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button></td>`;
+
+  const date = extended ? `<td class="td-mono">${fmtDate(r.date || r.created_at)}</td>` : '';
+  const src = !showActs ? `<td class="td-mono">${r.classification_source || '—'}</td>` : '';
+
+  return `<tr>
+    <td class="td-mono">#${String(id).slice(-5)}</td>
+    ${date}
+    <td class="td-desc">${getDesc(r)}</td>
+    <td>${fmtAmt(r.amount)}</td>
+    <td class="td-mono">${getCat(r)}</td>
+    <td>${fmtConf(getConf(r))}</td>
+    <td>${fmtStatus(r.status)}</td>
+    ${src}
+    ${acts}
+  </tr>`;
+}
+
+function setRows(rows, id, acts = false, extended = false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  if (!rows || !rows.length) {
+    el.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div></td></tr>`;
+    return;
+  }
+
+  el.innerHTML = rows.map(r => buildTr(r, acts, extended)).join('');
+}
+
+async function loadKPI() {
+  const d = await api('/dashboard/live/kpi');
+  if (!d || !d.ok) return;
+
+  const k = d.kpi || {};
+  if (document.getElementById('kpi-pending')) document.getElementById('kpi-pending').textContent = k.pending ?? '—';
+  if (document.getElementById('kpi-approved')) document.getElementById('kpi-approved').textContent = k.approved ?? '—';
+  if (document.getElementById('kpi-auto')) document.getElementById('kpi-auto').textContent = k.auto_approved ?? '—';
+  if (document.getElementById('kpi-conf')) document.getElementById('kpi-conf').textContent = Math.round((k.avg_confidence || 0) * 100) + '%';
+  if (document.getElementById('sb-pending')) document.getElementById('sb-pending').textContent = k.pending ?? 0;
+}
+
+async function loadCashflow() {
+  const d = await api('/dashboard/live/cashflow');
+  if (!d || !d.ok) return;
+
+  const s = d.summary || {};
+  const labels = d.chart?.labels || [];
+  const ins = d.chart?.inflow || [];
+  const outs = d.chart?.outflow || [];
+  const max = Math.max(...ins, ...outs, 1);
+
+  if (document.getElementById('cf-in')) document.getElementById('cf-in').textContent = (s.total_inflow || 0).toFixed(0) + ' ₾';
+  if (document.getElementById('cf-out')) document.getElementById('cf-out').textContent = (s.total_outflow || 0).toFixed(0) + ' ₾';
+
+  const net = s.net || 0;
+  const netEl = document.getElementById('cf-net');
+  if (netEl) {
+    netEl.textContent = (net >= 0 ? '+' : '') + net.toFixed(0) + ' ₾';
+    netEl.style.color = net >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  if (document.getElementById('cf-period')) document.getElementById('cf-period').textContent = '30 დღე';
+  if (document.getElementById('cf-bars')) {
+    document.getElementById('cf-bars').innerHTML = labels.map((_, i) =>
+      `<div class="bar-pair">
+        <div class="bar-in" style="height:${Math.round((ins[i] || 0) / max * 88)}px"></div>
+        <div class="bar-out" style="height:${Math.round((outs[i] || 0) / max * 88)}px"></div>
+      </div>`
+    ).join('');
+  }
+  if (document.getElementById('cf-labels')) {
+    document.getElementById('cf-labels').innerHTML = labels.map(l => `<div class="bar-lbl">${String(l).slice(5)}</div>`).join('');
+  }
+}
+
+async function loadPL() {
+  const d = await api('/dashboard/live/pnl?period=month');
+  if (!d || !d.ok) return;
+
+  const p = d.pnl || {};
+  const max = Math.max(p.income || 0, p.expenses || 0, 1);
+
+  if (document.getElementById('pl-income')) document.getElementById('pl-income').textContent = (p.income || 0).toFixed(0) + ' ₾';
+  if (document.getElementById('pl-expense')) document.getElementById('pl-expense').textContent = (p.expenses || 0).toFixed(0) + ' ₾';
+
+  const profEl = document.getElementById('pl-profit');
+  if (profEl) {
+    profEl.textContent = ((p.profit || 0) >= 0 ? '+' : '') + (p.profit || 0).toFixed(0) + ' ₾';
+    profEl.style.color = (p.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  if (document.getElementById('pl-income-bar')) document.getElementById('pl-income-bar').style.width = Math.round((p.income || 0) / max * 100) + '%';
+  if (document.getElementById('pl-expense-bar')) document.getElementById('pl-expense-bar').style.width = Math.round((p.expenses || 0) / max * 100) + '%';
+}
+
+async function loadPending() {
+  const dash = document.getElementById('dash-rows');
+  const pending = document.getElementById('pending-rows');
+
+  if (dash) dash.innerHTML = `<tr><td colspan="7"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
+  if (pending) pending.innerHTML = `<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
+
+  const d = await api('/approval/queue');
+  if (!d) {
+    toast('სერვერი მიუწვდომელია', 'err');
+    return;
+  }
+
+  const rows = d.data?.queue || d.data?.items || d.items || d.transactions || [];
+  allPending = rows;
+  if (dash) setRows(rows, 'dash-rows', true, false);
+  if (pending) setRows(rows, 'pending-rows', true, true);
+}
+
+async function loadApproved() {
+  const el = document.getElementById('approved-rows');
+  if (el) el.innerHTML = `<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
+  const d = await api('/approval/queue?status=approved');
+  setRows(d?.data?.queue || d?.data?.items || [], 'approved-rows', false, true);
+}
+
+async function loadRejected() {
+  const el = document.getElementById('rejected-rows');
+  if (el) el.innerHTML = `<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
+  const d = await api('/approval/queue?status=rejected');
+  setRows(d?.data?.queue || d?.data?.items || [], 'rejected-rows', false, true);
+}
+
+async function loadCollab() {
+  const dashEl = document.getElementById('dash-collab');
+  const listEl = document.getElementById('collab-list');
+
+  if (dashEl) dashEl.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+  if (listEl) listEl.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+
+  const d = await api('/collaboration/summary');
+  const items = d?.data?.items || d?.items || d?.comments || [];
+
+  const html = items.length
+    ? items.map(x => `
+        <div class="collab-item">
+          <div class="collab-avatar">${(x.user || x.author || 'U').slice(0,1).toUpperCase()}</div>
+          <div>
+            <div class="collab-name">${x.user || x.author || 'Unknown'}</div>
+            <div class="collab-time">${fmtDate(x.created_at || x.date)}</div>
+            <div class="collab-text">${x.text || x.comment || '—'}</div>
+          </div>
+        </div>
+      `).join('')
+    : `<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">კომენტარები არ მოიძებნა</div></div>`;
+
+  if (dashEl) dashEl.innerHTML = html;
+  if (listEl) listEl.innerHTML = html;
+  if (document.getElementById('collab-cnt')) document.getElementById('collab-cnt').textContent = `${items.length} comments`;
+  if (document.getElementById('collab-total')) document.getElementById('collab-total').textContent = `${items.length} comments`;
+}
+
+async function approve(id) {
+  for (const ep of [`/approval/approve/${id}`, `/approvals/${id}/approve`]) {
+    const r = await api(ep, 'POST');
+    if (r) {
+      toast(`✅ #${String(id).slice(-5)}`, 'ok');
+      await loadPending();
+      await loadKPI();
+      if (curPage === 'approved') await loadApproved();
+      return;
+    }
+  }
+  toast('error', 'err');
+}
+
+async function reject(id) {
+  for (const ep of [`/approval/reject/${id}`, `/approvals/${id}/reject`]) {
+    const r = await api(ep, 'POST');
+    if (r) {
+      toast(`❌ #${String(id).slice(-5)}`, 'warn');
+      await loadPending();
+      await loadKPI();
+      if (curPage === 'rejected') await loadRejected();
+      return;
+    }
+  }
+  toast('error', 'err');
+}
+
+async function approveAll() {
+  if (!allPending.length) {
+    toast('სია ცარიელია', 'info');
+    return;
+  }
+  if (!confirm(`${allPending.length} ტრანზ. დამტკიცდება?`)) return;
+
+  let ok = 0;
+  for (const r of allPending) {
+    const res = await api(`/approval/approve/${getId(r)}`, 'POST');
+    if (res) ok++;
+  }
+  toast(`${ok}/${allPending.length} დამტკიცდა`, 'ok');
+  await loadPending();
+  await loadKPI();
+}
+
+function toggleAP() {
+  apOn = !apOn;
+
+  ['ap-toggle', 'ap-toggle2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('on', apOn);
+  });
+
+  ['ap-lbl', 'ap-lbl2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = apOn ? 'ON' : 'OFF';
+  });
+
+  ['ap-sub', 'ap-sub2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = apOn ? '🟢 ყოველ 60 წამში ამოწმებს' : 'OFF';
+  });
+
+  toast(apOn ? '🤖 Autopilot ON' : '🔴 Autopilot OFF', 'info');
+
+  if (apOn) {
+    apTimer = setInterval(async () => {
+      const d = await api('/approval/queue');
+      const rows = d?.data?.queue || [];
+      for (const r of rows.filter(x => (x.confidence || 0) >= 0.9)) {
+        await api(`/approval/approve/${getId(r)}`, 'POST');
+      }
+      await loadPending();
+      await loadKPI();
+    }, 60000);
+  } else {
+    clearInterval(apTimer);
+  }
+}
+
+function doExport(fmt) {
+  const s = document.getElementById('exp-status')?.value || '';
+  const q = s ? `?status=${s}` : '';
+  toast(`📥 ${fmt} export...`, 'info');
+  window.open(`${BASE}/export/v2/journal/${fmt === 'excel' ? 'excel' : fmt}${q}`, '_blank');
+}
+
+async function doOCR(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  toast('🧾 OCR...', 'info');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  const el = document.getElementById('ocr-result');
+  if (el) el.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+
+  try {
+    const r = await fetch(`${BASE}/ocr/extract-and-draft`, {
+      method: 'POST',
+      headers: { 'X-Tenant-ID': TENANT },
+      body: fd
+    });
+
+    const d = await r.json();
+
+    if (d.ok && el) {
+      const f = d.extracted_fields || {};
+      const dr = d.draft || {};
+      el.innerHTML = `<div style="background:var(--green-s);border:1px solid rgba(5,150,105,.2);border-radius:var(--r);padding:14px;">
+        <div style="font-weight:700;color:var(--green);margin-bottom:10px;">✅ OCR წარმატებულია</div>
+        ${[
+          ['ფაილი', f.filename],
+          ['თანხა', (f.amount || '—') + ' ' + (f.currency || 'GEL')],
+          ['VAT', f.vat_amount || '—'],
+          ['პარტნიორი', f.partner || '—'],
+          ['Draft #', '#' + (dr.draft_id || '—') + ' · ' + (dr.status || '—')]
+        ].map(([k, v]) =>
+          `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(5,150,105,.15);font-size:12px;"><span style="color:var(--gray-600)">${k}</span><strong>${v}</strong></div>`
+        ).join('')}
+      </div>`;
+      toast(`✅ Draft #${dr.draft_id}`, 'ok');
+      await loadKPI();
+    } else if (el) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">${d.error || 'OCR error'}</div></div>`;
+    }
+  } catch {
+    toast('OCR error', 'err');
+  }
+
+  input.value = '';
+}
+
+async function syncBank(b) {
+  toast(`🏦 ${b.toUpperCase()}...`, 'info');
+  const d = await api(`/bank-sync/${b}/sync`, 'POST', { days: 7 });
+  if (d && d.ok) {
+    toast(`✅ ${b.toUpperCase()}: ${d.count} tx`, 'ok');
+    showBankResult(d);
+  }
+}
+
+async function syncAll() {
+  toast('🏦 Sync All...', 'info');
+  const d = await api('/bank-sync/sync-all', 'POST', { days: 7 });
+  if (d && d.ok) {
+    toast(`✅ TBC:${d.tbc.count} BOG:${d.bog.count} Queue:${d.saved_to_queue}`, 'ok');
+    showBankResult(d);
+    if (document.getElementById('tbc-cnt')) document.getElementById('tbc-cnt').textContent = d.tbc.count + ' tx';
+    if (document.getElementById('bog-cnt')) document.getElementById('bog-cnt').textContent = d.bog.count + ' tx';
+    await loadPending();
+    await loadKPI();
+  }
+}
+
+function showBankResult(d) {
+  const el = document.getElementById('bank-result');
+  if (!el) return;
+
+  const rows = [
+    ['TBC', d.tbc?.count || d.count || 0, (d.tbc?.mode || d.mode || 'demo')],
+    ['BOG', d.bog?.count || 0, d.bog?.mode || 'demo'],
+    ['Queue', d.saved_to_queue || 0, 'saved']
+  ];
+
+  el.innerHTML = `<table class="tbl"><thead><tr><th>ბანკი</th><th>Tx</th><th>Mode</th></tr></thead><tbody>${
+    rows.map(([b, c, m]) => `<tr><td>${b}</td><td style="font-weight:700">${c}</td><td><span class="card-badge badge-gray">${m}</span></td></tr>`).join('')
+  }</tbody></table>`;
+}
+
+function round2(v) { return Math.round((Number(v) + Number.EPSILON) * 100) / 100; }
+function formatMoney(v) { return Number(v || 0).toFixed(2) + ' ₾'; }
+function getMode() {
+  const s = document.querySelector('input[name="calcMode"]:checked');
+  return s ? s.value : 'net';
+}
+
+function addRow() {
+  const tbody = document.getElementById('payrollBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
     <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-name" value=""></td>
     <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="text" class="finput emp-id-number" value="" style="font-size:11px;"></td>
     <td style="padding:8px;border-bottom:1px solid var(--gray-100);"><input type="number" class="finput emp-amount" value="0" step="0.01" oninput="recalculateRow(this)"></td>
@@ -740,99 +1028,146 @@ function addRow(){
   tbody.appendChild(tr);
 }
 
-function removeRow(btn){btn.closest('tr').remove();}
-
-function recalculateRow(el){
-  const row=el.closest('tr');if(!row)return;
-  const mode=getMode();
-  const amount=parseFloat(row.querySelector('.emp-amount').value||'0');
-  const pension=row.querySelector('.emp-pension').checked;
-  const ep=pension?0.02:0;
-  let gross=0,net=0;
-  if(amount<=0){row.querySelector('.emp-gross').value='0.00';row.querySelector('.emp-net').value='0.00';return;}
-  if(mode==='gross'){gross=amount;net=gross-(gross*0.20)-(gross*ep);}
-  else{net=amount;gross=net/(1-0.20-ep);}
-  row.querySelector('.emp-gross').value=round2(gross).toFixed(2);
-  row.querySelector('.emp-net').value=round2(net).toFixed(2);
+function removeRow(btn) {
+  btn.closest('tr').remove();
 }
 
-function recalculateAllRows(){
-  document.querySelectorAll('#payrollBody tr').forEach(row=>{
-    const a=row.querySelector('.emp-amount');if(a)recalculateRow(a);
+function recalculateRow(el) {
+  const row = el.closest('tr');
+  if (!row) return;
+
+  const mode = getMode();
+  const amount = parseFloat(row.querySelector('.emp-amount').value || '0');
+  const pension = row.querySelector('.emp-pension').checked;
+  const ep = pension ? 0.02 : 0;
+
+  let gross = 0, net = 0;
+
+  if (amount <= 0) {
+    row.querySelector('.emp-gross').value = '0.00';
+    row.querySelector('.emp-net').value = '0.00';
+    return;
+  }
+
+  if (mode === 'gross') {
+    gross = amount;
+    net = gross - (gross * 0.20) - (gross * ep);
+  } else {
+    net = amount;
+    gross = net / (1 - 0.20 - ep);
+  }
+
+  row.querySelector('.emp-gross').value = round2(gross).toFixed(2);
+  row.querySelector('.emp-net').value = round2(net).toFixed(2);
+}
+
+function recalculateAllRows() {
+  document.querySelectorAll('#payrollBody tr').forEach(row => {
+    const a = row.querySelector('.emp-amount');
+    if (a) recalculateRow(a);
   });
 }
 
-function collectEmployees(){
-  const rows=document.querySelectorAll('#payrollBody tr');
-  const emps=[];
-  rows.forEach(row=>{
-    const name=row.querySelector('.emp-name').value.trim();
-    const pid=row.querySelector('.emp-id-number').value.trim();
-    const amount=parseFloat(row.querySelector('.emp-amount').value||'0');
-    const pension=row.querySelector('.emp-pension').checked;
-    if(name&&amount>0)emps.push({name,personal_id:pid,amount,is_pension_member:pension});
+function collectEmployees() {
+  const rows = document.querySelectorAll('#payrollBody tr');
+  const emps = [];
+  rows.forEach(row => {
+    const name = row.querySelector('.emp-name').value.trim();
+    const pid = row.querySelector('.emp-id-number').value.trim();
+    const amount = parseFloat(row.querySelector('.emp-amount').value || '0');
+    const pension = row.querySelector('.emp-pension').checked;
+    if (name && amount > 0) emps.push({ name, personal_id: pid, amount, is_pension_member: pension });
   });
   return emps;
 }
 
-function _calcOnePayroll(amount,mode,pension){
-  const ep=pension?0.02:0, erp=pension?0.02:0;
-  let gross,net,pit,emp_pension,employer_pension;
-  if(mode==='gross'){
-    gross=amount;pit=gross*0.20;emp_pension=gross*ep;net=gross-pit-emp_pension;employer_pension=gross*erp;
-  }else{
-    net=amount;gross=net/(1-0.20-ep);pit=gross*0.20;emp_pension=gross*ep;employer_pension=gross*erp;
+function _calcOnePayroll(amount, mode, pension) {
+  const ep = pension ? 0.02 : 0;
+  const erp = pension ? 0.02 : 0;
+  let gross, net, pit, emp_pension, employer_pension;
+
+  if (mode === 'gross') {
+    gross = amount;
+    pit = gross * 0.20;
+    emp_pension = gross * ep;
+    net = gross - pit - emp_pension;
+    employer_pension = gross * erp;
+  } else {
+    net = amount;
+    gross = net / (1 - 0.20 - ep);
+    pit = gross * 0.20;
+    emp_pension = gross * ep;
+    employer_pension = gross * erp;
   }
-  return{gross:round2(gross),pit:round2(pit),employee_pension:round2(emp_pension),employer_pension:round2(employer_pension),net:round2(net),total:round2(gross+employer_pension)};
+
+  return {
+    gross: round2(gross),
+    pit: round2(pit),
+    employee_pension: round2(emp_pension),
+    employer_pension: round2(employer_pension),
+    net: round2(net),
+    total: round2(gross + employer_pension)
+  };
 }
 
-async function calculatePayroll(){
-  const mode=getMode();
-  const emps=collectEmployees();
-  if(!emps.length){toast('მინიმუმ ერთი თანამშრომელი შეიყვანე.','warn');return;}
-  const results=[];
-  const totals={gross:0,pit:0,employee_pension:0,employer_pension:0,net:0,total:0};
-  emps.forEach(emp=>{
-    const r=_calcOnePayroll(emp.amount,mode,emp.is_pension_member);
-    results.push({...emp,...r});
-    Object.keys(totals).forEach(k=>totals[k]+=r[k]);
+async function calculatePayroll() {
+  const mode = getMode();
+  const emps = collectEmployees();
+
+  if (!emps.length) {
+    toast('მინიმუმ ერთი თანამშრომელი შეიყვანე.', 'warn');
+    return;
+  }
+
+  const results = [];
+  const totals = { gross: 0, pit: 0, employee_pension: 0, employer_pension: 0, net: 0, total: 0 };
+
+  emps.forEach(emp => {
+    const r = _calcOnePayroll(emp.amount, mode, emp.is_pension_member);
+    results.push({ ...emp, ...r });
+    Object.keys(totals).forEach(k => totals[k] += r[k]);
   });
-  Object.keys(totals).forEach(k=>totals[k]=round2(totals[k]));
-  renderPayrollResults({results,totals});
-  toast('Payroll დათვლილია ✅','ok');
+
+  Object.keys(totals).forEach(k => totals[k] = round2(totals[k]));
+  renderPayrollResults({ results, totals });
+  toast('Payroll დათვლილია ✅', 'ok');
 }
 
-function journalLines(r){
-  let lines=`<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:8px;background:var(--gray-50);border-radius:6px;font-weight:700;font-size:11px;margin-bottom:4px;"><div>მხარე</div><div>ანგარიში</div><div>თანხა</div></div>`;
-  const row=(side,acc,amt,col='')=>`<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:5px 0;border-bottom:1px dashed var(--gray-200);font-size:11px;font-family:var(--mono);"><div style="font-weight:700;color:${side==='Dr'?'var(--blue)':'var(--red)'}">${side}</div><div>${acc}</div><div style="font-weight:600;${col}">${formatMoney(amt)}</div></div>`;
-  lines+=row('Dr','7210 Salary Expense',r.gross);
-  lines+=row('Cr','3320 PIT Payable',r.pit,'color:var(--red)');
-  if(r.employee_pension>0)lines+=row('Cr','3330 Employee Pension Payable',r.employee_pension,'color:var(--red)');
-  lines+=row('Cr','3130 Salary Payable / Cash',r.net,'color:var(--green)');
-  if(r.employer_pension>0){lines+=row('Dr','7220 Employer Pension Expense',r.employer_pension);lines+=row('Cr','3340 Employer Pension Payable',r.employer_pension,'color:var(--amber)');}
+function journalLines(r) {
+  let lines = `<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:8px;background:var(--gray-50);border-radius:6px;font-weight:700;font-size:11px;margin-bottom:4px;"><div>მხარე</div><div>ანგარიში</div><div>თანხა</div></div>`;
+  const row = (side, acc, amt, col = '') => `<div style="display:grid;grid-template-columns:50px 1fr 130px;gap:8px;padding:5px 0;border-bottom:1px dashed var(--gray-200);font-size:11px;font-family:var(--mono);"><div style="font-weight:700;color:${side === 'Dr' ? 'var(--blue)' : 'var(--red)'}">${side}</div><div>${acc}</div><div style="font-weight:600;${col}">${formatMoney(amt)}</div></div>`;
+  lines += row('Dr', '7210 Salary Expense', r.gross);
+  lines += row('Cr', '3320 PIT Payable', r.pit, 'color:var(--red)');
+  if (r.employee_pension > 0) lines += row('Cr', '3330 Employee Pension Payable', r.employee_pension, 'color:var(--red)');
+  lines += row('Cr', '3130 Salary Payable / Cash', r.net, 'color:var(--green)');
+  if (r.employer_pension > 0) {
+    lines += row('Dr', '7220 Employer Pension Expense', r.employer_pension);
+    lines += row('Cr', '3340 Employer Pension Payable', r.employer_pension, 'color:var(--amber)');
+  }
   return lines;
 }
 
-function toggleDetails(btn){
-  const details=btn.closest('.pay-card').querySelector('.pay-details');
-  const open=details.style.display!=='none';
-  details.style.display=open?'none':'block';
-  btn.textContent=open?'▼ დეტალები':'▲ დახურვა';
+function toggleDetails(btn) {
+  const details = btn.closest('.pay-card').querySelector('.pay-details');
+  const open = details.style.display !== 'none';
+  details.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▼ დეტალები' : '▲ დახურვა';
 }
 
-function renderPayrollResults(data){
-  const container=document.getElementById('resultsContainer');
-  container.innerHTML='';
-  data.results.forEach(item=>{
-    const card=document.createElement('div');
-    card.className='pay-card';
-    card.style.cssText='background:var(--white);border:1px solid var(--gray-200);border-radius:var(--r);margin-bottom:10px;overflow:hidden;';
-    card.innerHTML=`
+function renderPayrollResults(data) {
+  const container = document.getElementById('resultsContainer');
+  container.innerHTML = '';
+
+  data.results.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'pay-card';
+    card.style.cssText = 'background:var(--white);border:1px solid var(--gray-200);border-radius:var(--r);margin-bottom:10px;overflow:hidden;';
+    card.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:var(--gray-50);border-bottom:1px solid var(--gray-100);" onclick="toggleDetails(this)">
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="font-weight:700;font-size:13px;">${item.name}</span>
-          <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:${item.is_pension_member?'var(--green-s)':'var(--gray-100)'};color:${item.is_pension_member?'var(--green)':'var(--gray-400)'};">${item.is_pension_member?'✅ საპენსიო':'— საპენსიო გარეშე'}</span>
-          ${item.personal_id?`<span style="font-size:10px;color:var(--gray-400);font-family:var(--mono);">${item.personal_id}</span>`:''}
+          <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:${item.is_pension_member ? 'var(--green-s)' : 'var(--gray-100)'};color:${item.is_pension_member ? 'var(--green)' : 'var(--gray-400)'};">${item.is_pension_member ? '✅ საპენსიო' : '— საპენსიო გარეშე'}</span>
+          ${item.personal_id ? `<span style="font-size:10px;color:var(--gray-400);font-family:var(--mono);">${item.personal_id}</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:12px;">
           <span style="font-size:13px;font-weight:700;color:var(--green);">${formatMoney(item.net)} <span style="font-size:10px;color:var(--gray-400);font-weight:500;">ხელზე</span></span>
@@ -841,7 +1176,7 @@ function renderPayrollResults(data){
       </div>
       <div class="pay-details" style="display:none;padding:14px;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;margin-bottom:12px;">
-          <div style="color:var(--gray-500);">პირადობის ნომ.</div><div style="font-family:var(--mono);font-size:11px;">${item.personal_id||'—'}</div>
+          <div style="color:var(--gray-500);">პირადობის ნომ.</div><div style="font-family:var(--mono);font-size:11px;">${item.personal_id || '—'}</div>
           <div style="color:var(--gray-500);">Gross</div><div style="color:var(--purple);font-weight:700;">${formatMoney(item.gross)}</div>
           <div style="color:var(--gray-500);">PIT (20%)</div><div style="color:var(--red);">${formatMoney(item.pit)}</div>
           <div style="color:var(--gray-500);">Employee Pension (2%)</div><div style="color:var(--red);">${formatMoney(item.employee_pension)}</div>
@@ -857,12 +1192,12 @@ function renderPayrollResults(data){
     `;
     container.appendChild(card);
   });
-  // TOTAL card
-  const t=data.totals;
-  const totalCard=document.createElement('div');
-  totalCard.className='pay-card';
-  totalCard.style.cssText='background:var(--blue-s);border:1px solid rgba(37,99,235,.15);border-radius:var(--r);overflow:hidden;';
-  totalCard.innerHTML=`
+
+  const t = data.totals;
+  const totalCard = document.createElement('div');
+  totalCard.className = 'pay-card';
+  totalCard.style.cssText = 'background:var(--blue-s);border:1px solid rgba(37,99,235,.15);border-radius:var(--r);overflow:hidden;';
+  totalCard.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;border-bottom:1px solid rgba(37,99,235,.1);" onclick="toggleDetails(this)">
       <span style="font-weight:700;font-size:13px;">📊 TOTAL (${data.results.length} თანამშ.)</span>
       <div style="display:flex;align-items:center;gap:12px;">
@@ -889,122 +1224,298 @@ function renderPayrollResults(data){
   container.appendChild(totalCard);
 }
 
-window.addEventListener('load',function(){recalculateAllRows();});
+async function loadLearning() {
+  const el = document.getElementById('learning-body');
+  const patEl = document.getElementById('patterns-body');
 
-// LEARNING — სწორი ვერსია (fixed, no duplicate)
-async function loadLearning(){
-  const el=document.getElementById('learning-body');const patEl=document.getElementById('patterns-body');
-  if(el)el.innerHTML=`<div class="loading-row"><span class="spinner"></span></div>`;
-  if(patEl)patEl.innerHTML=`<div class="loading-row"><span class="spinner"></span></div>`;
-  const [d,kpiD]=await Promise.all([api('/learning/patterns'),api('/dashboard/live/kpi')]);
-  if(!d){if(el)el.innerHTML=`<div class="empty-state"><div class="empty-text">API მიუწვდომელია</div></div>`;return;}
-  const kpi=kpiD?.kpi||{};
-  const items=d.data?.items||d.items||[];
-  const total=d.data?.count||items.length||0;
-  const conf=Math.round((kpi.avg_confidence||0)*100);
-  const autoRate=kpi.auto_approval_rate||0;
-  const feedback=kpi.total_feedback||0;
-  if(el)el.innerHTML=`<div class="stat-mini-row"><div class="stat-mini"><div class="sm-val">${feedback}</div><div class="sm-lbl">სტ.</div></div><div class="stat-mini"><div class="sm-val">${total}</div><div class="sm-lbl">Patterns</div></div><div class="stat-mini"><div class="sm-val">${conf}%</div><div class="sm-lbl">Conf.</div></div><div class="stat-mini"><div class="sm-val">${autoRate}%</div><div class="sm-lbl">Auto</div></div></div>`;
-  if(patEl)patEl.innerHTML=items.length?items.slice(0,8).map(p=>{const freq=p.frequency||1;const amt=p.avg_amount?p.avg_amount.toFixed(0)+' ₾':'—';const descs=(p.descriptions||[]).slice(0,2).join(', ')||'—';return`<div class="pl-row"><span class="pl-label" style="font-family:var(--mono);font-size:12px;">${p.learned_account_code||'—'}</span><div class="pl-bar-wrap" title="${descs}"><div class="pl-bar-fill" style="width:${Math.min(freq*20,100)}%;background:var(--blue)"></div></div><span class="pl-amount" style="font-size:11px;">×${freq} · ${amt}</span></div>`;}).join(''):`<div class="empty-state"><div class="empty-text">Patterns ვერ მოიძებნა</div></div>`;
-}
+  if (el) el.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+  if (patEl) patEl.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
 
-// HEALTH
-async function loadHealth(){
-  const el=document.getElementById('health-body');if(!el)return;
-  const eps=[{n:'Health',u:'/health/'},{n:'Learning',u:'/learning/patterns'},{n:'Approval Queue',u:'/approval/queue'},{n:'Dashboard KPI',u:'/dashboard/live/kpi'},{n:'Bank Sync',u:'/bank-sync/status'},{n:'OCR',u:'/ocr/status'},{n:'Payroll',u:'/payroll/status'},{n:'Email Invoice',u:'/email-invoice/status'},{n:'Collaboration',u:'/collaboration/summary'},{n:'Version',u:'/version'}];
-  const res=await Promise.allSettled(eps.map(e=>api(e.u)));
-  el.innerHTML=eps.map((ep,i)=>{const ok=res[i].status==='fulfilled'&&res[i].value!=null;return`<div class="health-row"><div><div class="health-name">${ep.n}</div><div class="health-url">${BASE}${ep.u}</div></div><span class="chip ${ok?'chip-approved':'chip-rejected'}">${ok?'✅ OK':'❌ ERROR'}</span></div>`;}).join('');
-}
+  const [d, kpiD] = await Promise.all([
+    api('/learning/patterns'),
+    api('/dashboard/live/kpi')
+  ]);
 
-function onSearch(q){
-  if(!q){setRows(allPending,'dash-rows',true,false);return;}
-  const f=allPending.filter(r=>(getDesc(r)||'').toLowerCase().includes(q.toLowerCase())||(getCat(r)||'').toLowerCase().includes(q.toLowerCase()));
-  setRows(f,'dash-rows',true,false);
-}
-
-function openModal(row){
-  const id=getId(row);
-  document.getElementById('modal-title').textContent='📄 #'+id+' — '+getDesc(row);
-  document.getElementById('modal-body').innerHTML=[['ID',id],['თარიღი',fmtDate(row.date||row.created_at)],['თანხა',(row.amount||0)+' ₾'],['კატ.',getCat(row)],['Confidence',Math.round(getConf(row)*100)+'%'],['სტ.',row.status||'—'],['Source',row.classification_source||'—'],['Partner',row.partner||'—'],['Pattern',row.pattern_matched_on||'—']].map(([k,v])=>`<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${v}</span></div>`).join('');
-  document.getElementById('modal-footer').innerHTML=`<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button><button class="btn btn-green btn-sm" onclick="approve('${id}');closeModal()">✅ დამტკიცება</button><button class="btn btn-red btn-sm" onclick="reject('${id}');closeModal()">❌ უარყოფა</button>`;
-  document.getElementById('overlay').classList.add('show');
-}
-function closeModal(){document.getElementById('overlay').classList.remove('show');}
-
-function goPage(name,btn){
-  curPage=name;
-  document.querySelectorAll('.sb-item').forEach(b=>b.classList.remove('active'));
-  if(btn)btn.classList.add('active');
-  else{const found=document.querySelector(`.sb-item[onclick*="'${name}'"]`);if(found)found.classList.add('active');}
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('pg-'+name).classList.add('active');
-  const titles={dashboard:'Dashboard',pending:'⏳ მოლოდინი',approved:'✅ დამტკიცებული',rejected:'❌ უარყოფილი',ocr:'🧾 OCR / Invoice',export:'📤 Export',inbox:'📧 Email Inbox',bank:'🏦 Bank Sync',payroll:'💰 Payroll',collab:'👥 Collaboration',learning:'🧠 Learning',health:'💊 Health Check',settings:'⚙️ Settings'};
-  document.getElementById('page-title').textContent=titles[name]||name;
-  loadPage();
-}
-function loadPage(){
-  loadKPI();loadCollab();
-  if(curPage==='dashboard'){loadPending();loadCashflow();loadPL();}
-  else if(curPage==='pending')loadPending();
-  else if(curPage==='approved')loadApproved();
-  else if(curPage==='rejected')loadRejected();
-  else if(curPage==='learning')loadLearning();
-  else if(curPage==='health')loadHealth();
-  else if(curPage==='inbox')loadInbox();
-}
-
-function qp(t){document.getElementById('chatInp').value=t;document.getElementById('chatInp').focus();}
-function setAIFile(inp){aiFile=inp.files[0];toast(`📎 ${aiFile.name}`,'info');}
-async function sendMsg(){
-  const inp=document.getElementById('chatInp');const text=inp.value.trim()||'ფაილი გაანალიზე';
-  const box=document.getElementById('chatMsgs');
-  const fileL=aiFile?` 📎${aiFile.name}`:'';
-  box.innerHTML+=`<div class="msg user">${text||'ფაილი'}${fileL}</div>`;inp.value='';
-  const tid='t'+Date.now();box.innerHTML+=`<div class="msg bot" id="${tid}"><span class="spinner"></span></div>`;box.scrollTop=box.scrollHeight;
-  let reply='';const t=(text||'').toLowerCase();
-  if(t.includes('bank')||t.includes('sync')){reply='🏦 Bank Sync გაიშვა.';syncAll();}
-  else if(t.includes('export')||t.includes('excel')){reply='📤 Export tab-ზე გადადი.';}
-  else if(t.includes('payg')||t.includes('payroll')){reply='💰 Payroll tab-ზე გადადი.';}
-  else if(t.includes('ocr')||t.includes('invoice')){reply='🧾 OCR tab-ზე გადადი — ატვირთე PDF/XLSX.';}
-  else if(t.includes('autopilot')){reply=`🤖 Autopilot ${apOn?'ON-ია':'OFF-ია'}.`;}
-  else if(t.includes('pending')||t.includes('მოლოდინ')){reply=`⏳ ${allPending.length} ტრ. მოლოდინშია.`;}
-  else if(t.includes('სტატუს')||t.includes('health')){reply='💊 Health Check tab-ზე გადადი.';goPage('health',null);}
-  else{
-    try{const r=await fetch(`${BASE}/api/ai/chat`,{method:'POST',headers:{'X-Tenant-ID':TENANT,'Content-Type':'application/json'},body:JSON.stringify({message:text})});const d=await r.json();reply=d.ok===false?('❌ '+d.error?.details):d.answer||d.data?.reply||'Bridge Hub AI ✅';}
-    catch{reply='✅ Bridge Hub AI — ready. Settings-ში API key-ები შეიყვანე.';}
+  if (!d) {
+    if (el) el.innerHTML = `<div class="empty-state"><div class="empty-text">API მიუწვდომელია</div></div>`;
+    return;
   }
-  setTimeout(()=>{const el=document.getElementById(tid);if(el)el.innerHTML=reply;box.scrollTop=box.scrollHeight;},400);
+
+  const kpi = kpiD?.kpi || {};
+  const items = d.data?.items || d.items || [];
+  const total = d.data?.count || items.length || 0;
+  const conf = Math.round((kpi.avg_confidence || 0) * 100);
+  const autoRate = kpi.auto_approval_rate || 0;
+  const feedback = kpi.total_feedback || 0;
+
+  if (el) {
+    el.innerHTML = `<div class="stat-mini-row">
+      <div class="stat-mini"><div class="sm-val">${feedback}</div><div class="sm-lbl">სტ.</div></div>
+      <div class="stat-mini"><div class="sm-val">${total}</div><div class="sm-lbl">Patterns</div></div>
+      <div class="stat-mini"><div class="sm-val">${conf}%</div><div class="sm-lbl">Conf.</div></div>
+      <div class="stat-mini"><div class="sm-val">${autoRate}%</div><div class="sm-lbl">Auto</div></div>
+    </div>`;
+  }
+
+  if (patEl) {
+    patEl.innerHTML = items.length
+      ? items.slice(0, 8).map(p => {
+          const freq = p.frequency || 1;
+          const amt = p.avg_amount ? p.avg_amount.toFixed(0) + ' ₾' : '—';
+          const descs = (p.descriptions || []).slice(0, 2).join(', ') || '—';
+          return `<div class="pl-row">
+            <span class="pl-label" style="font-family:var(--mono);font-size:12px;">${p.learned_account_code || '—'}</span>
+            <div class="pl-bar-wrap" title="${descs}">
+              <div class="pl-bar-fill" style="width:${Math.min(freq * 20, 100)}%;background:var(--blue)"></div>
+            </div>
+            <span class="pl-amount" style="font-size:11px;">×${freq} · ${amt}</span>
+          </div>`;
+        }).join('')
+      : `<div class="empty-state"><div class="empty-text">Patterns ვერ მოიძებნა</div></div>`;
+  }
 }
 
-async function loadInbox(){
-  const el=document.getElementById('inbox-body');if(!el)return;
-  el.innerHTML='<div class="loading-row"><span class="spinner"></span></div>';
-  const d=await api('/email-invoice/inbox?limit=20');
-  if(!d||!d.ok){el.innerHTML='<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">Email სერვისი მიუწვდომელია</div></div>';return;}
-  const emails=d.emails||[];
-  document.getElementById('sb-inbox').textContent=emails.filter(e=>e.has_attachments).length;
-  if(!emails.length){el.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">Inbox ცარიელია</div></div>';return;}
-  el.innerHTML=emails.map(em=>{
-    const atts=em.attachments||[];const hasAtts=em.has_attachments;
-    return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--r);padding:14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;"><div><div style="font-size:13px;font-weight:700;color:var(--gray-900)">${em.subject||'(no subject)'}</div><div style="font-size:11px;color:var(--gray-400);margin-top:2px">${em.from||''} · ${em.date||''}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">${hasAtts?`<span class="card-badge badge-blue">${atts.length} ფაილი</span>`:'<span class="card-badge badge-gray">attachment არ არის</span>'}${hasAtts?`<button class="btn btn-green btn-sm" onclick="processEmail('${em.message_id}')">▶ გატარება</button>`:''}</div></div>${atts.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;">${atts.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--gray-200);border-radius:6px;padding:4px 8px;font-size:11px;">📎 ${a.filename} (${Math.round(a.size/1024)}KB)<a href="${BASE}/email-invoice/preview/${em.message_id}/${encodeURIComponent(a.filename)}" target="_blank" style="color:var(--blue);font-weight:700;text-decoration:none;">👁 ნახვა</a></span>`).join('')}</div>`:''}</div>`;
+async function loadHealth() {
+  const el = document.getElementById('health-body');
+  if (!el) return;
+
+  const eps = [
+    { n: 'Health', u: '/health/' },
+    { n: 'Learning', u: '/learning/patterns' },
+    { n: 'Approval Queue', u: '/approval/queue' },
+    { n: 'Dashboard KPI', u: '/dashboard/live/kpi' },
+    { n: 'Bank Sync', u: '/bank-sync/status' },
+    { n: 'OCR', u: '/ocr/status' },
+    { n: 'Payroll', u: '/payroll/status' },
+    { n: 'Email Invoice', u: '/email-invoice/status' },
+    { n: 'Collaboration', u: '/collaboration/summary' },
+    { n: 'Version', u: '/version' }
+  ];
+
+  const res = await Promise.allSettled(eps.map(e => api(e.u)));
+
+  el.innerHTML = eps.map((ep, i) => {
+    const ok = res[i].status === 'fulfilled' && res[i].value != null;
+    return `<div class="health-row">
+      <div><div class="health-name">${ep.n}</div><div class="health-url">${BASE}${ep.u}</div></div>
+      <span class="chip ${ok ? 'chip-approved' : 'chip-rejected'}">${ok ? '✅ OK' : '❌ ERROR'}</span>
+    </div>`;
   }).join('');
 }
 
-async function processEmail(msgId){
-  if(!confirm('ეს email-ის invoice-ები გაიტარება. გაგრძელება?'))return;
-  toast('📧 Email მუშავდება...','info');
-  const d=await api('/email-invoice/confirm-process','POST',{message_id:msgId,force:false});
-  if(!d||!d.ok){toast('Error','err');return;}
-  const results=d.results||[];
-  const dups=results.filter(r=>r.duplicate);const ok=results.filter(r=>!r.duplicate);
-  if(dups.length)toast(`⚠️ ${dups.length} დუბლიკატი გამოტოვდა`,'warn');
-  if(ok.length){toast(`✅ ${ok.length} invoice გაიტარა`,'ok');loadKPI();loadInbox();}
-  if(!ok.length&&!dups.length)toast('⚠️ attachment ვერ დამუშავდა','warn');
+function onSearch(q) {
+  if (!q) {
+    setRows(allPending, 'dash-rows', true, false);
+    return;
+  }
+  const f = allPending.filter(r =>
+    (getDesc(r) || '').toLowerCase().includes(q.toLowerCase()) ||
+    (getCat(r) || '').toLowerCase().includes(q.toLowerCase())
+  );
+  setRows(f, 'dash-rows', true, false);
 }
 
-loadPage();
-setInterval(loadKPI,30000);
-setInterval(()=>{if(curPage==='dashboard'||curPage==='pending')loadPending();},30000);
+function openModal(row) {
+  const id = getId(row);
+  document.getElementById('modal-title').textContent = '📄 #' + id + ' — ' + getDesc(row);
+  document.getElementById('modal-body').innerHTML = [
+    ['ID', id],
+    ['თარიღი', fmtDate(row.date || row.created_at)],
+    ['თანხა', (row.amount || 0) + ' ₾'],
+    ['კატ.', getCat(row)],
+    ['Confidence', Math.round(getConf(row) * 100) + '%'],
+    ['სტ.', row.status || '—'],
+    ['Source', row.classification_source || '—'],
+    ['Partner', row.partner || '—'],
+    ['Pattern', row.pattern_matched_on || '—']
+  ].map(([k, v]) => `<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${v}</span></div>`).join('');
+
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
+    <button class="btn btn-green btn-sm" onclick="approve('${id}');closeModal()">✅ დამტკიცება</button>
+    <button class="btn btn-red btn-sm" onclick="reject('${id}');closeModal()">❌ უარყოფა</button>
+  `;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function goPage(name, btn) {
+  curPage = name;
+
+  document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    const found = document.querySelector(`.sb-item[onclick*="'${name}'"]`);
+    if (found) found.classList.add('active');
+  }
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('pg-' + name)?.classList.add('active');
+
+  const titles = {
+    dashboard: 'Dashboard',
+    pending: '⏳ მოლოდინი',
+    approved: '✅ დამტკიცებული',
+    rejected: '❌ უარყოფილი',
+    ocr: '🧾 OCR / Invoice',
+    export: '📤 Export',
+    inbox: '📧 Email Inbox',
+    bank: '🏦 Bank Sync',
+    payroll: '💰 Payroll',
+    collab: '👥 Collaboration',
+    learning: '🧠 Learning',
+    health: '💊 Health Check',
+    settings: '⚙️ Settings'
+  };
+
+  const titleEl = document.getElementById('page-title');
+  if (titleEl) titleEl.textContent = titles[name] || name;
+
+  loadPage();
+}
+
+function loadPage() {
+  loadKPI();
+
+  if (curPage === 'dashboard') {
+    loadPending();
+    loadCashflow();
+    loadPL();
+    loadCollab();
+  } else if (curPage === 'pending') {
+    loadPending();
+  } else if (curPage === 'approved') {
+    loadApproved();
+  } else if (curPage === 'rejected') {
+    loadRejected();
+  } else if (curPage === 'learning') {
+    loadLearning();
+  } else if (curPage === 'health') {
+    loadHealth();
+  } else if (curPage === 'inbox') {
+    loadInbox();
+  } else if (curPage === 'collab') {
+    loadCollab();
+  }
+}
+
+function qp(t) {
+  const inp = document.getElementById('chatInp');
+  if (!inp) return;
+  inp.value = t;
+  inp.focus();
+}
+
+function setAIFile(inp) {
+  aiFile = inp.files?.[0] || null;
+  if (aiFile) toast(`📎 ${aiFile.name}`, 'info');
+}
+
+async function sendMsg() {
+  const inp = document.getElementById('chatInp');
+  const box = document.getElementById('chatMsgs');
+  if (!inp || !box) return;
+
+  const text = inp.value.trim() || 'ფაილი გაანალიზე';
+  const fileLabel = aiFile ? ` 📎${aiFile.name}` : '';
+
+  box.innerHTML += `<div class="msg user">${text}${fileLabel}</div>`;
+  inp.value = '';
+
+  const tid = 't' + Date.now();
+  box.innerHTML += `<div class="msg bot" id="${tid}"><span class="spinner"></span></div>`;
+  box.scrollTop = box.scrollHeight;
+
+  let reply = '';
+  const t = text.toLowerCase();
+
+  if (t.includes('bank') || t.includes('sync')) {
+    reply = '🏦 Bank Sync გაიშვა.';
+    syncAll();
+  } else if (t.includes('export') || t.includes('excel')) {
+    reply = '📤 Export tab-ზე გადადი.';
+  } else if (t.includes('payg') || t.includes('payroll')) {
+    reply = '💰 Payroll tab-ზე გადადი.';
+  } else if (t.includes('ocr') || t.includes('invoice')) {
+    reply = '🧾 OCR tab-ზე გადადი — ატვირთე PDF/XLSX.';
+  } else if (t.includes('autopilot')) {
+    reply = `🤖 Autopilot ${apOn ? 'ON-ია' : 'OFF-ია'}.`;
+  } else if (t.includes('pending') || t.includes('მოლოდინ')) {
+    reply = `⏳ ${allPending.length} ტრ. მოლოდინშია.`;
+  } else if (t.includes('სტატუს') || t.includes('health')) {
+    reply = '💊 Health Check tab-ზე გადადი.';
+    goPage('health', null);
+  } else {
+    try {
+      const fd = new FormData();
+      fd.append('message', text);
+      fd.append('tenant_id', TENANT);
+      fd.append('use_vector_search', 'true');
+      if (aiFile) fd.append('file', aiFile);
+
+      const r = await fetch(`${BASE}/api/ai/chat`, {
+        method: 'POST',
+        headers: { 'X-Tenant-ID': TENANT },
+        body: fd
+      });
+
+      let d = {};
+      try { d = await r.json(); } catch {}
+
+      reply = d.answer || d.data?.reply || (r.ok ? 'Bridge Hub AI ✅' : '❌ მოთხოვნა ვერ დამუშავდა');
+    } catch {
+      reply = '✅ Bridge Hub AI — ready. Settings-ში API key-ები შეიყვანე.';
+    } finally {
+      aiFile = null;
+      const fileInput = document.getElementById('ai-file');
+      if (fileInput) fileInput.value = '';
+    }
+  }
+
+  setTimeout(() => {
+    const el = document.getElementById(tid);
+    if (el) el.innerHTML = reply;
+    box.scrollTop = box.scrollHeight;
+  }, 250);
+}
+
+async function loadInbox() {
+  const el = document.getElementById('inbox-body');
+  if (!el) return;
+
+  el.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+
+  const d = await api('/email-invoice/inbox');
+  const items = d?.data?.items || d?.items || d?.emails || [];
+
+  if (!items.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">ელფოსტა ვერ მოიძებნა</div></div>`;
+    return;
+  }
+
+  el.innerHTML = items.map(m => `
+    <div class="collab-item">
+      <div class="collab-avatar">📧</div>
+      <div style="flex:1">
+        <div class="collab-name">${m.subject || '(No subject)'}</div>
+        <div class="collab-time">${m.from || 'Unknown sender'} · ${fmtDate(m.date)}</div>
+        <div class="collab-text">${m.snippet || ''}</div>
+      </div>
+    </div>
+  `).join('');
+
+  const badge = document.getElementById('sb-inbox');
+  if (badge) badge.textContent = items.length;
+}
+
+window.addEventListener('load', async function () {
+  recalculateAllRows();
+  await loadPage();
+});
 </script>
 </body>
 </html>

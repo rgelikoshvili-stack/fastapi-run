@@ -1,13 +1,18 @@
 """
-Bridge Hub — AI Chat Service (FINAL)
-→ app/api/services/ai_chat_service.py
+Bridge Hub — AI Chat Service
+app/api/services/ai_chat_service.py
 
-Memory Learning + LLM Combine
-- file → process_document → draft
-- text → local rules / KB / vector / memory-first / LLM-second
-- "გატარე" → draft creation
+როლი:
+- file -> process_document -> draft
+- text -> KB / local rules / vector / memory / LLM
+- "გატარე" / "post" -> draft creation
 - direct OpenAI call ❌
 - unified llm_service ✅
+
+Architecture:
+- bridge_hub_knowledge.py = source of truth
+- accounting_rules.py = posting engine
+- posting_service.py = draft / posting execution
 """
 
 import os
@@ -18,6 +23,7 @@ from typing import Optional, List, Dict, Any
 from app.api.services.accounting_engine import process_document
 from app.api.services.llm_service import classify as llm_classify
 from app.api.services.llm_service import generate_preview
+from app.api.services.posting_service import create_journal_draft
 
 
 # ─────────────────────────────────────────────────────────────
@@ -66,7 +72,10 @@ except ImportError:
 try:
     from app.api.services.accounting_rules import (
         build_vat_posting,
+        build_vat_posting_from_net,
         build_dividend_posting,
+        build_payroll_posting,
+        build_payroll_from_net_posting,
         format_gel,
     )
     ACCT_RULES_LOADED = True
@@ -97,12 +106,22 @@ def _format_sources(results) -> List[str]:
 
 
 def _create_draft_from_result(result: dict, tenant_id: str) -> dict:
-    from app.api.services.posting_service import create_journal_draft
+    lines = result.get("lines", []) or []
+    if not isinstance(lines, list) or not lines:
+        raise ValueError("draft lines are missing")
+
+    description = str(result.get("description") or "AI Draft").strip() or "AI Draft"
+    partner = str(result.get("partner") or "Unknown").strip() or "Unknown"
+    currency = str(result.get("currency") or "GEL").strip() or "GEL"
+    draft_date = result.get("date")
 
     return create_journal_draft(
-        description=result.get("description", "AI Draft"),
-        lines=result.get("lines", []),
+        description=description,
+        lines=lines,
         tenant_id=tenant_id,
+        partner=partner,
+        date=draft_date,
+        currency=currency,
     )
 
 
@@ -190,8 +209,25 @@ def _local_answer(message: str) -> Optional[str]:
             return None
 
         mode = "net" if "ხელზე" in msg else "gross"
-        r = calculate_payroll(amount, mode=mode)
 
+        if ACCT_RULES_LOADED:
+            if mode == "net":
+                p = build_payroll_from_net_posting(amount)
+            else:
+                p = build_payroll_posting(amount)
+
+            return (
+                f"👤 **ხელფასის გაანგარიშება — {format_gel(amount)}**\n\n"
+                f"| | |\n|---|---|\n"
+                f"| დათვლილი ბრუტო | **{format_gel(p['gross_salary'])}** |\n"
+                f"| PIT (20%) | **{format_gel(p['pit'])}** |\n"
+                f"| PAYG თანამშრომელი (2%) | **{format_gel(p['employee_pension'])}** |\n"
+                f"| PAYG დამსაქმებელი (2%) | **{format_gel(p['employer_pension'])}** |\n"
+                f"| **ნეტო** | **{format_gel(p['net_salary'])}** |\n"
+                f"| **ჯამური ხარჯი** | **{format_gel(p['total_employer_cost'])}** |"
+            )
+
+        r = calculate_payroll(amount, mode=mode)
         return (
             f"👤 **ხელფასის გაანგარიშება — {format_gel(amount)}**\n\n"
             f"| | |\n|---|---|\n"
@@ -210,7 +246,11 @@ def _local_answer(message: str) -> Optional[str]:
         payment_status = "unpaid" if _contains_any(msg, ["ინვოისი", "invoice", "unpaid", "მოთხოვნა"]) else "paid"
 
         if ACCT_RULES_LOADED:
-            p = build_vat_posting(amount, payment_status=payment_status)
+            if inclusive:
+                p = build_vat_posting(amount, payment_status=payment_status)
+            else:
+                p = build_vat_posting_from_net(amount, payment_status=payment_status)
+
             return (
                 f"💰 **VAT გაანგარიშება — {format_gel(amount)}**\n\n"
                 f"| | |\n|---|---|\n"
@@ -243,7 +283,6 @@ async def handle_ai_chat(
 ) -> Dict[str, Any]:
     message = (message or "").strip()
 
-    # 1. FILE → OCR / PARSE / DRAFT
     if file:
         suffix = os.path.splitext(file.filename or "")[1] or ".bin"
 
@@ -291,7 +330,6 @@ async def handle_ai_chat(
             except Exception:
                 pass
 
-    # 2. TEXT → DRAFT
     if message and ("გატარე" in message.lower() or "post" in message.lower()):
         try:
             if not KB_LOADED:
@@ -314,7 +352,7 @@ async def handle_ai_chat(
                         f"📌 ID: {draft.get('id')}"
                     ),
                     "sources": ["accounting_engine"],
-                    "confidence": 0.95,
+                    "confidence": float(result.get("confidence", 0.95)),
                     "search_method": "auto_posting",
                     "session_id": session_id,
                 }
@@ -336,7 +374,6 @@ async def handle_ai_chat(
                 "session_id": session_id,
             }
 
-    # 3. LOCAL RULES
     if KB_LOADED:
         local = _local_answer(message)
         if local:
@@ -348,15 +385,12 @@ async def handle_ai_chat(
                 "session_id": session_id,
             }
 
-    # 4. CONTEXT SEARCH
     context = ""
     sources = []
-    search_method = "keyword"
 
     if use_vector_search and _vector_db_available:
         try:
             context = get_context_for_llm_hybrid(message, max_chars=4000)
-            search_method = "hybrid"
             sources = ["ChromaDB + KB"]
         except Exception:
             pass
@@ -366,7 +400,6 @@ async def handle_ai_chat(
         results = search_knowledge(message, top_k=5)
         sources = _format_sources(results)
 
-    # 5. MEMORY FIRST
     memory_result = _build_memory_context(message, tenant_id)
 
     if memory_result.get("matched") and float(memory_result.get("confidence", 0.0)) >= 0.85:
@@ -388,7 +421,6 @@ async def handle_ai_chat(
             "session_id": session_id,
         }
 
-    # 6. MEMORY + CONTEXT → LLM
     llm_result = llm_classify(
         description=message,
         context={
@@ -448,16 +480,25 @@ def run_ai_search(q: str, top_k: int = 5, use_vector: bool = True):
 
 
 def run_vat_calc(request):
+    payment_status = getattr(request, "payment_status", "paid") or "paid"
+    inclusive = bool(getattr(request, "inclusive", True))
+    service_type = getattr(request, "service_type", "standard") or "standard"
+
     if ACCT_RULES_LOADED:
-        return build_vat_posting(
+        if inclusive:
+            return build_vat_posting(
+                request.amount,
+                payment_status=payment_status,
+            )
+        return build_vat_posting_from_net(
             request.amount,
-            payment_status=request.payment_status or "paid",
+            payment_status=payment_status,
         )
 
     if not KB_LOADED:
         return {"error": "KB not loaded"}
 
-    return calculate_vat(request.amount, request.inclusive, request.service_type)
+    return calculate_vat(request.amount, inclusive, service_type)
 
 
 def run_dividend_calc(request):
@@ -471,6 +512,20 @@ def run_dividend_calc(request):
 
 
 def run_payroll_calc(request):
+    if ACCT_RULES_LOADED:
+        mode = request.mode or "gross"
+        if mode == "net":
+            return build_payroll_from_net_posting(
+                request.gross,
+                employee_pension_rate=0.02 if getattr(request, "include_employee_payg", True) else 0.0,
+                employer_pension_rate=0.02 if getattr(request, "include_employee_payg", True) else 0.0,
+            )
+        return build_payroll_posting(
+            request.gross,
+            employee_pension_rate=0.02 if getattr(request, "include_employee_payg", True) else 0.0,
+            employer_pension_rate=0.02 if getattr(request, "include_employee_payg", True) else 0.0,
+        )
+
     if not KB_LOADED:
         return {"error": "KB not loaded"}
 

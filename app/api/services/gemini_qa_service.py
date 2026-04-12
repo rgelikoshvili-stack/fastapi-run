@@ -1,10 +1,18 @@
 def gemini_review(draft: dict) -> dict:
     issues = []
 
-    if draft.get("confidence", 1) < 0.75:
+    confidence = float(draft.get("confidence") or 0.0)
+    lines = draft.get("lines") or []
+
+    account_code = draft.get("account_code") or ""
+    if not account_code and lines and isinstance(lines, list):
+        first_line = lines[0] or {}
+        account_code = str(first_line.get("account_code") or "").strip()
+
+    if confidence < 0.75:
         issues.append("low_confidence_flag")
 
-    if not draft.get("account_code"):
+    if not account_code and not lines:
         issues.append("missing_account_code")
 
     return {

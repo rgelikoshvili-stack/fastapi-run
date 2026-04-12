@@ -1,6 +1,9 @@
+from __future__ import annotations
+
+
 def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
     source = (cl.get("source") or "").strip().lower()
-    confidence = float(cl.get("confidence") or 0)
+    confidence = float(cl.get("confidence") or 0.0)
 
     support_count = int(cl.get("pattern_support_count") or 0)
     success_count = int(cl.get("pattern_success_count") or 0)
@@ -15,11 +18,9 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
         except Exception:
             pattern_days_since_seen = 999999
 
-    # 1. Expense article = trusted deterministic source
     if source == "expense_article":
         return False, "auto_approved", "expense_article_rule"
 
-    # 2. Transaction memory
     if source == "memory":
         usage_count = int(cl.get("memory_usage_count") or 0)
         memory_days_since_seen = cl.get("memory_days_since_seen")
@@ -40,7 +41,6 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
 
         return True, "pending_approval", "memory_needs_review"
 
-    # 3. ERP history
     if source == "erp_history":
         erp_evidence_count = int(cl.get("erp_evidence_count") or 0)
         erp_days_since_seen = cl.get("erp_days_since_seen")
@@ -61,7 +61,6 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
 
         return True, "pending_approval", "erp_history_needs_review"
 
-    # 4. Active learning patterns
     if source in ("pattern_active", "pattern_active_fuzzy"):
         if (
             confidence >= 0.90
@@ -85,11 +84,9 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
 
         return True, "pending_approval", "active_pattern_needs_review"
 
-    # 5. Candidate learning patterns
     if source in ("pattern_candidate", "pattern_candidate_fuzzy"):
         return True, "pending_approval", "candidate_pattern_needs_review"
 
-    # 6. Rules fallback
     if confidence >= 0.85:
         return False, "drafted", "high_confidence_rules"
 
@@ -108,31 +105,76 @@ def generate_draft(tx: dict, cl: dict) -> dict:
         else:
             amount = 0.0
 
-    account_code = cl.get("account_code")
+    amount = float(amount or 0.0)
+
     review_required, status, autopilot_reason = decide_autopilot_status(cl)
 
-    if tx.get("paid_in") not in (None, "", 0, 0.0):
+    raw_account_code = str(cl.get("account_code") or "").strip()
+    reason = str(cl.get("reason") or "").strip()
+    confidence = float(cl.get("confidence") or 0.0)
+
+    description = str(tx.get("description") or "").strip() or "Transaction"
+    partner = str(tx.get("partner") or "").strip() or "Unknown"
+    currency = str(tx.get("currency") or "GEL").strip() or "GEL"
+    tx_date = tx.get("date")
+    source_type = tx.get("source_type")
+
+    is_income = tx.get("paid_in") not in (None, "", 0, 0.0)
+
+    if is_income:
+        main_account_code = raw_account_code or "6110"
         debit_account = "1210"
-        credit_account = account_code
+        credit_account = main_account_code
+        lines = [
+            {
+                "account_code": debit_account,
+                "label": "Bank/Cash",
+                "debit": amount,
+                "credit": 0.0,
+            },
+            {
+                "account_code": credit_account,
+                "label": reason or "Income",
+                "debit": 0.0,
+                "credit": amount,
+            },
+        ]
     else:
-        debit_account = account_code
+        main_account_code = raw_account_code or "7190"
+        debit_account = main_account_code
         credit_account = "1210"
+        lines = [
+            {
+                "account_code": debit_account,
+                "label": reason or "Expense",
+                "debit": amount,
+                "credit": 0.0,
+            },
+            {
+                "account_code": credit_account,
+                "label": "Bank/Cash",
+                "debit": 0.0,
+                "credit": amount,
+            },
+        ]
 
     approved_by_mode = "autopilot" if status == "auto_approved" else "manual_review"
 
     return {
-        "date": tx.get("date"),
-        "description": tx.get("description"),
-        "partner": tx.get("partner"),
+        "date": tx_date,
+        "description": description,
+        "partner": partner,
         "amount": amount,
+        "currency": currency,
         "debit_account": debit_account,
         "credit_account": credit_account,
-        "account_code": account_code,
-        "reason": cl.get("reason"),
-        "confidence": cl.get("confidence"),
+        "account_code": main_account_code,
+        "lines": lines,
+        "reason": reason,
+        "confidence": confidence,
         "review_required": review_required,
         "status": status,
-        "source_type": tx.get("source_type"),
+        "source_type": source_type,
         "classification_source": cl.get("source"),
         "pattern_matched_on": cl.get("pattern_matched_on"),
         "pattern_support_count": cl.get("pattern_support_count"),

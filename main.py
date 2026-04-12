@@ -100,7 +100,7 @@ from app.api import routes_erp_import
 from app.api import routes_erp_connectors
 from app.api import routes_auth
 from app.api import routes_balance_ge
-from app.api import routes_chat
+# from app.api import routes_chat
 from app.api import routes_1c
 from app.api import routes_notifications
 from app.api import routes_tax
@@ -166,7 +166,7 @@ app.include_router(routes_erp_import.router)
 app.include_router(routes_erp_connectors.router)
 app.include_router(routes_auth.router)
 app.include_router(routes_balance_ge.router)
-app.include_router(routes_chat.router)
+# app.include_router(routes_chat.router)
 app.include_router(routes_1c.router)
 app.include_router(routes_notifications.router)
 app.include_router(routes_tax.router)

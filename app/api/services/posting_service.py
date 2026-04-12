@@ -1,118 +1,211 @@
 import json
+from typing import Any, List, Optional
+
 import psycopg2.extras
 
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
-from app.api.services.retry_service import run_with_retry
+
 from app.api.connectors.balance_connector import BalanceConnector
 from app.api.connectors.onec_connector import OneCConnector
 
-def balance_config_status():
-    return BalanceConnector().status()
 
-def balance_ping():
-    s = BalanceConnector().status()
-    return {"ok": s.get("connected", False), "status": s.get("mode"), "details": s}
+BLOCKING_POST_STATUSES = {"posted", "simulated_success"}
 
-def build_balance_payload(draft):
-    return {"account_dr": draft.get("account_code"), "account_cr": "1010",
-            "amount": float(draft.get("amount") or 0),
-            "description": draft.get("description"), "date": str(draft.get("date") or ""),
-            "partner_id": draft.get("partner"), "draft_id": draft.get("id"),
-            "currency": "GEL"}
 
-def post_to_balance(payload):
-    r = BalanceConnector().post(payload)
-    return {"ok": r.get("success", False), "status": "posted" if r.get("success") else "failed",
-            "erp_id": r.get("erp_id"), "error": r.get("error")}
+class OrisConnector:
+    def __init__(self, tenant_id: str = "default"):
+        self.tenant_id = tenant_id
 
-def onec_config_status():
-    return OneCConnector().status()
+    def status(self) -> dict:
+        return {
+            "connected": False,
+            "mode": "demo",
+            "message": "ORIS connector not implemented yet",
+            "tenant_id": self.tenant_id,
+        }
 
-def onec_ping():
-    s = OneCConnector().status()
-    return {"ok": s.get("connected", False), "status": s.get("mode"), "details": s}
+    def preview(self, draft: dict) -> dict:
+        lines = draft.get("lines", [])
+        if not lines:
+            return {"valid": False, "errors": ["lines აკლია"], "warnings": []}
+        return {"valid": True, "errors": [], "warnings": []}
 
-def build_onec_payload(draft):
-    return {"account_dr": draft.get("account_code"), "account_cr": "1010",
-            "amount": float(draft.get("amount") or 0),
-            "description": draft.get("description"), "date": str(draft.get("date") or ""),
-            "currency": "GEL"}
+    def post(self, draft: dict) -> dict:
+        return {
+            "success": False,
+            "erp_id": None,
+            "error": "ORIS connector not implemented yet",
+        }
 
-def post_to_onec(payload):
-    r = OneCConnector().post(payload)
-    return {"ok": r.get("success", False), "status": "posted" if r.get("success") else "failed",
-            "erp_id": r.get("erp_id"), "error": r.get("error")}
+    def history(self, tenant_id: str, limit: int = 50) -> list:
+        return []
 
-def oris_config_status():
-    return {"connected": False, "mode": "demo", "message": "ORIS not configured"}
 
-def oris_ping():
-    return {"ok": False, "status": "demo", "details": {}}
+def _normalize_target(target: str) -> str:
+    t = (target or "").strip().lower()
+    if t == "1c":
+        return "onec"
+    return t
 
-def build_oris_payload(draft):
-    return build_balance_payload(draft)
 
-def post_to_oris(payload):
-    return {"ok": False, "status": "not_configured", "error": "ORIS not implemented"}
+def _sum_debits(lines: List[dict]) -> float:
+    return round(sum(float(x.get("debit", 0) or 0) for x in lines), 2)
 
-BLOCKING_POST_STATUSES = {"posted"}
+
+def _sum_credits(lines: List[dict]) -> float:
+    return round(sum(float(x.get("credit", 0) or 0) for x in lines), 2)
+
+
+def _derive_amount_from_lines(lines: List[dict]) -> float:
+    debit_total = _sum_debits(lines)
+    credit_total = _sum_credits(lines)
+    return max(debit_total, credit_total)
+
+
+def _normalize_lines(lines: Any) -> List[dict]:
+    result: List[dict] = []
+
+    if not lines:
+        return result
+
+    if isinstance(lines, str):
+        text = lines.strip()
+        if not text:
+            return result
+        try:
+            parsed = json.loads(text)
+            return _normalize_lines(parsed)
+        except Exception:
+            return result
+
+    if isinstance(lines, list):
+        for line in lines:
+            if isinstance(line, dict):
+                result.append(
+                    {
+                        "account_code": str(line.get("account_code", "")).strip(),
+                        "label": line.get("label", ""),
+                        "debit": round(float(line.get("debit", 0) or 0), 2),
+                        "credit": round(float(line.get("credit", 0) or 0), 2),
+                    }
+                )
+            elif isinstance(line, (list, tuple)) and len(line) >= 3:
+                account_code, debit, credit = line[:3]
+                result.append(
+                    {
+                        "account_code": str(account_code).strip(),
+                        "label": "",
+                        "debit": round(float(debit or 0), 2),
+                        "credit": round(float(credit or 0), 2),
+                    }
+                )
+
+    return result
+
+
+def _validate_lines(lines: List[dict]) -> Optional[str]:
+    if not lines:
+        return "journal lines აკლია"
+
+    for idx, line in enumerate(lines, start=1):
+        if not line.get("account_code"):
+            return f"line #{idx}: account_code აკლია"
+
+        debit = float(line.get("debit", 0) or 0)
+        credit = float(line.get("credit", 0) or 0)
+
+        if debit < 0 or credit < 0:
+            return f"line #{idx}: debit/credit უარყოფითი ვერ იქნება"
+
+        if debit == 0 and credit == 0:
+            return f"line #{idx}: debit ან credit უნდა ჰქონდეს"
+
+        if debit > 0 and credit > 0:
+            return f"line #{idx}: ერთ ხაზზე debit და credit ერთად არ შეიძლება"
+
+    debit_total = _sum_debits(lines)
+    credit_total = _sum_credits(lines)
+
+    if round(debit_total, 2) != round(credit_total, 2):
+        return f"დებეტი და კრედიტი არ ემთხვევა (Dr={debit_total}, Cr={credit_total})"
+
+    return None
+
+
+def _draft_to_posting_payload(draft: dict) -> dict:
+    lines = _normalize_lines(
+        draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
+    )
+    return {
+        "id": draft.get("id"),
+        "tenant_id": draft.get("tenant_id"),
+        "date": draft.get("date"),
+        "description": draft.get("description", ""),
+        "partner": draft.get("partner", ""),
+        "amount": float(draft.get("amount") or _derive_amount_from_lines(lines)),
+        "currency": draft.get("currency", "GEL"),
+        "status": draft.get("status", ""),
+        "lines": lines,
+    }
 
 
 def _fetch_draft(cur, draft_id: int, tenant_id: str):
     cur.execute(
         """
         SELECT
-            id, tenant_id, date, description, partner, amount,
-            debit_account, credit_account, account_code,
-            reason, confidence, review_required, status,
-            source_type, bank_file_id, created_at
+            id,
+            tenant_id,
+            date,
+            description,
+            COALESCE(partner, '') AS partner,
+            COALESCE(amount, 0) AS amount,
+            COALESCE(status, '') AS status,
+            COALESCE(currency, 'GEL') AS currency,
+            COALESCE(lines_json, '[]'::jsonb) AS lines_json
         FROM journal_drafts
         WHERE id = %s
           AND tenant_id = %s
         """,
         (draft_id, tenant_id),
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    return {
+        "id": row["id"],
+        "tenant_id": row["tenant_id"],
+        "date": str(row["date"]) if row["date"] else None,
+        "description": row["description"],
+        "partner": row["partner"],
+        "amount": float(row["amount"] or 0),
+        "status": row["status"],
+        "currency": row["currency"],
+        "lines_json": row["lines_json"],
+        "lines": _normalize_lines(row["lines_json"]),
+    }
 
 
 def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
     if not draft:
         return error_response(
-            "Draft not found",
-            "DRAFT_NOT_FOUND",
             f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
+            code="NOT_FOUND",
         )
+
     if draft["status"] != "approved":
         return error_response(
-            "Draft is not approved",
-            "DRAFT_NOT_APPROVED",
             f"journal_drafts id={draft_id} has status={draft['status']} for tenant {tenant_id}",
+            code="DRAFT_NOT_APPROVED",
         )
+
+    line_error = _validate_lines(draft.get("lines", []))
+    if line_error:
+        return error_response(line_error, code="INVALID_JOURNAL_LINES")
+
     return None
-
-
-def _build_generic_payload(draft):
-    return {
-        "draft_id": draft["id"],
-        "tenant_id": draft["tenant_id"],
-        "transaction_date": str(draft["date"]) if draft["date"] is not None else None,
-        "description": draft["description"],
-        "partner": draft["partner"],
-        "amount": float(draft["amount"]) if draft["amount"] is not None else 0.0,
-        "debit_account": draft["debit_account"],
-        "credit_account": draft["credit_account"],
-        "account_code": draft["account_code"],
-        "reason": draft["reason"],
-        "source_type": draft["source_type"],
-        "bank_file_id": draft["bank_file_id"],
-        "metadata": {
-            "confidence": float(draft["confidence"]) if draft["confidence"] is not None else None,
-            "review_required": draft["review_required"],
-            "created_at": str(draft["created_at"]) if draft["created_at"] is not None else None,
-        },
-    }
 
 
 def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, response, status, error_message):
@@ -120,7 +213,7 @@ def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, respon
         """
         INSERT INTO posting_logs
         (tenant_id, draft_id, target_system, payload_json, response_json, status, error_message)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
         RETURNING id
         """,
         (
@@ -139,13 +232,13 @@ def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, respon
 def _find_successful_post(cur, tenant_id: str, draft_id: int, target_system: str):
     cur.execute(
         """
-        SELECT id, status
+        SELECT id, status, response_json
         FROM posting_logs
         WHERE tenant_id = %s
           AND draft_id = %s
           AND target_system = %s
           AND status = ANY(%s)
-        ORDER BY created_at DESC, id DESC
+        ORDER BY id DESC
         LIMIT 1
         """,
         (tenant_id, draft_id, target_system, list(BLOCKING_POST_STATUSES)),
@@ -153,454 +246,427 @@ def _find_successful_post(cur, tenant_id: str, draft_id: int, target_system: str
     return cur.fetchone()
 
 
-def _is_connector_ready(status: dict) -> bool:
-    if not isinstance(status, dict):
-        return False
-
-    if status.get("ok") is True:
-        return True
-
-    if status.get("ready") is True:
-        return True
-
-    if status.get("configured") is True:
-        return True
-
-    if "base_url" in status or "api_key_configured" in status or "company_id" in status:
-        return bool(status.get("base_url")) and bool(status.get("api_key_configured")) and bool(status.get("company_id"))
-
-    return False
+def _get_connector(target_normalized: str, tenant_id: str):
+    if target_normalized == "balance":
+        return BalanceConnector(tenant_id=tenant_id)
+    if target_normalized == "onec":
+        return OneCConnector(tenant_id=tenant_id)
+    if target_normalized == "oris":
+        return OrisConnector(tenant_id=tenant_id)
+    return None
 
 
 def _get_connector_readiness(target_normalized: str, tenant_id: str) -> dict:
     if target_normalized == "mock":
         return {
-            "target": "mock",
-            "ready": True,
+            "ok": True,
             "status": {"ok": True, "mode": "mock", "tenant_id": tenant_id},
+            "message": "mock connector ready",
         }
 
-    if target_normalized == "balance":
-        status = balance_config_status()
+    connector = _get_connector(target_normalized, tenant_id)
+    if connector is None:
         return {
-            "target": "balance",
-            "ready": _is_connector_ready(status),
-            "status": {"tenant_id": tenant_id, **status},
+            "ok": False,
+            "status": {"ok": False, "tenant_id": tenant_id},
+            "message": f"unsupported target: {target_normalized}",
         }
 
-    if target_normalized == "1c":
-        status = onec_config_status()
-        return {
-            "target": "1c",
-            "ready": _is_connector_ready(status),
-            "status": {"tenant_id": tenant_id, **status},
-        }
-
-    if target_normalized == "oris":
-        status = oris_config_status()
-        return {
-            "target": "oris",
-            "ready": _is_connector_ready(status),
-            "status": {"tenant_id": tenant_id, **status},
-        }
-
+    status = connector.status()
     return {
-        "target": target_normalized,
-        "ready": False,
-        "status": {"error": "unsupported_target", "tenant_id": tenant_id},
+        "ok": bool(status.get("connected", False)),
+        "status": {"tenant_id": tenant_id, **status},
+        "message": status.get("message", ""),
     }
 
 
-def _get_connector_executor(target_normalized: str):
-    connectors = {
-        "mock": {
-            "target_system": "mock",
-            "payload_builder": lambda draft: _build_generic_payload(draft),
-            "executor": lambda payload, draft: {
-                "ok": True,
-                "target_system": "mock",
-                "status": "posted",
-                "message": "Mock posting completed successfully",
-                "posted_draft_id": draft["id"],
-                "tenant_id": draft["tenant_id"],
-            },
-        },
-        "balance": {
-            "target_system": "balance",
-            "payload_builder": lambda draft: build_balance_payload(dict(draft)),
-            "executor": lambda payload, draft: post_to_balance(payload),
-        },
-        "1c": {
-            "target_system": "1c",
-            "payload_builder": lambda draft: build_onec_payload(dict(draft)),
-            "executor": lambda payload, draft: post_to_onec(payload),
-        },
-        "oris": {
-            "target_system": "oris",
-            "payload_builder": lambda draft: build_oris_payload(dict(draft)),
-            "executor": lambda payload, draft: post_to_oris(payload),
-        },
-    }
-    return connectors.get(target_normalized)
+def _post_via_connector(target_normalized: str, payload: dict, tenant_id: str) -> dict:
+    if target_normalized == "mock":
+        return {
+            "success": True,
+            "erp_id": f"MOCK-{payload.get('id')}",
+            "error": None,
+            "mode": "mock",
+        }
+
+    connector = _get_connector(target_normalized, tenant_id)
+    if connector is None:
+        return {
+            "success": False,
+            "erp_id": None,
+            "error": f"unsupported target: {target_normalized}",
+        }
+
+    return connector.post(payload)
 
 
-def _execute_with_retry(connector: dict, payload: dict, draft) -> dict:
-    def operation():
-        return connector["executor"](payload, draft)
+def create_journal_draft(
+    description: str,
+    lines: List[dict],
+    tenant_id: str = "default",
+    partner: str = "",
+    date: Optional[str] = None,
+    currency: str = "GEL",
+) -> dict:
+    lines = _normalize_lines(lines)
+    line_error = _validate_lines(lines)
+    if line_error:
+        raise ValueError(line_error)
 
-    return run_with_retry(
-        operation,
-        max_attempts=3,
-        delay_seconds=1,
-    )
+    amount = _derive_amount_from_lines(lines)
 
-
-def get_approved_drafts_service(limit: int, offset: int, tenant_id: str):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     try:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM journal_drafts
-            WHERE status = 'approved'
-              AND tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        total = cur.fetchone()["total"]
+        with conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO journal_drafts
+                    (tenant_id, date, description, partner, amount, currency, status, lines_json)
+                    VALUES (
+                        %s,
+                        COALESCE(%s::date, CURRENT_DATE),
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        'pending_approval',
+                        %s::jsonb
+                    )
+                    RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json
+                    """,
+                    (
+                        tenant_id,
+                        date,
+                        description,
+                        partner,
+                        amount,
+                        currency,
+                        json.dumps(lines, ensure_ascii=False),
+                    ),
+                )
+                row = cur.fetchone()
 
-        cur.execute(
-            """
-            SELECT
-                id, tenant_id, date, description, partner, amount,
-                debit_account, credit_account, account_code,
-                reason, confidence, review_required, status,
-                source_type, bank_file_id, created_at
-            FROM journal_drafts
-            WHERE status = 'approved'
-              AND tenant_id = %s
-            ORDER BY created_at DESC, id DESC
-            LIMIT %s OFFSET %s
-            """,
-            (tenant_id, limit, offset),
-        )
-        items = [dict(r) for r in cur.fetchall()]
-
-    except Exception as e:
-        return error_response(
-            "Approved drafts retrieval failed",
-            "APPROVED_DRAFTS_ERROR",
-            str(e),
-        )
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "Approved drafts",
-        {
-            "count": total,
-            "tenant_id": tenant_id,
-            "limit": limit,
-            "offset": offset,
-            "items": items,
-        },
-    )
-
-
-def get_posting_payload_service(draft_id: int, tenant_id: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id, tenant_id)
-        err = _validate_approved_draft(draft, draft_id, tenant_id)
-        if err:
-            return err
-
-        payload = _build_generic_payload(draft)
-
-    except Exception as e:
-        return error_response("Posting payload build failed", "POSTING_PAYLOAD_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "Posting payload preview",
-        {"tenant_id": tenant_id, "draft": dict(draft), "payload": payload},
-    )
-
-
-def get_posting_logs_service(limit: int, offset: int, tenant_id: str, target_system: str | None = None, draft_id: int | None = None):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        where_clauses = ["tenant_id = %s"]
-        params = [tenant_id]
-
-        if target_system:
-            where_clauses.append("target_system = %s")
-            params.append(target_system)
-
-        if draft_id is not None:
-            where_clauses.append("draft_id = %s")
-            params.append(draft_id)
-
-        where_sql = "WHERE " + " AND ".join(where_clauses)
-
-        cur.execute(f"SELECT COUNT(*) AS total FROM posting_logs {where_sql}", tuple(params))
-        total = cur.fetchone()["total"]
-
-        cur.execute(
-            f"""
-            SELECT
-                id, tenant_id, draft_id, target_system, payload_json,
-                response_json, status, error_message, created_at
-            FROM posting_logs
-            {where_sql}
-            ORDER BY created_at DESC, id DESC
-            LIMIT %s OFFSET %s
-            """,
-            tuple(params + [limit, offset]),
-        )
-        items = [dict(r) for r in cur.fetchall()]
-
-    except Exception as e:
-        return error_response("Posting logs retrieval failed", "POSTING_LOGS_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response(
-        "Posting logs",
-        {
-            "count": total,
-            "tenant_id": tenant_id,
-            "limit": limit,
-            "offset": offset,
-            "filters": {"target_system": target_system, "draft_id": draft_id},
-            "items": items,
-        },
-    )
-
-
-def get_posting_log_detail_service(log_id: int, tenant_id: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute(
-            """
-            SELECT
-                id, tenant_id, draft_id, target_system, payload_json,
-                response_json, status, error_message, created_at
-            FROM posting_logs
-            WHERE id = %s
-              AND tenant_id = %s
-            """,
-            (log_id, tenant_id),
-        )
-        row = cur.fetchone()
-
-        if not row:
-            return error_response(
-                "Posting log not found",
-                "POSTING_LOG_NOT_FOUND",
-                f"posting_logs id={log_id} does not exist for tenant {tenant_id}",
-            )
-
-    except Exception as e:
-        return error_response("Posting log detail failed", "POSTING_LOG_DETAIL_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-    return ok_response("Posting log detail", dict(row))
-
-
-def _run_posting_attempt(draft_id: int, target_normalized: str, tenant_id: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        draft = _fetch_draft(cur, draft_id, tenant_id)
-        err = _validate_approved_draft(draft, draft_id, tenant_id)
-        if err:
-            return err
-
-        connector = _get_connector_executor(target_normalized)
-        if not connector:
-            return error_response(
-                "Unsupported target system",
-                "UNSUPPORTED_TARGET",
-                f"target={target_normalized} is not supported. Use mock, balance, 1c, oris",
-            )
-
-        log_target = connector["target_system"]
-
-        existing_post = _find_successful_post(cur, tenant_id, draft["id"], log_target)
-        if existing_post:
-            log_event(
-                "posting_duplicate_blocked",
-                {
-                    "tenant_id": tenant_id,
-                    "draft_id": draft["id"],
-                    "target": log_target,
-                    "existing_log_id": existing_post["id"],
-                },
-            )
-            return error_response(
-                "Draft already posted",
-                "ALREADY_POSTED",
-                f"draft_id={draft['id']} was already posted to {log_target} for tenant {tenant_id} (log_id={existing_post['id']})",
-            )
-
-        readiness = _get_connector_readiness(target_normalized, tenant_id)
-        if not readiness["ready"]:
-            log_event(
-                "connector_not_ready",
-                {
-                    "tenant_id": tenant_id,
-                    "draft_id": draft["id"],
-                    "target": log_target,
-                    "readiness": readiness["status"],
-                },
-            )
-            return error_response(
-                "Connector not ready",
-                "CONNECTOR_NOT_READY",
-                json.dumps(
+                log_event(
+                    "draft_created",
                     {
-                        "tenant_id": tenant_id,
-                        "draft_id": draft["id"],
-                        "target": log_target,
-                        "readiness": readiness["status"],
+                        "entity_type": "journal_draft",
+                        "entity_id": row["id"],
+                        "description": description,
+                        "amount": amount,
+                        "currency": currency,
+                        "lines_count": len(lines),
                     },
-                    ensure_ascii=False,
-                ),
-            )
+                    tenant_id=tenant_id,
+                )
 
-        log_event(
-            "posting_attempt_started",
-            {"tenant_id": tenant_id, "draft_id": draft["id"], "target": log_target},
-        )
-
-        payload = connector["payload_builder"](draft)
-        result = _execute_with_retry(connector, payload, draft)
-
-        posting_status = result.get("status", result.get("result", "unknown"))
-        posting_log_id = _insert_posting_log(
-            cur,
-            tenant_id,
-            draft["id"],
-            log_target,
-            payload,
-            result,
-            posting_status,
-            result.get("error"),
-        )
-        conn.commit()
-
-        log_event(
-            "posting_retry_info",
-            {
-                "tenant_id": tenant_id,
-                "draft_id": draft["id"],
-                "target": log_target,
-                "attempts": result.get("attempts_used"),
-                "retry_used": result.get("retry_applied"),
-            },
-        )
-
-        log_event(
-            "posting_attempt_finished",
-            {
-                "tenant_id": tenant_id,
-                "draft_id": draft["id"],
-                "target": log_target,
-                "posting_log_id": posting_log_id,
-                "status": posting_status,
-            },
-        )
-
-        return ok_response(
-            f"{log_target} posting attempt completed",
-            {
-                "tenant_id": tenant_id,
-                "posting_log_id": posting_log_id,
-                "draft_id": draft["id"],
-                "target": log_target,
-                "payload": payload,
-                "result": result,
-            },
-        )
-
-    except Exception as e:
-        conn.rollback()
-        log_event(
-            "posting_attempt_failed",
-            {"tenant_id": tenant_id, "draft_id": draft_id, "target": target_normalized, "error": str(e)},
-        )
-        return error_response(
-            "Posting failed",
-            "POSTING_EXECUTION_ERROR",
-            str(e),
-        )
+                return {
+                    "id": row["id"],
+                    "tenant_id": row["tenant_id"],
+                    "date": str(row["date"]) if row["date"] else None,
+                    "description": row["description"],
+                    "partner": row["partner"],
+                    "amount": float(row["amount"] or 0),
+                    "currency": row["currency"],
+                    "status": row["status"],
+                    "lines": _normalize_lines(row["lines_json"]),
+                }
     finally:
-        cur.close()
         conn.close()
 
 
-def mock_posting_service(draft_id: int, tenant_id: str):
-    return _run_posting_attempt(draft_id, "mock", tenant_id)
-
-
-def get_balance_status_service(tenant_id: str):
+def get_approved_drafts_service(limit: int = 100, offset: int = 0, tenant_id: str = "default"):
+    conn = get_db()
     try:
-        return ok_response(
-            "Balance status",
-            {"tenant_id": tenant_id, "config": balance_config_status(), "ping": balance_ping()},
-        )
-    except Exception as e:
-        return error_response("Balance status check failed", "BALANCE_STATUS_ERROR", str(e))
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    tenant_id,
+                    date,
+                    description,
+                    COALESCE(partner, '') AS partner,
+                    COALESCE(amount, 0) AS amount,
+                    COALESCE(currency, 'GEL') AS currency,
+                    COALESCE(status, '') AS status,
+                    COALESCE(lines_json, '[]'::jsonb) AS lines_json
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND status = 'approved'
+                ORDER BY id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (tenant_id, limit, offset),
+            )
+            rows = cur.fetchall()
+
+            items = []
+            for row in rows:
+                items.append(
+                    {
+                        "id": row["id"],
+                        "tenant_id": row["tenant_id"],
+                        "date": str(row["date"]) if row["date"] else None,
+                        "description": row["description"],
+                        "partner": row["partner"],
+                        "amount": float(row["amount"] or 0),
+                        "currency": row["currency"],
+                        "status": row["status"],
+                        "lines": _normalize_lines(row["lines_json"]),
+                    }
+                )
+
+            return ok_response("approved drafts fetched", items)
+    finally:
+        conn.close()
 
 
-def post_draft_to_balance_service(draft_id: int, tenant_id: str):
-    return _run_posting_attempt(draft_id, "balance", tenant_id)
-
-
-def get_onec_status_service(tenant_id: str):
+def get_posting_payload_service(draft_id: int, tenant_id: str = "default"):
+    conn = get_db()
     try:
-        return ok_response(
-            "1C status",
-            {"tenant_id": tenant_id, "config": onec_config_status(), "ping": onec_ping()},
-        )
-    except Exception as e:
-        return error_response("1C status check failed", "ONEC_STATUS_ERROR", str(e))
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            draft = _fetch_draft(cur, draft_id, tenant_id)
+            err = _validate_approved_draft(draft, draft_id, tenant_id)
+            if err:
+                return err
+
+            payload = _draft_to_posting_payload(draft)
+            return ok_response("posting payload ready", payload)
+    finally:
+        conn.close()
 
 
-def post_draft_to_onec_service(draft_id: int, tenant_id: str):
-    return _run_posting_attempt(draft_id, "1c", tenant_id)
+def mock_posting_service(draft_id: int, tenant_id: str = "default"):
+    return apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
 
 
-def get_oris_status_service(tenant_id: str):
+def get_posting_logs_service(
+    limit: int = 100,
+    offset: int = 0,
+    tenant_id: str = "default",
+    target_system: Optional[str] = None,
+    draft_id: Optional[int] = None,
+):
+    conn = get_db()
     try:
-        return ok_response(
-            "ORIS status",
-            {"tenant_id": tenant_id, "config": oris_config_status(), "ping": oris_ping()},
-        )
-    except Exception as e:
-        return error_response("ORIS status check failed", "ORIS_STATUS_ERROR", str(e))
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT id, tenant_id, draft_id, target_system, status, error_message, created_at
+                FROM posting_logs
+                WHERE tenant_id = %s
+            """
+            params: List[Any] = [tenant_id]
+
+            if target_system:
+                query += " AND target_system = %s"
+                params.append(_normalize_target(target_system))
+
+            if draft_id is not None:
+                query += " AND draft_id = %s"
+                params.append(draft_id)
+
+            query += " ORDER BY id DESC LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            return ok_response("posting logs fetched", rows)
+    finally:
+        conn.close()
 
 
-def post_draft_to_oris_service(draft_id: int, tenant_id: str):
-    return _run_posting_attempt(draft_id, "oris", tenant_id)
+def get_posting_log_detail_service(log_id: int, tenant_id: str = "default"):
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM posting_logs
+                WHERE id = %s
+                  AND tenant_id = %s
+                """,
+                (log_id, tenant_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return error_response("posting log not found", code="NOT_FOUND")
+            return ok_response("posting log fetched", row)
+    finally:
+        conn.close()
 
 
-def apply_posting_service(draft_id: int, target: str, tenant_id: str):
-    target_normalized = (target or "").strip().lower()
-    return _run_posting_attempt(draft_id, target_normalized, tenant_id)
+def get_balance_status_service(tenant_id: str = "default"):
+    readiness = _get_connector_readiness("balance", tenant_id)
+    return ok_response("balance status", readiness)
+
+
+def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default"):
+    return apply_posting_service(draft_id, "balance", tenant_id=tenant_id)
+
+
+def get_onec_status_service(tenant_id: str = "default"):
+    readiness = _get_connector_readiness("onec", tenant_id)
+    return ok_response("1c status", readiness)
+
+
+def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default"):
+    return apply_posting_service(draft_id, "onec", tenant_id=tenant_id)
+
+
+def get_oris_status_service(tenant_id: str = "default"):
+    readiness = _get_connector_readiness("oris", tenant_id)
+    return ok_response("oris status", readiness)
+
+
+def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
+    return apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
+
+
+def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"):
+    target_normalized = _normalize_target(target)
+
+    if target_normalized not in {"mock", "balance", "onec", "oris"}:
+        return error_response("unsupported posting target", code="VALIDATION_ERROR")
+
+    conn = get_db()
+    try:
+        with conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                draft = _fetch_draft(cur, draft_id, tenant_id)
+                err = _validate_approved_draft(draft, draft_id, tenant_id)
+                if err:
+                    return err
+
+                existing = _find_successful_post(cur, tenant_id, draft_id, target_normalized)
+                if existing:
+                    return error_response(
+                        f"draft {draft_id} already posted to {target_normalized}",
+                        code="POSTING_DUPLICATE_BLOCKED",
+                        details={"existing_log_id": existing["id"], "status": existing["status"]},
+                    )
+
+                readiness = _get_connector_readiness(target_normalized, tenant_id)
+                if target_normalized != "mock" and not readiness["ok"]:
+                    log_id = _insert_posting_log(
+                        cur=cur,
+                        tenant_id=tenant_id,
+                        draft_id=draft_id,
+                        target_system=target_normalized,
+                        payload={},
+                        response=readiness,
+                        status="config_missing",
+                        error_message=readiness.get("message", "connector not ready"),
+                    )
+
+                    log_event(
+                        "connector_not_ready",
+                        {
+                            "entity_type": "journal_draft",
+                            "entity_id": draft_id,
+                            "target": target_normalized,
+                            "log_id": log_id,
+                            "status": readiness,
+                        },
+                        tenant_id=tenant_id,
+                    )
+
+                    return error_response(
+                        f"{target_normalized} connector not ready",
+                        code="CONNECTOR_NOT_READY",
+                        details=readiness,
+                    )
+
+                payload = _draft_to_posting_payload(draft)
+
+                log_event(
+                    "posting_attempt_started",
+                    {
+                        "entity_type": "journal_draft",
+                        "entity_id": draft_id,
+                        "target": target_normalized,
+                        "payload": payload,
+                    },
+                    tenant_id=tenant_id,
+                )
+
+                response = _post_via_connector(target_normalized, payload, tenant_id)
+
+                success = bool(response.get("success", False))
+                status = (
+                    "simulated_success"
+                    if target_normalized == "mock" and success
+                    else ("posted" if success else "failed")
+                )
+                error_message = response.get("error")
+
+                log_id = _insert_posting_log(
+                    cur=cur,
+                    tenant_id=tenant_id,
+                    draft_id=draft_id,
+                    target_system=target_normalized,
+                    payload=payload,
+                    response=response,
+                    status=status,
+                    error_message=error_message,
+                )
+
+                if success:
+                    cur.execute(
+                        """
+                        UPDATE journal_drafts
+                        SET status = 'posted'
+                        WHERE id = %s
+                          AND tenant_id = %s
+                        """,
+                        (draft_id, tenant_id),
+                    )
+
+                    log_event(
+                        "posting_attempt_finished",
+                        {
+                            "entity_type": "journal_draft",
+                            "entity_id": draft_id,
+                            "target": target_normalized,
+                            "log_id": log_id,
+                            "response": response,
+                        },
+                        tenant_id=tenant_id,
+                    )
+
+                    return ok_response(
+                        f"draft {draft_id} posted to {target_normalized}",
+                        {
+                            "draft_id": draft_id,
+                            "target": target_normalized,
+                            "log_id": log_id,
+                            "response": response,
+                            "payload": payload,
+                        },
+                    )
+
+                log_event(
+                    "posting_attempt_failed",
+                    {
+                        "entity_type": "journal_draft",
+                        "entity_id": draft_id,
+                        "target": target_normalized,
+                        "log_id": log_id,
+                        "response": response,
+                    },
+                    tenant_id=tenant_id,
+                )
+
+                return error_response(
+                    f"posting to {target_normalized} failed",
+                    code="POSTING_FAILED",
+                    details={
+                        "draft_id": draft_id,
+                        "target": target_normalized,
+                        "log_id": log_id,
+                        "response": response,
+                    },
+                )
+    finally:
+        conn.close()

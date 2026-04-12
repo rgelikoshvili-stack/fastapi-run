@@ -13,8 +13,6 @@ from app.api.services.transaction_memory_service import find_memory_match
 from app.api.services.erp_memory_service import find_erp_memory_match
 from app.policy.localization import georgia_pack
 import app.api.services.llm_service as llm_service
-from app.policy.localization import georgia_pack
-import app.api.services.llm_service as llm_service
 
 
 RULES = [
@@ -351,7 +349,7 @@ def check_patterns(
                 return {
                     "account_code": account_code,
                     "reason": reason,
-                    "confidence": confidence,
+                    "confidence": float(confidence or 0.0),
                     "support_count": support_count,
                     "success_count": success_count,
                     "failure_count": failure_count,
@@ -378,7 +376,7 @@ def check_patterns(
                 return {
                     "account_code": account_code,
                     "reason": reason,
-                    "confidence": confidence,
+                    "confidence": float(confidence or 0.0),
                     "support_count": support_count,
                     "success_count": success_count,
                     "failure_count": failure_count,
@@ -402,7 +400,7 @@ def check_patterns(
                 return {
                     "account_code": account_code,
                     "reason": reason,
-                    "confidence": confidence,
+                    "confidence": float(confidence or 0.0),
                     "support_count": support_count,
                     "success_count": success_count,
                     "failure_count": failure_count,
@@ -427,7 +425,7 @@ def check_patterns(
                 return {
                     "account_code": account_code,
                     "reason": reason,
-                    "confidence": confidence,
+                    "confidence": float(confidence or 0.0),
                     "support_count": support_count,
                     "success_count": success_count,
                     "failure_count": failure_count,
@@ -478,7 +476,7 @@ def classify(
         return {
             "account_code": partner_override["account_code"],
             "reason": "partner_memory_override",
-            "confidence": min(0.99, float(partner_override["confidence"])),
+            "confidence": min(0.99, float(partner_override["confidence"] or 0.0)),
             "review_required": False,
             "status": "auto_approved",
             "source": "partner_memory",
@@ -530,7 +528,7 @@ def classify(
         return {
             "account_code": memory["account_code"],
             "reason": memory["reason"],
-            "confidence": confidence,
+            "confidence": float(confidence or 0.0),
             "review_required": memory["review_required"],
             "status": memory["status"],
             "source": memory["source"],
@@ -563,7 +561,7 @@ def classify(
         return {
             "account_code": erp_match.get("account_code"),
             "reason": "erp_history_match",
-            "confidence": confidence,
+            "confidence": float(confidence or 0.0),
             "review_required": not auto_ok,
             "status": "auto_approved" if auto_ok else "pending_approval",
             "source": "erp_history",
@@ -618,7 +616,7 @@ def classify(
         return {
             "account_code": learned["account_code"],
             "reason": learned["reason"],
-            "confidence": confidence,
+            "confidence": float(confidence or 0.0),
             "review_required": review_required,
             "status": status,
             "source": learned["source"],
@@ -652,22 +650,22 @@ def classify(
 
     if keyword_matched and doc:
         if matched_reason in doc or matched_account in doc:
-            confidence = min(confidence + 0.05, 0.95)
+            confidence = min(float(confidence or 0.0) + 0.05, 0.95)
     if keyword_matched and part:
-        confidence = min(confidence + 0.05, 0.95)
+        confidence = min(float(confidence or 0.0) + 0.05, 0.95)
     if keyword_matched and op:
         if matched_reason in op or matched_account in op:
-            confidence = min(confidence + 0.05, 1.0)
+            confidence = min(float(confidence or 0.0) + 0.05, 1.0)
 
     if not keyword_matched:
         try:
             llm_result = llm_service.classify(
                 description, {"partner": part, "amount": amount_for_history}, tenant_id
             )
-            if llm_result.get("account_code") and float(llm_result.get("confidence", 0)) > 0.55:
+            if llm_result.get("account_code") and float(llm_result.get("confidence") or 0.0) > 0.55:
                 matched_account = llm_result["account_code"]
-                matched_reason  = "llm:gpt"
-                confidence      = float(llm_result["confidence"])
+                matched_reason = "llm:gpt"
+                confidence = float(llm_result.get("confidence") or 0.0)
                 keyword_matched = True
             else:
                 raise ValueError("low confidence")
@@ -685,18 +683,22 @@ def classify(
                 matched_reason = "default_expense"
                 confidence = 0.4
 
-    confidence = round(min(confidence, 1.0), 2)
+    confidence = round(min(float(confidence or 0.0), 1.0), 2)
     review_required = confidence < 0.75
     anomaly = check_anomaly(amount_for_history, matched_account, tenant_id)
     georgia_enriched = georgia_pack.apply_rules(
-        {"description": description, "amount": amount_for_history or 0,
-         "account_code": matched_account}, tenant_id
+        {
+            "description": description,
+            "amount": amount_for_history or 0,
+            "account_code": matched_account,
+        },
+        tenant_id
     )
 
     return {
         "account_code": matched_account,
         "reason": matched_reason,
-        "confidence": confidence,
+        "confidence": float(confidence or 0.0),
         "review_required": review_required,
         "status": "drafted" if not review_required else "pending_approval",
         "source": "rules",

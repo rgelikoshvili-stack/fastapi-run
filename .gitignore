@@ -17,3 +17,7 @@ fix_*.py
 .env
 
 chroma_db/
+
+_audit/
+
+_audit/

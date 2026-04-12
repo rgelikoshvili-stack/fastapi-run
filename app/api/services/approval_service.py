@@ -117,13 +117,21 @@ def _mark_success_for_draft(draft: dict, tenant_id: str, weight: float = 1.0):
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_success(
+            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "partner_exact":
-        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_success(
+            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "description_fuzzy":
-        return mark_pattern_success("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_success(
+            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "partner_fuzzy":
-        return mark_pattern_success("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_success(
+            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
 
     return {"updated": 0}
 
@@ -137,13 +145,21 @@ def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
         return {"updated": 0}
 
     if matched_on == "description_exact":
-        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_failure(
+            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "partner_exact":
-        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_failure(
+            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "description_fuzzy":
-        return mark_pattern_failure("description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_failure(
+            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
     if matched_on == "partner_fuzzy":
-        return mark_pattern_failure("partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight)
+        return mark_pattern_failure(
+            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+        )
 
     return {"updated": 0}
 
@@ -168,16 +184,29 @@ def approve_draft_service(draft_id: int, tenant_id: str):
         draft = cur.fetchone()
 
         if not draft:
-            return error_response("Not found", "NOT_FOUND",
-                f"Draft {draft_id} not found for tenant {tenant_id}")
+            return error_response(
+                "Not found",
+                "NOT_FOUND",
+                f"Draft {draft_id} not found for tenant {tenant_id}",
+            )
+
+        draft = dict(draft)
+        draft["confidence"] = float(draft.get("confidence") or 0.0)
+        draft["amount"] = float(draft.get("amount") or 0.0)
 
         if draft["status"] == "approved":
-            return error_response("Already approved", "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved")
+            return error_response(
+                "Already approved",
+                "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved",
+            )
 
         if draft["status"] == "rejected":
-            return error_response("Already rejected", "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected and cannot be approved")
+            return error_response(
+                "Already rejected",
+                "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected and cannot be approved",
+            )
 
         qa_result = evaluate_decision(draft)
 
@@ -197,8 +226,11 @@ def approve_draft_service(draft_id: int, tenant_id: str):
 
         if not updated:
             conn.rollback()
-            return error_response("Approve blocked", "APPROVE_BLOCKED",
-                f"Draft {draft_id} could not be approved for tenant {tenant_id}")
+            return error_response(
+                "Approve blocked",
+                "APPROVE_BLOCKED",
+                f"Draft {draft_id} could not be approved for tenant {tenant_id}",
+            )
 
         save_feedback(
             draft_id=draft.get("id"),
@@ -211,7 +243,7 @@ def approve_draft_service(draft_id: int, tenant_id: str):
             amount=draft.get("amount"),
             original_account_code=draft.get("account_code"),
             original_reason=draft.get("reason"),
-            original_confidence=draft.get("confidence"),
+            original_confidence=float(draft.get("confidence") or 0.0),
             final_account_code=draft.get("account_code"),
             final_reason=draft.get("reason"),
             feedback_type="approve",
@@ -291,16 +323,29 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
         draft = cur.fetchone()
 
         if not draft:
-            return error_response("Not found", "NOT_FOUND",
-                f"Draft {draft_id} not found for tenant {tenant_id}")
+            return error_response(
+                "Not found",
+                "NOT_FOUND",
+                f"Draft {draft_id} not found for tenant {tenant_id}",
+            )
+
+        draft = dict(draft)
+        draft["confidence"] = float(draft.get("confidence") or 0.0)
+        draft["amount"] = float(draft.get("amount") or 0.0)
 
         if draft["status"] == "rejected":
-            return error_response("Already rejected", "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected")
+            return error_response(
+                "Already rejected",
+                "ALREADY_REJECTED",
+                f"Draft {draft_id} is already rejected",
+            )
 
         if draft["status"] == "approved":
-            return error_response("Already approved", "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved and cannot be rejected")
+            return error_response(
+                "Already approved",
+                "ALREADY_APPROVED",
+                f"Draft {draft_id} is already approved and cannot be rejected",
+            )
 
         cur.execute(
             """
@@ -316,8 +361,11 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
 
         if not updated:
             conn.rollback()
-            return error_response("Reject blocked", "REJECT_BLOCKED",
-                f"Draft {draft_id} could not be rejected for tenant {tenant_id}")
+            return error_response(
+                "Reject blocked",
+                "REJECT_BLOCKED",
+                f"Draft {draft_id} could not be rejected for tenant {tenant_id}",
+            )
 
         save_feedback(
             draft_id=draft.get("id"),
@@ -330,7 +378,7 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             amount=draft.get("amount"),
             original_account_code=draft.get("account_code"),
             original_reason=draft.get("reason"),
-            original_confidence=draft.get("confidence"),
+            original_confidence=float(draft.get("confidence") or 0.0),
             final_account_code=None,
             final_reason=None,
             feedback_type="reject",
@@ -401,7 +449,9 @@ def get_audit_service(limit: int, offset: int, tenant_id: str):
     )
 
 
-def autopilot_approve_service(tenant_id: str, confidence_threshold: float = AUTOPILOT_MIN_CONFIDENCE):
+def autopilot_approve_service(
+    tenant_id: str, confidence_threshold: float = AUTOPILOT_MIN_CONFIDENCE
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -442,11 +492,11 @@ def autopilot_approve_service(tenant_id: str, confidence_threshold: float = AUTO
         cur.close()
         conn.close()
 
-    # Advanced filtering
     candidates = []
     skipped = []
 
     for draft in raw_candidates:
+        confidence = float(draft.get("confidence") or 0.0)
         success_count = int(draft.get("success_count") or 0)
         failure_count = int(draft.get("failure_count") or 0)
         usage_count = int(draft.get("usage_count") or 0)
@@ -455,21 +505,25 @@ def autopilot_approve_service(tenant_id: str, confidence_threshold: float = AUTO
 
         skip_reason = None
 
-        # rules path — always skip
         if draft.get("classification_source") == "rules":
             skip_reason = "rules_path_not_eligible"
-        # usage_count check
-        elif usage_count < AUTOPILOT_MIN_USAGE_COUNT and draft.get("classification_source") not in ("expense_article", "partner_memory", "erp_history"):
+        elif usage_count < AUTOPILOT_MIN_USAGE_COUNT and draft.get("classification_source") not in (
+            "expense_article",
+            "partner_memory",
+            "erp_history",
+        ):
             skip_reason = f"usage_count_too_low:{usage_count}"
-        # success_rate check
         elif total > 0 and success_rate < AUTOPILOT_MIN_SUCCESS_RATE:
             skip_reason = f"success_rate_too_low:{round(success_rate, 2)}"
-        # failure check
         elif failure_count > 0 and draft.get("classification_source") in (
-            "pattern_active", "pattern_candidate",
-            "pattern_active_fuzzy", "pattern_candidate_fuzzy"
+            "pattern_active",
+            "pattern_candidate",
+            "pattern_active_fuzzy",
+            "pattern_candidate_fuzzy",
         ):
             skip_reason = f"has_failures:{failure_count}"
+        elif float(draft.get("confidence") or 0.0) < confidence_threshold:
+            skip_reason = f"below_threshold:{confidence}"
 
         if skip_reason:
             skipped.append({"id": draft["id"], "reason": skip_reason})
@@ -518,7 +572,7 @@ def autopilot_approve_service(tenant_id: str, confidence_threshold: float = AUTO
                     {
                         "draft_id": draft_id,
                         "tenant_id": tenant_id,
-                        "confidence": draft.get("confidence"),
+                        "confidence": float(draft.get("confidence") or 0.0),
                         "threshold": confidence_threshold,
                         "account_code": draft.get("account_code"),
                         "usage_count": draft.get("usage_count"),

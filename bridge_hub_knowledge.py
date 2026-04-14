@@ -204,7 +204,7 @@ TAX_RATES = {
  
 CHART_OF_ACCOUNTS = {
     "1110":{"name":"სალარო (ნაღდი)","type":"asset","keywords":["ნაღდი","სალარო","cash","კასა"]},
-    "1120":{"name":"საბანკო ანგ.","type":"asset","keywords":["ბანკი","tbc","bog","bank","გადარ"]},
+    "1120":{"name":"საბანკო ანგ.","type":"asset","keywords":["საბ.ანგ","გადარ","bank account"]},
     "1130":{"name":"სხვა ფ.ეკვ.","type":"asset","keywords":[]},
     "1210":{"name":"მოთხ. კლ-ზე","type":"asset","keywords":["მოთხ","დებ","receivable"]},
     "1220":{"name":"სათ. მოთხ.","type":"asset","keywords":[]},
@@ -253,7 +253,7 @@ CHART_OF_ACCOUNTS = {
     "7310":{"name":"ქ.ხ.","type":"expense","keywords":["ქ-ა","rent","იჯ","ოფ","office"]},
     "7320":{"name":"ო.ლ.ხ.","type":"expense","keywords":[]},
     "7410":{"name":"კ.ხ.","type":"expense","keywords":["კომ","utilities","electric","წყ","გ","gas"]},
-    "7510":{"name":"სბ.სკ.","type":"expense","keywords":["საკ","commission","bank fee","tbc","bog","სრვ"]},
+    "7510":{"name":"სბ.სკ.","type":"expense","keywords":["საბ. საკ","commission","bank fee","tbc","bog","tbc bank","bank of georgia","საკომისიო","სბ.სკ","სრვ"]},
     "7520":{"name":"სბ.პ.","type":"expense","keywords":["პ","interest","სარგ"]},
     "7610":{"name":"ამ.ხ.","type":"expense","keywords":["ამ","depreciation"]},
     "7710":{"name":"რ.ხ.","type":"expense","keywords":["რ","marketing","advertising","facebook","google ad","instagram"]},
@@ -365,7 +365,7 @@ _CLS_RULES=[
     (["მარ","inventory","stock","საქ","product"],"1310",0.82),
     (["ძირ","equipment","machine","asset","მანქ"],"1510",0.82),
     (["სალ","cash","ნაღ"],"1110",0.87),
-    (["ბანკ","bank","transfer"],"1120",0.85),
+    (["bank transfer","გადარიცვა","wire transfer"],"1120",0.85),
     (["ავ","advance","prepay"],"1420",0.82),
     (["სესხ","loan","kredit"],"3410",0.82),
     (["კაპ","capital"],"4110",0.80),
@@ -381,10 +381,11 @@ def classify_transaction(description, tenant_id="global"):
     for r in _load_learned():
         if r["tenant_id"] in (tenant_id,"global") and r["pattern"].lower() in desc:
             return {"account":r["account"],"account_name":CHART_OF_ACCOUNTS.get(r["account"],{}).get("name",""),"confidence":r["confidence"],"matched_on":r["pattern"],"source":"learned"}
-    for code,info in CHART_OF_ACCOUNTS.items():
-        for kw in info.get("keywords",[]):
-            if kw and kw in desc:
-                return {"account":code,"account_name":info["name"],"confidence":0.88,"matched_on":kw,"source":"coa"}
+    all_kw=[(kw,code,info) for code,info in CHART_OF_ACCOUNTS.items() for kw in info.get("keywords",[]) if kw]
+    all_kw.sort(key=lambda x:len(x[0]),reverse=True)
+    for kw,code,info in all_kw:
+        if kw in desc:
+            return {"account":code,"account_name":info["name"],"confidence":0.88,"matched_on":kw,"source":"coa"}
     for kws,acc,conf in _CLS_RULES:
         for kw in kws:
             if kw in desc:

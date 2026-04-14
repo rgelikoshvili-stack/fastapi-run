@@ -73,7 +73,10 @@ def classify(description: str, context: dict, tenant_id: str = "default") -> dic
 
 def _call_gpt(description, context, model, tenant_id):
     from openai import OpenAI
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(
+            api_key=os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+            base_url="https://openrouter.ai/api/v1" if os.environ.get("OPENROUTER_API_KEY") else None,
+        )
     prompt = f"ტრანზაქცია: {description}"
     if context.get("partner"): prompt += f"\nპარტნიორი: {context['partner']}"
     if context.get("amount"):  prompt += f"\nთანხა: {context['amount']} GEL"
@@ -103,12 +106,19 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        prompt = (f"გატარება: Dr{draft.get('account_dr')} "
-                  f"Cr{draft.get('account_cr')} "
-                  f"{draft.get('amount')} GEL — {draft.get('description')}. "
-                  f"ერთი მოკლე ქართული წინადადება.")
+        desc = draft.get("description", "")
+        amount = draft.get("amount", 0) or 0
+        if not amount:
+            m = re.search(r"(\d+(?:[.,]\d+)?)", desc)
+            amount = float(m.group(1).replace(",", ".")) if m else 0
+        account = draft.get("account_dr", "")
+        prompt = (
+            f"შენ ხარ Bridge Hub AI — ქართული ბუღალტრული ასისტენტი. "
+            f"ტრანზაქცია: '{desc}' | თანხა: {amount} GEL | ანგარიში: {account}. "
+            f"დაწერე ერთი მოკლე, ზუსტი ქართული წინადადება."
+        )
         resp = client.messages.create(
-            model="claude-sonnet-4-6", max_tokens=100,
+            model="claude-sonnet-4-6", max_tokens=150,
             messages=[{"role": "user", "content": prompt}]
         )
         _log_cost(tenant_id, "claude-sonnet-4-6",
@@ -116,7 +126,45 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
         return resp.content[0].text.strip()
     except Exception as e:
         logger.error(f"preview error: {e}")
-        return f"{draft.get('description','')} — {draft.get('amount',0)} GEL"
+        desc = draft.get("description", "")
+        amount = draft.get("amount", 0) or 0
+        if not amount:
+            m = re.search(r"(\d+(?:[.,]\d+)?)", desc)
+            amount = float(m.group(1).replace(",", ".")) if m else 0
+        return f"{desc} — {amount} GEL"
+
+
+def chat_with_claude(message: str, context: str = "", tenant_id: str = "default") -> str:
+    """Claude as main Bridge Hub chat brain"""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        system = (
+            "შენ ხარ Bridge Hub AI — ქართული AI ბუღალტრული სისტემის ასისტენტი. "
+            "შეგიძლია: VAT/დღგ 18%, Payroll PIT 20% + PAYG 2%, CIT 15%, "
+            "დივიდენდი 5%, Balance.ge გატარებები, TBC/BOG ბანკის ამონაწერი, "
+            "invoice OCR, 1C export, Excel/PDF export. "
+            "ყოველთვის პასუხობ ქართულად. ციფრებს ლარში წარმოადგენ. "
+            "ბუღალტრული კოდებისთვის გამოიყენე ქართული COA სტანდარტი."
+        )
+        messages = []
+        if context:
+            messages.append({"role": "user", "content": f"კონტექსტი:
+{context}"})
+            messages.append({"role": "assistant", "content": "კონტექსტი გავითვალისწინე."})
+        messages.append({"role": "user", "content": message})
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            system=system,
+            messages=messages
+        )
+        _log_cost(tenant_id, "claude-sonnet-4-6",
+                  resp.usage.input_tokens, resp.usage.output_tokens)
+        return resp.content[0].text.strip()
+    except Exception as e:
+        logger.error(f"claude chat error: {e}")
+        return None
 
 
 def analyze_error(error_text: str, context: dict, tenant_id: str = "default") -> str:

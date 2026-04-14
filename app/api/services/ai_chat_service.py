@@ -23,6 +23,11 @@ from typing import Optional, List, Dict, Any
 from app.api.services.accounting_engine import process_document
 from app.api.services.llm_service import classify as llm_classify
 from app.api.services.llm_service import generate_preview
+try:
+    from app.api.services.llm_service import chat_with_claude
+    CLAUDE_CHAT_AVAILABLE = True
+except ImportError:
+    CLAUDE_CHAT_AVAILABLE = False
 from app.api.services.posting_service import create_journal_draft
 
 
@@ -421,6 +426,20 @@ async def handle_ai_chat(
             "session_id": session_id,
         }
 
+    # Claude — main chat brain
+    if CLAUDE_CHAT_AVAILABLE:
+        claude_answer = chat_with_claude(message, context=context, tenant_id=tenant_id)
+        if claude_answer:
+            return {
+                "answer": claude_answer,
+                "sources": sources + ["claude:sonnet"],
+                "confidence": 0.92,
+                "search_method": "claude_chat",
+                "session_id": session_id,
+            }
+
+    # GPT fallback
+    import re as _re
     llm_result = llm_classify(
         description=message,
         context={
@@ -432,12 +451,15 @@ async def handle_ai_chat(
         },
         tenant_id=tenant_id,
     )
-
+    _amount = 0
+    _m = _re.search(r"(\d+(?:[.,]\d+)?)", message)
+    if _m:
+        _amount = float(_m.group(1).replace(",", "."))
     preview = generate_preview(
         {
             "account_dr": llm_result.get("account_code"),
             "account_cr": "",
-            "amount": 0,
+            "amount": _amount,
             "description": llm_result.get("reasoning") or message,
         },
         tenant_id=tenant_id,

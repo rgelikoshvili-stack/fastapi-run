@@ -27,3 +27,8 @@ patterns_top.json
 
 .env
 knowledge_files/
+
+_audit/
+*.log
+*.db
+learned_rules.json

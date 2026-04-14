@@ -21,3 +21,28 @@ chroma_db/
 _audit/
 
 _audit/
+.aider*
+
+# Runtime / ephemeral
+*.log
+*.db
+learned_rules.json
+pending_queue.json
+patterns_top.json
+example_response.json
+
+# Backup files
+Dockerfile.*
+requirements.txt.*
+*.bak
+fastapi-run-backup.zip
+
+# Test data
+bank.csv
+test.csv
+test_alias.csv
+
+# Temp
+structure.txt
+_archive/
+_audit/

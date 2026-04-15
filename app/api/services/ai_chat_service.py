@@ -23,11 +23,13 @@ from typing import Optional, List, Dict, Any
 from app.api.services.accounting_engine import process_document
 from app.api.services.llm_service import classify as llm_classify
 from app.api.services.llm_service import generate_preview
+
 try:
     from app.api.services.llm_service import chat_with_claude
     CLAUDE_CHAT_AVAILABLE = True
 except ImportError:
     CLAUDE_CHAT_AVAILABLE = False
+
 from app.api.services.posting_service import create_journal_draft
 
 
@@ -150,7 +152,7 @@ def _build_memory_context(message: str, tenant_id: str) -> Dict[str, Any]:
         account_code = result.get("account") or result.get("account_code")
         confidence = float(result.get("confidence", 0.0))
         source = result.get("source", "memory")
-        reason = result.get("reason") or result.get("reasoning") or ""
+        reason = result.get("reason") or result.get("reasoning") or result.get("matched_on") or ""
 
         return {
             "matched": bool(account_code),
@@ -276,6 +278,21 @@ def _local_answer(message: str) -> Optional[str]:
     return None
 
 
+def _append_memory_to_context(context: str, memory_result: Dict[str, Any]) -> str:
+    if not memory_result.get("matched"):
+        return context or ""
+
+    memory_block = (
+        "\n\n[Memory Match]\n"
+        f"Account Code: {memory_result.get('account_code')}\n"
+        f"Confidence: {memory_result.get('confidence')}\n"
+        f"Source: {memory_result.get('source')}\n"
+        f"Reasoning: {memory_result.get('reasoning') or '-'}\n"
+    )
+
+    return (context or "") + memory_block
+
+
 # ─────────────────────────────────────────────────────────────
 # MAIN CHAT HANDLER
 # ─────────────────────────────────────────────────────────────
@@ -391,7 +408,7 @@ async def handle_ai_chat(
             }
 
     context = ""
-    sources = []
+    sources: List[str] = []
 
     if use_vector_search and _vector_db_available:
         try:
@@ -406,40 +423,24 @@ async def handle_ai_chat(
         sources = _format_sources(results)
 
     memory_result = _build_memory_context(message, tenant_id)
-
-    if memory_result.get("matched") and float(memory_result.get("confidence", 0.0)) >= 0.85:
-        preview = generate_preview(
-            {
-                "account_dr": memory_result.get("account_code"),
-                "account_cr": "",
-                "amount": 0,
-                "description": memory_result.get("reasoning") or message,
-            },
-            tenant_id=tenant_id,
-        )
-
-        return {
-            "answer": preview or memory_result.get("reasoning") or "ნასწავლი წესით დამუშავდა",
-            "sources": sources + [f"memory:{memory_result.get('source', 'local')}"],
-            "confidence": float(memory_result.get("confidence", 0.85)),
-            "search_method": "memory_first",
-            "session_id": session_id,
-        }
+    context = _append_memory_to_context(context, memory_result)
 
     # Claude — main chat brain
     if CLAUDE_CHAT_AVAILABLE:
         claude_answer = chat_with_claude(message, context=context, tenant_id=tenant_id)
         if claude_answer:
+            search_method = "claude_chat_with_memory" if memory_result.get("matched") else "claude_chat"
+            confidence = max(0.92, float(memory_result.get("confidence", 0.0))) if memory_result.get("matched") else 0.92
+
             return {
                 "answer": claude_answer,
-                "sources": sources + ["claude:sonnet"],
-                "confidence": 0.92,
-                "search_method": "claude_chat",
+                "sources": sources + ([f"memory:{memory_result.get('source', 'local')}"] if memory_result.get("matched") else []) + ["claude:sonnet"],
+                "confidence": confidence,
+                "search_method": search_method,
                 "session_id": session_id,
             }
 
     # GPT fallback
-    import re as _re
     llm_result = llm_classify(
         description=message,
         context={
@@ -451,10 +452,9 @@ async def handle_ai_chat(
         },
         tenant_id=tenant_id,
     )
-    _amount = 0
-    _m = _re.search(r"(\d+(?:[.,]\d+)?)", message)
-    if _m:
-        _amount = float(_m.group(1).replace(",", "."))
+
+    _amount = _extract_amount(message) or 0.0
+
     preview = generate_preview(
         {
             "account_dr": llm_result.get("account_code"),

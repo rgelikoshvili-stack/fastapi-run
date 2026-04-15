@@ -7,6 +7,8 @@ Thin routes only
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.api.services.ai_chat_service import (
@@ -121,7 +123,11 @@ async def ai_chat(
         file=file,
     )
 
-    return ChatResponse(**result)
+    payload = ChatResponse(**result)
+    return JSONResponse(
+        content=jsonable_encoder(payload),
+        media_type="application/json; charset=utf-8",
+    )
 
 
 @router.get("/search")

@@ -3,7 +3,7 @@ app/api/services/llm_service.py
 Bridge Hub — Unified LLM Gateway
 """
 
-import os, json, hashlib, logging
+import os, re, json, hashlib, logging
 from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor

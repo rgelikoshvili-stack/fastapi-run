@@ -1,5 +1,5 @@
 import re
-﻿"""
+"""
 app/api/services/llm_service.py
 Bridge Hub — Unified LLM Gateway
 """

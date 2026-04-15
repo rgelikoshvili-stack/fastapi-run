@@ -204,7 +204,7 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
     except Exception as e:
         logger.error(f"preview error: {e}")
 
-    return f"{desc} - {amount} GEL"
+    return f"ტრანზაქცია: {desc} — თანხა: {amount:.2f} ₾"
 
 
 def chat_with_claude(message: str, context: str = "", tenant_id: str = "default") -> Optional[str]:

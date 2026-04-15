@@ -23,6 +23,18 @@ def _normalized_sql_expr(column_name: str) -> str:
     return f"LOWER(REGEXP_REPLACE(TRIM(COALESCE({column_name}, '')), '\\s+', ' ', 'g'))"
 
 
+def _normalize_pattern_value(pattern_type: str, pattern_value: str | None) -> str:
+    if pattern_type in ("description_exact", "partner"):
+        return _normalize(pattern_value)
+    return (pattern_value or "").strip()
+
+
+def _compare_sql_for_pattern_type(pattern_type: str) -> str:
+    if pattern_type in ("description_exact", "partner"):
+        return _normalized_sql_expr("pattern_value")
+    return "pattern_value"
+
+
 def _safe_parse_dt(value) -> datetime | None:
     if not value:
         return None
@@ -75,7 +87,6 @@ def calculate_pattern_confidence(
     confidence += success_rate * 0.30
     confidence -= min(0.35, failure_count * 0.12)
 
-    # Weighted boost/penalty
     total_weighted = weighted_success_score + weighted_failure_score
     if total_weighted > 0:
         weighted_ratio = weighted_success_score / total_weighted
@@ -223,11 +234,12 @@ def generate_patterns_from_feedback(tenant_id: str = "default"):
             (tenant_id,),
         )
         rows = cur.fetchall()
-        inserted = updated = 0
+        inserted = 0
+        updated = 0
 
         for row in rows:
             description = _normalize(row[0])
-            partner = (row[1] or "").strip()
+            partner = _normalize(row[1])
             account_code = row[2]
             reason = row[3]
 
@@ -256,23 +268,31 @@ def generate_patterns_from_feedback(tenant_id: str = "default"):
                     wfs = float(wfs or 0.0)
                     uc = int(uc or 0)
                     state = recalculate_pattern_state(sc, suc, fc, lsa, wss, wfs, uc)
+
                     cur.execute(
                         """
                         UPDATE learning_patterns
-                        SET account_code=%s,
-                            reason=%s,
-                            confidence_score=%s,
-                            autopilot_eligible=%s,
-                            support_count=%s,
-                            status=%s,
-                            source='feedback_learning',
-                            last_seen_at=NOW(),
-                            updated_at=NOW()
-                        WHERE id=%s AND tenant_id=%s
+                        SET account_code = %s,
+                            reason = %s,
+                            confidence_score = %s,
+                            autopilot_eligible = %s,
+                            support_count = %s,
+                            status = %s,
+                            source = 'feedback_learning',
+                            last_seen_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = %s AND tenant_id = %s
                         """,
-                        (account_code, reason, state["confidence_score"],
-                         state["autopilot_eligible"], sc, state["status"],
-                         pid, tenant_id),
+                        (
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            sc,
+                            state["status"],
+                            pid,
+                            tenant_id,
+                        ),
                     )
                     updated += 1
                 else:
@@ -284,24 +304,35 @@ def generate_patterns_from_feedback(tenant_id: str = "default"):
                            confidence_score, autopilot_eligible, support_count,
                            success_count, failure_count, status, source,
                            last_seen_at, last_confirmed_at, created_at, updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NULL,NOW(),NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
                         """,
-                        (tenant_id, "description_exact", description, account_code,
-                         reason, state["confidence_score"], state["autopilot_eligible"],
-                         1, 0, 0, state["status"], "feedback_learning"),
+                        (
+                            tenant_id,
+                            "description_exact",
+                            description,
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            1,
+                            0,
+                            0,
+                            state["status"],
+                            "feedback_learning",
+                        ),
                     )
                     inserted += 1
 
             if partner:
                 cur.execute(
-                    """
+                    f"""
                     SELECT id, support_count, success_count, failure_count,
                            last_seen_at, weighted_success_score, weighted_failure_score,
                            usage_count
                     FROM learning_patterns
                     WHERE tenant_id = %s
                       AND pattern_type = %s
-                      AND pattern_value = %s
+                      AND {_normalized_sql_expr("pattern_value")} = %s
                     LIMIT 1
                     """,
                     (tenant_id, "partner", partner),
@@ -317,23 +348,31 @@ def generate_patterns_from_feedback(tenant_id: str = "default"):
                     wfs = float(wfs or 0.0)
                     uc = int(uc or 0)
                     state = recalculate_pattern_state(sc, suc, fc, lsa, wss, wfs, uc)
+
                     cur.execute(
                         """
                         UPDATE learning_patterns
-                        SET account_code=%s,
-                            reason=%s,
-                            confidence_score=%s,
-                            autopilot_eligible=%s,
-                            support_count=%s,
-                            status=%s,
-                            source='feedback_learning',
-                            last_seen_at=NOW(),
-                            updated_at=NOW()
-                        WHERE id=%s AND tenant_id=%s
+                        SET account_code = %s,
+                            reason = %s,
+                            confidence_score = %s,
+                            autopilot_eligible = %s,
+                            support_count = %s,
+                            status = %s,
+                            source = 'feedback_learning',
+                            last_seen_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = %s AND tenant_id = %s
                         """,
-                        (account_code, reason, state["confidence_score"],
-                         state["autopilot_eligible"], sc, state["status"],
-                         pid, tenant_id),
+                        (
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            sc,
+                            state["status"],
+                            pid,
+                            tenant_id,
+                        ),
                     )
                     updated += 1
                 else:
@@ -345,11 +384,22 @@ def generate_patterns_from_feedback(tenant_id: str = "default"):
                            confidence_score, autopilot_eligible, support_count,
                            success_count, failure_count, status, source,
                            last_seen_at, last_confirmed_at, created_at, updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NULL,NOW(),NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NULL, NOW(), NOW())
                         """,
-                        (tenant_id, "partner", partner, account_code, reason,
-                         state["confidence_score"], state["autopilot_eligible"],
-                         1, 0, 0, state["status"], "feedback_learning"),
+                        (
+                            tenant_id,
+                            "partner",
+                            partner,
+                            account_code,
+                            reason,
+                            state["confidence_score"],
+                            state["autopilot_eligible"],
+                            1,
+                            0,
+                            0,
+                            state["status"],
+                            "feedback_learning",
+                        ),
                     )
                     inserted += 1
 
@@ -375,11 +425,11 @@ def mark_pattern_success(
     conn = get_db()
     cur = conn.cursor()
     try:
-        value = _normalize(pattern_value) if pattern_type == "description_exact" else (pattern_value or "").strip()
+        value = _normalize_pattern_value(pattern_type, pattern_value)
         if not value:
             return {"updated": 0}
 
-        compare_sql = _normalized_sql_expr("pattern_value") if pattern_type == "description_exact" else "pattern_value"
+        compare_sql = _compare_sql_for_pattern_type(pattern_type)
 
         if account_code:
             cur.execute(
@@ -388,8 +438,10 @@ def mark_pattern_success(
                        last_seen_at, weighted_success_score, weighted_failure_score,
                        usage_count
                 FROM learning_patterns
-                WHERE tenant_id=%s AND pattern_type=%s
-                  AND {compare_sql}=%s AND account_code=%s
+                WHERE tenant_id = %s
+                  AND pattern_type = %s
+                  AND {compare_sql} = %s
+                  AND account_code = %s
                 LIMIT 1
                 """,
                 (tenant_id, pattern_type, value, account_code),
@@ -401,8 +453,9 @@ def mark_pattern_success(
                        last_seen_at, weighted_success_score, weighted_failure_score,
                        usage_count
                 FROM learning_patterns
-                WHERE tenant_id=%s AND pattern_type=%s
-                  AND {compare_sql}=%s
+                WHERE tenant_id = %s
+                  AND pattern_type = %s
+                  AND {compare_sql} = %s
                 LIMIT 1
                 """,
                 (tenant_id, pattern_type, value),
@@ -425,21 +478,30 @@ def mark_pattern_success(
         cur.execute(
             """
             UPDATE learning_patterns
-            SET success_count=%s,
-                support_count=%s,
-                confidence_score=%s,
-                autopilot_eligible=%s,
-                status=%s,
-                weighted_success_score=%s,
-                usage_count=%s,
-                last_confirmed_at=NOW(),
-                last_seen_at=NOW(),
-                last_used_at=NOW(),
-                updated_at=NOW()
-            WHERE id=%s AND tenant_id=%s
+            SET success_count = %s,
+                support_count = %s,
+                confidence_score = %s,
+                autopilot_eligible = %s,
+                status = %s,
+                weighted_success_score = %s,
+                usage_count = %s,
+                last_confirmed_at = NOW(),
+                last_seen_at = NOW(),
+                last_used_at = NOW(),
+                updated_at = NOW()
+            WHERE id = %s AND tenant_id = %s
             """,
-            (suc, sc, state["confidence_score"], state["autopilot_eligible"],
-             state["status"], wss, uc, pid, tenant_id),
+            (
+                suc,
+                sc,
+                state["confidence_score"],
+                state["autopilot_eligible"],
+                state["status"],
+                wss,
+                uc,
+                pid,
+                tenant_id,
+            ),
         )
         conn.commit()
         return {"updated": cur.rowcount, "weight_applied": weight}
@@ -458,11 +520,11 @@ def mark_pattern_failure(
     conn = get_db()
     cur = conn.cursor()
     try:
-        value = _normalize(pattern_value) if pattern_type == "description_exact" else (pattern_value or "").strip()
+        value = _normalize_pattern_value(pattern_type, pattern_value)
         if not value:
             return {"updated": 0}
 
-        compare_sql = _normalized_sql_expr("pattern_value") if pattern_type == "description_exact" else "pattern_value"
+        compare_sql = _compare_sql_for_pattern_type(pattern_type)
 
         if account_code:
             cur.execute(
@@ -471,8 +533,10 @@ def mark_pattern_failure(
                        last_seen_at, weighted_success_score, weighted_failure_score,
                        usage_count
                 FROM learning_patterns
-                WHERE tenant_id=%s AND pattern_type=%s
-                  AND {compare_sql}=%s AND account_code=%s
+                WHERE tenant_id = %s
+                  AND pattern_type = %s
+                  AND {compare_sql} = %s
+                  AND account_code = %s
                 LIMIT 1
                 """,
                 (tenant_id, pattern_type, value, account_code),
@@ -484,8 +548,9 @@ def mark_pattern_failure(
                        last_seen_at, weighted_success_score, weighted_failure_score,
                        usage_count
                 FROM learning_patterns
-                WHERE tenant_id=%s AND pattern_type=%s
-                  AND {compare_sql}=%s
+                WHERE tenant_id = %s
+                  AND pattern_type = %s
+                  AND {compare_sql} = %s
                 LIMIT 1
                 """,
                 (tenant_id, pattern_type, value),
@@ -508,20 +573,29 @@ def mark_pattern_failure(
         cur.execute(
             """
             UPDATE learning_patterns
-            SET failure_count=%s,
-                support_count=%s,
-                confidence_score=%s,
-                autopilot_eligible=%s,
-                status=%s,
-                weighted_failure_score=%s,
-                usage_count=%s,
-                last_seen_at=NOW(),
-                last_used_at=NOW(),
-                updated_at=NOW()
-            WHERE id=%s AND tenant_id=%s
+            SET failure_count = %s,
+                support_count = %s,
+                confidence_score = %s,
+                autopilot_eligible = %s,
+                status = %s,
+                weighted_failure_score = %s,
+                usage_count = %s,
+                last_seen_at = NOW(),
+                last_used_at = NOW(),
+                updated_at = NOW()
+            WHERE id = %s AND tenant_id = %s
             """,
-            (fc, sc, state["confidence_score"], state["autopilot_eligible"],
-             state["status"], wfs, uc, pid, tenant_id),
+            (
+                fc,
+                sc,
+                state["confidence_score"],
+                state["autopilot_eligible"],
+                state["status"],
+                wfs,
+                uc,
+                pid,
+                tenant_id,
+            ),
         )
         conn.commit()
         return {"updated": cur.rowcount, "weight_applied": weight}
@@ -565,11 +639,11 @@ def update_pattern_usage(
     conn = get_db()
     cur = conn.cursor()
     try:
-        value = _normalize(pattern_value) if pattern_type == "description_exact" else (pattern_value or "").strip()
+        value = _normalize_pattern_value(pattern_type, pattern_value)
         if not value:
             return {"updated": 0}
 
-        compare_sql = _normalized_sql_expr("pattern_value") if pattern_type == "description_exact" else "pattern_value"
+        compare_sql = _compare_sql_for_pattern_type(pattern_type)
 
         if account_code:
             cur.execute(
@@ -598,6 +672,7 @@ def update_pattern_usage(
                 """,
                 (tenant_id, pattern_type, value),
             )
+
         conn.commit()
         return {"updated": cur.rowcount}
     finally:

@@ -149,8 +149,7 @@ def chat_with_claude(message: str, context: str = "", tenant_id: str = "default"
         )
         messages = []
         if context:
-            messages.append({"role": "user", "content": f"კონტექსტი:
-{context}"})
+            messages.append({"role": "user", "content": "კონტექსტი:\n" + context})
             messages.append({"role": "assistant", "content": "კონტექსტი გავითვალისწინე."})
         messages.append({"role": "user", "content": message})
         resp = client.messages.create(

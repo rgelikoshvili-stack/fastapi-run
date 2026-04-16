@@ -47,9 +47,6 @@ class SingleEmployeeRequest(BaseModel):
 
 @router.post("/calculate")
 def payroll_calculate(req: PayrollRequest, request: Request):
-    """
-    Payroll-ის გამოთვლა — draft-ები არ იქმნება.
-    """
     employees = [e.dict() for e in req.employees]
     result = calculate_payroll(employees, req.period)
     return result
@@ -57,9 +54,6 @@ def payroll_calculate(req: PayrollRequest, request: Request):
 
 @router.post("/calculate/single")
 def payroll_calculate_single(req: SingleEmployeeRequest):
-    """
-    ერთი თანამშრომლის გამოთვლა.
-    """
     result = calculate_employee_payroll(
         gross_salary=req.gross_salary,
         employee_name=req.name,
@@ -71,9 +65,6 @@ def payroll_calculate_single(req: SingleEmployeeRequest):
 
 @router.post("/generate-drafts")
 def payroll_generate_drafts(req: PayrollRequest, request: Request):
-    """
-    Payroll გამოთვლა + journal drafts-ის შექმნა.
-    """
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     employees = [e.dict() for e in req.employees]
     payroll = calculate_payroll(employees, req.period)
@@ -93,9 +84,6 @@ def payroll_generate_drafts(req: PayrollRequest, request: Request):
 
 @router.post("/rs-ge-xml")
 def payroll_rsge_xml(req: PayrollRequest, request: Request):
-    """
-    RS.ge XML ფორმატის გენერაცია.
-    """
     employees = [e.dict() for e in req.employees]
     payroll = calculate_payroll(employees, req.period)
     xml = generate_rsge_xml(payroll)
@@ -115,9 +103,6 @@ def payroll_history(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """
-    Payroll-generated drafts history.
-    """
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -135,15 +120,23 @@ def payroll_history(
             FROM journal_drafts
             WHERE tenant_id = %s
               AND (
-                    description ILIKE '%salary%'
-                 OR description ILIKE '%payroll%'
-                 OR description ILIKE '%ხელფას%'
-                 OR description ILIKE '%შრომის ანაზღაურ%'
+                    description ILIKE %s
+                 OR description ILIKE %s
+                 OR description ILIKE %s
+                 OR description ILIKE %s
               )
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
-            (tenant_id, limit, offset),
+            (
+                tenant_id,
+                "%salary%",
+                "%payroll%",
+                "%ხელფას%",
+                "%შრომის ანაზღაურ%",
+                limit,
+                offset,
+            ),
         )
         items = [dict(r) for r in cur.fetchall()]
 
@@ -153,15 +146,22 @@ def payroll_history(
             FROM journal_drafts
             WHERE tenant_id = %s
               AND (
-                    description ILIKE '%salary%'
-                 OR description ILIKE '%payroll%'
-                 OR description ILIKE '%ხელფას%'
-                 OR description ILIKE '%შრომის ანაზღაურ%'
+                    description ILIKE %s
+                 OR description ILIKE %s
+                 OR description ILIKE %s
+                 OR description ILIKE %s
               )
             """,
-            (tenant_id,),
+            (
+                tenant_id,
+                "%salary%",
+                "%payroll%",
+                "%ხელფას%",
+                "%შრომის ანაზღაურ%",
+            ),
         )
-        total = cur.fetchone()["total"]
+        total_row = cur.fetchone()
+        total = total_row["total"] if total_row else 0
 
         return {
             "ok": True,

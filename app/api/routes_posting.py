@@ -151,3 +151,22 @@ def apply_posting(
 ):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id)
+
+@router.get("/history")
+def get_posting_history(
+    request: Request,
+    limit: int = Query(100, description="Max rows"),
+    offset: int = Query(0, description="Pagination offset"),
+    target_system: str | None = Query(None, description="mock | balance | onec | oris"),
+    draft_id: int | None = Query(None, description="Filter by draft id"),
+):
+    _validate_pagination(limit, offset)
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    return get_posting_logs_service(
+        limit=limit,
+        offset=offset,
+        tenant_id=tenant_id,
+        target_system=target_system,
+        draft_id=draft_id,
+    )

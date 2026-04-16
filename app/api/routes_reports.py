@@ -6,6 +6,9 @@ from app.api.db import get_db
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+# ===============================
+# MONTHLY REPORT
+# ===============================
 @router.get("/monthly")
 def monthly_report():
     conn = get_db()
@@ -59,6 +62,9 @@ def monthly_report():
         conn.close()
 
 
+# ===============================
+# ANNUAL REPORT
+# ===============================
 @router.get("/annual")
 def annual_report():
     conn = get_db()
@@ -72,14 +78,16 @@ def annual_report():
             GROUP BY year
             ORDER BY year DESC
         """)
-        rows = [dict(r) for r in cur.fetchall()]
-        return {"ok": True, "annual_reports": rows}
+        return {"ok": True, "annual_reports": [dict(r) for r in cur.fetchall()]}
 
     finally:
         cur.close()
         conn.close()
 
 
+# ===============================
+# AUDIT TRAIL
+# ===============================
 @router.get("/audit-trail")
 def audit_trail():
     conn = get_db()
@@ -92,18 +100,20 @@ def audit_trail():
             ORDER BY created_at DESC
             LIMIT 50
         """)
-        rows = [dict(r) for r in cur.fetchall()]
-        return {"ok": True, "pipeline_runs": rows}
+        return {"ok": True, "pipeline_runs": [dict(r) for r in cur.fetchall()]}
 
     finally:
         cur.close()
         conn.close()
 
 
+# ===============================
+# P&L
+# ===============================
 @router.get("/pnl")
 def pnl_report(
-    year: int | None = Query(None, description="Optional year filter, e.g. 2026"),
-    month: int | None = Query(None, ge=1, le=12, description="Optional month filter 1-12"),
+    year: int | None = Query(None),
+    month: int | None = Query(None, ge=1, le=12),
 ):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -112,11 +122,11 @@ def pnl_report(
         conditions = ["1=1"]
         params = []
 
-        if year is not None:
+        if year:
             conditions.append("EXTRACT(YEAR FROM date) = %s")
             params.append(year)
 
-        if month is not None:
+        if month:
             conditions.append("EXTRACT(MONTH FROM date) = %s")
             params.append(month)
 
@@ -131,21 +141,17 @@ def pnl_report(
         """, params)
 
         row = cur.fetchone() or {}
+
         revenue = round(float(row.get("revenue") or 0), 2)
         expenses = round(float(row.get("expenses") or 0), 2)
-        profit = round(revenue - expenses, 2)
 
         return {
             "ok": True,
             "report": "pnl",
-            "filters": {
-                "year": year,
-                "month": month,
-            },
             "data": {
                 "revenue": revenue,
                 "expenses": expenses,
-                "profit_before_tax": profit,
+                "profit_before_tax": round(revenue - expenses, 2),
             },
             "note": "ეს არის მარტივი P&L ვერსია bank_transactions-ზე დაყრდნობით.",
         }
@@ -155,10 +161,13 @@ def pnl_report(
         conn.close()
 
 
+# ===============================
+# CASH FLOW
+# ===============================
 @router.get("/cashflow")
 def cashflow_report(
-    year: int | None = Query(None, description="Optional year filter, e.g. 2026"),
-    month: int | None = Query(None, ge=1, le=12, description="Optional month filter 1-12"),
+    year: int | None = Query(None),
+    month: int | None = Query(None, ge=1, le=12),
 ):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -167,11 +176,11 @@ def cashflow_report(
         conditions = ["1=1"]
         params = []
 
-        if year is not None:
+        if year:
             conditions.append("EXTRACT(YEAR FROM date) = %s")
             params.append(year)
 
-        if month is not None:
+        if month:
             conditions.append("EXTRACT(MONTH FROM date) = %s")
             params.append(month)
 
@@ -186,21 +195,17 @@ def cashflow_report(
         """, params)
 
         row = cur.fetchone() or {}
+
         cash_in = round(float(row.get("cash_in") or 0), 2)
         cash_out = round(float(row.get("cash_out") or 0), 2)
-        net_cashflow = round(cash_in - cash_out, 2)
 
         return {
             "ok": True,
             "report": "cashflow",
-            "filters": {
-                "year": year,
-                "month": month,
-            },
             "data": {
                 "cash_in": cash_in,
                 "cash_out": cash_out,
-                "net_cashflow": net_cashflow,
+                "net_cashflow": round(cash_in - cash_out, 2),
             },
             "note": "ეს არის მარტივი Cash Flow ვერსია bank_transactions-ზე დაყრდნობით.",
         }

@@ -2,9 +2,11 @@
 app/api/routes_ocr.py
 Bridge Hub — Invoice OCR Routes
 """
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+from app.api.db import get_db
+import psycopg2.extras
 
 router = APIRouter(prefix="/ocr", tags=["ocr"])
 
@@ -79,6 +81,53 @@ async def extract_and_create_draft(
         "extracted_fields": fields,
         "draft": draft,
     }
+
+
+@router.get("/history")
+def ocr_history(
+    request: Request,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """
+    OCR / document extraction history.
+    """
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        cur.execute(
+            """
+            SELECT
+                run_id,
+                filename,
+                state,
+                created_at
+            FROM pipeline_runs
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        items = [dict(r) for r in cur.fetchall()]
+
+        cur.execute("SELECT COUNT(*) AS total FROM pipeline_runs")
+        total = cur.fetchone()["total"]
+
+        return {
+            "ok": True,
+            "tenant_id": tenant_id,
+            "count": len(items),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "items": items,
+        }
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 @router.get("/status")

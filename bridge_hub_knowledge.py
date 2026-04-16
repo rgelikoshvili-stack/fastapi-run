@@ -23,6 +23,9 @@ import re
 from datetime import date, datetime
 from typing import Optional
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
 # ══════════════════════════════════════════════════════════════
 # 1. FILE LOADING
 # ══════════════════════════════════════════════════════════════
@@ -320,13 +323,70 @@ ACCA_STANDARDS = {
 LEARNED_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "learned_rules.json")
 
 
+def _get_db():
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured")
+    return psycopg2.connect(database_url)
+
+
+def _load_learned_from_db():
+    try:
+        conn = _get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """
+            SELECT tenant_id,
+                   pattern_value AS pattern,
+                   account_code AS account,
+                   reason AS note,
+                   confidence_score AS confidence,
+                   created_at,
+                   source
+            FROM learning_patterns
+            WHERE pattern_type = 'description_exact'
+              AND source IN ('human', 'feedback_learning', 'db_migrated')
+              AND status IN ('active', 'candidate')
+            ORDER BY created_at ASC
+            """
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append(
+                {
+                    "tenant_id": r.get("tenant_id") or "global",
+                    "pattern": r.get("pattern") or "",
+                    "account": r.get("account") or "",
+                    "note": r.get("note") or "",
+                    "confidence": float(r.get("confidence") or 0.99),
+                    "created_at": r.get("created_at").isoformat() if r.get("created_at") else datetime.now().isoformat(),
+                    "source": r.get("source") or "db",
+                }
+            )
+        return results
+    except Exception as e:
+        print(f"⚠️ DB learned load failed: {e}")
+        return []
+
+
 def _load_learned():
+    # 1. primary source = DB
+    db_rules = _load_learned_from_db()
+    if db_rules:
+        return db_rules
+
+    # 2. fallback = old json file
     if os.path.exists(LEARNED_RULES_FILE):
         try:
             with open(LEARNED_RULES_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return []
+
     return []
 
 
@@ -335,42 +395,179 @@ def _save_learned(rules):
         with open(LEARNED_RULES_FILE, "w", encoding="utf-8") as f:
             json.dump(rules, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"⚠️ save: {e}")
+        print(f"⚠️ save fallback json failed: {e}")
 
 
 def learn_new_rule(pattern, account, tenant_id="global", note=""):
-    rules = _load_learned()
+    pattern = (pattern or "").strip()
+    account = (account or "").strip()
+    tenant_id = (tenant_id or "global").strip()
+    note = (note or "").strip()
 
-    for r in rules:
-        if r["pattern"].lower() == pattern.lower() and r["tenant_id"] == tenant_id:
-            r["account"] = account
-            r["note"] = note
-            r["updated_at"] = datetime.now().isoformat()
-            _save_learned(rules)
+    if not pattern or not account:
+        return {
+            "status": "error",
+            "message": "pattern და account სავალდებულოა",
+        }
+
+    try:
+        conn = _get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT id
+            FROM learning_patterns
+            WHERE tenant_id = %s
+              AND pattern_type = 'description_exact'
+              AND LOWER(TRIM(COALESCE(pattern_value, ''))) = LOWER(TRIM(%s))
+            LIMIT 1
+            """,
+            (tenant_id, pattern),
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                """
+                UPDATE learning_patterns
+                SET account_code = %s,
+                    reason = %s,
+                    confidence_score = 0.99,
+                    status = 'active',
+                    source = 'human',
+                    updated_at = NOW(),
+                    last_confirmed_at = NOW(),
+                    last_seen_at = NOW()
+                WHERE id = %s
+                RETURNING id, tenant_id, pattern_value, account_code, reason, confidence_score, source, created_at
+                """,
+                (account, note, existing["id"]),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            cur.close()
+            conn.close()
+
             return {
                 "status": "updated",
                 "message": f"♻️ '{pattern}' განახლდა → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
-                "rule": r,
+                "rule": {
+                    "pattern": row["pattern_value"],
+                    "account": row["account_code"],
+                    "tenant_id": row["tenant_id"],
+                    "note": row["reason"] or "",
+                    "confidence": float(row["confidence_score"] or 0.99),
+                    "created_at": row["created_at"].isoformat() if row.get("created_at") else datetime.now().isoformat(),
+                    "source": row["source"] or "human",
+                },
             }
 
-    new_r = {
-        "pattern": pattern,
-        "account": account,
-        "tenant_id": tenant_id,
-        "note": note,
-        "confidence": 0.99,
-        "created_at": datetime.now().isoformat(),
-        "source": "human",
-    }
+        cur.execute(
+            """
+            INSERT INTO learning_patterns
+                (
+                    tenant_id,
+                    pattern_type,
+                    pattern_value,
+                    account_code,
+                    reason,
+                    confidence_score,
+                    autopilot_eligible,
+                    support_count,
+                    success_count,
+                    failure_count,
+                    usage_count,
+                    status,
+                    source,
+                    created_at,
+                    updated_at,
+                    last_seen_at,
+                    last_confirmed_at
+                )
+            VALUES
+                (
+                    %s,
+                    'description_exact',
+                    %s,
+                    %s,
+                    %s,
+                    0.99,
+                    false,
+                    1,
+                    1,
+                    0,
+                    0,
+                    'active',
+                    'human',
+                    NOW(),
+                    NOW(),
+                    NOW(),
+                    NOW()
+                )
+            RETURNING id, tenant_id, pattern_value, account_code, reason, confidence_score, source, created_at
+            """,
+            (tenant_id, pattern, account, note),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
 
-    rules.append(new_r)
-    _save_learned(rules)
+        return {
+            "status": "learned",
+            "message": f"✅ '{pattern}' → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
+            "rule": {
+                "pattern": row["pattern_value"],
+                "account": row["account_code"],
+                "tenant_id": row["tenant_id"],
+                "note": row["reason"] or "",
+                "confidence": float(row["confidence_score"] or 0.99),
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else datetime.now().isoformat(),
+                "source": row["source"] or "human",
+            },
+        }
 
-    return {
-        "status": "learned",
-        "message": f"✅ '{pattern}' → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
-        "rule": new_r,
-    }
+    except Exception as e:
+        print(f"⚠️ DB learn failed, fallback to json: {e}")
+
+        rules = []
+        if os.path.exists(LEARNED_RULES_FILE):
+            try:
+                with open(LEARNED_RULES_FILE, "r", encoding="utf-8") as f:
+                    rules = json.load(f)
+            except Exception:
+                rules = []
+
+        for r in rules:
+            if r["pattern"].lower() == pattern.lower() and r["tenant_id"] == tenant_id:
+                r["account"] = account
+                r["note"] = note
+                r["updated_at"] = datetime.now().isoformat()
+                _save_learned(rules)
+                return {
+                    "status": "updated_fallback",
+                    "message": f"♻️ '{pattern}' განახლდა → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
+                    "rule": r,
+                }
+
+        new_r = {
+            "pattern": pattern,
+            "account": account,
+            "tenant_id": tenant_id,
+            "note": note,
+            "confidence": 0.99,
+            "created_at": datetime.now().isoformat(),
+            "source": "human",
+        }
+        rules.append(new_r)
+        _save_learned(rules)
+
+        return {
+            "status": "learned_fallback",
+            "message": f"✅ '{pattern}' → {account} ({CHART_OF_ACCOUNTS.get(account, {}).get('name', account)})",
+            "rule": new_r,
+        }
 
 # ══════════════════════════════════════════════════════════════
 # 6. CLASSIFICATION

@@ -1,47 +1,40 @@
 ﻿from fastapi import Request
-from fastapi.responses import JSONResponse
 from app.api.services.auth_service import verify_token
 
-PUBLIC_PATHS = {
-    "/health", "/docs", "/openapi.json", "/redoc",
-    "/auth/login", "/auth/register", "/static",
-}
-
-AUTH_ENABLED = False  # True-ზე გადართვა როცა UI-ში login დაემატება
+PUBLIC_PATH_PREFIXES = (
+    "/",
+    "/docs",
+    "/openapi.json",
+    "/health",
+    "/auth/login",
+    "/auth/register",
+    "/auth/refresh",
+    "/static",
+)
 
 
 async def auth_middleware(request: Request, call_next):
-    if not AUTH_ENABLED:
-        return await call_next(request)
-
     path = request.url.path
-    if any(path.startswith(p) for p in PUBLIC_PATHS):
+
+    if any(path == p or path.startswith(p + "/") for p in PUBLIC_PATH_PREFIXES):
         return await call_next(request)
 
+    authorization = request.headers.get("Authorization", "")
     token = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
 
-    if not token:
-        token = request.query_params.get("token")
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
 
-    if not token:
-        return JSONResponse(
-            status_code=401,
-            content={"ok": False, "error": "Authorization required"}
-        )
-
-    payload = verify_token(token)
-    if not payload:
-        return JSONResponse(
-            status_code=401,
-            content={"ok": False, "error": "Invalid or expired token"}
-        )
-
-    request.state.user_id   = payload.get("user_id")
-    request.state.email      = payload.get("email")
-    request.state.role       = payload.get("role")
-    request.state.tenant_id  = payload.get("tenant_id", "default")
+    if token:
+        payload = verify_token(token, expected_type="access")
+        if payload:
+            request.state.user_id = payload.get("sub")
+            request.state.role = payload.get("role")
+            request.state.tenant_id = payload.get("tenant_id")
+            request.state.authenticated = True
+        else:
+            request.state.authenticated = False
+    else:
+        request.state.authenticated = False
 
     return await call_next(request)

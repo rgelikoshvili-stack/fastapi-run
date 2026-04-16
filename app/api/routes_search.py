@@ -1,10 +1,9 @@
-from fastapi import APIRouter
-import psycopg2, psycopg2.extras
-from datetime import datetime
+from fastapi import APIRouter, Query
+import psycopg2
+import psycopg2.extras
 from app.api.db import get_db
 
 router = APIRouter(prefix="/search", tags=["search"])
-
 
 
 def ensure_tables(cur):
@@ -14,7 +13,6 @@ def ensure_tables(cur):
             doc_id VARCHAR(100),
             doc_type VARCHAR(50),
             filename VARCHAR(300),
-            
             amount FLOAT,
             state VARCHAR(50),
             tags TEXT[],
@@ -30,120 +28,221 @@ def ensure_tables(cur):
         )
     """)
 
-@router.post("/query")
-def search(q: str = "", state: str = "", min_amount: float = 0, max_amount: float = 999999999):
+
+def _run_search(q: str = "", state: str = "", min_amount: float = 0, max_amount: float = 999999999):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    ensure_tables(cur)
-    conn.commit()
 
-    conditions = ["1=1"]
-    params = []
+    try:
+        ensure_tables(cur)
+        conn.commit()
 
-    if q:
-        conditions.append("(filename ILIKE %s )")
-        params += [f"%{q}%"]
-    if state:
-        conditions.append("state = %s")
-        params.append(state)
+        conditions = ["1=1"]
+        params = []
 
-    where = " AND ".join(conditions)
-    cur.execute(f"""
-        SELECT p.run_id, p.filename, p.state, p.created_at
-        FROM pipeline_runs p
-        WHERE {where}
-        ORDER BY p.created_at DESC LIMIT 50
-    """, params)
-    docs = [dict(r) for r in cur.fetchall()]
+        if q:
+            conditions.append("(p.filename ILIKE %s)")
+            params.append(f"%{q}%")
 
-    # Bank transactions search
-    tx_results = []
-    if q:
-        cur.execute("""
-            SELECT id, bank, date, amount, description
-            FROM bank_transactions
-            WHERE description ILIKE %s
-            ORDER BY created_at DESC LIMIT 20
-        """, (f"%{q}%",))
-        tx_results = [dict(r) for r in cur.fetchall()]
+        if state:
+            conditions.append("p.state = %s")
+            params.append(state)
 
-    # COA search
-    coa_results = []
-    if q:
-        cur.execute("""
-            SELECT code, name_ka, name_en, category
-            FROM coa
-            WHERE name_ka ILIKE %s OR name_en ILIKE %s OR code ILIKE %s
-        """, (f"%{q}%", f"%{q}%", f"%{q}%"))
-        coa_results = [dict(r) for r in cur.fetchall()]
+        # თუ მომავალში pipeline_runs-ში amount დაემატება, აქ ჩაჯდება
+        where = " AND ".join(conditions)
 
-    # Log search
-    cur.execute("INSERT INTO search_history (query, results_count) VALUES (%s,%s)",
-        (q, len(docs) + len(tx_results) + len(coa_results)))
-    conn.commit()
-    cur.close(); conn.close()
+        cur.execute(f"""
+            SELECT p.run_id, p.filename, p.state, p.created_at
+            FROM pipeline_runs p
+            WHERE {where}
+            ORDER BY p.created_at DESC
+            LIMIT 50
+        """, params)
+        docs = [dict(r) for r in cur.fetchall()]
 
-    return {
-        "ok": True,
-        "query": q,
-        "total_results": len(docs) + len(tx_results) + len(coa_results),
-        "documents": docs,
-        "transactions": tx_results,
-        "coa_accounts": coa_results
-    }
+        tx_results = []
+        if q:
+            try:
+                cur.execute("""
+                    SELECT id, bank, date, amount, description
+                    FROM bank_transactions
+                    WHERE description ILIKE %s
+                      AND amount >= %s
+                      AND amount <= %s
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """, (f"%{q}%", min_amount, max_amount))
+                tx_results = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                tx_results = []
+
+        coa_results = []
+        if q:
+            try:
+                cur.execute("""
+                    SELECT code, name_ka, name_en, category
+                    FROM coa
+                    WHERE name_ka ILIKE %s OR name_en ILIKE %s OR code::text ILIKE %s
+                    LIMIT 30
+                """, (f"%{q}%", f"%{q}%", f"%{q}%"))
+                coa_results = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                coa_results = []
+
+        total_results = len(docs) + len(tx_results) + len(coa_results)
+
+        cur.execute(
+            "INSERT INTO search_history (query, results_count) VALUES (%s, %s)",
+            (q, total_results)
+        )
+        conn.commit()
+
+        return {
+            "ok": True,
+            "query": q,
+            "state": state,
+            "min_amount": min_amount,
+            "max_amount": max_amount,
+            "total_results": total_results,
+            "documents": docs,
+            "transactions": tx_results,
+            "coa_accounts": coa_results,
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Compatibility endpoint: /search?q=...
+@router.get("")
+def search_alias(
+    q: str = Query("", description="Search query"),
+    state: str = Query("", description="Filter by state"),
+    min_amount: float = Query(0, ge=0),
+    max_amount: float = Query(999999999, ge=0),
+):
+    return _run_search(q=q, state=state, min_amount=min_amount, max_amount=max_amount)
+
+
+# Existing endpoint kept for backward compatibility
+@router.post("/query")
+def search_query(
+    q: str = "",
+    state: str = "",
+    min_amount: float = 0,
+    max_amount: float = 999999999,
+):
+    return _run_search(q=q, state=state, min_amount=min_amount, max_amount=max_amount)
+
 
 @router.get("/filters")
 def get_filters():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    ensure_tables(cur)
-    conn.commit()
-    cur.execute("SELECT DISTINCT state FROM pipeline_runs WHERE state IS NOT NULL")
-    statees = [r["state"] for r in cur.fetchall()]
-    cur.execute("SELECT DISTINCT bank FROM bank_transactions WHERE bank IS NOT NULL")
-    banks = [r["bank"] for r in cur.fetchall()]
-    cur.execute("SELECT DISTINCT category FROM coa WHERE category IS NOT NULL")
-    categories = [r["category"] for r in cur.fetchall()]
-    cur.close(); conn.close()
-    return {"ok": True, "statees": statees, "banks": banks, "coa_categories": categories}
+
+    try:
+        ensure_tables(cur)
+        conn.commit()
+
+        try:
+            cur.execute("SELECT DISTINCT state FROM pipeline_runs WHERE state IS NOT NULL")
+            states = [r["state"] for r in cur.fetchall()]
+        except Exception:
+            states = []
+
+        try:
+            cur.execute("SELECT DISTINCT bank FROM bank_transactions WHERE bank IS NOT NULL")
+            banks = [r["bank"] for r in cur.fetchall()]
+        except Exception:
+            banks = []
+
+        try:
+            cur.execute("SELECT DISTINCT category FROM coa WHERE category IS NOT NULL")
+            categories = [r["category"] for r in cur.fetchall()]
+        except Exception:
+            categories = []
+
+        return {
+            "ok": True,
+            "states": states,
+            "banks": banks,
+            "coa_categories": categories,
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
 
 @router.get("/recent")
 def recent_searches():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    ensure_tables(cur)
-    conn.commit()
-    cur.execute("""
-        SELECT query, results_count, created_at
-        FROM search_history
-        ORDER BY created_at DESC LIMIT 20
-    """)
-    rows = [dict(r) for r in cur.fetchall()]
-    cur.close(); conn.close()
-    return {"ok": True, "recent_searches": rows}
+
+    try:
+        ensure_tables(cur)
+        conn.commit()
+
+        cur.execute("""
+            SELECT query, results_count, created_at
+            FROM search_history
+            ORDER BY created_at DESC
+            LIMIT 20
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+
+        return {
+            "ok": True,
+            "recent_searches": rows,
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
 
 @router.get("/stats")
 def search_stats():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    ensure_tables(cur)
-    conn.commit()
-    cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
-    total_docs = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as total FROM bank_transactions")
-    total_txs = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as total FROM coa")
-    total_coa = cur.fetchone()["total"]
-    cur.execute("SELECT COUNT(*) as total FROM search_history")
-    total_searches = cur.fetchone()["total"]
-    cur.close(); conn.close()
-    return {
-        "ok": True,
-        "indexed": {
-            "documents": total_docs,
-            "transactions": total_txs,
-            "coa_accounts": total_coa,
-            "total": total_docs + total_txs + total_coa
-        },
-        "total_searches": total_searches
-    }
+
+    try:
+        ensure_tables(cur)
+        conn.commit()
+
+        try:
+            cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
+            total_docs = cur.fetchone()["total"]
+        except Exception:
+            total_docs = 0
+
+        try:
+            cur.execute("SELECT COUNT(*) as total FROM bank_transactions")
+            total_txs = cur.fetchone()["total"]
+        except Exception:
+            total_txs = 0
+
+        try:
+            cur.execute("SELECT COUNT(*) as total FROM coa")
+            total_coa = cur.fetchone()["total"]
+        except Exception:
+            total_coa = 0
+
+        cur.execute("SELECT COUNT(*) as total FROM search_history")
+        total_searches = cur.fetchone()["total"]
+
+        return {
+            "ok": True,
+            "indexed": {
+                "documents": total_docs,
+                "transactions": total_txs,
+                "coa_accounts": total_coa,
+                "total": total_docs + total_txs + total_coa,
+            },
+            "total_searches": total_searches,
+        }
+
+    finally:
+        cur.close()
+        conn.close()

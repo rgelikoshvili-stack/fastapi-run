@@ -3,12 +3,15 @@ app/api/routes_payroll.py
 Bridge Hub — Payroll Routes
 PAYG + PIT + RS.ge XML
 """
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import io
+import psycopg2.extras
+
+from app.api.db import get_db
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.payroll_service import (
     calculate_employee_payroll,
@@ -106,6 +109,75 @@ def payroll_rsge_xml(req: PayrollRequest, request: Request):
     )
 
 
+@router.get("/history")
+def payroll_history(
+    request: Request,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Payroll-generated drafts history.
+    """
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        cur.execute(
+            """
+            SELECT
+                id,
+                date,
+                description,
+                amount,
+                status,
+                created_at
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND (
+                    description ILIKE '%salary%'
+                 OR description ILIKE '%payroll%'
+                 OR description ILIKE '%ხელფას%'
+                 OR description ILIKE '%შრომის ანაზღაურ%'
+              )
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (tenant_id, limit, offset),
+        )
+        items = [dict(r) for r in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND (
+                    description ILIKE '%salary%'
+                 OR description ILIKE '%payroll%'
+                 OR description ILIKE '%ხელფას%'
+                 OR description ILIKE '%შრომის ანაზღაურ%'
+              )
+            """,
+            (tenant_id,),
+        )
+        total = cur.fetchone()["total"]
+
+        return {
+            "ok": True,
+            "tenant_id": tenant_id,
+            "count": len(items),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "items": items,
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
 @router.get("/status")
 def payroll_status():
     return {
@@ -116,6 +188,7 @@ def payroll_status():
             "calculate/single — ერთი თანამშრომელი",
             "generate-drafts — drafts ავტომატურად",
             "rs-ge-xml — RS.ge XML ფორმატი",
+            "history — payroll draft history",
         ],
         "rates": {
             "payg": "2%",

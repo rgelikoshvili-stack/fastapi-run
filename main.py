@@ -140,7 +140,7 @@ from app.api import routes_payroll
 from app.api import routes_email_invoice
 from app.api import routes_bank_sync
 from app.api import routes_ai_chat
-
+from app.api import routes_audit
 
 
 # --- INCLUDE ROUTERS ---
@@ -156,6 +156,7 @@ app.include_router(routes_learning.router)
 app.include_router(routes_transaction_ai.router)
 app.include_router(routes_export_journal.router)
 app.include_router(routes_audit_log.router)
+app.include_router(routes_audit.router)
 app.include_router(patterns_router)
 app.include_router(routes_invoice.router)
 app.include_router(expense_articles_router)

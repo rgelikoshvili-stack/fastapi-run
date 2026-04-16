@@ -8,16 +8,27 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 @router.post("/check")
 def audit_check(tx: CanonicalBankTransaction):
     issues = run_all_checks(tx)
-    return {"ok": True, "count": len(issues), "issues": [i.model_dump() for i in issues]}
+    return {
+        "ok": True,
+        "count": len(issues),
+        "issues": [i.model_dump() for i in issues],
+    }
 
 
 @router.get("/issues")
 def list_issues(severity: str = ""):
-    return {"ok": True, "count": len(get_issues(severity)), "issues": get_issues(severity)}
+    return {
+        "ok": True,
+        "count": len(get_issues(severity)),
+        "issues": get_issues(severity),
+    }
 
 
 @router.get("/log")
-def get_audit_log(limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0)):
+def get_audit_log(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
     items = ISSUES[offset:offset + limit]
     return {
         "ok": True,
@@ -38,5 +49,13 @@ def resolve_issue(issue_id: str, resolved_by: str = "user"):
         if issue["id"] == issue_id:
             issue["status"] = "resolved"
             issue["resolved_by"] = resolved_by
-            return {"ok": True, "issue_id": issue_id, "status": "resolved"}
-    return {"ok": False, "error": "not found"}
+            return {
+                "ok": True,
+                "issue_id": issue_id,
+                "status": "resolved",
+            }
+
+    return {
+        "ok": False,
+        "error": "not found",
+    }

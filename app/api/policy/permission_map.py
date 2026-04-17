@@ -13,4 +13,16 @@
     # Payroll
     ("GET", "/payroll", "payroll:read"),
     ("POST", "/payroll", "payroll:write"),
+
+    # OCR
+    ("GET", "/ocr", "ocr:read"),
+    ("POST", "/ocr", "ocr:write"),
+
+    # Notifications
+    ("GET", "/notifications", "notifications:read"),
+    ("POST", "/notifications", "notifications:write"),
+
+    # Search
+    ("GET", "/search", "search:read"),
+    ("POST", "/search", "search:read"),
 ]

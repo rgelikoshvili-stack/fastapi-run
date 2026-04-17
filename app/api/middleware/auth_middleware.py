@@ -17,6 +17,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     if any(path == p or path.startswith(p + "/") for p in PUBLIC_PATH_PREFIXES):
+        request.state.authenticated = False
         return await call_next(request)
 
     authorization = request.headers.get("Authorization", "")
@@ -25,16 +26,18 @@ async def auth_middleware(request: Request, call_next):
     if authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
 
+    request.state.authenticated = False
+    request.state.user_id = None
+    request.state.role = None
+    request.state.tenant_id = None
+
     if token:
         payload = verify_token(token, expected_type="access")
         if payload:
+            request.state.authenticated = True
             request.state.user_id = payload.get("sub")
             request.state.role = payload.get("role")
             request.state.tenant_id = payload.get("tenant_id")
-            request.state.authenticated = True
-        else:
-            request.state.authenticated = False
-    else:
-        request.state.authenticated = False
 
-    return await call_next(request)
+    response = await call_next(request)
+    return response

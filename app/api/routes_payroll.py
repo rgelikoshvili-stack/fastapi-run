@@ -1,8 +1,3 @@
-"""
-app/api/routes_payroll.py
-Bridge Hub — Payroll Routes
-PAYG + PIT + RS.ge XML
-"""
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,6 +8,8 @@ import psycopg2.extras
 
 from app.api.db import get_db
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
+
 from app.api.services.payroll_service import (
     calculate_employee_payroll,
     calculate_payroll,
@@ -24,7 +21,6 @@ router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 
 # ========== Models ==========
-
 class EmployeeInput(BaseModel):
     name: str
     gross_salary: float
@@ -43,17 +39,21 @@ class SingleEmployeeRequest(BaseModel):
     period: Optional[str] = None
 
 
-# ========== Endpoints ==========
-
+# ===============================
+# WRITE ENDPOINTS
+# ===============================
 @router.post("/calculate")
 def payroll_calculate(req: PayrollRequest, request: Request):
+    require_permission(request, "payroll:write")
+
     employees = [e.dict() for e in req.employees]
-    result = calculate_payroll(employees, req.period)
-    return result
+    return calculate_payroll(employees, req.period)
 
 
 @router.post("/calculate/single")
-def payroll_calculate_single(req: SingleEmployeeRequest):
+def payroll_calculate_single(req: SingleEmployeeRequest, request: Request):
+    require_permission(request, "payroll:write")
+
     result = calculate_employee_payroll(
         gross_salary=req.gross_salary,
         employee_name=req.name,
@@ -65,8 +65,11 @@ def payroll_calculate_single(req: SingleEmployeeRequest):
 
 @router.post("/generate-drafts")
 def payroll_generate_drafts(req: PayrollRequest, request: Request):
+    require_permission(request, "payroll:write")
+
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     employees = [e.dict() for e in req.employees]
+
     payroll = calculate_payroll(employees, req.period)
 
     if not payroll.get("ok"):
@@ -84,8 +87,11 @@ def payroll_generate_drafts(req: PayrollRequest, request: Request):
 
 @router.post("/rs-ge-xml")
 def payroll_rsge_xml(req: PayrollRequest, request: Request):
+    require_permission(request, "payroll:write")
+
     employees = [e.dict() for e in req.employees]
     payroll = calculate_payroll(employees, req.period)
+
     xml = generate_rsge_xml(payroll)
     period = req.period or datetime.now().strftime("%Y-%m")
     filename = f"rsge_payg_{period}.xml"
@@ -97,26 +103,26 @@ def payroll_rsge_xml(req: PayrollRequest, request: Request):
     )
 
 
+# ===============================
+# READ ENDPOINTS
+# ===============================
 @router.get("/history")
 def payroll_history(
     request: Request,
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    require_permission(request, "payroll:read")
+
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         cur.execute(
             """
-            SELECT
-                id,
-                date,
-                description,
-                amount,
-                status,
-                created_at
+            SELECT id, date, description, amount, status, created_at
             FROM journal_drafts
             WHERE tenant_id = %s
               AND (
@@ -160,8 +166,8 @@ def payroll_history(
                 "%შრომის ანაზღაურ%",
             ),
         )
-        total_row = cur.fetchone()
-        total = total_row["total"] if total_row else 0
+
+        total = cur.fetchone()["total"]
 
         return {
             "ok": True,
@@ -179,20 +185,17 @@ def payroll_history(
 
 
 @router.get("/status")
-def payroll_status():
+def payroll_status(request: Request):
+    require_permission(request, "payroll:read")
+
     return {
         "ok": True,
         "status": "active",
         "features": [
-            "calculate — PAYG 2% + PIT 20% გამოთვლა",
-            "calculate/single — ერთი თანამშრომელი",
-            "generate-drafts — drafts ავტომატურად",
-            "rs-ge-xml — RS.ge XML ფორმატი",
-            "history — payroll draft history",
+            "calculate",
+            "calculate/single",
+            "generate-drafts",
+            "rs-ge-xml",
+            "history",
         ],
-        "rates": {
-            "payg": "2%",
-            "pit": "20%",
-            "currency": "GEL",
-        }
     }

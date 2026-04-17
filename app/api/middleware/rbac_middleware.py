@@ -15,14 +15,13 @@ async def rbac_middleware(request: Request, call_next):
     path = request.url.path
     method = request.method
 
-    # თუ user არ არის ავტორიზებული, გავატაროთ request
-    # თვითონ endpoint-ზე require_permission გადაწყვეტს 401/403-ს
+    # თუ user არ არის ავტორიზებული, endpoint-level auth გადაწყვეტს 401-ს
     if not getattr(request.state, "authenticated", False):
         return await call_next(request)
 
     required_permission = match_permission(method, path)
 
-    # თუ ამ route-ს mapping არ აქვს, უბრალოდ გავატაროთ
+    # თუ mapping არ აქვს, გავატაროთ
     if not required_permission:
         return await call_next(request)
 

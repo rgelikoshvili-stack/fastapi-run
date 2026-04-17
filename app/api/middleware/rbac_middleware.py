@@ -23,11 +23,24 @@ async def rbac_middleware(request: Request, call_next):
         "/static",
     )
 
+    # public endpoints
     if path == "/" or path.startswith(public_prefixes):
         return await call_next(request)
 
+    # ❗ აქ იყო შენი მთავარი bug
     if not getattr(request.state, "authenticated", False):
-        return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "message": "Unauthorized",
+                "data": None,
+                "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": "ავთენტიკაცია აუცილებელია",
+                },
+            },
+        )
 
     required_permission = match_permission(method, path)
 
@@ -35,6 +48,7 @@ async def rbac_middleware(request: Request, call_next):
         return await call_next(request)
 
     role = getattr(request.state, "role", None)
+
     if not role:
         return JSONResponse(
             status_code=403,

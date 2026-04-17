@@ -142,6 +142,7 @@ from app.api import routes_bank_sync
 from app.api import routes_ai_chat
 from app.api import routes_audit
 from app.api.middleware.auth_middleware import auth_middleware
+from app.api.middleware.audit_log_middleware import audit_log_middleware
 
 
 # --- INCLUDE ROUTERS ---
@@ -211,9 +212,10 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 # --- MIDDLEWARE ---
+app.middleware("http")(auth_middleware)
 app.middleware("http")(tenant_middleware)
 app.middleware("http")(rbac_middleware)
-app.middleware("http")(auth_middleware)
+app.middleware("http")(audit_log_middleware)
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):

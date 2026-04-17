@@ -212,8 +212,8 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 # --- MIDDLEWARE ---
-app.middleware("http")(auth_middleware)
 app.middleware("http")(tenant_middleware)
+app.middleware("http")(auth_middleware)
 app.middleware("http")(rbac_middleware)
 app.middleware("http")(audit_log_middleware)
 

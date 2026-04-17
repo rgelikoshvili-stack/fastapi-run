@@ -15,13 +15,22 @@ async def rbac_middleware(request: Request, call_next):
     path = request.url.path
     method = request.method
 
-    # თუ user არ არის ავტორიზებული, endpoint-level auth გადაწყვეტს 401-ს
+    public_prefixes = (
+        "/auth/",
+        "/docs",
+        "/openapi.json",
+        "/health",
+        "/static",
+    )
+
+    if path == "/" or path.startswith(public_prefixes):
+        return await call_next(request)
+
     if not getattr(request.state, "authenticated", False):
         return await call_next(request)
 
     required_permission = match_permission(method, path)
 
-    # თუ mapping არ აქვს, გავატაროთ
     if not required_permission:
         return await call_next(request)
 

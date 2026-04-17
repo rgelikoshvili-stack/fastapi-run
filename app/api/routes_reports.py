@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 import psycopg2
 import psycopg2.extras
 from app.api.db import get_db
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -10,7 +11,9 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 # MONTHLY REPORT
 # ===============================
 @router.get("/monthly")
-def monthly_report():
+def monthly_report(request: Request):
+    require_permission(request, "reports:read")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -66,7 +69,9 @@ def monthly_report():
 # ANNUAL REPORT
 # ===============================
 @router.get("/annual")
-def annual_report():
+def annual_report(request: Request):
+    require_permission(request, "reports:read")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -89,7 +94,9 @@ def annual_report():
 # AUDIT TRAIL
 # ===============================
 @router.get("/audit-trail")
-def audit_trail():
+def audit_trail(request: Request):
+    require_permission(request, "reports:read")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -112,9 +119,12 @@ def audit_trail():
 # ===============================
 @router.get("/pnl")
 def pnl_report(
+    request: Request,
     year: int | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
 ):
+    require_permission(request, "reports:read")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -166,9 +176,12 @@ def pnl_report(
 # ===============================
 @router.get("/cashflow")
 def cashflow_report(
+    request: Request,
     year: int | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
 ):
+    require_permission(request, "reports:read")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 

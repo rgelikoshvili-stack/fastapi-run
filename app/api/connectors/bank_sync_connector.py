@@ -261,6 +261,26 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
     try:
         for tx in transactions:
             try:
+                # classify transaction
+                try:
+                    from bridge_hub_knowledge import classify_transaction
+                    desc = tx.get("description", "")
+                    cls = classify_transaction(desc, tenant_id)
+                    acc_code = cls.get("account", "7910")
+                    conf = float(cls.get("confidence", 0.5))
+                    tx_type = tx.get("type", "debit")
+                    if tx_type == "debit":
+                        dr_acc = acc_code
+                        cr_acc = "1120"
+                    else:
+                        dr_acc = "1120"
+                        cr_acc = acc_code
+                except Exception:
+                    acc_code = "7910"
+                    conf = 0.5
+                    dr_acc = "1210"
+                    cr_acc = "1120"
+
                 cur.execute("""
                     INSERT INTO journal_drafts (
                         date, description, partner, amount,
@@ -268,8 +288,8 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
                         reason, confidence, status, source_type, tenant_id, created_at
                     ) VALUES (
                         %s, %s, %s, %s,
-                        '1210', '1210', '1210',
-                        'bank_sync', 0.5, 'pending_approval',
+                        %s, %s, %s,
+                        'bank_sync', %s, 'pending_approval',
                         %s, %s, NOW()
                     )
                 """, (
@@ -277,6 +297,8 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
                     tx.get("description", ""),
                     tx.get("bank", ""),
                     abs(float(tx.get("amount", 0))),
+                    dr_acc, cr_acc, acc_code,
+                    conf,
                     f"bank_sync_{tx.get('bank', '').lower()}",
                     tenant_id,
                 ))

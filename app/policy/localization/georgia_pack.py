@@ -51,7 +51,7 @@ ACCOUNT_MAP = {
     # საგადასახადო
     "vat_payable":         "3310",
     "vat_receivable":      "2210",
-    "income_tax":          "3160",
+    "income_tax":          "3320",
     "payg":                "3120",
 }
 

@@ -45,7 +45,7 @@ def calculate_employee_payroll(
         "accounts": {
             "salary_expense": get_account("salary"),
             "payg_payable": "3120",
-            "pit_payable": "3160",
+            "pit_payable": "3320",
             "bank": get_account("bank"),
         }
     }
@@ -174,9 +174,9 @@ def generate_payroll_drafts(
                 f"საშემოსავლო 20% — {name} ({period})",
                 name,
                 emp["pit_20pct"],
-                "3160",
+                "3320",
                 get_account("bank"),
-                "3160",
+                "3320",
                 "payroll_pit",
                 0.95,
                 "pending_approval",

@@ -22,6 +22,7 @@ class AuditEventCreate(BaseModel):
 
 @router.post("/log")
 def create_audit_event(data: AuditEventCreate, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     ip = request.client.host if request.client else None
 
     log_event(
@@ -33,6 +34,7 @@ def create_audit_event(data: AuditEventCreate, request: Request):
         details=data.details,
         status=data.status,
         ip_address=ip,
+        tenant_id=tenant_id,
     )
 
     return ok_response(
@@ -47,17 +49,19 @@ def create_audit_event(data: AuditEventCreate, request: Request):
 
 @router.get("/list")
 def list_audit_log(
+    request: Request,
     action: Optional[str] = None,
     resource: Optional[str] = None,
     actor: Optional[str] = None,
     limit: int = 50,
 ):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        query = "SELECT * FROM audit_log WHERE 1=1"
-        params = []
+        query = "SELECT * FROM audit_log WHERE tenant_id = %s"
+        params = [tenant_id]
 
         if action:
             query += " AND action = %s"
@@ -88,44 +92,45 @@ def list_audit_log(
 
 
 @router.get("/stats")
-def audit_stats():
+def audit_stats(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         cur.execute("""
             SELECT action, COUNT(*) as cnt
-            FROM audit_log
+            FROM audit_log WHERE tenant_id = %s
             GROUP BY action
             ORDER BY cnt DESC
-        """)
+        """, (tenant_id,))
         by_action = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
             SELECT resource, COUNT(*) as cnt
-            FROM audit_log
+            FROM audit_log WHERE tenant_id = %s
             GROUP BY resource
             ORDER BY cnt DESC
-        """)
+        """, (tenant_id,))
         by_resource = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
             SELECT actor, role, COUNT(*) as cnt
-            FROM audit_log
+            FROM audit_log WHERE tenant_id = %s
             GROUP BY actor, role
             ORDER BY cnt DESC
             LIMIT 10
-        """)
+        """, (tenant_id,))
         by_actor = [dict(r) for r in cur.fetchall()]
 
-        cur.execute("SELECT COUNT(*) as total FROM audit_log")
+        cur.execute("SELECT COUNT(*) as total FROM audit_log WHERE tenant_id = %s", (tenant_id,))
         total = cur.fetchone()["total"]
 
         cur.execute("""
             SELECT COUNT(*) as cnt
             FROM audit_log
-            WHERE status = 'error'
-        """)
+            WHERE status = 'error' AND tenant_id = %s
+        """, (tenant_id,))
         errors = cur.fetchone()["cnt"]
 
     except Exception as e:
@@ -148,7 +153,8 @@ def audit_stats():
 
 
 @router.get("/timeline")
-def audit_timeline():
+def audit_timeline(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -158,9 +164,10 @@ def audit_timeline():
                    COUNT(*) as cnt
             FROM audit_log
             WHERE COALESCE(event_time, created_at) >= NOW() - INTERVAL '24 hours'
+              AND tenant_id = %s
             GROUP BY hour
             ORDER BY hour
-        """)
+        """, (tenant_id,))
         timeline = [dict(r) for r in cur.fetchall()]
 
     except Exception as e:
@@ -174,15 +181,17 @@ def audit_timeline():
 
 
 @router.delete("/clear")
-def clear_old_events(days: int = 90):
+def clear_old_events(request: Request, days: int = 90):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor()
 
     try:
         cur.execute("""
             DELETE FROM audit_log
-            WHERE COALESCE(event_time, created_at) < NOW() - (%s || ' days')::interval
-        """, (days,))
+            WHERE tenant_id = %s
+              AND COALESCE(event_time, created_at) < NOW() - (%s || ' days')::interval
+        """, (tenant_id, days))
         deleted = cur.rowcount
         conn.commit()
 

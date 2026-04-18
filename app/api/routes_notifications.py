@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -36,14 +36,14 @@ class NotifyReconcileRequest(BaseModel):
 
 
 @router.get("/list")
-def list_notifications(limit: int = 20):
+def list_notifications(request: Request, limit: int = 20):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
         items = []
 
-        # 1. pending approvals როგორც notification source
         try:
             cur.execute("""
                 SELECT
@@ -53,16 +53,15 @@ def list_notifications(limit: int = 20):
                     'draft_pending' AS notification_type,
                     COALESCE(description, 'Draft pending approval') AS message
                 FROM journal_drafts
-                WHERE status = 'pending_approval'
+                WHERE status = 'pending_approval' AND tenant_id = %s
                 ORDER BY created_at DESC
                 LIMIT %s
-            """, (limit,))
+            """, (tenant_id, limit))
             for row in cur.fetchall():
                 items.append(dict(row))
         except Exception:
             pass
 
-        # 2. audit_log error events, თუ არსებობს
         try:
             cur.execute("""
                 SELECT
@@ -72,16 +71,15 @@ def list_notifications(limit: int = 20):
                     COALESCE(details, action, 'Audit event') AS message,
                     status
                 FROM audit_log
-                WHERE status = 'error'
+                WHERE status = 'error' AND tenant_id = %s
                 ORDER BY COALESCE(event_time, created_at) DESC
                 LIMIT %s
-            """, (limit,))
+            """, (tenant_id, limit))
             for row in cur.fetchall():
                 items.append(dict(row))
         except Exception:
             pass
 
-        # newest first
         items.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
         items = items[:limit]
 
@@ -112,14 +110,18 @@ def test_notification(req: TestEmailRequest):
 
 
 @router.post("/draft-approved")
-def notify_approved(req: NotifyApprovalRequest):
+def notify_approved(req: NotifyApprovalRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     to_email = req.to or req.email
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE id = %s", (req.draft_id,))
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE id = %s AND tenant_id = %s",
+            (req.draft_id, tenant_id),
+        )
         draft = cur.fetchone()
     finally:
         cur.close()
@@ -133,14 +135,18 @@ def notify_approved(req: NotifyApprovalRequest):
 
 
 @router.post("/review-required")
-def notify_review(req: TestEmailRequest):
+def notify_review(req: TestEmailRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     to_email = req.to or req.email
 
     conn = get_db()
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT COUNT(*) FROM journal_drafts WHERE status = 'pending_approval'")
+        cur.execute(
+            "SELECT COUNT(*) FROM journal_drafts WHERE status = 'pending_approval' AND tenant_id = %s",
+            (tenant_id,),
+        )
         count = cur.fetchone()[0]
     finally:
         cur.close()

@@ -72,6 +72,7 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
 
 
 @router.post("/correct/{draft_id}")
+@limiter.limit("30/minute")
 def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))

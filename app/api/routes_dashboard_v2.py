@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app.api.db import get_db
 import psycopg2.extras, json
@@ -6,35 +6,54 @@ import psycopg2.extras, json
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 @router.get("/dashboard/v2", response_class=HTMLResponse)
-def dashboard_v2():
+def dashboard_v2(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT status, COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM journal_drafts GROUP BY status")
+        cur.execute(
+            "SELECT status, COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE tenant_id = %s GROUP BY status",
+            (tenant_id,),
+        )
         stats = {r["status"]: {"count": r["cnt"], "total": float(r["total"])} for r in cur.fetchall()}
 
         cur.execute("""
             SELECT reason, COUNT(*) as cnt, COALESCE(SUM(amount),0) as total
-            FROM journal_drafts GROUP BY reason ORDER BY total DESC LIMIT 8
-        """)
+            FROM journal_drafts WHERE tenant_id = %s GROUP BY reason ORDER BY total DESC LIMIT 8
+        """, (tenant_id,))
         by_reason = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
             SELECT DATE_TRUNC('day', created_at) as day, COUNT(*) as cnt
-            FROM journal_drafts WHERE created_at >= NOW() - INTERVAL '30 days'
+            FROM journal_drafts WHERE created_at >= NOW() - INTERVAL '30 days' AND tenant_id = %s
             GROUP BY day ORDER BY day
-        """)
+        """, (tenant_id,))
         timeline = [{"day": str(r["day"])[:10], "cnt": r["cnt"]} for r in cur.fetchall()]
 
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '6%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '6%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         total_income = float(cur.fetchone()["coalesce"])
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '7%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '7%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         total_expense = float(cur.fetchone()["coalesce"])
-        cur.execute("SELECT COUNT(*) FROM journal_drafts")
+        cur.execute(
+            "SELECT COUNT(*) FROM journal_drafts WHERE tenant_id = %s",
+            (tenant_id,),
+        )
         total_tx = cur.fetchone()["count"]
-        cur.execute("SELECT COUNT(*) FROM journal_drafts WHERE review_required=TRUE AND status='drafted'")
+        cur.execute(
+            "SELECT COUNT(*) FROM journal_drafts WHERE review_required=TRUE AND status='drafted' AND tenant_id = %s",
+            (tenant_id,),
+        )
         needs_review = cur.fetchone()["count"]
-        cur.execute("SELECT * FROM journal_drafts ORDER BY created_at DESC LIMIT 10")
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE tenant_id = %s ORDER BY created_at DESC LIMIT 10",
+            (tenant_id,),
+        )
         recent = [dict(r) for r in cur.fetchall()]
     finally:
         cur.close(); conn.close()

@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app.api.db import get_db
 import psycopg2.extras
@@ -6,15 +6,25 @@ import psycopg2.extras
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
+def dashboard(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT status, COUNT(*) as cnt FROM journal_drafts GROUP BY status")
+        cur.execute(
+            "SELECT status, COUNT(*) as cnt FROM journal_drafts WHERE tenant_id = %s GROUP BY status",
+            (tenant_id,),
+        )
         stats = {r["status"]: r["cnt"] for r in cur.fetchall()}
-        cur.execute("SELECT * FROM journal_drafts ORDER BY created_at DESC LIMIT 20")
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE tenant_id = %s ORDER BY created_at DESC LIMIT 20",
+            (tenant_id,),
+        )
         drafts = [dict(r) for r in cur.fetchall()]
-        cur.execute("SELECT * FROM audit_log ORDER BY COALESCE(event_time, created_at) DESC LIMIT 10")
+        cur.execute(
+            "SELECT * FROM audit_log WHERE tenant_id = %s ORDER BY COALESCE(event_time, created_at) DESC LIMIT 10",
+            (tenant_id,),
+        )
         events = [dict(r) for r in cur.fetchall()]
     finally:
         cur.close(); conn.close()

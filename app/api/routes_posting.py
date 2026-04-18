@@ -184,6 +184,7 @@ def post_draft_to_balance(
 
 
 @router.post("/onec/{draft_id}")
+@limiter.limit("20/minute")
 def post_draft_to_onec(
     request: Request,
     draft_id: int = Path(...),
@@ -195,6 +196,7 @@ def post_draft_to_onec(
 
 
 @router.post("/oris/{draft_id}")
+@limiter.limit("20/minute")
 def post_draft_to_oris(
     request: Request,
     draft_id: int = Path(...),
@@ -206,6 +208,7 @@ def post_draft_to_oris(
 
 
 @router.post("/apply/{draft_id}")
+@limiter.limit("20/minute")
 def apply_posting(
     request: Request,
     draft_id: int = Path(...),

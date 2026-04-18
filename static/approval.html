@@ -73,6 +73,27 @@ input,select,textarea{font-family:inherit}
 .notif-btn{width:34px;height:34px;border:none;background:transparent;cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--gray-600);position:relative;}
 .notif-btn:hover{background:var(--gray-50);}
 .notif-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--red);border-radius:50%;border:2px solid #fff;}
+.notif-panel{position:fixed;right:0;top:0;bottom:0;width:340px;background:var(--white);border-left:1px solid var(--gray-200);display:flex;flex-direction:column;transform:translateX(100%);transition:.25s;z-index:150;box-shadow:var(--shadow-md);}
+.notif-panel.open{transform:translateX(0);}
+.notif-ph{padding:14px 16px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between;}
+.notif-ph-title{font-size:14px;font-weight:700;}
+.notif-ph-sub{font-size:11px;color:var(--gray-400);margin-top:1px;}
+.notif-list{flex:1;overflow-y:auto;padding:8px;}
+.notif-item{display:flex;gap:10px;padding:11px 12px;border-radius:var(--r);margin-bottom:4px;border:1px solid transparent;cursor:default;transition:.1s;}
+.notif-item:hover{background:var(--gray-50);}
+.notif-item.critical{background:rgba(220,38,38,.04);border-color:rgba(220,38,38,.12);}
+.notif-item.warning{background:rgba(180,83,9,.04);border-color:rgba(180,83,9,.10);}
+.notif-item.info{background:var(--gray-50);}
+.notif-icon{font-size:18px;flex-shrink:0;margin-top:1px;}
+.notif-title{font-size:12px;font-weight:600;color:var(--gray-900);}
+.notif-msg{font-size:11px;color:var(--gray-600);margin-top:2px;line-height:1.5;}
+.notif-meta{font-size:10px;color:var(--gray-400);margin-top:4px;}
+.notif-action{font-size:10px;font-weight:600;color:var(--blue);cursor:pointer;text-decoration:underline;}
+.notif-summary{display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid var(--gray-100);background:var(--gray-50);}
+.ns-pill{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;}
+.ns-critical{background:var(--red-s);color:var(--red);}
+.ns-warning{background:var(--amber-s);color:var(--amber);}
+.ns-info{background:var(--gray-100);color:var(--gray-600);}
 .content{flex:1;overflow-y:auto;padding:20px;}
 .page{display:none;}
 .page.active{display:block;}
@@ -88,6 +109,7 @@ input,select,textarea{font-family:inherit}
 .kpi-green::after{background:var(--green);}
 .kpi-amber::after{background:var(--amber);}
 .kpi-purple::after{background:var(--purple);}
+.kpi-red::after{background:var(--red);}
 .kpi-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;}
 .kpi-label{font-size:16px;font-weight:600;color:var(--gray-600);}
 .kpi-icon{font-size:32px;}
@@ -106,6 +128,8 @@ input,select,textarea{font-family:inherit}
 .badge-green{background:var(--green-s);color:var(--green);}
 .badge-amber{background:var(--amber-s);color:var(--amber);}
 .badge-gray{background:var(--gray-100);color:var(--gray-600);}
+.badge-red{background:var(--red-s);color:var(--red);}
+.badge-purple{background:var(--purple-s);color:var(--purple);}
 .recon-widget{padding:16px;}
 .recon-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--r);margin-bottom:6px;border:1px solid var(--gray-200);background:var(--gray-50);}
 .recon-row:last-child{margin-bottom:0;}
@@ -151,6 +175,7 @@ input,select,textarea{font-family:inherit}
 .chip-rejected{background:var(--red-s);color:#7f1d1d;}
 .chip-auto{background:var(--purple-s);color:#4c1d95;}
 .chip-posted{background:var(--cyan-s);color:#075985;}
+.chip-review{background:var(--gray-100);color:var(--gray-600);}
 .act-wrap{display:flex;gap:4px;}
 .act{padding:4px 8px;border-radius:6px;border:none;cursor:pointer;font-size:10px;font-weight:700;transition:.1s;}
 .act-approve{background:var(--green-s);color:#065f46;}
@@ -258,7 +283,17 @@ input,select,textarea{font-family:inherit}
   <div class="sb-item" onclick="goPage('bank',this)"><span class="sb-icon-sm">🏦</span> Bank Sync</div>
   <div class="sb-item" onclick="goPage('payroll',this)"><span class="sb-icon-sm">💰</span> Payroll</div>
   <div class="sb-item" onclick="goPage('collab',this)"><span class="sb-icon-sm">👥</span> Collaboration</div>
+  <div class="sb-section">ბიზნესი</div>
+  <div class="sb-item" onclick="goPage('crm',this)"><span class="sb-icon-sm">👤</span> CRM</div>
+  <div class="sb-item" onclick="goPage('budget',this)"><span class="sb-icon-sm">🎯</span> Budget</div>
+  <div class="sb-item" onclick="goPage('contracts',this)"><span class="sb-icon-sm">📝</span> Contracts</div>
+  <div class="sb-item" onclick="goPage('expenses',this)"><span class="sb-icon-sm">🧾</span> Expenses</div>
+  <div class="sb-item" onclick="goPage('invoices',this)"><span class="sb-icon-sm">📄</span> Invoices</div>
+  <div class="sb-item" onclick="goPage('reports',this)"><span class="sb-icon-sm">📑</span> Reports</div>
   <div class="sb-section">სისტემა</div>
+  <div class="sb-item" onclick="goPage('auditlog',this)"><span class="sb-icon-sm">🔍</span> Audit Log</div>
+  <div class="sb-item" onclick="goPage('currency',this)"><span class="sb-icon-sm">💱</span> Currency</div>
+  <div class="sb-item" onclick="goPage('insights',this)"><span class="sb-icon-sm">📈</span> Insights</div>
   <div class="sb-item" onclick="goPage('recommend',this)"><span class="sb-icon-sm">💡</span> AI Recommend</div>
   <div class="sb-item" onclick="goPage('learning',this)"><span class="sb-icon-sm">🧠</span> Learning</div>
   <div class="sb-item" onclick="goPage('health',this)"><span class="sb-icon-sm">💊</span> Health Check</div>
@@ -287,6 +322,7 @@ input,select,textarea{font-family:inherit}
       <option value="default">default</option>
     </select>
     <button class="btn btn-ghost" onclick="loadPage()">⟳</button>
+    <button class="notif-btn" id="notif-bell" onclick="toggleNotif()">🔔<div class="notif-dot" id="notif-dot" style="display:none"></div></button>
     <button class="notif-btn" onclick="toggleAI()">💬<div class="notif-dot"></div></button>
     <button class="btn btn-blue btn-sm" onclick="toggleAI()">AI ჩათი</button>
     <button class="btn btn-ghost btn-sm" onclick="logout()" title="გამოსვლა" style="opacity:.7">⎋</button>
@@ -417,7 +453,7 @@ input,select,textarea{font-family:inherit}
             <div class="card" style="cursor:pointer;" onclick="doExport('excel')"><div class="card-body" style="text-align:center;padding:24px 16px;"><div style="font-size:36px;margin-bottom:10px;">📊</div><div style="font-size:14px;font-weight:700;">Excel</div><div style="font-size:11px;color:var(--gray-400);margin-top:4px;">.xlsx ფაილი</div><div style="margin-top:12px;"><span class="card-badge badge-green">Ready</span></div></div></div>
             <div class="card" style="cursor:pointer;" onclick="doExport('csv')"><div class="card-body" style="text-align:center;padding:24px 16px;"><div style="font-size:36px;margin-bottom:10px;">📋</div><div style="font-size:14px;font-weight:700;">CSV</div><div style="font-size:11px;color:var(--gray-400);margin-top:4px;">Universal format</div><div style="margin-top:12px;"><span class="card-badge badge-green">Ready</span></div></div></div>
             <div class="card" style="cursor:pointer;" onclick="doExport('pdf')"><div class="card-body" style="text-align:center;padding:24px 16px;"><div style="font-size:36px;margin-bottom:10px;">📄</div><div style="font-size:14px;font-weight:700;">PDF</div><div style="font-size:11px;color:var(--gray-400);margin-top:4px;">Print-ready report</div><div style="margin-top:12px;"><span class="card-badge badge-green">Ready</span></div></div></div>
-            <div class="card" style="cursor:pointer;" onclick="doExport('1c-xml')"><div class="card-body" style="text-align:center;padding:24px 16px;"><div style="font-size:36px;margin-bottom:10px;">📦</div><div style="font-size:14px;font-weight:700;">1C XML</div><div style="font-size:11px;color:var(--gray-400);margin-top:4px;">1C:Enterprise</div><div style="margin-top:12px;"><span class="card-badge badge-amber">Draft</span></div></div></div>
+            <div class="card" style="cursor:pointer;" onclick="doExport('1c-xml')"><div class="card-body" style="text-align:center;padding:24px 16px;"><div style="font-size:36px;margin-bottom:10px;">📦</div><div style="font-size:14px;font-weight:700;">1C XML</div><div style="font-size:11px;color:var(--gray-400);margin-top:4px;">1C:Enterprise</div><div style="margin-top:12px;"><span class="card-badge badge-green">Ready</span></div></div></div>
           </div>
         </div>
       </div>
@@ -433,16 +469,22 @@ input,select,textarea{font-family:inherit}
 
     <!-- BANK -->
     <div id="pg-bank" class="page">
+      <div class="kpi-row" id="bank-kpi-row">
+        <div class="kpi kpi-blue"><div class="kpi-head"><div class="kpi-label">TBC Status</div><span class="kpi-icon">🏦</span></div><div class="kpi-val" id="bank-tbc-status">—</div><div class="kpi-sub">connection</div></div>
+        <div class="kpi kpi-green"><div class="kpi-head"><div class="kpi-label">BOG Status</div><span class="kpi-icon">🏦</span></div><div class="kpi-val" id="bank-bog-status">—</div><div class="kpi-sub">connection</div></div>
+        <div class="kpi kpi-amber"><div class="kpi-head"><div class="kpi-label">Last Sync</div><span class="kpi-icon">⏱</span></div><div class="kpi-val" id="bank-last-sync">—</div><div class="kpi-sub">timestamp</div></div>
+        <div class="kpi kpi-purple"><div class="kpi-head"><div class="kpi-label">Queued</div><span class="kpi-icon">📥</span></div><div class="kpi-val" id="bank-queued">—</div><div class="kpi-sub">for review</div></div>
+      </div>
       <div class="row-2">
         <div class="card">
-          <div class="card-header"><div class="card-title">🏦 Bank Direct Sync</div><button class="btn btn-blue btn-sm" onclick="syncAll()">⟳ Sync All</button></div>
-          <div class="recon-widget">
-            <div class="recon-row"><div class="recon-left"><div class="recon-bank-icon">🏦</div><div><div class="recon-name">TBC Bank</div><div class="recon-sub">DEMO — real credentials-ით LIVE</div></div></div><div class="recon-right"><button class="btn btn-ghost btn-sm" onclick="syncBank('tbc')">⟳ TBC</button><span class="status-pill sp-demo">DEMO</span></div></div>
-            <div class="recon-row"><div class="recon-left"><div class="recon-bank-icon">🏦</div><div><div class="recon-name">Bank of Georgia</div><div class="recon-sub">DEMO — real credentials-ით LIVE</div></div></div><div class="recon-right"><button class="btn btn-ghost btn-sm" onclick="syncBank('bog')">⟳ BOG</button><span class="status-pill sp-demo">DEMO</span></div></div>
+          <div class="card-header"><div class="card-title">🏦 Bank Direct Sync</div><div class="card-actions"><button class="btn btn-ghost btn-sm" onclick="loadBankStatus()">⟳ Status</button><button class="btn btn-blue btn-sm" onclick="syncAll()">⟳ Sync All</button></div></div>
+          <div class="recon-widget" id="bank-status-widget">
+            <div class="recon-row"><div class="recon-left"><div class="recon-bank-icon">🏦</div><div><div class="recon-name">TBC Bank</div><div class="recon-sub" id="bank-tbc-sub">იტვირთება...</div></div></div><div class="recon-right"><button class="btn btn-ghost btn-sm" onclick="syncBank('tbc')">⟳ TBC</button><span class="status-pill" id="bank-tbc-pill">—</span></div></div>
+            <div class="recon-row"><div class="recon-left"><div class="recon-bank-icon">🏦</div><div><div class="recon-name">Bank of Georgia</div><div class="recon-sub" id="bank-bog-sub">იტვირთება...</div></div></div><div class="recon-right"><button class="btn btn-ghost btn-sm" onclick="syncBank('bog')">⟳ BOG</button><span class="status-pill" id="bank-bog-pill">—</span></div></div>
             <div class="recon-row" style="background:var(--blue-s);border-color:rgba(29,107,243,.15);"><div class="recon-left"><div class="recon-bank-icon">🌉</div><div><div class="recon-name">Balance.ge</div><div class="recon-sub">ERP · API Key ელოდება</div></div></div><div class="recon-right"><button class="btn btn-ghost btn-sm" onclick="goPage('settings',null)">⚙️ Setup</button><span class="status-pill sp-demo">DEMO</span></div></div>
           </div>
         </div>
-        <div class="card"><div class="card-header"><div class="card-title">Sync შედეგი</div></div><div class="card-body" id="bank-result"><div class="empty-state"><div class="empty-icon">🏦</div><div class="empty-text">Sync-ი ჯერ არ გაშვებულა</div></div></div></div>
+        <div class="card"><div class="card-header"><div class="card-title">📋 Sync შედეგი</div></div><div class="card-body" id="bank-result"><div class="empty-state"><div class="empty-icon">🏦</div><div class="empty-text">Sync-ი ჯერ არ გაშვებულა</div></div></div></div>
       </div>
     </div>
 
@@ -504,20 +546,235 @@ input,select,textarea{font-family:inherit}
 
     <!-- COLLAB -->
     <div id="pg-collab" class="page">
+      <div class="row-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">👥 Collaboration Feed</div><span class="card-badge badge-blue" id="collab-total">0 comments</span></div>
+          <div class="card-body" id="collab-list"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">💬 Draft-ზე კომენტარი</div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);margin-bottom:4px;display:block">Draft ID</label>
+                <input id="collab-draft-id" type="number" class="finput" placeholder="Draft #" style="width:100%">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);margin-bottom:4px;display:block">კომენტარი</label>
+                <textarea id="collab-text" class="finput" rows="3" placeholder="კომენტარი..." style="width:100%;resize:vertical"></textarea>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);margin-bottom:4px;display:block">ავტორი</label>
+                <input id="collab-author" type="text" class="finput" placeholder="სახელი" style="width:100%">
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-blue btn-sm" onclick="addCollabComment()" style="flex:1">💬 კომენტარის დამატება</button>
+                <button class="btn btn-ghost btn-sm" onclick="loadDraftComments()">🔍 ნახვა</button>
+              </div>
+            </div>
+            <div id="collab-draft-comments" style="margin-top:16px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRM -->
+    <div id="pg-crm" class="page">
+      <div class="row-2">
+        <div class="card" style="grid-column:1/-1">
+          <div class="card-header">
+            <div class="card-title">👤 CRM — კლიენტები</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="crm-search" type="text" class="finput" placeholder="ძიება..." style="width:180px" oninput="filterCRM(this.value)">
+              <button class="btn btn-ghost btn-sm" onclick="loadCRM()">⟳</button>
+            </div>
+          </div>
+          <div id="crm-summary-row" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+          <div class="card-body" style="padding:0">
+            <div id="crm-table-wrap" style="overflow-x:auto">
+              <div class="loading-row"><span class="spinner"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUDGET -->
+    <div id="pg-budget" class="page">
       <div class="card">
-        <div class="card-header"><div class="card-title">👥 Collaboration</div><span class="card-badge badge-blue" id="collab-total">0 comments</span></div>
-        <div class="card-body" id="collab-list"><div class="loading-row"><span class="spinner"></span></div></div>
+        <div class="card-header">
+          <div class="card-title">🎯 Budget vs Actual</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="budget-year" class="finput" style="width:100px" onchange="loadBudget()">
+              <option>2025</option><option selected>2026</option><option>2027</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadBudget()">⟳</button>
+          </div>
+        </div>
+        <div id="budget-kpi" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+        <div class="card-body" style="padding:0">
+          <div id="budget-table-wrap" style="overflow-x:auto">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTRACTS -->
+    <div id="pg-contracts" class="page">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📝 კონტრაქტები</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="contracts-status" class="finput" style="width:140px" onchange="loadContracts()">
+              <option value="">ყველა</option>
+              <option value="active">active</option>
+              <option value="draft">draft</option>
+              <option value="expired">expired</option>
+              <option value="terminated">terminated</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadContracts()">⟳</button>
+          </div>
+        </div>
+        <div id="contracts-kpi" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+        <div class="card-body" style="padding:0">
+          <div id="contracts-table-wrap" style="overflow-x:auto">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPENSES -->
+    <div id="pg-expenses" class="page">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🧾 Expenses</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="expenses-status" class="finput" style="width:130px" onchange="loadExpenses()">
+              <option value="">ყველა</option>
+              <option value="pending">pending</option>
+              <option value="approved">approved</option>
+              <option value="rejected">rejected</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadExpenses()">⟳</button>
+          </div>
+        </div>
+        <div id="exp-kpi" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+        <div class="card-body" style="padding:0">
+          <div id="exp-table-wrap" style="overflow-x:auto">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INVOICES -->
+    <div id="pg-invoices" class="page">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📄 Invoices</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="inv-status" class="finput" style="width:130px" onchange="loadInvoices()">
+              <option value="">ყველა</option>
+              <option value="draft">draft</option>
+              <option value="sent">sent</option>
+              <option value="paid">paid</option>
+              <option value="overdue">overdue</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadInvoices()">⟳</button>
+          </div>
+        </div>
+        <div id="inv-kpi" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+        <div class="card-body" style="padding:0">
+          <div id="inv-table-wrap" style="overflow-x:auto">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REPORTS -->
+    <div id="pg-reports" class="page">
+      <div class="row-2">
+        <div class="card" style="grid-column:1/-1">
+          <div class="card-header">
+            <div class="card-title">📑 Financial Reports</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="rep-year" class="finput" style="width:100px" onchange="loadReports()">
+                <option>2025</option><option selected>2026</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="loadReports()">⟳</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" onclick="loadReport('pnl')" id="rep-btn-pnl" style="font-weight:600">P&amp;L</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadReport('cashflow')" id="rep-btn-cashflow">Cash Flow</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadReport('monthly')" id="rep-btn-monthly">Monthly</button>
+          </div>
+          <div id="rep-body"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
       </div>
     </div>
 
     <!-- AI RECOMMEND -->
     <div id="pg-recommend" class="page">
+      <div class="kpi-row" id="rec-kpi-row" style="display:none">
+        <div class="kpi kpi-blue"><div class="kpi-head"><div class="kpi-label">Pending Drafts</div><span class="kpi-icon">📋</span></div><div class="kpi-val" id="rec-pending">—</div><div class="kpi-sub">input to AI</div></div>
+        <div class="kpi kpi-amber"><div class="kpi-head"><div class="kpi-label">Recommendations</div><span class="kpi-icon">💡</span></div><div class="kpi-val" id="rec-count">—</div><div class="kpi-sub">სულ</div></div>
+        <div class="kpi kpi-red"><div class="kpi-head"><div class="kpi-label">Critical Alerts</div><span class="kpi-icon">🔴</span></div><div class="kpi-val" id="rec-critical">—</div><div class="kpi-sub">high-value</div></div>
+        <div class="kpi kpi-purple"><div class="kpi-head"><div class="kpi-label">Total Amount</div><span class="kpi-icon">💰</span></div><div class="kpi-val" id="rec-total-amt">—</div><div class="kpi-sub">pending GEL</div></div>
+      </div>
       <div class="card">
         <div class="card-header">
           <div class="card-title">💡 AI Recommend</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadRecommend()">⟳ განახლება</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="card-badge badge-blue" style="font-size:10px">🔒 read-only</span>
+            <button class="btn btn-ghost btn-sm" onclick="loadRecommend()">⟳ განახლება</button>
+          </div>
         </div>
         <div id="recommend-body"><div class="loading-row"><span class="spinner"></span></div></div>
+      </div>
+    </div>
+
+    <!-- INSIGHTS -->
+    <div id="pg-insights" class="page">
+      <!-- KPI row -->
+      <div class="kpi-row">
+        <div class="kpi kpi-green"><div class="kpi-head"><div class="kpi-label">შემოსავალი</div><span class="kpi-icon">💹</span></div><div class="kpi-val" id="ins-revenue">—</div><div class="kpi-sub">approved total</div></div>
+        <div class="kpi kpi-amber"><div class="kpi-head"><div class="kpi-label">ხარჯები</div><span class="kpi-icon">💸</span></div><div class="kpi-val" id="ins-expenses">—</div><div class="kpi-sub">approved total</div></div>
+        <div class="kpi kpi-blue"><div class="kpi-head"><div class="kpi-label">მოგება</div><span class="kpi-icon">📊</span></div><div class="kpi-val" id="ins-net">—</div><div class="kpi-sub">net P&L</div></div>
+        <div class="kpi kpi-purple"><div class="kpi-head"><div class="kpi-label">Pending Approval</div><span class="kpi-icon">⏳</span></div><div class="kpi-val" id="ins-queue">—</div><div class="kpi-sub">approval queue</div></div>
+      </div>
+      <!-- A + B: Top Expenses | Revenue vs Expenses -->
+      <div class="row-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">💸 Top Expenses (Approved)</div>
+            <button class="btn btn-ghost btn-sm" onclick="loadInsights()">⟳ განახლება</button>
+          </div>
+          <div class="card-body" id="ins-body"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">💰 Revenue vs Expenses</div><span class="card-badge badge-gray" id="ins-profitable-badge">—</span></div>
+          <div class="card-body" id="ins-rev-exp"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+      </div>
+      <!-- C + D: Approval Queue Summary | Anomaly Summary -->
+      <div class="row-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">⏳ Approval Queue Summary</div></div>
+          <div class="card-body" id="ins-queue-detail"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">⚠️ Anomaly Summary</div><span class="card-badge badge-amber" id="ins-anomaly-cnt">0</span></div>
+          <div class="card-body" id="ins-anomalies"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+      </div>
+      <!-- E: 6-Month Trends -->
+      <div class="card" style="margin-top:0">
+        <div class="card-header"><div class="card-title">📅 Recent Trends · 6 თვე</div></div>
+        <div class="card-body" id="ins-trends"><div class="loading-row"><span class="spinner"></span></div></div>
       </div>
     </div>
 
@@ -544,12 +801,76 @@ input,select,textarea{font-family:inherit}
     </div>
 
     <!-- SETTINGS -->
+    <!-- AUDIT LOG -->
+    <div id="pg-auditlog" class="page">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔍 Audit Log</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input id="audit-search" type="text" class="finput" placeholder="მოქმედება / მომხ..." style="width:180px" oninput="filterAuditLog()">
+            <select id="audit-status" class="finput" style="width:110px" onchange="loadAuditLog()">
+              <option value="">ყველა</option>
+              <option value="success">success</option>
+              <option value="error">error</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadAuditLog()">⟳</button>
+          </div>
+        </div>
+        <div id="audit-kpi" style="display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap;"></div>
+        <div class="card-body" style="padding:0">
+          <div id="audit-table-wrap" style="overflow-x:auto">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CURRENCY -->
+    <div id="pg-currency" class="page">
+      <div class="row-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">💱 გაცვლითი კურსები</div>
+            <button class="btn btn-ghost btn-sm" onclick="loadCurrencyRates()">⟳ განახლება</button>
+          </div>
+          <div id="currency-rates-body"><div class="loading-row"><span class="spinner"></span></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">🔄 კონვერტაცია</div></div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+              <div>
+                <label style="font-size:11px;color:var(--gray-400)">თანხა</label>
+                <input id="conv-amount" type="number" class="finput" value="100" step="0.01" style="width:100%;margin-top:4px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--gray-400)">საწყისი ვალუტა</label>
+                <select id="conv-from" class="finput" style="width:100%;margin-top:4px">
+                  <option value="USD">USD</option><option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option><option value="GEL" selected>GEL</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-bottom:14px;">
+              <label style="font-size:11px;color:var(--gray-400)">სამიზნე ვალუტა</label>
+              <select id="conv-to" class="finput" style="width:100%;margin-top:4px">
+                <option value="GEL">GEL</option><option value="USD" selected>USD</option>
+                <option value="EUR">EUR</option><option value="GBP">GBP</option>
+              </select>
+            </div>
+            <button class="btn btn-blue btn-sm" style="width:100%" onclick="convertCurrency()">⚡ კონვერტაცია</button>
+            <div id="conv-result" style="margin-top:14px;padding:14px;background:var(--gray-50);border-radius:var(--r);min-height:48px;text-align:center;font-size:20px;font-weight:700;color:var(--blue)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="pg-settings" class="page">
       <div style="max-width:600px;">
-        <div class="settings-item"><h4>🏦 Balance.ge</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="API Key: bal_live_..."/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="text" placeholder="Company ID"/></div><button class="btn btn-ghost btn-sm" onclick="toast('Balance.ge test...','info')">🔍 Test Connection</button></div>
-        <div class="settings-item"><h4>📦 1C Enterprise</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="text" placeholder="Server URL: http://server:8080/base/"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" type="text" placeholder="User"/><input class="finput" type="password" placeholder="Password"/></div><button class="btn btn-ghost btn-sm" onclick="toast('1C test...','info')">🔍 Test Connection</button></div>
-        <div class="settings-item"><h4>🏛️ RS.GE</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="RS.GE API Key"/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="text" placeholder="საიდენტიფიკაციო კოდი"/></div><button class="btn btn-ghost btn-sm" onclick="toast('RS.GE test...','info')">🔍 Test Connection</button></div>
-        <div class="settings-item"><h4>🏦 Bank Direct Sync</h4><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="TBC Client ID"/><input class="finput" type="password" placeholder="TBC Secret"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="BOG Client ID"/><input class="finput" type="password" placeholder="BOG Secret"/></div><button class="btn btn-ghost btn-sm" onclick="toast('Bank credentials შენახულია ✅','ok')">💾 Save</button></div>
+        <div class="settings-item"><h4>🏦 Balance.ge</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" id="set-bal-key" type="password" placeholder="API Key: bal_live_..."/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" id="set-bal-company" type="text" placeholder="Company ID"/></div><button class="btn btn-ghost btn-sm" onclick="testConnection('balance-ge')">🔍 Test Connection</button></div>
+        <div class="settings-item"><h4>📦 1C Enterprise</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" id="set-1c-url" type="text" placeholder="Server URL: http://server:8080/base/"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" id="set-1c-user" type="text" placeholder="User"/><input class="finput" id="set-1c-pass" type="password" placeholder="Password"/></div><button class="btn btn-ghost btn-sm" onclick="testConnection('1c')">🔍 Test Connection</button></div>
+        <div class="settings-item"><h4>🏛️ RS.GE</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" id="set-rs-key" type="password" placeholder="RS.GE API Key"/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" id="set-rs-tin" type="text" placeholder="საიდენტიფიკაციო კოდი"/></div><button class="btn btn-ghost btn-sm" onclick="testConnection('rs-ge')">🔍 Test Connection</button></div>
+        <div class="settings-item"><h4>🏦 Bank Direct Sync</h4><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="TBC Client ID"/><input class="finput" type="password" placeholder="TBC Secret"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="BOG Client ID"/><input class="finput" type="password" placeholder="BOG Secret"/></div><button class="btn btn-ghost btn-sm" onclick="testConnection('bank-sync')">🔍 Test Connection</button></div>
         <div class="settings-item"><h4>📧 Email · SMTP</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="email" placeholder="accountant@company.ge"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 80px;margin-bottom:8px;"><input class="finput" type="text" placeholder="smtp.gmail.com"/><input class="finput" type="number" value="587"/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="App Password"/></div><button class="btn btn-ghost btn-sm" onclick="toast('📨 Test email გაიგზავნა','ok')">📨 Test</button></div>
       </div>
     </div>
@@ -568,6 +889,21 @@ input,select,textarea{font-family:inherit}
     <button id="role-assistant" onclick="setRole('assistant')" title="ასისტენტი — ზოგადი დახმარება" style="flex:1;padding:4px;font-size:11px;border:1px solid var(--blue);border-radius:6px;cursor:pointer;background:var(--blue-s);color:var(--blue);font-weight:600">💬 ასისტენტი</button>
   </div>
   <div class="chat-composer"><div class="composer-wrap"><input type="file" id="ai-file" style="display:none" onchange="setAIFile(this)"/><span style="cursor:pointer;font-size:16px;" onclick="document.getElementById('ai-file').click()">📎</span><input class="composer-inp" id="chatInp" placeholder="მიწერე AI-ს..." onkeydown="if(event.key==='Enter')sendMsg()"/><button class="chat-send" onclick="sendMsg()">➤</button></div><div class="chat-hint" id="chatHint">💬 ასისტენტი — ზოგადი კითხვები</div></div>
+</div>
+
+<!-- NOTIFICATIONS PANEL -->
+<div class="notif-panel" id="notifPanel">
+  <div class="notif-ph">
+    <div><div class="notif-ph-title">🔔 Notifications</div><div class="notif-ph-sub" id="notif-sub">იტვირთება...</div></div>
+    <button style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--gray-400);padding:4px;" onclick="toggleNotif()">✕</button>
+  </div>
+  <div class="notif-summary" id="notif-summary" style="display:none">
+    <span class="ns-pill ns-critical" id="ns-critical">0 critical</span>
+    <span class="ns-pill ns-warning" id="ns-warning">0 warning</span>
+    <span class="ns-pill ns-info" id="ns-info">0 info</span>
+    <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px" onclick="loadNotifications()">⟳</button>
+  </div>
+  <div class="notif-list" id="notif-list"><div class="loading-row"><span class="spinner"></span></div></div>
 </div>
 
 <div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
@@ -608,7 +944,7 @@ async function api(path, method = 'GET', body = null) {
   try {
     const opts = {
       method,
-      headers: { 'X-Tenant-ID': TENANT }
+      headers: {}
     };
 
     if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
@@ -747,7 +1083,7 @@ function toast(msg, type = 'ok') {
   const icons = { ok: '✅', err: '❌', info: 'ℹ️', warn: '⚠️' };
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = `<span>${icons[type] || '•'}</span><span>${msg}</span>`;
+  el.innerHTML = `<span>${icons[type] || '•'}</span><span>${esc(msg)}</span>`;
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
@@ -760,6 +1096,101 @@ let aiOpen = false;
 function toggleAI() {
   aiOpen = !aiOpen;
   document.getElementById('aiPanel')?.classList.toggle('open', aiOpen);
+}
+
+let notifOpen = false;
+function toggleNotif() {
+  notifOpen = !notifOpen;
+  document.getElementById('notifPanel')?.classList.toggle('open', notifOpen);
+  if (notifOpen) loadNotifications();
+}
+
+const NOTIF_ICONS = {
+  pending_approval: '⏳',
+  high_amount:      '🔴',
+  failed_posting:   '❌',
+  repeated_anomaly: '🔄',
+};
+
+async function loadNotifications() {
+  const list    = document.getElementById('notif-list');
+  const sumEl   = document.getElementById('notif-summary');
+  const dot     = document.getElementById('notif-dot');
+  const sub     = document.getElementById('notif-sub');
+  if (list) list.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  let d;
+  try {
+    d = await api('/notifications/feed?limit=50');
+  } catch(e) {
+    if (list) list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">შეტყობინებები ვერ ჩაიტვირთა</div>`;
+    return;
+  }
+
+  if (!d || !d.data) {
+    if (list) list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">შეტყობინებები ვერ ჩაიტვირთა</div>`;
+    return;
+  }
+
+  const items = d.data.items || [];
+  const s     = d.data.summary || {};
+
+  if (sub) sub.textContent = `${s.total || 0} შეტყობინება`;
+  if (sumEl) sumEl.style.display = 'flex';
+
+  const nc = document.getElementById('ns-critical');
+  const nw = document.getElementById('ns-warning');
+  const ni = document.getElementById('ns-info');
+  if (nc) nc.textContent = `${s.critical || 0} critical`;
+  if (nw) nw.textContent = `${s.warning || 0} warning`;
+  if (ni) ni.textContent = `${s.info || 0} info`;
+  if (dot) dot.style.display = (s.critical || 0) > 0 ? 'block' : 'none';
+
+  if (!items.length) {
+    if (list) list.innerHTML = `<div style="padding:32px;text-align:center">
+      <div style="font-size:28px;margin-bottom:8px">🔔</div>
+      <div style="font-size:13px;color:var(--gray-400)">შეტყობინება არ არის</div>
+    </div>`;
+    return;
+  }
+
+  const _SEV_COLOR = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--blue)' };
+  const _TYPE_LABEL = {
+    pending_approval: 'pending_approval',
+    high_amount:      'high_amount',
+    failed_posting:   'failed_posting',
+    repeated_anomaly: 'repeated_anomaly',
+  };
+
+  if (list) list.innerHTML = items.map(item => {
+    const icon     = NOTIF_ICONS[item.type] || 'ℹ️';
+    const sev      = item.severity || 'info';
+    const sevColor = _SEV_COLOR[sev] || 'var(--blue)';
+    const amt      = item.amount != null
+      ? `<b style="color:${sevColor}">${parseFloat(item.amount).toLocaleString('en', {minimumFractionDigits:2})} ₾</b>`
+      : '';
+    const ts = item.created_at
+      ? (() => { try { return new Date(item.created_at).toLocaleString('ka-GE', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}); } catch { return ''; } })()
+      : '';
+    const draftBtn = item.draft_id
+      ? `<button class="act" style="font-size:10px;margin-top:5px;background:var(--blue-s);color:var(--blue);padding:2px 7px" onclick="showPostingPreview('${item.draft_id}');event.stopPropagation()">👁 #${item.draft_id}</button>`
+      : '';
+    const typeChip = item.type
+      ? `<span style="font-size:9px;font-family:var(--mono);background:var(--gray-100);color:var(--gray-500);padding:1px 5px;border-radius:4px;vertical-align:middle">${esc(item.type)}</span>`
+      : '';
+    return `
+      <div class="notif-item ${sev}" style="border-left:2px solid ${sevColor};cursor:default">
+        <div class="notif-icon">${icon}</div>
+        <div style="flex:1;min-width:0">
+          <div class="notif-title" style="display:flex;align-items:center;gap:6px">${esc(item.title)} ${typeChip}</div>
+          <div class="notif-msg">${esc(item.message)}</div>
+          <div class="notif-meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${[amt, ts].filter(Boolean).join(' · ')}
+            ${draftBtn}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function fmtAmt(a) {
@@ -801,6 +1232,16 @@ function fmtDate(d) {
   }
 }
 
+function esc(s) {
+  if (s == null) return '—';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getId(r) { return r.id || r.transaction_id || ''; }
 function getDesc(r) { return r.description || r.merchant || '—'; }
 function getConf(r) { return r.confidence || r.ai_confidence || 0; }
@@ -813,20 +1254,23 @@ function buildTr(r, showActs = false, extended = false) {
     ? `<td><div class="act-wrap">
          <button class="act act-approve" onclick="approve('${id}')">✅</button>
          <button class="act act-reject" onclick="reject('${id}')">❌</button>
-         <button class="act" title="Posting Preview" onclick="showPostingPreview('${id}')" style="background:var(--blue-s);color:var(--blue)">🔍</button>
-         <button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button>
+         <button class="act" title="Posting Preview" onclick="showPostingPreview('${id}')" style="background:var(--blue-s);color:var(--blue);font-size:10px;padding:3px 7px">👁 Preview</button>
+         <button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>📋</button>
        </div></td>`
-    : `<td><button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button></td>`;
+    : `<td><div class="act-wrap">
+         <button class="act" title="Posting Preview" onclick="showPostingPreview('${id}')" style="background:var(--blue-s);color:var(--blue);font-size:10px;padding:3px 7px">👁 Preview</button>
+         <button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>📋</button>
+       </div></td>`;
 
   const date = extended ? `<td class="td-mono">${fmtDate(r.date || r.created_at)}</td>` : '';
-  const src = !showActs ? `<td class="td-mono">${r.classification_source || '—'}</td>` : '';
+  const src = !showActs ? `<td class="td-mono">${esc(r.classification_source)}</td>` : '';
 
   return `<tr>
     <td class="td-mono">#${String(id).slice(-5)}</td>
     ${date}
-    <td class="td-desc">${getDesc(r)}</td>
+    <td class="td-desc">${esc(getDesc(r))}</td>
     <td>${fmtAmt(r.amount)}</td>
-    <td class="td-mono">${getCat(r)}</td>
+    <td class="td-mono">${esc(getCat(r))}</td>
     <td>${fmtConf(getConf(r))}</td>
     <td>${fmtStatus(r.status)}</td>
     ${src}
@@ -839,7 +1283,7 @@ function setRows(rows, id, acts = false, extended = false) {
   if (!el) return;
 
   if (!rows || !rows.length) {
-    el.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">ჩანაწერი არ მოიძებნა</div></div></td></tr>`;
+    el.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">მოლოდინში დრაფტები არ არის</div></div></td></tr>`;
     return;
   }
 
@@ -888,7 +1332,7 @@ async function loadCashflow() {
     ).join('');
   }
   if (document.getElementById('cf-labels')) {
-    document.getElementById('cf-labels').innerHTML = labels.map(l => `<div class="bar-lbl">${String(l).slice(5)}</div>`).join('');
+    document.getElementById('cf-labels').innerHTML = labels.map(l => `<div class="bar-lbl">${esc(String(l).slice(5))}</div>`).join('');
   }
 }
 
@@ -955,11 +1399,11 @@ async function loadCollab() {
   const html = items.length
     ? items.map(x => `
         <div class="collab-item">
-          <div class="collab-avatar">${(x.user || x.author || 'U').slice(0,1).toUpperCase()}</div>
+          <div class="collab-avatar">${esc((x.user || x.author || 'U').slice(0,1).toUpperCase())}</div>
           <div>
-            <div class="collab-name">${x.user || x.author || 'Unknown'}</div>
+            <div class="collab-name">${esc(x.user || x.author || 'Unknown')}</div>
             <div class="collab-time">${fmtDate(x.created_at || x.date)}</div>
-            <div class="collab-text">${x.text || x.comment || '—'}</div>
+            <div class="collab-text">${esc(x.text || x.comment)}</div>
           </div>
         </div>
       `).join('')
@@ -972,10 +1416,11 @@ async function loadCollab() {
 }
 
 async function approve(id) {
+  if (!confirm('ნამდვილად გსურთ გატარების დადასტურება?')) return;
   for (const ep of [`/approval/approve/${id}`, `/approvals/${id}/approve`]) {
     const r = await api(ep, 'POST');
     if (r) {
-      toast(`✅ #${String(id).slice(-5)}`, 'ok');
+      toast('დრაფტი დამტკიცდა ✅', 'ok');
       await loadPending();
       await loadKPI();
       if (curPage === 'approved') await loadApproved();
@@ -989,7 +1434,7 @@ async function reject(id) {
   for (const ep of [`/approval/reject/${id}`, `/approvals/${id}/reject`]) {
     const r = await api(ep, 'POST');
     if (r) {
-      toast(`❌ #${String(id).slice(-5)}`, 'warn');
+      toast('დრაფტი უარყოფილია ❌', 'warn');
       await loadPending();
       await loadKPI();
       if (curPage === 'rejected') await loadRejected();
@@ -1051,11 +1496,34 @@ function toggleAP() {
   }
 }
 
-function doExport(fmt) {
+async function doExport(fmt) {
   const s = document.getElementById('exp-status')?.value || '';
   const q = s ? `?status=${s}` : '';
+  const endpoint = `${BASE}/export/v2/journal/${fmt === 'excel' ? 'excel' : fmt}${q}`;
   toast(`📥 ${fmt} export...`, 'info');
-  window.open(`${BASE}/export/v2/journal/${fmt === 'excel' ? 'excel' : fmt}${q}`, '_blank');
+  try {
+    const resp = await fetch(endpoint, {
+      headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {}
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      toast(`Export failed: ${err.message || resp.status}`, 'error');
+      return;
+    }
+    const blob = await resp.blob();
+    const ext = fmt === 'excel' ? 'xlsx' : fmt === 'pdf' ? 'pdf' : fmt === 'csv' ? 'csv' : 'xml';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `journal_export_${new Date().toISOString().slice(0,10)}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(`✅ ${fmt} exported`, 'ok');
+  } catch (e) {
+    toast(`Export error: ${e.message}`, 'error');
+  }
 }
 
 async function doOCR(input) {
@@ -1073,7 +1541,7 @@ async function doOCR(input) {
   try {
     const r = await fetch(`${BASE}/ocr/extract-and-draft`, {
       method: 'POST',
-      headers: { 'X-Tenant-ID': TENANT },
+      headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {},
       body: fd
     });
 
@@ -1097,7 +1565,7 @@ async function doOCR(input) {
       toast(`✅ Draft #${dr.draft_id}`, 'ok');
       await loadKPI();
     } else if (el) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">${d.error || 'OCR error'}</div></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">${esc(d.error || 'OCR error')}</div></div>`;
     }
   } catch {
     toast('OCR error', 'err');
@@ -1139,7 +1607,7 @@ function showBankResult(d) {
   ];
 
   el.innerHTML = `<table class="tbl"><thead><tr><th>ბანკი</th><th>Tx</th><th>Mode</th></tr></thead><tbody>${
-    rows.map(([b, c, m]) => `<tr><td>${b}</td><td style="font-weight:700">${c}</td><td><span class="card-badge badge-gray">${m}</span></td></tr>`).join('')
+    rows.map(([b, c, m]) => `<tr><td>${esc(b)}</td><td style="font-weight:700">${c}</td><td><span class="card-badge badge-gray">${esc(m)}</span></td></tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -1172,30 +1640,14 @@ function removeRow(btn) {
 function recalculateRow(el) {
   const row = el.closest('tr');
   if (!row) return;
-
-  const mode = getMode();
   const amount = parseFloat(row.querySelector('.emp-amount').value || '0');
-  const pension = row.querySelector('.emp-pension').checked;
-  const ep = pension ? 0.02 : 0;
-
-  let gross = 0, net = 0;
-
   if (amount <= 0) {
     row.querySelector('.emp-gross').value = '0.00';
     row.querySelector('.emp-net').value = '0.00';
-    return;
-  }
-
-  if (mode === 'gross') {
-    gross = amount;
-    net = gross - (gross * 0.20) - (gross * ep);
   } else {
-    net = amount;
-    gross = net / (1 - 0.20 - ep);
+    row.querySelector('.emp-gross').value = '...';
+    row.querySelector('.emp-net').value = '...';
   }
-
-  row.querySelector('.emp-gross').value = round2(gross).toFixed(2);
-  row.querySelector('.emp-net').value = round2(net).toFixed(2);
 }
 
 function recalculateAllRows() {
@@ -1218,35 +1670,6 @@ function collectEmployees() {
   return emps;
 }
 
-function _calcOnePayroll(amount, mode, pension) {
-  const ep = pension ? 0.02 : 0;
-  const erp = pension ? 0.02 : 0;
-  let gross, net, pit, emp_pension, employer_pension;
-
-  if (mode === 'gross') {
-    gross = amount;
-    pit = gross * 0.20;
-    emp_pension = gross * ep;
-    net = gross - pit - emp_pension;
-    employer_pension = gross * erp;
-  } else {
-    net = amount;
-    gross = net / (1 - 0.20 - ep);
-    pit = gross * 0.20;
-    emp_pension = gross * ep;
-    employer_pension = gross * erp;
-  }
-
-  return {
-    gross: round2(gross),
-    pit: round2(pit),
-    employee_pension: round2(emp_pension),
-    employer_pension: round2(employer_pension),
-    net: round2(net),
-    total: round2(gross + employer_pension)
-  };
-}
-
 async function calculatePayroll() {
   const mode = getMode();
   const emps = collectEmployees();
@@ -1256,18 +1679,60 @@ async function calculatePayroll() {
     return;
   }
 
+  toast('⏳ Payroll გამოითვლება...', 'info');
+
+  // For net mode: fetch rates once to convert net → gross
+  let ratesData = null;
+  if (mode === 'net') {
+    const rd = await api('/tax/rates');
+    ratesData = rd?.data || rd?.rates || {};
+  }
+
   const results = [];
   const totals = { gross: 0, pit: 0, employee_pension: 0, employer_pension: 0, net: 0, total: 0 };
+  let anyFailed = false;
 
-  emps.forEach(emp => {
-    const r = _calcOnePayroll(emp.amount, mode, emp.is_pension_member);
+  for (const emp of emps) {
+    let grossSalary = emp.amount;
+
+    if (mode === 'net') {
+      const pitRate   = (ratesData?.income_tax ?? 20) / 100;
+      const pensRate  = emp.is_pension_member ? (ratesData?.pension ?? 4) / 100 : 0;
+      grossSalary = round2(emp.amount / (1 - pitRate - pensRate));
+    }
+
+    const d = await api('/tax/salary', 'POST', {
+      gross_salary: grossSalary,
+      include_pension: emp.is_pension_member,
+    });
+
+    if (!d || !d.ok) {
+      toast(`${emp.name}: backend error — გამოტოვება`, 'warn');
+      anyFailed = true;
+      continue;
+    }
+
+    const bd = d.data || d;
+    const r = {
+      gross:             round2(bd.gross_salary),
+      pit:               round2(bd.income_tax_20pct),
+      employee_pension:  round2(bd.pension_employee_4pct),
+      employer_pension:  round2(bd.pension_employer_2pct),
+      net:               round2(bd.net_salary),
+      total:             round2(bd.total_employer_cost),
+    };
+
     results.push({ ...emp, ...r });
-    Object.keys(totals).forEach(k => totals[k] += r[k]);
-  });
+    Object.keys(totals).forEach(k => { totals[k] = round2(totals[k] + (r[k] || 0)); });
+  }
 
-  Object.keys(totals).forEach(k => totals[k] = round2(totals[k]));
+  if (!results.length) {
+    toast('Payroll ვერ დაითვალა — API error', 'err');
+    return;
+  }
+
   renderPayrollResults({ results, totals });
-  toast('Payroll დათვლილია ✅', 'ok');
+  toast(anyFailed ? 'Payroll ნაწილობრივ დათვლილია ⚠️' : 'Payroll დათვლილია ✅', anyFailed ? 'warn' : 'ok');
 }
 
 function journalLines(r) {
@@ -1412,6 +1877,176 @@ async function loadLearning() {
   }
 }
 
+async function loadInsights() {
+  const IDS = ['ins-body', 'ins-rev-exp', 'ins-queue-detail', 'ins-anomalies', 'ins-trends'];
+  const spinner = '<div class="loading-row"><span class="spinner"></span></div>';
+  IDS.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = spinner; });
+
+  const d = await api('/dashboard/insights');
+
+  if (!d || !d.ok) {
+    const err = '<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">Insights ვერ ჩაიტვირთა</div></div>';
+    IDS.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = err; });
+    return;
+  }
+
+  const fmt  = v => Number(v || 0).toLocaleString('en', {minimumFractionDigits:0, maximumFractionDigits:0});
+  const fmt2 = v => Number(v || 0).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  // ── KPI row ──────────────────────────────────────────────
+  const rev = d.revenue_vs_expenses || {};
+  const q   = d.approval_queue || {};
+  const net = rev.net || 0;
+  const netSign = net >= 0 ? '+' : '';
+
+  const setEl = (id, val, color) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    if (color) el.style.color = color;
+  };
+  setEl('ins-revenue', fmt(rev.total_revenue) + ' ₾');
+  setEl('ins-expenses', fmt(rev.total_expenses) + ' ₾');
+  setEl('ins-net', netSign + fmt(net) + ' ₾', net >= 0 ? 'var(--green)' : 'var(--red)');
+  setEl('ins-queue', q.pending_approval ?? '0');
+
+  // ── A. Top Expenses ───────────────────────────────────────
+  const bodyEl = document.getElementById('ins-body');
+  const topExp = d.top_expenses || [];
+  if (bodyEl) {
+    if (!topExp.length) {
+      bodyEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">ხარჯები არ მოიძებნა</div></div>';
+    } else {
+      const maxAmt = Math.max(...topExp.map(e => e.total), 1);
+      bodyEl.innerHTML = topExp.slice(0, 8).map((e, i) => `
+        <div class="pl-row" style="margin-bottom:6px">
+          <span class="pl-label" style="font-family:var(--mono);font-size:12px;min-width:52px">${esc(e.account_code || '—')}</span>
+          <div class="pl-bar-wrap">
+            <div class="pl-bar-fill" style="width:${Math.round(e.total / maxAmt * 100)}%;background:var(--red);opacity:${1 - i * 0.08}"></div>
+          </div>
+          <span class="pl-amount" style="font-size:12px;white-space:nowrap">${fmt(e.total)} ₾ <span style="color:var(--gray-400);font-size:10px">×${e.count}</span></span>
+        </div>`).join('');
+    }
+  }
+
+  // ── B. Revenue vs Expenses ────────────────────────────────
+  const revExpEl = document.getElementById('ins-rev-exp');
+  const profBadge = document.getElementById('ins-profitable-badge');
+  if (profBadge) {
+    profBadge.textContent = rev.profitable ? '✅ მომგებიანი' : '❌ ზარალი';
+    profBadge.className = 'card-badge ' + (rev.profitable ? 'badge-green' : 'badge-red');
+  }
+  if (revExpEl) {
+    const totalRev = rev.total_revenue || 0;
+    const totalExp = rev.total_expenses || 0;
+    const maxPL = Math.max(totalRev, totalExp, 1);
+    revExpEl.innerHTML = `
+      <div class="pl-row"><span class="pl-label">შემოსავალი</span>
+        <div class="pl-bar-wrap"><div class="pl-bar-fill" style="width:${Math.round(totalRev/maxPL*100)}%;background:var(--green)"></div></div>
+        <span class="pl-amount" style="color:var(--green);font-weight:700">${fmt2(totalRev)} ₾</span>
+      </div>
+      <div class="pl-row"><span class="pl-label">ხარჯები</span>
+        <div class="pl-bar-wrap"><div class="pl-bar-fill" style="width:${Math.round(totalExp/maxPL*100)}%;background:var(--red)"></div></div>
+        <span class="pl-amount" style="color:var(--red);font-weight:700">${fmt2(totalExp)} ₾</span>
+      </div>
+      <div class="pl-row" style="border-top:2px solid var(--gray-200);padding-top:10px;margin-top:4px">
+        <span class="pl-label" style="font-weight:700">მოგება / ზარალი</span>
+        <div class="pl-bar-wrap"></div>
+        <span class="pl-amount" style="font-weight:700;font-size:15px;color:${net>=0?'var(--green)':'var(--red)'}">${netSign}${fmt2(net)} ₾</span>
+      </div>`;
+  }
+
+  // ── C. Approval Queue Summary ─────────────────────────────
+  const qDetailEl = document.getElementById('ins-queue-detail');
+  if (qDetailEl) {
+    const rows = [
+      ['⏳ pending_approval', q.pending_approval ?? 0, 'amber'],
+      ['📝 drafted',          q.drafted          ?? 0, 'gray'],
+      ['🔍 needs_review',     q.needs_review     ?? 0, 'blue'],
+    ];
+    qDetailEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${rows.map(([label, val, color]) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--gray-50);border-radius:var(--r);border:1px solid var(--gray-200)">
+            <span style="font-size:13px;color:var(--gray-600)">${label}</span>
+            <span class="card-badge badge-${color}" style="font-size:13px;padding:4px 12px"><b>${val}</b></span>
+          </div>`).join('')}
+        <div style="font-size:11px;color:var(--gray-400);padding:4px 0">
+          * auto-approved count: /dashboard/live/kpi-დან
+        </div>
+      </div>`;
+  }
+
+  // ── D. Anomaly Summary ────────────────────────────────────
+  const anomalyEl = document.getElementById('ins-anomalies');
+  const anomalies = d.anomalies || [];
+  setEl('ins-anomaly-cnt', anomalies.length + (anomalies.length === 1 ? ' alert' : ' alerts'));
+  if (document.getElementById('ins-anomaly-cnt'))
+    document.getElementById('ins-anomaly-cnt').className = 'card-badge ' + (anomalies.length ? 'badge-red' : 'badge-gray');
+
+  if (anomalyEl) {
+    if (!anomalies.length) {
+      anomalyEl.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">High-value anomalies არ არის</div></div>';
+    } else {
+      anomalyEl.innerHTML = anomalies.map(a => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--amber)">${esc(a.description)}</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:3px;display:flex;gap:8px">
+              <span class="chip chip-${a.status==='pending_approval'?'pending':'review'}" style="font-size:10px">${esc(a.status)}</span>
+              <span style="font-family:var(--mono)">${esc(a.account_code)}</span>
+              <span>${esc(a.date)}</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:13px;font-weight:700;color:var(--red)">${fmt2(a.amount)} ₾</div>
+            <button class="act" style="font-size:10px;margin-top:4px;background:var(--blue-s);color:var(--blue)" onclick="showPostingPreview('${a.id}')">👁 Preview</button>
+          </div>
+        </div>`).join('');
+    }
+  }
+
+  // ── E. Recent Trends (6 months) ───────────────────────────
+  const trendsEl = document.getElementById('ins-trends');
+  const trends = d.trends || [];
+  if (trendsEl) {
+    if (!trends.length) {
+      trendsEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">ინსაითები ჯერ არ არის · approved ტრანზ. ჯერ არ არის</div></div>';
+    } else {
+      const maxT = Math.max(...trends.map(t => Math.max(t.revenue || 0, t.expenses || 0)), 1);
+      const totalRevT = trends.reduce((s, t) => s + (t.revenue||0), 0);
+      const totalExpT = trends.reduce((s, t) => s + (t.expenses||0), 0);
+      const netT = totalRevT - totalExpT;
+      trendsEl.innerHTML = `
+        <div style="display:flex;gap:16px;margin-bottom:14px;font-size:11px;flex-wrap:wrap;align-items:center">
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px;vertical-align:middle"></span>შემოსავალი</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;margin-right:4px;vertical-align:middle"></span>ხარჯები</span>
+          <span style="margin-left:auto;color:var(--gray-400)">6-მთვ. ჯამი:
+            <b style="color:var(--green)">${fmt(totalRevT)} ₾</b> /
+            <b style="color:var(--red)">${fmt(totalExpT)} ₾</b> /
+            <b style="color:${netT>=0?'var(--green)':'var(--red)'}">${netT>=0?'+':''}${fmt(netT)} ₾ net</b>
+          </span>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:120px">
+          ${trends.map(t => {
+            const rH = Math.max(Math.round((t.revenue||0)/maxT*100), 3);
+            const eH = Math.max(Math.round((t.expenses||0)/maxT*100), 3);
+            const tn = (t.net||0);
+            return `
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="font-size:9px;font-weight:700;color:${tn>=0?'var(--green)':'var(--red)'}">${tn>=0?'+':''}${Math.abs(tn)>=1000?Math.round(tn/1000)+'K':Math.round(tn)}</div>
+              <div style="width:100%;display:flex;gap:2px;align-items:flex-end;height:96px">
+                <div style="flex:1;background:var(--green);border-radius:3px 3px 0 0;height:${rH}px;min-height:3px" title="Rev: ${fmt2(t.revenue)} ₾"></div>
+                <div style="flex:1;background:var(--red);border-radius:3px 3px 0 0;height:${eH}px;min-height:3px" title="Exp: ${fmt2(t.expenses)} ₾"></div>
+              </div>
+              <div style="font-size:9px;color:var(--gray-400);text-align:center">${esc((t.month||'').slice(5))}</div>
+            </div>`;
+          }).join('')}
+        </div>`;
+    }
+  }
+}
+
 async function loadHealth() {
   const el = document.getElementById('health-body');
   if (!el) return;
@@ -1444,43 +2079,96 @@ async function loadRecommend() {
   const el = document.getElementById('recommend-body');
   if (!el) return;
   el.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const _ACTION_LABELS = {
+    review_and_approve: 'გადახედე და დაამტკიცე',
+    review_carefully:   'ყურადღებით გადახედე',
+    batch_approve:      'ჯგუფური დამტკიცება',
+  };
+
+  const _SEV = rec => {
+    if (rec.pattern === 'high_value') return 'critical';
+    if ((rec.count || 0) >= 3)       return 'warning';
+    return 'info';
+  };
+
+  const _SEV_STYLE = {
+    critical: { bg: 'var(--red-s)',    border: 'var(--red)',   icon: '🔴', label: 'CRITICAL', badgeClass: 'badge-red'    },
+    warning:  { bg: 'var(--amber-s)',  border: 'var(--amber)', icon: '⚠️', label: 'WARNING',  badgeClass: 'badge-amber'  },
+    info:     { bg: 'var(--blue-s)',   border: 'var(--blue)',  icon: '💡', label: 'INFO',     badgeClass: 'badge-blue'   },
+  };
+
+  let d;
   try {
-    const d = await api('/api/ai/recommend');
-    if (!d || !d.ok) {
-      el.innerHTML = '<div style="padding:16px;color:var(--gray-400)">რეკომენდაციები ვერ ჩაიტვირთა</div>';
-      return;
-    }
-    const allRecs = d.recommendations || [];
-    const alerts = allRecs.filter(r => r.pattern === 'high_value');
-    const items = allRecs.filter(r => r.pattern !== 'high_value');
-    if (!allRecs.length) {
-      el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400)">✅ ახლა რეკომენდაციები არ არის</div>';
-      return;
-    }
-    const summary = d.summary ? `<div style="padding:10px 14px;font-size:12px;color:var(--gray-400);border-bottom:1px solid var(--gray-100);margin-bottom:14px">${d.summary}</div>` : '';
-    const alertHtml = alerts.map(a => `
-      <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--amber-s);border-radius:var(--r);border:1px solid rgba(180,83,9,.15);margin-bottom:10px">
-        <span style="font-size:18px">⚠️</span>
-        <div>
-          <div style="font-size:13px;line-height:1.5;color:var(--amber);margin-bottom:6px">${a.message}</div>
-          <div style="display:flex;gap:6px">${(a.draft_ids||[]).map(id=>`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPostingPreview('${id}')">🔍 #${id}</button>`).join('')}</div>
-        </div>
-      </div>`).join('');
-    const recHtml = items.map(rec => `
-      <div style="padding:14px;background:var(--gray-50);border-radius:var(--r);border:1px solid var(--gray-200);margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${rec.label || rec.pattern}</span>
-          <span style="font-size:11px;font-family:var(--mono);background:var(--blue-s);color:var(--blue);padding:2px 8px;border-radius:6px">${rec.count} შემთხვევა · ${(rec.total_amount||0).toLocaleString()} GEL</span>
-        </div>
-        <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">${rec.message}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${(rec.draft_ids||[]).map(id=>`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPostingPreview('${id}')">🔍 #${id}</button>`).join('')}
-        </div>
-      </div>`).join('');
-    el.innerHTML = summary + alertHtml + recHtml;
+    d = await api('/api/ai/recommend');
   } catch(e) {
-    el.innerHTML = '<div style="padding:16px;color:var(--red)">Error: ' + e.message + '</div>';
+    el.innerHTML = `<div style="background:var(--red-s);color:var(--red);padding:14px 16px;border-radius:var(--r)">❌ რეკომენდაციები ვერ ჩაიტვირთა: ${esc(e.message)}</div>`;
+    return;
   }
+
+  if (!d || !d.ok) {
+    el.innerHTML = `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">❌ რეკომენდაციები ვერ ჩაიტვირთა</div>`;
+    return;
+  }
+
+  // KPI row
+  const allRecs = d.recommendations || [];
+  const kpiRow  = document.getElementById('rec-kpi-row');
+  if (kpiRow) kpiRow.style.display = '';
+  const critCount  = allRecs.filter(r => _SEV(r) === 'critical').length;
+  const totalAmt   = allRecs.reduce((s, r) => s + (r.total_amount || 0), 0);
+  const setV = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setV('rec-pending',   d.pending_count ?? '0');
+  setV('rec-count',     allRecs.length);
+  setV('rec-critical',  critCount);
+  setV('rec-total-amt', totalAmt >= 1000 ? Math.round(totalAmt / 1000) + 'K ₾' : Math.round(totalAmt) + ' ₾');
+
+  if (!allRecs.length) {
+    el.innerHTML = `
+      <div style="padding:32px;text-align:center">
+        <div style="font-size:32px;margin-bottom:10px">✅</div>
+        <div style="font-size:14px;font-weight:600;color:var(--gray-600)">რეკომენდაციები არ არის</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:4px">${esc(d.summary || 'Pending drafts არ არის')}</div>
+      </div>`;
+    return;
+  }
+
+  // Sort: critical first, then warning, then info
+  const sevOrder = { critical: 0, warning: 1, info: 2 };
+  const sorted = [...allRecs].sort((a, b) => sevOrder[_SEV(a)] - sevOrder[_SEV(b)]);
+
+  const summaryBanner = d.summary
+    ? `<div style="padding:10px 14px;font-size:12px;color:var(--gray-500);border-bottom:1px solid var(--gray-100);margin-bottom:14px;display:flex;justify-content:space-between">
+        <span>${esc(d.summary)}</span>
+        <span class="card-badge badge-gray" style="font-size:11px">${esc(d.mode || 'read_only')}</span>
+       </div>`
+    : '';
+
+  el.innerHTML = summaryBanner + sorted.map(rec => {
+    const sev = _SEV(rec);
+    const s   = _SEV_STYLE[sev];
+    const actionLabel = _ACTION_LABELS[rec.action] || rec.action || '';
+    const previewBtns = (rec.draft_ids || []).map(id =>
+      `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPostingPreview('${id}')">👁 #${id}</button>`
+    ).join('');
+
+    return `
+      <div style="padding:14px 16px;background:${s.bg};border-radius:var(--r);border-left:3px solid ${s.border};margin-bottom:10px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">${s.icon}</span>
+            <span style="font-size:13px;font-weight:700;color:var(--gray-900)">${esc(rec.label || rec.pattern)}</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+            <span class="card-badge ${s.badgeClass}" style="font-size:10px">${s.label}</span>
+            <span class="card-badge badge-gray" style="font-size:11px">${rec.count} შემთ. · ${(rec.total_amount||0).toLocaleString()} ₾</span>
+          </div>
+        </div>
+        <div style="font-size:13px;color:var(--gray-700);line-height:1.5;margin-bottom:${actionLabel || previewBtns ? '8px' : '0'}">${esc(rec.message)}</div>
+        ${actionLabel ? `<div style="font-size:11px;color:var(--gray-500);margin-bottom:6px">🎯 ${esc(actionLabel)}</div>` : ''}
+        ${previewBtns ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${previewBtns}</div>` : ''}
+      </div>`;
+  }).join('');
 }
 
 function onSearch(q) {
@@ -1493,6 +2181,491 @@ function onSearch(q) {
     (getCat(r) || '').toLowerCase().includes(q.toLowerCase())
   );
   setRows(f, 'dash-rows', true, false);
+}
+
+// ── AUDIT LOG ────────────────────────────────────────────────
+let _auditAll = [];
+async function loadAuditLog() {
+  const wrap = document.getElementById('audit-table-wrap');
+  const kpi  = document.getElementById('audit-kpi');
+  const status = document.getElementById('audit-status')?.value || '';
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const qs = status ? `?status=${status}&limit=100` : '?limit=100';
+  const [listD, statsD] = await Promise.all([
+    api(`/audit-log/list${qs}`),
+    api('/audit-log/stats'),
+  ]);
+
+  if (statsD && statsD.ok && statsD.data) {
+    const s = statsD.data;
+    const pills = [
+      ['სულ', s.total||0, 'blue'],
+      ['success', s.success||s.success_count||0, 'green'],
+      ['error', s.error||s.error_count||0, 'red'],
+      ['user', s.unique_users||s.users||0, 'purple'],
+    ];
+    if (kpi) kpi.innerHTML = pills.map(([l,v,c]) =>
+      `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`
+    ).join('');
+  }
+
+  if (!listD || !listD.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Audit Log ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  _auditAll = listD.data?.events || listD.data?.items || listD.events || listD.data || [];
+  const search = document.getElementById('audit-search')?.value || '';
+  _renderAuditTable(search ? _auditAll.filter(r =>
+    (r.action||'').toLowerCase().includes(search.toLowerCase()) ||
+    (r.user_email||r.user||'').toLowerCase().includes(search.toLowerCase()) ||
+    (r.details||'').toLowerCase().includes(search.toLowerCase())
+  ) : _auditAll);
+}
+
+function filterAuditLog() {
+  const q = document.getElementById('audit-search')?.value || '';
+  _renderAuditTable(q ? _auditAll.filter(r =>
+    (r.action||'').toLowerCase().includes(q.toLowerCase()) ||
+    (r.user_email||r.user||'').toLowerCase().includes(q.toLowerCase()) ||
+    (r.details||'').toLowerCase().includes(q.toLowerCase())
+  ) : _auditAll);
+}
+
+function _renderAuditTable(rows) {
+  const wrap = document.getElementById('audit-table-wrap');
+  if (!wrap) return;
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-text">მოვლენა არ მოიძებნა</div></div>';
+    return;
+  }
+  wrap.innerHTML = `<table class="tbl">
+    <thead><tr><th>დრო</th><th>მოქმედება</th><th>მომხმარებელი</th><th>IP</th><th>სტ.</th><th>დეტ.</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const sc = r.status==='success'?'chip-approved':r.status==='error'?'chip-rejected':'chip-review';
+      const ts = r.event_time||r.created_at;
+      const tsStr = ts ? new Date(ts).toLocaleString('ka-GE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      return `<tr>
+        <td style="font-size:11px;white-space:nowrap;color:var(--gray-400)">${tsStr}</td>
+        <td style="font-weight:600;font-size:13px">${esc(r.action)}</td>
+        <td style="font-size:12px">${esc(r.user_email||r.user)}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">${esc(r.ip_address||r.ip)}</td>
+        <td><span class="chip ${sc}">${esc(r.status)}</span></td>
+        <td style="font-size:11px;color:var(--gray-600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.details)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+// ── CURRENCY ──────────────────────────────────────────────────
+async function loadCurrencyRates() {
+  const el = document.getElementById('currency-rates-body');
+  if (!el) return;
+  el.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  const d = await api('/currency/rates');
+  if (!d || !d.ok) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">კურსები ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const rates = d.data?.rates || d.rates || d.data || {};
+  const entries = Object.entries(rates);
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">კურსი არ არის</div></div>';
+    return;
+  }
+  el.innerHTML = `<table class="tbl">
+    <thead><tr><th>ვალუტა</th><th>GEL კურსი</th><th>განახლდა</th></tr></thead>
+    <tbody>${entries.map(([cur, info]) => {
+      const rate = typeof info === 'object' ? (info.rate||info.value||info) : info;
+      const updated = typeof info === 'object' ? (info.updated_at||info.date||'') : '';
+      return `<tr>
+        <td style="font-weight:700;font-family:var(--mono);font-size:14px">${cur}</td>
+        <td style="font-weight:700;font-size:16px;color:var(--blue)">${parseFloat(rate).toFixed(4)} ₾</td>
+        <td style="font-size:11px;color:var(--gray-400)">${updated ? new Date(updated).toLocaleDateString('ka-GE') : '—'}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+async function convertCurrency() {
+  const amount = parseFloat(document.getElementById('conv-amount')?.value || 0);
+  const from   = document.getElementById('conv-from')?.value || 'USD';
+  const to     = document.getElementById('conv-to')?.value || 'GEL';
+  const res    = document.getElementById('conv-result');
+  if (!res) return;
+  if (!amount || isNaN(amount)) { toast('შეიყვანეთ თანხა', 'warn'); return; }
+  res.innerHTML = '<span class="spinner"></span>';
+  const d = await api('/currency/convert', 'POST', { amount, from_currency: from, to_currency: to });
+  if (!d || !d.ok) {
+    res.innerHTML = '<span style="color:var(--red);font-size:14px">კონვერტაცია ვერ მოხდა</span>';
+    return;
+  }
+  const result = d.data?.result ?? d.result ?? d.converted_amount;
+  const rate   = d.data?.rate ?? d.rate;
+  res.innerHTML = `<div>${amount.toLocaleString()} ${esc(from)} =</div>
+    <div style="font-size:28px;color:var(--blue)">${parseFloat(result).toFixed(4)} ${esc(to)}</div>
+    ${rate ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px">კურსი: 1 ${esc(from)} = ${parseFloat(rate).toFixed(4)} ${esc(to)}</div>` : ''}`;
+}
+
+// ── EXPENSES ─────────────────────────────────────────────────
+async function loadExpenses() {
+  const wrap = document.getElementById('exp-table-wrap');
+  const kpi  = document.getElementById('exp-kpi');
+  const status = document.getElementById('expenses-status')?.value || '';
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const qs = status ? `?status=${status}` : '';
+  const [listD, sumD] = await Promise.all([
+    api(`/expenses/list${qs}`),
+    api('/expenses/summary'),
+  ]);
+
+  if (sumD && sumD.ok && sumD.data) {
+    const s = sumD.data;
+    const pills = [
+      ['სულ', (s.total_amount||0).toFixed(0) + ' ₾', 'blue'],
+      ['pending', s.pending_count||0, 'amber'],
+      ['approved', s.approved_count||0, 'green'],
+      ['კატ.', s.categories_count||0, 'purple'],
+    ];
+    if (kpi) kpi.innerHTML = pills.map(([l,v,c]) =>
+      `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`
+    ).join('');
+  }
+
+  if (!listD || !listD.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Expenses ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const rows = listD.data?.expenses || listD.expenses || listD.data || [];
+  if (!rows.length) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">ხარჯი არ მოიძებნა</div></div>';
+    return;
+  }
+  if (wrap) wrap.innerHTML = `<table class="tbl">
+    <thead><tr><th>#</th><th>აღწერა</th><th>კატ.</th><th>პარტნიორი</th>
+      <th>თანხა</th><th>თარიღი</th><th>სტ.</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const sc = {approved:'chip-approved',pending:'chip-pending',rejected:'chip-rejected'}[r.status]||'chip-review';
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">#${r.id}</td>
+        <td style="font-weight:600">${esc(r.description)}</td>
+        <td><span class="chip chip-review" style="font-size:10px">${esc(r.category)}</span></td>
+        <td style="font-size:12px">${esc(r.partner)}</td>
+        <td style="font-weight:600;color:var(--red)">${(r.amount||0).toFixed(2)} ₾</td>
+        <td style="font-size:12px">${esc(r.date||r.created_at?.slice(0,10))}</td>
+        <td><span class="chip ${sc}">${esc(r.status)}</span></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+// ── INVOICES ──────────────────────────────────────────────────
+async function loadInvoices() {
+  const wrap = document.getElementById('inv-table-wrap');
+  const kpi  = document.getElementById('inv-kpi');
+  const status = document.getElementById('inv-status')?.value || '';
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const qs = status ? `?status=${status}` : '';
+  const [listD, sumD] = await Promise.all([
+    api(`/invoices/list${qs}`),
+    api('/invoices/stats/summary'),
+  ]);
+
+  if (sumD && sumD.ok && sumD.data) {
+    const s = sumD.data;
+    const pills = [
+      ['სულ', s.total_invoices||0, 'blue'],
+      ['paid', (s.total_paid||0).toFixed(0)+' ₾', 'green'],
+      ['pending', (s.total_pending||0).toFixed(0)+' ₾', 'amber'],
+      ['overdue', s.overdue_count||0, 'red'],
+    ];
+    if (kpi) kpi.innerHTML = pills.map(([l,v,c]) =>
+      `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`
+    ).join('');
+  }
+
+  if (!listD || !listD.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Invoices ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const rows = listD.data?.invoices || listD.invoices || listD.data || [];
+  if (!rows.length) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Invoice არ მოიძებნა</div></div>';
+    return;
+  }
+  if (wrap) wrap.innerHTML = `<table class="tbl">
+    <thead><tr><th>#</th><th>ნომ.</th><th>კლიენტი</th><th>ჯამი</th>
+      <th>გადახდ.</th><th>ვადა</th><th>სტ.</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const sc = {paid:'chip-approved',sent:'chip-pending',draft:'chip-review',overdue:'chip-rejected'}[r.status]||'chip-review';
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">#${r.id}</td>
+        <td style="font-family:var(--mono);font-size:12px">${esc(r.invoice_number)}</td>
+        <td style="font-weight:600">${esc(r.partner||r.client)}</td>
+        <td style="font-weight:600;color:var(--blue)">${(r.total||0).toFixed(2)} ₾</td>
+        <td style="color:var(--green)">${r.paid_amount!=null?(+r.paid_amount).toFixed(2)+' ₾':'—'}</td>
+        <td style="font-size:12px">${esc(r.due_date)}</td>
+        <td><span class="chip ${sc}">${esc(r.status)}</span></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+// ── REPORTS ───────────────────────────────────────────────────
+let _repActive = 'pnl';
+async function loadReports() { loadReport(_repActive); }
+
+async function loadReport(type) {
+  _repActive = type;
+  ['pnl','cashflow','monthly'].forEach(t => {
+    const b = document.getElementById('rep-btn-' + t);
+    if (b) { b.style.background = t===type?'var(--blue-s)':''; b.style.color = t===type?'var(--blue)':''; b.style.fontWeight = t===type?'700':''; }
+  });
+  const el = document.getElementById('rep-body');
+  if (!el) return;
+  el.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  const year = document.getElementById('rep-year')?.value || new Date().getFullYear();
+
+  let path = '';
+  if (type === 'pnl')      path = `/reports/pnl?year=${year}`;
+  if (type === 'cashflow') path = `/reports/cashflow?year=${year}`;
+  if (type === 'monthly')  path = `/reports/monthly?year=${year}`;
+
+  const d = await api(path);
+  if (!d || !d.ok) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">Report ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const data = d.data || d;
+
+  if (type === 'pnl') {
+    const kv = [
+      ['შემოსავალი', data.revenue||data.total_revenue, 'green'],
+      ['ხარჯი', data.expenses||data.total_expenses, 'red'],
+      ['მოგება', data.net_profit||data.profit, (data.net_profit||data.profit||0)>=0?'green':'red'],
+      ['მარჟა', data.profit_margin!=null?(+data.profit_margin).toFixed(1)+'%':null, 'blue'],
+    ].filter(([,v]) => v!=null);
+    el.innerHTML = `<div style="display:flex;gap:14px;flex-wrap:wrap;padding:4px 0 16px">${kv.map(([l,v,c])=>
+      `<div class="card" style="flex:1;min-width:160px;padding:14px 16px;border:1px solid var(--gray-200)">
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px">${l}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--${c})">${typeof v==='number'?v.toFixed(2)+' ₾':v}</div>
+      </div>`).join('')}</div>
+      ${data.breakdown ? `<table class="tbl"><thead><tr><th>ანგარიში</th><th>კატ.</th><th>თანხა</th></tr></thead><tbody>${
+        (data.breakdown||[]).map(r=>`<tr><td style="font-family:var(--mono);font-size:12px">${esc(r.account_code)}</td><td>${esc(r.category||r.name)}</td><td style="font-weight:600">${(r.amount||0).toFixed(2)} ₾</td></tr>`).join('')
+      }</tbody></table>` : ''}`;
+    return;
+  }
+
+  if (type === 'cashflow') {
+    const rows = data.rows || data.months || data.items || [];
+    el.innerHTML = rows.length ? `<table class="tbl">
+      <thead><tr><th>პერიოდი</th><th>შემოდინება</th><th>გასვლა</th><th>სალდო</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const net = (r.inflow||r.income||0)-(r.outflow||r.expenses||0);
+        return `<tr>
+          <td style="font-weight:600">${esc(r.period||r.month||r.date)}</td>
+          <td style="color:var(--green)">${(r.inflow||r.income||0).toFixed(2)} ₾</td>
+          <td style="color:var(--red)">${(r.outflow||r.expenses||0).toFixed(2)} ₾</td>
+          <td style="font-weight:700;color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${net.toFixed(2)} ₾</td>
+        </tr>`;
+      }).join('')}</tbody></table>` :
+      '<div class="empty-state"><div class="empty-text">Cash Flow მონაცემი არ არის</div></div>';
+    return;
+  }
+
+  if (type === 'monthly') {
+    const rows = data.months || data.rows || data.items || [];
+    el.innerHTML = rows.length ? `<table class="tbl">
+      <thead><tr><th>თვე</th><th>ჩანაწერი</th><th>შემოსავ.</th><th>ხარჯი</th><th>მოგება</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const profit = (r.revenue||r.income||0)-(r.expenses||r.costs||0);
+        return `<tr>
+          <td style="font-weight:600">${esc(r.month||r.period)}</td>
+          <td style="font-family:var(--mono)">${esc(r.transaction_count||r.count)}</td>
+          <td style="color:var(--green)">${(r.revenue||r.income||0).toFixed(2)} ₾</td>
+          <td style="color:var(--red)">${(r.expenses||r.costs||0).toFixed(2)} ₾</td>
+          <td style="font-weight:700;color:${profit>=0?'var(--green)':'var(--red)'}">${profit>=0?'+':''}${profit.toFixed(2)} ₾</td>
+        </tr>`;
+      }).join('')}</tbody></table>` :
+      '<div class="empty-state"><div class="empty-text">Monthly data არ არის</div></div>';
+  }
+}
+
+// ── CRM ──────────────────────────────────────────────────────
+let _crmAll = [];
+async function loadCRM() {
+  const wrap = document.getElementById('crm-table-wrap');
+  const sumRow = document.getElementById('crm-summary-row');
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const [listD, sumD] = await Promise.all([
+    api('/crm/customers'),
+    api('/crm/summary'),
+  ]);
+
+  if (sumD && sumD.ok && sumD.data) {
+    const s = sumD.data;
+    const pills = [
+      ['სულ', s.total_customers || 0, 'blue'],
+      ['კლიენტი', s.by_type?.customer || 0, 'green'],
+      ['მომწოდ.', s.by_type?.vendor || 0, 'purple'],
+      ['გადახდ.', (s.total_paid || 0).toFixed(0) + ' ₾', 'green'],
+    ];
+    if (sumRow) sumRow.innerHTML = pills.map(([l, v, c]) =>
+      `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`
+    ).join('');
+  }
+
+  if (!listD || !listD.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">კლიენტები ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  _crmAll = listD.data?.customers || listD.customers || [];
+  renderCRMTable(_crmAll);
+}
+
+function filterCRM(q) {
+  const filtered = q ? _crmAll.filter(c =>
+    (c.name||'').toLowerCase().includes(q.toLowerCase()) ||
+    (c.email||'').toLowerCase().includes(q.toLowerCase()) ||
+    (c.company||'').toLowerCase().includes(q.toLowerCase())
+  ) : _crmAll;
+  renderCRMTable(filtered);
+}
+
+function renderCRMTable(rows) {
+  const wrap = document.getElementById('crm-table-wrap');
+  if (!wrap) return;
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-text">კლიენტი არ მოიძებნა</div></div>';
+    return;
+  }
+  wrap.innerHTML = `<table class="tbl">
+    <thead><tr>
+      <th>სახელი</th><th>ტიპი</th><th>ელ-ფოსტა</th>
+      <th>კომპანია</th><th>ტელ.</th><th>სტ.</th>
+    </tr></thead>
+    <tbody>${rows.map(c => `<tr>
+      <td style="font-weight:600">${esc(c.name)}</td>
+      <td><span class="chip chip-${c.type==='customer'?'approved':c.type==='vendor'?'pending':'review'}">${esc(c.type)}</span></td>
+      <td style="font-size:12px;color:var(--gray-600)">${esc(c.email)}</td>
+      <td style="font-size:12px">${esc(c.company)}</td>
+      <td style="font-size:12px">${esc(c.phone)}</td>
+      <td><span class="chip ${c.status==='active'?'chip-approved':'chip-rejected'}">${esc(c.status)}</span></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// ── BUDGET ───────────────────────────────────────────────────
+async function loadBudget() {
+  const wrap = document.getElementById('budget-table-wrap');
+  const kpi  = document.getElementById('budget-kpi');
+  const year = document.getElementById('budget-year')?.value || new Date().getFullYear();
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const d = await api(`/budget/vs-actual/${year}`);
+  if (!d || !d.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Budget ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const data = d.data || d;
+  const rows = data.rows || data.items || [];
+  const summary = data.summary || {};
+
+  if (kpi) {
+    const budgeted = rows.reduce((s, r) => s + (r.budgeted || 0), 0);
+    const actual   = rows.reduce((s, r) => s + (r.actual || 0), 0);
+    const variance = budgeted - actual;
+    kpi.innerHTML = [
+      ['ბიუჯეტი', budgeted.toFixed(0) + ' ₾', 'blue'],
+      ['ფაქტი', actual.toFixed(0) + ' ₾', actual > budgeted ? 'red' : 'green'],
+      ['სხვაობა', (variance >= 0 ? '+' : '') + variance.toFixed(0) + ' ₾', variance >= 0 ? 'green' : 'red'],
+    ].map(([l, v, c]) => `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`).join('');
+  }
+
+  if (!rows.length) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">Budget ჩანაწერი არ არის</div></div>';
+    return;
+  }
+  if (wrap) wrap.innerHTML = `<table class="tbl">
+    <thead><tr><th>ანგარიში</th><th>კატ.</th><th>ბიუჯეტი</th><th>ფაქტი</th><th>%</th><th>სხვაობა</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const pct = r.budgeted ? Math.round((r.actual / r.budgeted) * 100) : 0;
+      const diff = (r.budgeted || 0) - (r.actual || 0);
+      const ok = diff >= 0;
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:12px">${esc(r.account_code)}</td>
+        <td style="font-size:12px">${esc(r.category||r.name)}</td>
+        <td style="font-weight:600">${(r.budgeted||0).toFixed(2)} ₾</td>
+        <td style="font-weight:600">${(r.actual||0).toFixed(2)} ₾</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:60px">
+              <div style="height:100%;width:${Math.min(pct,100)}%;background:${pct>100?'var(--red)':pct>80?'var(--amber)':'var(--green)'};border-radius:3px"></div>
+            </div>
+            <span style="font-size:11px;min-width:32px">${pct}%</span>
+          </div>
+        </td>
+        <td style="font-weight:600;color:${ok?'var(--green)':'var(--red)'}">${ok?'+':''}${diff.toFixed(0)} ₾</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+// ── CONTRACTS ────────────────────────────────────────────────
+async function loadContracts() {
+  const wrap = document.getElementById('contracts-table-wrap');
+  const kpi  = document.getElementById('contracts-kpi');
+  const status = document.getElementById('contracts-status')?.value || '';
+  if (wrap) wrap.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  const qs = status ? `?status=${status}` : '';
+  const [listD, sumD] = await Promise.all([
+    api(`/contracts/list${qs}`),
+    api('/contracts/summary/stats'),
+  ]);
+
+  if (sumD && sumD.ok && sumD.data) {
+    const s = sumD.data;
+    const pills = [
+      ['სულ', s.total || 0, 'blue'],
+      ['აქტიური', s.active || 0, 'green'],
+      ['Draft', s.draft || 0, 'gray'],
+      ['ვადაგასული', s.expired || 0, 'red'],
+    ];
+    if (kpi) kpi.innerHTML = pills.map(([l, v, c]) =>
+      `<span class="card-badge badge-${c}" style="font-size:12px;padding:4px 10px">${l}: <b>${v}</b></span>`
+    ).join('');
+  }
+
+  if (!listD || !listD.ok) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">კონტრაქტები ვერ ჩაიტვირთა</div></div>';
+    return;
+  }
+  const rows = listD.data?.contracts || listD.contracts || listD.data || [];
+  if (!rows.length) {
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="empty-text">კონტრაქტი არ მოიძებნა</div></div>';
+    return;
+  }
+  if (wrap) wrap.innerHTML = `<table class="tbl">
+    <thead><tr><th>#</th><th>სათაური</th><th>პარტნიორი</th><th>ტიპი</th>
+      <th>ღირებულება</th><th>დაწყება</th><th>დასრულება</th><th>სტ.</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const statusColor = {active:'chip-approved',draft:'chip-pending',expired:'chip-rejected',terminated:'chip-rejected'}[r.status] || 'chip-review';
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">#${r.id}</td>
+        <td style="font-weight:600">${esc(r.title)}</td>
+        <td style="font-size:12px">${esc(r.party_name||r.partner)}</td>
+        <td style="font-size:12px">${esc(r.contract_type)}</td>
+        <td style="font-weight:600">${r.value!=null?(parseFloat(r.value)).toFixed(0)+' ₾':'—'}</td>
+        <td style="font-size:12px">${esc(r.start_date)}</td>
+        <td style="font-size:12px">${esc(r.end_date)}</td>
+        <td><span class="chip ${statusColor}">${esc(r.status)}</span></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
 }
 
 function openModal(row) {
@@ -1508,7 +2681,7 @@ function openModal(row) {
     ['Source', row.classification_source || '—'],
     ['Partner', row.partner || '—'],
     ['Pattern', row.pattern_matched_on || '—']
-  ].map(([k, v]) => `<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${v}</span></div>`).join('');
+  ].map(([k, v]) => `<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${esc(v)}</span></div>`).join('');
 
   document.getElementById('modal-footer').innerHTML = `
     <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
@@ -1523,43 +2696,118 @@ function closeModal() {
 }
 
 async function showPostingPreview(id) {
-  document.getElementById('modal-title').textContent = '🔍 Posting Preview — #' + id;
-  document.getElementById('modal-body').innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray-400)">იტვირთება...</div>';
-  document.getElementById('modal-footer').innerHTML = '<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>';
+  document.getElementById('modal-title').textContent = '👁 Posting Preview — #' + id;
+  document.getElementById('modal-body').innerHTML = `<div style="text-align:center;padding:28px;color:var(--gray-400)"><span class="spinner"></span><div style="margin-top:8px;font-size:13px">Loading preview...</div></div>`;
+  document.getElementById('modal-footer').innerHTML = `<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>`;
   document.getElementById('overlay').classList.add('show');
   try {
-    const r = await fetch(BASE + '/posting/preview/' + id, {headers: {'Authorization': 'Bearer ' + (TOKEN || ''), 'X-Tenant-ID': TENANT}});
+    const r = await fetch(BASE + '/posting/preview/' + id, {headers: {'Authorization': 'Bearer ' + (TOKEN || '')}});
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      document.getElementById('modal-body').innerHTML = '<div style="color:var(--red);padding:12px">' + (j.error?.details || j.message || 'შეცდომა') + '</div>';
+      const msg = j.error?.details || j.message || 'Preview ვერ მოიძებნა';
+      document.getElementById('modal-body').innerHTML = `<div style="background:var(--red-s);color:var(--red);padding:14px 16px;border-radius:var(--r);border-left:3px solid var(--red);font-size:13px">❌ ${esc(msg)}</div>`;
       return;
     }
     const dr = j.draft || {};
     const imp = j.impact || {};
-    const plSign = imp.pl_direction === 'increase' ? '+' : imp.pl_direction === 'decrease' ? '−' : '';
-    const plVal = imp.pl_impact != null ? `${plSign}${Math.abs(imp.pl_impact).toLocaleString()} ${imp.currency||'GEL'} (${imp.pl_direction||'—'})` : '—';
-    const vatVal = imp.vat_change != null ? `${imp.vat_change > 0 ? '+' : ''}${imp.vat_change.toLocaleString()} GEL` : '—';
-    const taxVal = imp.tax_impact != null ? `${imp.tax_type||''} ${imp.tax_impact.toLocaleString()} GEL` : '—';
-    const rows = [
-      ['Dr ანგარიში', dr.debit_account || '—'],
-      ['Cr ანგარიში', dr.credit_account || '—'],
-      ['თანხა', (dr.amount || 0).toLocaleString() + ' ' + (dr.currency || 'GEL')],
-      ['P&L გავლენა', plVal],
-      ['VAT ცვლილება', vatVal],
-      ['გადასახადი', taxVal],
-      ['სტატუსი', dr.status || '—'],
-      ['Confidence', dr.confidence != null ? Math.round(dr.confidence*100)+'%' : '—'],
-    ].map(([k, v]) => `<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${v}</span></div>`).join('');
-    const notes = imp.notes?.length ? imp.notes.map(n => `<li style="margin:4px 0">${n}</li>`).join('') : '';
-    const narrative = notes ? `<div style="margin-top:12px;padding:10px 12px;background:var(--blue-s);border-radius:var(--r);font-size:12px;color:var(--blue);line-height:1.6"><ul style="padding-left:16px">${notes}</ul></div>` : '';
-    const warning = j.warning ? `<div style="margin-top:8px;font-size:11px;color:var(--gray-400);font-style:italic">${j.warning}</div>` : '';
-    document.getElementById('modal-body').innerHTML = rows + narrative + warning;
+    const cur = imp.currency || dr.currency || 'GEL';
+    const amt = dr.amount || 0;
+    const fmt = v => Number(v).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+    // — A: Draft Summary —
+    const statusChip = {
+      'pending_approval': '<span class="chip chip-pending">⏳ pending</span>',
+      'approved':         '<span class="chip chip-approved">✅ approved</span>',
+      'rejected':         '<span class="chip chip-rejected">❌ rejected</span>',
+      'drafted':          '<span class="chip chip-review">📝 drafted</span>',
+    }[dr.status] || `<span class="chip chip-review">${dr.status||'—'}</span>`;
+    const confPct = dr.confidence != null ? Math.round(dr.confidence * 100) : null;
+    const confColor = confPct == null ? 'var(--gray-400)' : confPct >= 85 ? 'var(--green)' : confPct >= 60 ? 'var(--amber)' : 'var(--red)';
+
+    const sectionA = `
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--gray-400);margin-bottom:8px">📄 Draft Summary</div>
+        <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--r);padding:12px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;font-size:13px">
+          <div><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Draft ID</div><div style="font-family:var(--mono);font-weight:700">#${j.draft_id}</div></div>
+          <div><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Status</div><div>${statusChip}</div></div>
+          <div style="grid-column:1/-1"><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Description</div><div style="font-weight:600">${esc(dr.description)}</div></div>
+          ${dr.partner ? `<div style="grid-column:1/-1"><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Partner</div><div>${esc(dr.partner)}</div></div>` : ''}
+          <div><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Amount</div><div style="font-weight:700;font-size:16px">${fmt(amt)} ${esc(cur)}</div></div>
+          <div><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Confidence</div><div style="font-weight:700;color:${confColor}">${confPct != null ? confPct + '%' : '—'}</div></div>
+          ${dr.date ? `<div><div style="font-size:10px;color:var(--gray-400);margin-bottom:2px">Date</div><div style="font-family:var(--mono)">${esc(dr.date)}</div></div>` : ''}
+        </div>
+      </div>`;
+
+    // — B: Journal Lines —
+    const catLabels = {expense:'ხარჯი',income:'შემოსავალი',asset:'აქტივი',liability:'ვალდებულება',vat:'დღგ',tax:'გადასახადი',other:'სხვა'};
+    const drCat = catLabels[imp.debit_category] || imp.debit_category || '';
+    const crCat = catLabels[imp.credit_category] || imp.credit_category || '';
+
+    const sectionB = `
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--gray-400);margin-bottom:8px">📒 Journal Lines</div>
+        <div style="font-family:var(--mono);font-size:13px;border:1px solid var(--gray-200);border-radius:var(--r);overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:rgba(34,197,94,.06);border-left:3px solid var(--green)">
+            <span>
+              <span style="font-weight:800;color:var(--green);min-width:22px;display:inline-block">Dr</span>
+              <span style="font-weight:700">${esc(dr.debit_account)}</span>
+              ${drCat ? `<span style="color:var(--gray-400);font-size:11px;margin-left:8px">${esc(drCat)}</span>` : ''}
+            </span>
+            <span style="font-weight:700">${fmt(amt)} ${esc(cur)}</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:rgba(220,38,38,.04);border-left:3px solid var(--red)">
+            <span>
+              <span style="font-weight:800;color:var(--red);min-width:22px;display:inline-block">Cr</span>
+              <span style="font-weight:700">${esc(dr.credit_account)}</span>
+              ${crCat ? `<span style="color:var(--gray-400);font-size:11px;margin-left:8px">${esc(crCat)}</span>` : ''}
+            </span>
+            <span style="font-weight:700">${fmt(amt)} ${cur}</span>
+          </div>
+        </div>
+      </div>`;
+
+    // — C: Impact Badges —
+    const plColor = imp.pl_direction === 'increase' ? 'green' : imp.pl_direction === 'decrease' ? 'red' : 'gray';
+    const plSign  = imp.pl_direction === 'increase' ? '+' : imp.pl_direction === 'decrease' ? '−' : '';
+    const plBadge = imp.pl_impact != null
+      ? `<span class="card-badge badge-${plColor}" style="font-size:12px;padding:5px 11px">P&L: <b>${plSign}${fmt(Math.abs(imp.pl_impact))} ${cur}</b></span>`
+      : `<span class="card-badge badge-gray"   style="font-size:12px;padding:5px 11px">P&L: <b>—</b></span>`;
+    const vatBadge = imp.vat_change != null
+      ? `<span class="card-badge badge-amber"  style="font-size:12px;padding:5px 11px">VAT: <b>${imp.vat_change > 0 ? '+' : ''}${fmt(imp.vat_change)} ${cur}</b></span>`
+      : `<span class="card-badge badge-gray"   style="font-size:12px;padding:5px 11px">VAT: <b>—</b></span>`;
+    const taxBadge = imp.tax_impact != null
+      ? `<span class="card-badge badge-purple" style="font-size:12px;padding:5px 11px">TAX: <b>${imp.tax_type ? imp.tax_type + ' ' : ''}${fmt(imp.tax_impact)} ${cur}</b></span>`
+      : `<span class="card-badge badge-gray"   style="font-size:12px;padding:5px 11px">TAX: <b>—</b></span>`;
+
+    const sectionC = `
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--gray-400);margin-bottom:8px">📊 Impact</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${plBadge}${vatBadge}${taxBadge}</div>
+      </div>`;
+
+    // — D: Explanation —
+    const notes = imp.notes?.length ? imp.notes : imp.summary ? [imp.summary] : [];
+    const sectionD = notes.length ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--gray-400);margin-bottom:8px">💡 Explanation</div>
+        <div style="background:var(--blue-s);border-radius:var(--r);padding:12px 14px">
+          <ul style="padding-left:16px;margin:0;font-size:13px;color:var(--blue);line-height:1.75">
+            ${notes.map(n => `<li>${esc(n)}</li>`).join('')}
+          </ul>
+        </div>
+      </div>` : '';
+
+    const warnHtml = j.warning
+      ? `<div style="font-size:11px;color:var(--gray-400);font-style:italic;text-align:center;padding:10px 0 2px;border-top:1px solid var(--gray-100)">🔒 ${esc(j.warning)}</div>`
+      : '';
+
+    document.getElementById('modal-body').innerHTML = sectionA + sectionB + sectionC + sectionD + warnHtml;
     document.getElementById('modal-footer').innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
       <button class="btn btn-green btn-sm" onclick="approve('${id}');closeModal()">✅ დამტკიცება</button>
     `;
   } catch(e) {
-    document.getElementById('modal-body').innerHTML = '<div style="color:var(--red);padding:12px">Network error: ' + e.message + '</div>';
+    document.getElementById('modal-body').innerHTML = `<div style="background:var(--red-s);color:var(--red);padding:14px 16px;border-radius:var(--r);font-size:13px">❌ Network error: ${esc(e.message)}</div>`;
   }
 }
 
@@ -1588,10 +2836,21 @@ function goPage(name, btn) {
     bank: '🏦 Bank Sync',
     payroll: '💰 Payroll',
     collab: '👥 Collaboration',
-    learning: '🧠 Learning',
+    insights:  '📈 Dashboard Insights',
+    learning:  '🧠 Learning',
     recommend: '💡 AI Recommend',
-    health: '💊 Health Check',
-    settings: '⚙️ Settings'
+    health:    '💊 Health Check',
+    settings:  '⚙️ Settings',
+    crm:       '👤 CRM',
+    budget:    '🎯 Budget vs Actual',
+    contracts: '📝 Contracts',
+    expenses:  '🧾 Expenses',
+    invoices:  '📄 Invoices',
+    reports:   '📑 Financial Reports',
+    auditlog:  '🔍 Audit Log',
+    currency:  '💱 Currency',
+    bank:      '🏦 Bank Sync',
+    settings:  '⚙️ Settings',
   };
 
   const titleEl = document.getElementById('page-title');
@@ -1614,6 +2873,8 @@ function loadPage() {
     loadApproved();
   } else if (curPage === 'rejected') {
     loadRejected();
+  } else if (curPage === 'insights') {
+    loadInsights();
   } else if (curPage === 'learning') {
     loadLearning();
   } else if (curPage === 'health') {
@@ -1624,6 +2885,24 @@ function loadPage() {
     loadCollab();
   } else if (curPage === 'recommend') {
     loadRecommend();
+  } else if (curPage === 'crm') {
+    loadCRM();
+  } else if (curPage === 'budget') {
+    loadBudget();
+  } else if (curPage === 'contracts') {
+    loadContracts();
+  } else if (curPage === 'expenses') {
+    loadExpenses();
+  } else if (curPage === 'invoices') {
+    loadInvoices();
+  } else if (curPage === 'reports') {
+    loadReports();
+  } else if (curPage === 'auditlog') {
+    loadAuditLog();
+  } else if (curPage === 'currency') {
+    loadCurrencyRates();
+  } else if (curPage === 'bank') {
+    loadBankStatus();
   }
 }
 
@@ -1668,7 +2947,7 @@ async function sendMsg() {
   const text = inp.value.trim() || 'ფაილი გაანალიზე';
   const fileLabel = aiFile ? ` 📎${aiFile.name}` : '';
 
-  box.innerHTML += `<div class="msg user">${text}${fileLabel}</div>`;
+  box.innerHTML += `<div class="msg user">${esc(text)}${esc(fileLabel)}</div>`;
   inp.value = '';
 
   const tid = 't' + Date.now();
@@ -1705,7 +2984,7 @@ async function sendMsg() {
 
       const r = await fetch(`${BASE}/api/ai/chat`, {
         method: 'POST',
-        headers: { 'X-Tenant-ID': TENANT },
+        headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {},
         body: fd
       });
 
@@ -1724,7 +3003,7 @@ async function sendMsg() {
 
   setTimeout(() => {
     const el = document.getElementById(tid);
-    if (el) el.innerHTML = reply;
+    if (el) el.innerHTML = esc(reply);
     box.scrollTop = box.scrollHeight;
   }, 250);
 }
@@ -1747,15 +3026,129 @@ async function loadInbox() {
     <div class="collab-item">
       <div class="collab-avatar">📧</div>
       <div style="flex:1">
-        <div class="collab-name">${m.subject || '(No subject)'}</div>
-        <div class="collab-time">${m.from || 'Unknown sender'} · ${fmtDate(m.date)}</div>
-        <div class="collab-text">${m.snippet || ''}</div>
+        <div class="collab-name">${esc(m.subject || '(No subject)')}</div>
+        <div class="collab-time">${esc(m.from || 'Unknown sender')} · ${fmtDate(m.date)}</div>
+        <div class="collab-text">${esc(m.snippet)}</div>
       </div>
     </div>
   `).join('');
 
   const badge = document.getElementById('sb-inbox');
   if (badge) badge.textContent = items.length;
+}
+
+// ── BANK STATUS ──────────────────────────────────────────────
+async function loadBankStatus() {
+  const d = await api('/bank-sync/status');
+  if (!d || !d.ok) return;
+
+  const banks = d.banks || {};
+  const tbc = banks.tbc || {};
+  const bog = banks.bog || {};
+
+  const _pill = (connected) => connected
+    ? '<span class="status-pill sp-live" style="background:var(--green-s);color:var(--green);border-color:rgba(5,150,105,.2)">LIVE</span>'
+    : '<span class="status-pill sp-demo">DEMO</span>';
+  const _kpiVal = (connected) => connected ? '✅ Live' : '⚠️ Demo';
+
+  const tbcConn = tbc.connected || tbc.status === 'connected' || false;
+  const bogConn = bog.connected || bog.status === 'connected' || false;
+
+  const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const setHtml = (id, v) => { const e = document.getElementById(id); if (e) e.innerHTML = v; };
+
+  setEl('bank-tbc-status', _kpiVal(tbcConn));
+  setEl('bank-bog-status', _kpiVal(bogConn));
+  setEl('bank-tbc-sub', tbc.message || tbc.mode || (tbcConn ? 'Connected' : 'DEMO mode'));
+  setEl('bank-bog-sub', bog.message || bog.mode || (bogConn ? 'Connected' : 'DEMO mode'));
+  setHtml('bank-tbc-pill', _pill(tbcConn));
+  setHtml('bank-bog-pill', _pill(bogConn));
+
+  const lastSync = tbc.last_sync || bog.last_sync;
+  setEl('bank-last-sync', lastSync ? new Date(lastSync).toLocaleString('ka-GE', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—');
+  setEl('bank-queued', (tbc.queued_count || 0) + (bog.queued_count || 0) || '—');
+}
+
+// ── COLLABORATION COMMENTS ────────────────────────────────────
+async function addCollabComment() {
+  const draftId = document.getElementById('collab-draft-id')?.value?.trim();
+  const text    = document.getElementById('collab-text')?.value?.trim();
+  const author  = document.getElementById('collab-author')?.value?.trim() || 'user';
+
+  if (!draftId) { toast('Draft ID შეიყვანე', 'warn'); return; }
+  if (!text)    { toast('კომენტარი შეიყვანე', 'warn'); return; }
+
+  const r = await api(`/collaboration/drafts/${draftId}/comments`, 'POST', {
+    comment_text: text,
+    author: author,
+    author_role: 'accountant',
+    comment_type: 'general',
+  });
+
+  if (r && r.ok) {
+    toast('კომენტარი დამატებულია ✅', 'ok');
+    document.getElementById('collab-text').value = '';
+    await loadDraftComments();
+    await loadCollab();
+  } else {
+    toast('კომენტარი ვერ დაემატა', 'err');
+  }
+}
+
+async function loadDraftComments() {
+  const draftId = document.getElementById('collab-draft-id')?.value?.trim();
+  const el = document.getElementById('collab-draft-comments');
+  if (!el) return;
+  if (!draftId) { el.innerHTML = ''; return; }
+
+  el.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  const d = await api(`/collaboration/drafts/${draftId}/comments`);
+  const items = d?.data?.items || d?.items || d?.comments || [];
+
+  if (!items.length) {
+    el.innerHTML = `<div style="padding:12px;color:var(--gray-400);font-size:12px;text-align:center">Draft #${draftId}-ზე კომენტარი არ არის</div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Draft #${draftId} — ${items.length} comment</div>
+    ${items.map(c => `
+      <div class="collab-item" style="margin-bottom:8px">
+        <div class="collab-avatar">${esc((c.author||'U').slice(0,1).toUpperCase())}</div>
+        <div>
+          <div class="collab-name">${esc(c.author || 'Unknown')} <span style="color:var(--gray-400);font-weight:400;font-size:10px">${esc(c.author_role)}</span></div>
+          <div class="collab-time">${fmtDate(c.created_at)}</div>
+          <div class="collab-text">${esc(c.comment_text || c.text)}</div>
+        </div>
+      </div>`).join('')}`;
+}
+
+// ── SETTINGS TEST CONNECTION ──────────────────────────────────
+async function testConnection(service) {
+  toast(`🔍 ${service} testing...`, 'info');
+  let d = null;
+
+  if (service === 'balance-ge') {
+    d = await api('/balance-ge/test-connection', 'POST', {});
+  } else if (service === '1c') {
+    // No dedicated status endpoint — use health check
+    d = await api('/health');
+    if (d) d = { ok: true };
+  } else if (service === 'rs-ge') {
+    // Verify RS connectivity via tax rates lookup
+    d = await api('/tax/rates');
+  } else if (service === 'bank-sync') {
+    d = await api('/bank-sync/status');
+  } else {
+    toast(`${service} test: endpoint unknown`, 'warn');
+    return;
+  }
+
+  if (d && d.ok !== false) {
+    toast(`✅ ${service}: connected`, 'ok');
+  } else {
+    toast(`⚠️ ${service}: not connected or DEMO mode`, 'warn');
+  }
 }
 
 window.addEventListener('load', async function () {
@@ -1767,7 +3160,7 @@ window.addEventListener('load', async function () {
   // Verify token is still valid (catches expired / wrong-key tokens)
   try {
     const chk = await fetch(BASE + '/auth/me', {
-      headers: { 'Authorization': 'Bearer ' + TOKEN, 'X-Tenant-ID': TENANT }
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
     });
     const cd = await chk.json().catch(() => ({}));
     if (!cd.ok) {
@@ -1778,6 +3171,8 @@ window.addEventListener('load', async function () {
     }
   } catch { /* network error — try anyway */ }
   await loadPage();
+  // Silent notification check — updates bell dot without opening panel
+  loadNotifications();
 });
 </script>
 </body>

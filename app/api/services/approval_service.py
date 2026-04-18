@@ -17,6 +17,20 @@ AUTOPILOT_MIN_USAGE_COUNT = 5
 AUTOPILOT_MIN_SUCCESS_RATE = 0.80
 AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
 
+
+def effective_threshold(amount: float) -> float:
+    """
+    Dynamic confidence threshold based on transaction risk (amount).
+    > 1000 GEL → stricter (0.95)
+    < 50  GEL → lenient  (0.75)
+    default    → 0.85
+    """
+    if amount > 1000:
+        return 0.95
+    if amount < 50:
+        return 0.75
+    return 0.85
+
 PATTERN_SOURCES = {
     "pattern_active",
     "pattern_active_fuzzy",
@@ -499,11 +513,15 @@ def autopilot_approve_service(
 
     for draft in raw_candidates:
         confidence = float(draft.get("confidence") or 0.0)
+        amount = float(draft.get("amount") or 0.0)
         success_count = int(draft.get("success_count") or 0)
         failure_count = int(draft.get("failure_count") or 0)
         usage_count = int(draft.get("usage_count") or 0)
         total = success_count + failure_count
         success_rate = (success_count / total) if total > 0 else 0.0
+
+        # Use dynamic threshold per-draft (additive — honours caller's override too)
+        draft_threshold = max(confidence_threshold, effective_threshold(amount))
 
         skip_reason = None
 
@@ -524,8 +542,8 @@ def autopilot_approve_service(
             "pattern_candidate_fuzzy",
         ):
             skip_reason = f"has_failures:{failure_count}"
-        elif float(draft.get("confidence") or 0.0) < confidence_threshold:
-            skip_reason = f"below_threshold:{confidence}"
+        elif confidence < draft_threshold:
+            skip_reason = f"below_threshold:{confidence:.3f}<{draft_threshold:.2f}"
 
         if skip_reason:
             skipped.append({"id": draft["id"], "reason": skip_reason})
@@ -604,5 +622,87 @@ def autopilot_approve_service(
             "approved_ids": approved_ids,
             "failed_ids": failed_ids,
             "tenant_id": tenant_id,
+        },
+    )
+
+
+def autopilot_suggest_service(tenant_id: str):
+    """
+    Suggest-only autopilot: identifies approval candidates WITHOUT changing any DB status.
+    Returns drafts flagged autopilot_suggested=True / autopilot_flag='ready_for_approval'.
+    UI shows these as 'Ready' — human still clicks Approve.
+    Never sets status = approved / auto_approved.
+    """
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT jd.id, jd.confidence, jd.description, jd.account_code,
+                   jd.amount, jd.status, jd.classification_source,
+                   jd.pattern_matched_on, jd.pattern_value_used,
+                   lp.success_count, lp.failure_count, lp.usage_count
+            FROM journal_drafts jd
+            LEFT JOIN learning_patterns lp
+                ON lp.tenant_id = jd.tenant_id
+               AND lp.account_code = jd.account_code
+               AND lp.status = 'active'
+            WHERE jd.status IN ('drafted', 'pending_approval')
+              AND jd.tenant_id = %s
+            ORDER BY jd.confidence DESC
+            LIMIT 50
+            """,
+            (tenant_id,),
+        )
+        drafts = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        return error_response("Autopilot suggest failed", "SUGGEST_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+    suggestions = []
+    for draft in drafts:
+        amount = float(draft.get("amount") or 0)
+        confidence = float(draft.get("confidence") or 0)
+        threshold = effective_threshold(amount)
+        usage_count = int(draft.get("usage_count") or 0)
+        success_count = int(draft.get("success_count") or 0)
+        failure_count = int(draft.get("failure_count") or 0)
+        total = success_count + failure_count
+        success_rate = (success_count / total) if total > 0 else 0.0
+
+        eligible = (
+            confidence >= threshold
+            and draft.get("classification_source") != "rules"
+            and failure_count == 0
+            and (
+                usage_count >= AUTOPILOT_MIN_USAGE_COUNT
+                or draft.get("classification_source") in ("expense_article", "partner_memory", "erp_history")
+            )
+            and (total == 0 or success_rate >= AUTOPILOT_MIN_SUCCESS_RATE)
+        )
+
+        if eligible:
+            suggestions.append({
+                "id": draft["id"],
+                "description": draft.get("description"),
+                "account_code": draft.get("account_code"),
+                "amount": amount,
+                "confidence": confidence,
+                "status": draft.get("status"),
+                "classification_source": draft.get("classification_source"),
+                "autopilot_suggested": True,
+                "autopilot_flag": "ready_for_approval",
+                "effective_threshold": threshold,
+            })
+
+    return ok_response(
+        "Autopilot suggestions (suggest-only)",
+        {
+            "count": len(suggestions),
+            "suggestions": suggestions,
+            "tenant_id": tenant_id,
+            "note": "No status changes made. Human approval required.",
         },
     )

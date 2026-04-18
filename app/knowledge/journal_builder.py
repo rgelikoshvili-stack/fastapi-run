@@ -7,6 +7,83 @@ from app.knowledge.chart_of_accounts import (
 from app.knowledge.tax_rules import TAX_RULES
 from app.knowledge.knowledge_loader import _load_files, _load_learned, _find, _TAX_TEXT, _ACC_TEXT
 
+# ── Noise words stripped before partner candidate extraction ─────────────────
+_NOISE_WORDS = frozenset([
+    "payment", "to", "from", "for", "by", "the", "a", "an",
+    "გადარიცხვა", "გადახდა", "invoice", "bill", "charge", "fee",
+    "transfer", "via", "on", "of", "in",
+])
+
+
+def _extract_partner_candidate(desc: str, matched_kw: str) -> str | None:
+    """Return the non-keyword portion as a likely partner/entity name."""
+    cleaned = re.sub(re.escape(matched_kw), "", desc, flags=re.IGNORECASE)
+    tokens = [
+        t for t in re.split(r"[\s,.\-_/|:]+", cleaned)
+        if t and t.lower() not in _NOISE_WORDS and len(t) > 1
+    ]
+    candidate = " ".join(tokens[:3]).strip()
+    return candidate or None
+
+
+def _fuzzy_classify(desc: str) -> dict | None:
+    """
+    Fuzzy fallback using rapidfuzz WRatio (threshold ≥ 85).
+    Only called when exact matching fails. Returns None if rapidfuzz unavailable.
+    """
+    try:
+        from rapidfuzz import process as _rfp, fuzz as _rff
+    except ImportError:
+        return None
+
+    candidates = []
+    for kws, acc, conf in _CLS_RULES:
+        for kw in kws:
+            candidates.append((kw, acc, conf))
+
+    kw_list = [c[0] for c in candidates]
+    hit = _rfp.extractOne(desc, kw_list, scorer=_rff.WRatio, score_cutoff=85)
+    if not hit:
+        return None
+
+    matched_kw, score, idx = hit
+    _, acc, conf = candidates[idx]
+    return {
+        "account": acc,
+        "account_name": CHART_OF_ACCOUNTS.get(acc, {}).get("name", acc),
+        "confidence": round(conf * (score / 100), 3),
+        "matched_on": matched_kw,
+        "source": "rules_fuzzy",
+        "fuzzy_score": score,
+        "partner_candidate": None,
+    }
+
+
+def suggest_multi_entries(text: str) -> list:
+    """
+    Detect multiple account triggers in a single description (READ-ONLY).
+    Returns list of suggested entries for UI preview — no DB writes.
+    Example: "Rent and Electricity" → [{7310…}, {7410…}]
+    """
+    desc = text.lower()
+    seen = set()
+    entries = []
+    for kws, acc, conf in _CLS_RULES:
+        if acc in seen:
+            continue
+        for kw in kws:
+            if kw in desc:
+                entries.append({
+                    "account": acc,
+                    "account_name": CHART_OF_ACCOUNTS.get(acc, {}).get("name", acc),
+                    "matched_on": kw,
+                    "confidence": conf,
+                    "suggested": True,
+                })
+                seen.add(acc)
+                break
+    return entries if len(entries) > 1 else []
+
 _CLS_RULES = [
     (["tbc საკომ", "bog საკომ", "tbc bank commission", "bank of georgia commission", "bank fee", "commission", "საბ. საკ"], "7510", 0.95),
     (["amazon aws", "amazon cloud", "google cloud", "aws", "amazon", "azure"], "7810", 0.93),
@@ -62,6 +139,7 @@ _KB = [
 def classify_transaction(description, tenant_id="global"):
     desc = (description or "").lower()
 
+    # 1. Learned rules (exact)
     for r in _load_learned():
         if r["tenant_id"] in (tenant_id, "global") and r["pattern"].lower() in desc:
             return {
@@ -70,8 +148,10 @@ def classify_transaction(description, tenant_id="global"):
                 "confidence": r.get("confidence", 0.99),
                 "matched_on": r["pattern"],
                 "source": "learned",
+                "partner_candidate": _extract_partner_candidate(desc, r["pattern"]),
             }
 
+    # 2. CLS rules (exact keyword)
     for kws, acc, conf in _CLS_RULES:
         for kw in kws:
             if kw in desc:
@@ -81,8 +161,10 @@ def classify_transaction(description, tenant_id="global"):
                     "confidence": conf,
                     "matched_on": kw,
                     "source": "rules",
+                    "partner_candidate": _extract_partner_candidate(desc, kw),
                 }
 
+    # 3. Chart of accounts keywords (exact)
     all_kw = [
         (kw, code, info)
         for code, info in CHART_OF_ACCOUNTS.items()
@@ -99,9 +181,23 @@ def classify_transaction(description, tenant_id="global"):
                 "confidence": 0.88,
                 "matched_on": kw,
                 "source": "coa",
+                "partner_candidate": _extract_partner_candidate(desc, kw),
             }
 
-    return {"account": "7910", "account_name": "სხვ.ხ.", "confidence": 0.30, "matched_on": "default", "source": "fallback"}
+    # 4. Fuzzy fallback (rapidfuzz WRatio ≥ 85) — only when exact fails
+    fuzzy = _fuzzy_classify(desc)
+    if fuzzy:
+        fuzzy["partner_candidate"] = _extract_partner_candidate(desc, fuzzy.get("matched_on", ""))
+        return fuzzy
+
+    return {
+        "account": "7910",
+        "account_name": "სხვ.ხ.",
+        "confidence": 0.30,
+        "matched_on": "default",
+        "source": "fallback",
+        "partner_candidate": None,
+    }
 
 
 def search_knowledge(query, top_k=5):

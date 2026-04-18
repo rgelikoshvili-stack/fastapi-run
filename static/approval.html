@@ -578,7 +578,7 @@ const BASE = window.location.hostname === '127.0.0.1'
   : 'https://fastapi-run-226875230147.us-central1.run.app';
 
 let TENANT = localStorage.getItem('tenant_id') || 'default';
-let TOKEN  = localStorage.getItem('auth_token') || null;
+let TOKEN  = localStorage.getItem('access_token') || null;
 let allPending = [];
 let apOn = false;
 let apTimer = null;
@@ -621,8 +621,9 @@ async function api(path, method = 'GET', body = null) {
 
     if (r.status === 401) {
       TOKEN = null;
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem('access_token');
       showLoginModal();
+      toast('ავტორიზაცია საჭიროა', 'err');
       return null;
     }
 
@@ -646,7 +647,7 @@ async function doLogin(email, password, tenant) {
     }
     TOKEN  = d.data.access_token;
     TENANT = tenant || d.data.tenant_id || 'default';
-    localStorage.setItem('auth_token', TOKEN);
+    localStorage.setItem('access_token', TOKEN);
     localStorage.setItem('tenant_id', TENANT);
     hideLoginModal();
     loadPage();
@@ -724,7 +725,7 @@ async function handleLogin() {
 
 function logout() {
   TOKEN = null;
-  localStorage.removeItem('auth_token');
+  localStorage.removeItem('access_token');
   showLoginModal();
 }
 
@@ -906,7 +907,7 @@ async function loadPending() {
 
   const d = await api('/approval/queue');
   if (!d) {
-    toast('სერვერი მიუწვდომელია', 'err');
+    if (TOKEN) toast('სერვერი მიუწვდომელია', 'err');
     return;
   }
 
@@ -1516,7 +1517,7 @@ async function showPostingPreview(id) {
   document.getElementById('modal-footer').innerHTML = '<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>';
   document.getElementById('overlay').classList.add('show');
   try {
-    const r = await fetch('/posting/preview/' + id, {headers: {'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')}});
+    const r = await fetch(BASE + '/posting/preview/' + id, {headers: {'Authorization': 'Bearer ' + (TOKEN || ''), 'X-Tenant-ID': TENANT}});
     const j = await r.json();
     if (!r.ok || !j.ok) {
       document.getElementById('modal-body').innerHTML = '<div style="color:var(--red);padding:12px">' + (j.error?.details || j.message || 'შეცდომა') + '</div>';

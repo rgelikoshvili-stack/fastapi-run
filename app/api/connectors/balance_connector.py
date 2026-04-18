@@ -41,10 +41,16 @@ class BalanceConnector(BaseConnector):
         return {"valid": len(errors) == 0, "mode": self.mode,
                 "errors": errors, "warnings": []}
 
+    def _safe_headers_log(self):
+        h = self._headers()
+        if "Authorization" in h:
+            h["Authorization"] = "Bearer ***"
+        return h
+
     def post(self, draft):
         if self.mode == "demo":
             fid = f"DEMO-{datetime.now().strftime('%H%M%S')}"
-            logger.info(f"[Balance] DEMO: {fid}")
+            logger.info("[Balance] DEMO post: %s", fid)
             return self._build_success(fid)
         try:
             payload = {
@@ -58,12 +64,20 @@ class BalanceConnector(BaseConnector):
                     "currency":    draft.get("currency", "GEL"),
                 }]
             }
-            r = requests.post(f"{BALANCE_API_BASE}/api/v1/journal",
-                              headers=self._headers(), json=payload, timeout=15)
+            url = f"{BALANCE_API_BASE}/api/v1/journal"
+            logger.debug("[Balance] POST %s headers=%s payload=%s",
+                         url, self._safe_headers_log(), payload)
+            r = requests.post(url, headers=self._headers(), json=payload, timeout=15)
+            logger.debug("[Balance] response status=%s body=%s",
+                         r.status_code, r.text[:500])
             if r.status_code in (200, 201):
-                return self._build_success(str(r.json().get("id", "unknown")))
+                erp_id = str(r.json().get("id", "unknown"))
+                logger.info("[Balance] posted OK erp_id=%s tenant=%s", erp_id, self.tenant_id)
+                return self._build_success(erp_id)
+            logger.warning("[Balance] post failed HTTP %s: %s", r.status_code, r.text[:200])
             return self._build_error(f"HTTP {r.status_code}", r.text[:200])
         except Exception as e:
+            logger.error("[Balance] post exception tenant=%s: %s", self.tenant_id, e)
             return self._build_error(str(e))
 
     def history(self, tenant_id, limit=50):

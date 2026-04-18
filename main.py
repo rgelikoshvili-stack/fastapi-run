@@ -2,10 +2,44 @@ import os
 import sys
 import asyncio
 import json
+import logging
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 os.environ["PYTHONIOENCODING"] = "utf-8"
+
+
+class _CloudRunJsonFormatter(logging.Formatter):
+    """Emit Cloud Run / GCP-compatible structured JSON log lines."""
+    SEVERITY = {
+        logging.DEBUG: "DEBUG", logging.INFO: "INFO",
+        logging.WARNING: "WARNING", logging.ERROR: "ERROR",
+        logging.CRITICAL: "CRITICAL",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "severity": self.SEVERITY.get(record.levelno, "DEFAULT"),
+            "message": record.getMessage(),
+            "logger": record.name,
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _setup_logging():
+    root = logging.getLogger()
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(_CloudRunJsonFormatter())
+        root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+_setup_logging()
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder

@@ -256,6 +256,7 @@ input,select,textarea{font-family:inherit}
   <div class="sb-item" onclick="goPage('payroll',this)"><span class="sb-icon-sm">💰</span> Payroll</div>
   <div class="sb-item" onclick="goPage('collab',this)"><span class="sb-icon-sm">👥</span> Collaboration</div>
   <div class="sb-section">სისტემა</div>
+  <div class="sb-item" onclick="goPage('recommend',this)"><span class="sb-icon-sm">💡</span> AI Recommend</div>
   <div class="sb-item" onclick="goPage('learning',this)"><span class="sb-icon-sm">🧠</span> Learning</div>
   <div class="sb-item" onclick="goPage('health',this)"><span class="sb-icon-sm">💊</span> Health Check</div>
   <div class="sb-item" onclick="goPage('settings',this)"><span class="sb-icon-sm">⚙️</span> Settings</div>
@@ -506,6 +507,17 @@ input,select,textarea{font-family:inherit}
       </div>
     </div>
 
+    <!-- AI RECOMMEND -->
+    <div id="pg-recommend" class="page">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">💡 AI Recommend</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadRecommend()">⟳ განახლება</button>
+        </div>
+        <div id="recommend-body"><div class="loading-row"><span class="spinner"></span></div></div>
+      </div>
+    </div>
+
     <!-- LEARNING -->
     <div id="pg-learning" class="page">
       <div class="row-2">
@@ -547,7 +559,12 @@ input,select,textarea{font-family:inherit}
   <div class="ai-header"><div><div class="ai-title">🤖 Bridge Hub AI</div><div class="ai-sub">Balance.ge · 1C · OCR · Payroll · RS.GE</div></div><button class="ai-close" onclick="toggleAI()">✕</button></div>
   <div class="chat-msgs" id="chatMsgs"><div class="msg bot">გამარჯობა! Bridge Hub AI ვარ.<br><br>შემიძლია:<br>• <b>Balance.ge / 1C</b> გატარებები<br>• <b>OCR</b> invoice ანალიზი<br>• <b>Payroll</b> PAYG+PIT<br>• <b>Bank Sync</b> TBC/BOG<br>• <b>Export</b> Excel/PDF/CSV<br><br>რა გავაკეთო?</div></div>
   <div class="quick-chips"><div class="qc" onclick="qp('Bank Sync გაუშვი')">🏦 Bank</div><div class="qc" onclick="qp('Excel export')">📊 Export</div><div class="qc" onclick="qp('PAYG გამითვალე')">💰 PAYG</div><div class="qc" onclick="qp('Autopilot ON')">🤖 Auto</div><div class="qc" onclick="qp('სტატუსი')">💊 Status</div></div>
-  <div class="chat-composer"><div class="composer-wrap"><input type="file" id="ai-file" style="display:none" onchange="setAIFile(this)"/><span style="cursor:pointer;font-size:16px;" onclick="document.getElementById('ai-file').click()">📎</span><input class="composer-inp" id="chatInp" placeholder="მიწერე AI-ს..." onkeydown="if(event.key==='Enter')sendMsg()"/><button class="chat-send" onclick="sendMsg()">➤</button></div><div class="chat-hint">Suggested: "pending ტრანზაქციები Balance.ge-ში"</div></div>
+  <div style="display:flex;gap:6px;padding:6px 12px 0;border-top:1px solid var(--gray-100)">
+    <button id="role-accountant" onclick="setRole('accountant')" title="ბუღალტერი — Dr/Cr გატარებები, საგადასახადო" style="flex:1;padding:4px;font-size:11px;border:1px solid var(--gray-200);border-radius:6px;cursor:pointer;background:var(--gray-50)">📒 ბუღალტერი</button>
+    <button id="role-consultant" onclick="setRole('consultant')" title="კონსულტანტი — ACCA/IFRS სტანდარტები" style="flex:1;padding:4px;font-size:11px;border:1px solid var(--gray-200);border-radius:6px;cursor:pointer;background:var(--gray-50)">📊 კონსულტანტი</button>
+    <button id="role-assistant" onclick="setRole('assistant')" title="ასისტენტი — ზოგადი დახმარება" style="flex:1;padding:4px;font-size:11px;border:1px solid var(--blue);border-radius:6px;cursor:pointer;background:var(--blue-s);color:var(--blue);font-weight:600">💬 ასისტენტი</button>
+  </div>
+  <div class="chat-composer"><div class="composer-wrap"><input type="file" id="ai-file" style="display:none" onchange="setAIFile(this)"/><span style="cursor:pointer;font-size:16px;" onclick="document.getElementById('ai-file').click()">📎</span><input class="composer-inp" id="chatInp" placeholder="მიწერე AI-ს..." onkeydown="if(event.key==='Enter')sendMsg()"/><button class="chat-send" onclick="sendMsg()">➤</button></div><div class="chat-hint" id="chatHint">💬 ასისტენტი — ზოგადი კითხვები</div></div>
 </div>
 
 <div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
@@ -781,6 +798,7 @@ function buildTr(r, showActs = false, extended = false) {
     ? `<td><div class="act-wrap">
          <button class="act act-approve" onclick="approve('${id}')">✅</button>
          <button class="act act-reject" onclick="reject('${id}')">❌</button>
+         <button class="act" title="Posting Preview" onclick="showPostingPreview('${id}')" style="background:var(--blue-s);color:var(--blue)">🔍</button>
          <button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button>
        </div></td>`
     : `<td><button class="act act-view" onclick='openModal(${JSON.stringify(r).replaceAll("'", "&#39;")})'>👁</button></td>`;
@@ -1410,6 +1428,49 @@ async function loadHealth() {
   }).join('');
 }
 
+async function loadRecommend() {
+  const el = document.getElementById('recommend-body');
+  if (!el) return;
+  el.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  try {
+    const d = await api('/api/ai/recommend');
+    if (!d || !d.ok) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400)">რეკომენდაციები ვერ ჩაიტვირთა</div>';
+      return;
+    }
+    const allRecs = d.recommendations || [];
+    const alerts = allRecs.filter(r => r.pattern === 'high_value');
+    const items = allRecs.filter(r => r.pattern !== 'high_value');
+    if (!allRecs.length) {
+      el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400)">✅ ახლა რეკომენდაციები არ არის</div>';
+      return;
+    }
+    const summary = d.summary ? `<div style="padding:10px 14px;font-size:12px;color:var(--gray-400);border-bottom:1px solid var(--gray-100);margin-bottom:14px">${d.summary}</div>` : '';
+    const alertHtml = alerts.map(a => `
+      <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--amber-s);border-radius:var(--r);border:1px solid rgba(180,83,9,.15);margin-bottom:10px">
+        <span style="font-size:18px">⚠️</span>
+        <div>
+          <div style="font-size:13px;line-height:1.5;color:var(--amber);margin-bottom:6px">${a.message}</div>
+          <div style="display:flex;gap:6px">${(a.draft_ids||[]).map(id=>`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPostingPreview('${id}')">🔍 #${id}</button>`).join('')}</div>
+        </div>
+      </div>`).join('');
+    const recHtml = items.map(rec => `
+      <div style="padding:14px;background:var(--gray-50);border-radius:var(--r);border:1px solid var(--gray-200);margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${rec.label || rec.pattern}</span>
+          <span style="font-size:11px;font-family:var(--mono);background:var(--blue-s);color:var(--blue);padding:2px 8px;border-radius:6px">${rec.count} შემთხვევა · ${(rec.total_amount||0).toLocaleString()} GEL</span>
+        </div>
+        <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">${rec.message}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${(rec.draft_ids||[]).map(id=>`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPostingPreview('${id}')">🔍 #${id}</button>`).join('')}
+        </div>
+      </div>`).join('');
+    el.innerHTML = summary + alertHtml + recHtml;
+  } catch(e) {
+    el.innerHTML = '<div style="padding:16px;color:var(--red)">Error: ' + e.message + '</div>';
+  }
+}
+
 function onSearch(q) {
   if (!q) {
     setRows(allPending, 'dash-rows', true, false);
@@ -1449,6 +1510,47 @@ function closeModal() {
   document.getElementById('overlay').classList.remove('show');
 }
 
+async function showPostingPreview(id) {
+  document.getElementById('modal-title').textContent = '🔍 Posting Preview — #' + id;
+  document.getElementById('modal-body').innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray-400)">იტვირთება...</div>';
+  document.getElementById('modal-footer').innerHTML = '<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>';
+  document.getElementById('overlay').classList.add('show');
+  try {
+    const r = await fetch('/posting/preview/' + id, {headers: {'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')}});
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+      document.getElementById('modal-body').innerHTML = '<div style="color:var(--red);padding:12px">' + (j.error?.details || j.message || 'შეცდომა') + '</div>';
+      return;
+    }
+    const dr = j.draft || {};
+    const imp = j.impact || {};
+    const plSign = imp.pl_direction === 'increase' ? '+' : imp.pl_direction === 'decrease' ? '−' : '';
+    const plVal = imp.pl_impact != null ? `${plSign}${Math.abs(imp.pl_impact).toLocaleString()} ${imp.currency||'GEL'} (${imp.pl_direction||'—'})` : '—';
+    const vatVal = imp.vat_change != null ? `${imp.vat_change > 0 ? '+' : ''}${imp.vat_change.toLocaleString()} GEL` : '—';
+    const taxVal = imp.tax_impact != null ? `${imp.tax_type||''} ${imp.tax_impact.toLocaleString()} GEL` : '—';
+    const rows = [
+      ['Dr ანგარიში', dr.debit_account || '—'],
+      ['Cr ანგარიში', dr.credit_account || '—'],
+      ['თანხა', (dr.amount || 0).toLocaleString() + ' ' + (dr.currency || 'GEL')],
+      ['P&L გავლენა', plVal],
+      ['VAT ცვლილება', vatVal],
+      ['გადასახადი', taxVal],
+      ['სტატუსი', dr.status || '—'],
+      ['Confidence', dr.confidence != null ? Math.round(dr.confidence*100)+'%' : '—'],
+    ].map(([k, v]) => `<div class="modal-field"><span class="mf-key">${k}</span><span class="mf-val">${v}</span></div>`).join('');
+    const notes = imp.notes?.length ? imp.notes.map(n => `<li style="margin:4px 0">${n}</li>`).join('') : '';
+    const narrative = notes ? `<div style="margin-top:12px;padding:10px 12px;background:var(--blue-s);border-radius:var(--r);font-size:12px;color:var(--blue);line-height:1.6"><ul style="padding-left:16px">${notes}</ul></div>` : '';
+    const warning = j.warning ? `<div style="margin-top:8px;font-size:11px;color:var(--gray-400);font-style:italic">${j.warning}</div>` : '';
+    document.getElementById('modal-body').innerHTML = rows + narrative + warning;
+    document.getElementById('modal-footer').innerHTML = `
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
+      <button class="btn btn-green btn-sm" onclick="approve('${id}');closeModal()">✅ დამტკიცება</button>
+    `;
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML = '<div style="color:var(--red);padding:12px">Network error: ' + e.message + '</div>';
+  }
+}
+
 function goPage(name, btn) {
   curPage = name;
 
@@ -1475,6 +1577,7 @@ function goPage(name, btn) {
     payroll: '💰 Payroll',
     collab: '👥 Collaboration',
     learning: '🧠 Learning',
+    recommend: '💡 AI Recommend',
     health: '💊 Health Check',
     settings: '⚙️ Settings'
   };
@@ -1507,6 +1610,8 @@ function loadPage() {
     loadInbox();
   } else if (curPage === 'collab') {
     loadCollab();
+  } else if (curPage === 'recommend') {
+    loadRecommend();
   }
 }
 
@@ -1520,6 +1625,27 @@ function qp(t) {
 function setAIFile(inp) {
   aiFile = inp.files?.[0] || null;
   if (aiFile) toast(`📎 ${aiFile.name}`, 'info');
+}
+
+let aiRole = 'assistant';
+const ROLE_HINTS = {
+  accountant: '📒 ბუღალტერი — Dr/Cr, VAT, Payroll, CIT',
+  consultant:  '📊 კონსულტანტი — ACCA/IFRS, სტრატეგია',
+  assistant:   '💬 ასისტენტი — ზოგადი კითხვები',
+};
+function setRole(role) {
+  aiRole = role;
+  ['accountant','consultant','assistant'].forEach(r => {
+    const btn = document.getElementById('role-' + r);
+    if (!btn) return;
+    const active = r === role;
+    btn.style.background = active ? 'var(--blue-s)' : 'var(--gray-50)';
+    btn.style.color = active ? 'var(--blue)' : '';
+    btn.style.fontWeight = active ? '600' : '';
+    btn.style.borderColor = active ? 'var(--blue)' : 'var(--gray-200)';
+  });
+  const hint = document.getElementById('chatHint');
+  if (hint) hint.textContent = ROLE_HINTS[role] || '';
 }
 
 async function sendMsg() {
@@ -1562,6 +1688,7 @@ async function sendMsg() {
       fd.append('message', text);
       fd.append('tenant_id', TENANT);
       fd.append('use_vector_search', 'true');
+      fd.append('role', aiRole);
       if (aiFile) fd.append('file', aiFile);
 
       const r = await fetch(`${BASE}/api/ai/chat`, {

@@ -78,5 +78,6 @@ class BalanceConnector(BaseConnector):
                      "amount": float(i.get("amount", 0)),
                      "description": i.get("description", ""),
                      "status": "posted"} for i in r.json().get("items", [])]
-        except:
+        except Exception as e:
+            logger.warning("balance_connector fetch_journal failed: %s", e)
             return []

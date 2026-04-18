@@ -1,8 +1,12 @@
 import json
+import logging
 
 from app.api.db import get_db
+from app.api.audit_service import log_event
 from app.api.services.learning_service import apply_correct_learning
 from app.api.services.transaction_memory_service import save_transaction_memory
+
+log = logging.getLogger(__name__)
 
 
 PROMOTION_SUPPORT_THRESHOLD = 3
@@ -29,7 +33,6 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
     cur = conn.cursor()
 
     try:
-        # 🔒 tenant filter დამატებულია
         cur.execute(
             """
             SELECT id, description, partner, account_code, reason,
@@ -37,6 +40,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
             FROM journal_drafts
             WHERE id = %s
               AND tenant_id = %s
+            FOR UPDATE
             """,
             (draft_id, tenant_id),
         )
@@ -156,6 +160,23 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
 
         conn.commit()
 
+        try:
+            log_event(
+                "draft_corrected",
+                {
+                    "draft_id": draft_id,
+                    "changed_fields": changed_fields,
+                    "delta_summary": delta_summary,
+                    "review_id": review_id,
+                    "original": original,
+                    "final": final,
+                },
+                actor=user,
+                tenant_id=tenant_id,
+            )
+        except Exception as _e:
+            log.error("audit log failed for draft_corrected draft_id=%s: %s", draft_id, _e)
+
         learning_result = apply_correct_learning(
             draft={
                 "id": draft_id,
@@ -198,6 +219,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
 
     except Exception as e:
         conn.rollback()
+        log.error("correct_draft failed draft_id=%s tenant=%s: %s", draft_id, tenant_id, e)
         return {
             "ok": False,
             "message": "Internal server error",

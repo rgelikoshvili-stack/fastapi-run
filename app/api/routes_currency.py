@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
@@ -5,6 +6,8 @@ import psycopg2.extras
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/currency", tags=["currency"])
 
@@ -29,7 +32,8 @@ def get_rates_from_db():
         cur.execute("SELECT currency, rate FROM exchange_rates")
         rows = cur.fetchall()
         return {r["currency"]: float(r["rate"]) for r in rows} if rows else DEFAULT_RATES
-    except:
+    except Exception as e:
+        log.warning("get_rates_from_db failed: %s", e)
         return DEFAULT_RATES
     finally:
         cur.close(); conn.close()
@@ -43,7 +47,8 @@ def get_rates():
         rows = cur.fetchall()
         rates = {r["currency"]: float(r["rate"]) for r in rows} if rows else DEFAULT_RATES
         updated_at = str(rows[0]["updated_at"]) if rows else None
-    except:
+    except Exception as e:
+        log.warning("get_rates endpoint DB error: %s", e)
         rates = DEFAULT_RATES
         updated_at = None
     finally:

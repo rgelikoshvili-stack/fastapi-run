@@ -19,7 +19,7 @@ def clean_amount(raw) -> Decimal:
     s = s.replace('(', '-').replace(')', '').strip('"').strip("'")
     try:
         return abs(Decimal(s))
-    except:
+    except Exception:
         return Decimal('0')
 
 def detect_direction(row, col_map: dict) -> str:

@@ -77,5 +77,6 @@ class OneCConnector(BaseConnector):
                      "amount": float(i.get("Amount", 0)),
                      "description": i.get("Comment", ""),
                      "status": "posted"} for i in r.json().get("value", [])]
-        except:
+        except Exception as e:
+            logger.warning("onec_connector fetch_journal failed: %s", e)
             return []

@@ -93,7 +93,7 @@ def extract_amounts(text):
     for m in re.finditer(AMOUNT_RE, text):
         s = m.group(1).strip().replace(" ","").replace(",","")
         try: val = float(s)
-        except: continue
+        except Exception: continue
         if val == 0: continue
         # ID ნომრები გამოვრიცხოთ (10M+)
         if val >= 10000000: continue

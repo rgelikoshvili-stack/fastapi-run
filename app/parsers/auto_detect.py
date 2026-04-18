@@ -17,7 +17,7 @@ def detect_file_type(filepath: str) -> str:
         import magic
         mime = magic.from_file(filepath, mime=True)
         return MIME_MAP.get(mime, 'unknown')
-    except:
+    except Exception:
         return 'unknown'
 
 def get_parser(filepath: str):

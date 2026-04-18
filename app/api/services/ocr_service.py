@@ -4,6 +4,7 @@ Bridge Hub — Invoice OCR Service
 Duplicate detection + doc_analyzer.py
 """
 import re
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from typing import Optional
 from app.api.doc_analyzer import analyze, to_dict
@@ -39,8 +40,12 @@ def extract_invoice_fields(filename: str, data: bytes) -> dict:
         iban = ibans[0]
 
     vat_amount = None
+    net_amount = None
     if amount:
-        vat_amount = round(amount * 0.18 / 1.18, 2)
+        _amt = Decimal(str(amount))
+        _vat = (_amt * Decimal("0.18") / Decimal("1.18")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        vat_amount = float(_vat)
+        net_amount = float((_amt - _vat).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     return {
         "ok": True,
@@ -52,7 +57,7 @@ def extract_invoice_fields(filename: str, data: bytes) -> dict:
         "amount": amount,
         "currency": currency,
         "vat_amount": vat_amount,
-        "net_amount": round(amount - vat_amount, 2) if amount and vat_amount else amount,
+        "net_amount": net_amount if net_amount is not None else amount,
         "partner": partner,
         "iban": iban,
         "warnings": fields.get("warnings", []),

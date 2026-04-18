@@ -18,7 +18,7 @@ async def generate_executive_summary(transactions: list, period: str = "") -> st
 
 მოიცავდეს: ძირითადი მაჩვენებლები, რისკები, 1-2 რეკომენდაცია."""
         return await llm_text(prompt, provider="claude")
-    except:
+    except Exception:
         return f"""ფინანსური შეჯამება — {period}
 შემოსავალი: {kpis["total_income"]:,.2f} GEL | ხარჯი: {kpis["total_expense"]:,.2f} GEL | წმინდა: {kpis["net_cashflow"]:,.2f} GEL
 30-დღიანი პროგნოზი: {forecast["projected_net"]:,.2f} GEL (AI გარეშე — API key საჭიროა)"""

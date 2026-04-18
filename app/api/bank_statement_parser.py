@@ -10,7 +10,7 @@ def _clean(v):
     try:
         if isinstance(v, float) and math.isnan(v):
             return None
-    except:
+    except Exception:
         pass
     if hasattr(v, "isoformat"):
         return v.isoformat()
@@ -22,7 +22,7 @@ def _amount(v):
         return None
     try:
         return float(str(v).replace(",", "").replace(" ", ""))
-    except:
+    except Exception:
         return None
 
 def _normalize(row):

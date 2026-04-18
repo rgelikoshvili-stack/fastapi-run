@@ -94,7 +94,7 @@ async def _process_file(file: UploadFile) -> list:
                     rows.append("\t".join([str(v) if v is not None else "" for v in row]))
             text = "\n".join(rows[:200])
             content.append({"type":"text","text":f"[Excel: {file.filename}]\n```\n{text}\n```"})
-        except:
+        except Exception:
             content.append({"type":"text","text":f"[Excel: {file.filename}] — ვერ გაიხსნა"})
     else:
         text = file_bytes.decode("utf-8", errors="replace")[:10000]

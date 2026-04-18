@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from app.api.services.approval_service import autopilot_approve_service
@@ -209,6 +210,7 @@ app.include_router(routes_ai_chat.router)
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 
 # --- MIDDLEWARE ---

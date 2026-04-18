@@ -1,5 +1,8 @@
+import logging
 from fastapi import APIRouter
 from app.api.response_utils import ok_response, error_response
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
@@ -43,7 +46,8 @@ def reconciliation_history():
             FROM journal_drafts GROUP BY status ORDER BY cnt DESC
         """)
         rows = [dict(r) for r in cur.fetchall()]
-    except:
+    except Exception as e:
+        log.warning("reconciliation history query failed: %s", e)
         rows = []
     finally:
         cur.close(); conn.close()

@@ -24,7 +24,7 @@ def reconcile_transaction(tx: CanonicalBankTransaction, journal_entries: list) -
                 result = {"status": "fuzzy", "matched_entry_id": entry["id"], "confidence": 0.80, "tx_id": tx.id}
                 RECONCILED.append(result)
                 return result
-        except:
+        except Exception:
             continue
 
     result = {"status": "unmatched", "matched_entry_id": None, "confidence": 0.0, "tx_id": tx.id}

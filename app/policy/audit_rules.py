@@ -82,6 +82,6 @@ def run_audit_rules(tx: dict) -> list:
                     "status":      "open",
                     "created_at":  datetime.now(timezone.utc).isoformat(),
                 })
-        except:
+        except Exception:
             continue
     return issues

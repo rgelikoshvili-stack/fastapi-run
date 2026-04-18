@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -10,15 +10,16 @@ router = APIRouter(prefix="/reconcile", tags=["reconcile"])
 class ReconcileRequest(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
-    tenant_code: Optional[str] = None
+
 
 @router.post("/run")
-def run_reconciliation(req: ReconcileRequest):
+def run_reconciliation(req: ReconcileRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        query = "SELECT * FROM journal_drafts WHERE 1=1"
-        params = []
+        query = "SELECT * FROM journal_drafts WHERE tenant_id = %s"
+        params = [tenant_id]
         if req.date_from:
             query += " AND date >= %s"; params.append(req.date_from)
         if req.date_to:
@@ -30,8 +31,8 @@ def run_reconciliation(req: ReconcileRequest):
     finally:
         cur.close(); conn.close()
 
-    total_debit = sum(d["amount"] or 0 for d in drafts if d.get("debit_account","").startswith("7") or d.get("debit_account","").startswith("3"))
-    total_credit = sum(d["amount"] or 0 for d in drafts if d.get("credit_account","") == "6100")
+    total_debit = sum(d["amount"] or 0 for d in drafts if d.get("debit_account", "").startswith("7") or d.get("debit_account", "").startswith("3"))
+    total_credit = sum(d["amount"] or 0 for d in drafts if d.get("credit_account", "") == "6100")
     balance = total_credit - total_debit
     unmatched = [d for d in drafts if d.get("status") == "pending_approval"]
     duplicates = []
@@ -46,6 +47,7 @@ def run_reconciliation(req: ReconcileRequest):
     status = "balanced" if abs(balance) < 0.01 else "unbalanced"
 
     return ok_response("Reconciliation complete", {
+        "tenant_id": tenant_id,
         "period": {"from": req.date_from, "to": req.date_to},
         "total_transactions": len(drafts),
         "total_income": round(total_credit, 2),
@@ -57,22 +59,25 @@ def run_reconciliation(req: ReconcileRequest):
         "duplicates": duplicates[:10],
     })
 
+
 @router.get("/summary")
-def reconciliation_summary():
+def reconciliation_summary(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("""
-            SELECT 
+            SELECT
                 account_code,
                 reason,
                 COUNT(*) as tx_count,
                 SUM(amount) as total_amount,
                 AVG(confidence) as avg_confidence
             FROM journal_drafts
+            WHERE tenant_id = %s
             GROUP BY account_code, reason
             ORDER BY total_amount DESC
-        """)
+        """, (tenant_id,))
         rows = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
@@ -80,6 +85,7 @@ def reconciliation_summary():
         cur.close(); conn.close()
 
     return ok_response("Reconciliation summary", {
+        "tenant_id": tenant_id,
         "by_account": rows,
-        "total_accounts": len(rows)
+        "total_accounts": len(rows),
     })

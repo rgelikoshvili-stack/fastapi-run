@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app.api.db import get_db
 import psycopg2.extras
@@ -7,40 +7,45 @@ from datetime import datetime
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 @router.get("/reports", response_class=HTMLResponse)
-def reports_dashboard():
+def reports_dashboard(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        # Invoices
-        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total),0) as total FROM invoices")
+        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total),0) as total FROM invoices WHERE tenant_id = %s", (tenant_id,))
         inv = cur.fetchone()
-        # Expenses
-        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM expenses")
+        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM expenses WHERE tenant_id = %s", (tenant_id,))
         exp = cur.fetchone()
-        # Contracts
-        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(value),0) as total FROM contracts WHERE status='active'")
+        cur.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(value),0) as total FROM contracts WHERE status='active' AND tenant_id = %s", (tenant_id,))
         cont = cur.fetchone()
-        # Bank
-        cur.execute("SELECT COALESCE(SUM(balance),0) as total FROM bank_accounts")
+        cur.execute("SELECT COALESCE(SUM(balance),0) as total FROM bank_accounts WHERE tenant_id = %s", (tenant_id,))
         bank = cur.fetchone()
-        # P&L
-        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE debit_account LIKE '6%%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE debit_account LIKE '6%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         income = cur.fetchone()
-        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE debit_account LIKE '7%%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE debit_account LIKE '7%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         expenses_jnl = cur.fetchone()
-        # Monthly expenses
         cur.execute("""
             SELECT TO_CHAR(date::date,'Mon') as mon, COALESCE(SUM(amount),0) as total
-            FROM expenses WHERE EXTRACT(YEAR FROM date::date)=2026
+            FROM expenses WHERE EXTRACT(YEAR FROM date::date)=2026 AND tenant_id = %s
             GROUP BY TO_CHAR(date::date,'Mon'), EXTRACT(MONTH FROM date::date)
             ORDER BY EXTRACT(MONTH FROM date::date)
-        """)
+        """, (tenant_id,))
         monthly = cur.fetchall()
-        # Contracts by type
-        cur.execute("SELECT contract_type, COUNT(*) as cnt FROM contracts GROUP BY contract_type")
+        cur.execute(
+            "SELECT contract_type, COUNT(*) as cnt FROM contracts WHERE tenant_id = %s GROUP BY contract_type",
+            (tenant_id,),
+        )
         cont_types = cur.fetchall()
-        # Audit recent
-        cur.execute("SELECT action, actor, COALESCE(event_time, created_at) as ts FROM audit_log ORDER BY COALESCE(event_time, created_at) DESC LIMIT 5")
+        cur.execute(
+            "SELECT action, actor, COALESCE(event_time, created_at) as ts FROM audit_log WHERE tenant_id = %s ORDER BY COALESCE(event_time, created_at) DESC LIMIT 5",
+            (tenant_id,),
+        )
         audit = cur.fetchall()
     finally:
         cur.close(); conn.close()

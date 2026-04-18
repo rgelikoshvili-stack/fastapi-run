@@ -27,15 +27,16 @@ def _check_db() -> dict:
         cur = conn.cursor()
         cur.execute("SELECT version(), pg_database_size(current_database())")
         row = cur.fetchone()
-        cur.execute("SELECT count(*) FROM journal_drafts WHERE status='pending_approval'")
-        pending = cur.fetchone()[0]
+        # Use pipeline_runs (global table, no tenant_id) for DB activity check
+        cur.execute("SELECT COUNT(*) FROM pipeline_runs")
+        total_runs = cur.fetchone()[0]
         cur.close()
         conn.close()
         return {
             "status": "connected",
             "pg_version": (row[0] or "").split(" ")[1] if row else "unknown",
             "db_size_mb": round(int(row[1] or 0) / 1_048_576, 1) if row else 0,
-            "pending_drafts": pending,
+            "total_pipeline_runs": total_runs,
         }
     except Exception as e:
         log.error("health db check failed: %s", e)

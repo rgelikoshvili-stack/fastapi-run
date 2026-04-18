@@ -4,18 +4,25 @@ from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 
 
-def get_system_summary_service():
+def get_system_summary_service(tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
+        # processed_bank_files is a global table (no tenant_id column)
         cur.execute("SELECT COUNT(*) AS count FROM processed_bank_files")
         bank_files_processed = cur.fetchone()["count"]
 
-        cur.execute("SELECT COUNT(*) AS count FROM journal_drafts")
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM journal_drafts WHERE tenant_id = %s",
+            (tenant_id,),
+        )
         transactions_total = cur.fetchone()["count"]
 
-        cur.execute("SELECT status, COUNT(*) AS count FROM journal_drafts GROUP BY status")
+        cur.execute(
+            "SELECT status, COUNT(*) AS count FROM journal_drafts WHERE tenant_id = %s GROUP BY status",
+            (tenant_id,),
+        )
         rows = cur.fetchall()
 
         status_counts = {
@@ -50,6 +57,7 @@ def get_system_summary_service():
     return ok_response(
         "System summary",
         {
+            "tenant_id": tenant_id,
             "bank_files_processed": bank_files_processed,
             "transactions_total": transactions_total,
             "drafted": status_counts.get("drafted", 0),
@@ -69,7 +77,7 @@ def get_system_summary_service():
     )
 
 
-def get_system_overview_service():
+def get_system_overview_service(tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -83,10 +91,13 @@ def get_system_overview_service():
                 COUNT(*) FILTER (WHERE status = 'rejected') AS rejected_count,
                 COUNT(*) FILTER (WHERE review_required = TRUE) AS review_required_count
             FROM journal_drafts
-            """
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
         )
         drafts_summary = dict(cur.fetchone())
 
+        # processed_bank_files is a global table (no tenant_id column)
         cur.execute(
             """
             SELECT
@@ -106,9 +117,11 @@ def get_system_overview_service():
             """
             SELECT status, COUNT(*) AS count
             FROM journal_drafts
+            WHERE tenant_id = %s
             GROUP BY status
             ORDER BY status
-            """
+            """,
+            (tenant_id,),
         )
         status_breakdown = [dict(r) for r in cur.fetchall()]
 
@@ -116,8 +129,9 @@ def get_system_overview_service():
             """
             SELECT COUNT(*) AS count
             FROM journal_drafts
-            WHERE status = 'drafted' AND review_required = TRUE
-            """
+            WHERE tenant_id = %s AND status = 'drafted' AND review_required = TRUE
+            """,
+            (tenant_id,),
         )
         approval_queue_count = cur.fetchone()["count"]
 
@@ -140,9 +154,11 @@ def get_system_overview_service():
                 id, date, description, amount, account_code,
                 confidence, review_required, status, source_type, created_at
             FROM journal_drafts
+            WHERE tenant_id = %s
             ORDER BY created_at DESC, id DESC
             LIMIT 10
-            """
+            """,
+            (tenant_id,),
         )
         latest_drafts = [dict(r) for r in cur.fetchall()]
 
@@ -155,6 +171,7 @@ def get_system_overview_service():
     return ok_response(
         "System overview",
         {
+            "tenant_id": tenant_id,
             "summary": {
                 "journal_drafts": drafts_summary,
                 "bank_files": bank_files_summary,
@@ -244,7 +261,7 @@ def get_bank_file_detail_service(file_id: int):
     return ok_response("Bank file detail", dict(row))
 
 
-def get_bank_file_drafts_service(file_id: int, limit: int, offset: int):
+def get_bank_file_drafts_service(file_id: int, limit: int, offset: int, tenant_id: str = "default"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -270,9 +287,9 @@ def get_bank_file_drafts_service(file_id: int, limit: int, offset: int):
             """
             SELECT COUNT(*) AS total
             FROM journal_drafts
-            WHERE bank_file_id = %s
+            WHERE bank_file_id = %s AND tenant_id = %s
             """,
-            (file_id,),
+            (file_id, tenant_id),
         )
         total = cur.fetchone()["total"]
 
@@ -284,11 +301,11 @@ def get_bank_file_drafts_service(file_id: int, limit: int, offset: int):
                 reason, confidence, review_required, status,
                 source_type, bank_file_id, created_at
             FROM journal_drafts
-            WHERE bank_file_id = %s
+            WHERE bank_file_id = %s AND tenant_id = %s
             ORDER BY created_at DESC, id DESC
             LIMIT %s OFFSET %s
             """,
-            (file_id, limit, offset),
+            (file_id, tenant_id, limit, offset),
         )
         items = [dict(r) for r in cur.fetchall()]
 
@@ -301,6 +318,7 @@ def get_bank_file_drafts_service(file_id: int, limit: int, offset: int):
     return ok_response(
         "Bank file drafts",
         {
+            "tenant_id": tenant_id,
             "bank_file": dict(bank_file),
             "count": total,
             "limit": limit,

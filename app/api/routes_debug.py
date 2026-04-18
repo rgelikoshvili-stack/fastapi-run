@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import os
 import psycopg2.extras
 
@@ -9,7 +9,8 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 
 @router.get("/log")
-def debug_log(limit: int = 20):
+def debug_log(request: Request, limit: int = 20):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -17,10 +18,11 @@ def debug_log(limit: int = 20):
             """
             SELECT id, event_type, actor, details, created_at
             FROM audit_events
+            WHERE tenant_id = %s
             ORDER BY created_at DESC
             LIMIT %s
             """,
-            (limit,),
+            (tenant_id, limit),
         )
         rows = [dict(r) for r in cur.fetchall()]
     except Exception as e:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from app.api.db import get_db
 from app.api.services.pattern_decay_service import run_pattern_decay
 
@@ -6,7 +6,8 @@ router = APIRouter(prefix="/patterns", tags=["patterns"])
 
 
 @router.get("/learning-health")
-def learning_health():
+def learning_health(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor()
 
@@ -32,7 +33,9 @@ def learning_health():
                       AND last_seen_at >= NOW() - INTERVAL '45 days'
                 ) AS autopilot_ready_count
             FROM learning_patterns
-            """
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
         )
         row = cur.fetchone()
 

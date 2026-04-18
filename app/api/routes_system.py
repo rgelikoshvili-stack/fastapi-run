@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Path, HTTPException
+from fastapi import APIRouter, Path, Request, HTTPException
 
 from app.api.services.system_service import (
     get_system_summary_service,
@@ -25,13 +25,15 @@ def _validate_pagination(limit: int, offset: int):
 
 
 @router.get("/summary")
-def get_system_summary():
-    return get_system_summary_service()
+def get_system_summary(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    return get_system_summary_service(tenant_id)
 
 
 @router.get("/overview")
-def get_system_overview():
-    return get_system_overview_service()
+def get_system_overview(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    return get_system_overview_service(tenant_id)
 
 
 @router.get("/bank-files")
@@ -47,9 +49,11 @@ def get_bank_file_detail(file_id: int = Path(..., description="Processed bank fi
 
 @router.get("/bank-files/{file_id}/drafts")
 def get_bank_file_drafts(
+    request: Request,
     file_id: int = Path(..., description="Processed bank file ID"),
     limit: int = 100,
     offset: int = 0,
 ):
     _validate_pagination(limit, offset)
-    return get_bank_file_drafts_service(file_id, limit, offset)
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    return get_bank_file_drafts_service(file_id, limit, offset, tenant_id)

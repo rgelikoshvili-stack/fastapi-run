@@ -629,10 +629,20 @@ async function api(path, method = 'GET', body = null) {
       toast('ავტორიზაცია საჭიროა', 'err');
       return null;
     }
-
+    if (r.status === 403) {
+      toast('წვდომა შეზღუდულია', 'err');
+      return null;
+    }
+    if (r.status >= 500) {
+      toast('შიდა შეცდომა (სერვერი)', 'err');
+      return null;
+    }
     if (!r.ok) return null;
     return await r.json();
-  } catch {
+  } catch (e) {
+    if (e instanceof TypeError && e.message.includes('fetch')) {
+      toast('სერვერთან კავშირი ვერ შედგა', 'err');
+    }
     return null;
   }
 }
@@ -910,10 +920,7 @@ async function loadPending() {
   if (pending) pending.innerHTML = `<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
 
   const d = await api('/approval/queue');
-  if (!d) {
-    if (TOKEN) toast('სერვერი მიუწვდომელია', 'err');
-    return;
-  }
+  if (!d) return;
 
   const rows = d.data?.queue || d.data?.items || d.items || d.transactions || [];
   allPending = rows;

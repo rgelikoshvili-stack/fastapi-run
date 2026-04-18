@@ -1,4 +1,5 @@
-﻿from fastapi import APIRouter, Header, Request
+﻿import logging
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -8,6 +9,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.security import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
@@ -37,9 +39,17 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
 @router.post("/login")
 @limiter.limit("5/minute")
 def auth_login(request: Request, data: LoginRequest):
+    log.info("action=login_attempt email=%s tenant=%s ip=%s",
+             data.email, data.tenant_id,
+             request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown"))
     result = login(data.email, data.password, data.tenant_id)
     if not result.get("ok"):
+        log.warning("action=login_fail email=%s tenant=%s reason=%s",
+                    data.email, data.tenant_id, result.get("error"))
         return error_response("Login failed", "AUTH_ERROR", result.get("error"))
+    user = result.get("user", {})
+    log.info("action=login_success email=%s tenant=%s user_id=%s role=%s",
+             data.email, data.tenant_id, user.get("id"), user.get("role"))
     return ok_response("Login successful", result)
 
 

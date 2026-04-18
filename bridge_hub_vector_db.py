@@ -52,13 +52,13 @@ _embedder = None
 
 
 def _get_embedder():
-    """Embedding მოდელის ჩატვირთვა (lazy loading)."""
+    """Embedding მოდელის ჩატვირთვა (lazy loading) — ChromaDB built-in ONNX embedder."""
     global _embedder
     if _embedder is None:
-        from sentence_transformers import SentenceTransformer
-        print(f"⏳ Embedding მოდელი იტვირთება: {EMBEDDING_MODEL}")
-        _embedder = SentenceTransformer(EMBEDDING_MODEL)
-        print("✅ Embedding მოდელი ჩაიტვირთა")
+        from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+        print("⏳ ChromaDB DefaultEmbeddingFunction იტვირთება...")
+        _embedder = DefaultEmbeddingFunction()
+        print("✅ Embedding მოდელი მზადაა")
     return _embedder
 
 
@@ -238,7 +238,7 @@ def index_files(files_dir: str = None, force_reindex: bool = False) -> dict:
 
         # Embeddings + ChromaDB-ში ჩაწერა
         try:
-            embeddings = embedder.encode(chunks, show_progress_bar=False).tolist()
+            embeddings = list(embedder(chunks))
 
             ids = [f"{file_hash}_{j}" for j in range(len(chunks))]
             metadatas = [
@@ -336,7 +336,7 @@ def semantic_search(
     if total == 0:
         return []
 
-    query_embedding = embedder.encode([query])[0].tolist()
+    query_embedding = list(embedder([query])[0])
 
     # ფილტრი კატეგორიით
     where = {"category": category} if category else None
@@ -502,7 +502,7 @@ def learn_from_correction(
     )
 
     doc_id = hashlib.md5(f"{tenant_id}_{original_text}".encode()).hexdigest()
-    embedding = embedder.encode([learn_text])[0].tolist()
+    embedding = list(embedder([learn_text])[0])
 
     # ძველი ჩანაწერის წაშლა
     try:

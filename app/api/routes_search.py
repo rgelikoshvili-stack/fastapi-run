@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 import psycopg2
 import psycopg2.extras
 from app.api.db import get_db
@@ -29,7 +29,7 @@ def ensure_tables(cur):
     """)
 
 
-def _run_search(q: str = "", state: str = "", min_amount: float = 0, max_amount: float = 999999999):
+def _run_search(tenant_id: str, q: str = "", state: str = "", min_amount: float = 0, max_amount: float = 999999999):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -48,7 +48,6 @@ def _run_search(q: str = "", state: str = "", min_amount: float = 0, max_amount:
             conditions.append("p.state = %s")
             params.append(state)
 
-        # თუ მომავალში pipeline_runs-ში amount დაემატება, აქ ჩაჯდება
         where = " AND ".join(conditions)
 
         cur.execute(f"""
@@ -66,12 +65,13 @@ def _run_search(q: str = "", state: str = "", min_amount: float = 0, max_amount:
                 cur.execute("""
                     SELECT id, bank, date, amount, description
                     FROM bank_transactions
-                    WHERE description ILIKE %s
+                    WHERE tenant_id = %s
+                      AND description ILIKE %s
                       AND amount >= %s
                       AND amount <= %s
                     ORDER BY created_at DESC
                     LIMIT 20
-                """, (f"%{q}%", min_amount, max_amount))
+                """, (tenant_id, f"%{q}%", min_amount, max_amount))
                 tx_results = [dict(r) for r in cur.fetchall()]
             except Exception:
                 tx_results = []
@@ -114,30 +114,33 @@ def _run_search(q: str = "", state: str = "", min_amount: float = 0, max_amount:
         conn.close()
 
 
-# Compatibility endpoint: /search?q=...
 @router.get("")
 def search_alias(
+    request: Request,
     q: str = Query("", description="Search query"),
     state: str = Query("", description="Filter by state"),
     min_amount: float = Query(0, ge=0),
     max_amount: float = Query(999999999, ge=0),
 ):
-    return _run_search(q=q, state=state, min_amount=min_amount, max_amount=max_amount)
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    return _run_search(tenant_id=tenant_id, q=q, state=state, min_amount=min_amount, max_amount=max_amount)
 
 
-# Existing endpoint kept for backward compatibility
 @router.post("/query")
 def search_query(
+    request: Request,
     q: str = "",
     state: str = "",
     min_amount: float = 0,
     max_amount: float = 999999999,
 ):
-    return _run_search(q=q, state=state, min_amount=min_amount, max_amount=max_amount)
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    return _run_search(tenant_id=tenant_id, q=q, state=state, min_amount=min_amount, max_amount=max_amount)
 
 
 @router.get("/filters")
-def get_filters():
+def get_filters(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -152,7 +155,10 @@ def get_filters():
             states = []
 
         try:
-            cur.execute("SELECT DISTINCT bank FROM bank_transactions WHERE bank IS NOT NULL")
+            cur.execute(
+                "SELECT DISTINCT bank FROM bank_transactions WHERE bank IS NOT NULL AND tenant_id = %s",
+                (tenant_id,),
+            )
             banks = [r["bank"] for r in cur.fetchall()]
         except Exception:
             banks = []
@@ -203,7 +209,8 @@ def recent_searches():
 
 
 @router.get("/stats")
-def search_stats():
+def search_stats(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -218,7 +225,7 @@ def search_stats():
             total_docs = 0
 
         try:
-            cur.execute("SELECT COUNT(*) as total FROM bank_transactions")
+            cur.execute("SELECT COUNT(*) as total FROM bank_transactions WHERE tenant_id = %s", (tenant_id,))
             total_txs = cur.fetchone()["total"]
         except Exception:
             total_txs = 0

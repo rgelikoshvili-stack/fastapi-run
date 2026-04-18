@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -105,12 +105,13 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
     return buf.read()
 
 @router.post("/pdf")
-def generate_pdf_report(req: ReportRequest):
+def generate_pdf_report(req: ReportRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        query = "SELECT * FROM journal_drafts WHERE 1=1"
-        params = []
+        query = "SELECT * FROM journal_drafts WHERE tenant_id = %s"
+        params = [tenant_id]
         if req.date_from:
             query += " AND date >= %s"; params.append(req.date_from)
         if req.date_to:

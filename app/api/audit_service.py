@@ -1,4 +1,4 @@
-﻿import json
+import json
 from app.api.db import get_db
 
 def log_event(event_type: str, details: dict | None = None, actor: str = "system", tenant_id: str = "default"):
@@ -24,14 +24,14 @@ def log_event(event_type: str, details: dict | None = None, actor: str = "system
             ),
         )
         conn.commit()
-    except Exception as e:
+    except Exception:
         try:
             cur.execute(
                 """
-                INSERT INTO audit_events (event_type, actor, details)
-                VALUES (%s, %s, %s)
+                INSERT INTO audit_events (event_type, actor, details, tenant_id)
+                VALUES (%s, %s, %s, %s)
                 """,
-                (event_type, actor, json.dumps(details, ensure_ascii=False)),
+                (event_type, actor, json.dumps(details, ensure_ascii=False), tenant_id),
             )
             conn.commit()
         except Exception as e2:

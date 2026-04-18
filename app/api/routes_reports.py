@@ -13,6 +13,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.get("/monthly")
 def monthly_report(request: Request):
     require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -35,10 +36,11 @@ def monthly_report(request: Request):
                    SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as inflow,
                    SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as outflow
             FROM bank_transactions
+            WHERE tenant_id = %s
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY month DESC
             LIMIT 12
-        """)
+        """, (tenant_id,))
         tx_rows = {str(r["month"])[:7]: dict(r) for r in cur.fetchall()}
 
         result = []
@@ -124,13 +126,14 @@ def pnl_report(
     month: int | None = Query(None, ge=1, le=12),
 ):
     require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        conditions = ["1=1"]
-        params = []
+        conditions = ["tenant_id = %s"]
+        params = [tenant_id]
 
         if year:
             conditions.append("EXTRACT(YEAR FROM date) = %s")
@@ -181,13 +184,14 @@ def cashflow_report(
     month: int | None = Query(None, ge=1, le=12),
 ):
     require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        conditions = ["1=1"]
-        params = []
+        conditions = ["tenant_id = %s"]
+        params = [tenant_id]
 
         if year:
             conditions.append("EXTRACT(YEAR FROM date) = %s")

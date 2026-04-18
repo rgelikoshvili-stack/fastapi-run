@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -12,35 +12,35 @@ class StatementRequest(BaseModel):
     month: Optional[int] = None
 
 @router.post("/pnl")
-def profit_and_loss(req: StatementRequest):
+def profit_and_loss(req: StatementRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         period = f"{req.year}-{str(req.month).zfill(2)}%" if req.month else f"{req.year}%"
 
-        # შემოსავალი
         cur.execute("""
             SELECT COALESCE(reason,'other') as category, account_code,
                    COALESCE(SUM(amount),0) as total
             FROM journal_drafts
-            WHERE account_code LIKE '6%%' AND date LIKE %s
+            WHERE account_code LIKE '6%%' AND date LIKE %s AND tenant_id = %s
             GROUP BY reason, account_code ORDER BY total DESC
-        """, (period,))
+        """, (period, tenant_id))
         income_rows = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
             SELECT COALESCE(reason,'other') as category, account_code,
                    COALESCE(SUM(amount),0) as total
             FROM journal_drafts
-            WHERE account_code LIKE '7%%' AND date LIKE %s
+            WHERE account_code LIKE '7%%' AND date LIKE %s AND tenant_id = %s
             GROUP BY reason, account_code ORDER BY total DESC
-        """, (period,))
+        """, (period, tenant_id))
         expense_rows = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
             SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts
-            WHERE account_code='3100' AND date LIKE %s
-        """, (period,))
+            WHERE account_code='3100' AND date LIKE %s AND tenant_id = %s
+        """, (period, tenant_id))
         row = cur.fetchone()
         tax = float(row["total"]) if row else 0.0
 
@@ -55,6 +55,7 @@ def profit_and_loss(req: StatementRequest):
 
     return ok_response("Profit & Loss Statement", {
         "period": f"{req.year}" + (f"-{str(req.month).zfill(2)}" if req.month else ""),
+        "tenant_id": tenant_id,
         "income": {
             "items": [{"category": r["category"], "account": r["account_code"],
                        "amount": float(r["total"])} for r in income_rows],
@@ -73,26 +74,38 @@ def profit_and_loss(req: StatementRequest):
     })
 
 @router.post("/balance-sheet")
-def balance_sheet(req: StatementRequest):
+def balance_sheet(req: StatementRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        # აქტივები — საბანკო ანგარიშები
-        cur.execute("SELECT name, currency, balance FROM bank_accounts ORDER BY is_primary DESC")
+        cur.execute(
+            "SELECT name, currency, balance FROM bank_accounts WHERE tenant_id = %s ORDER BY is_primary DESC",
+            (tenant_id,),
+        )
         bank_accounts = [dict(r) for r in cur.fetchall()]
 
-        # დებიტორული — გადაუხდელი ინვოისები
-        cur.execute("SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='sent'")
+        cur.execute(
+            "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='sent' AND tenant_id = %s",
+            (tenant_id,),
+        )
         receivables = dict(cur.fetchone())
 
-        # გადასახდელი — pending expenses
-        cur.execute("SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as cnt FROM expenses WHERE status='pending'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as cnt FROM expenses WHERE status='pending' AND tenant_id = %s",
+            (tenant_id,),
+        )
         payables = dict(cur.fetchone())
 
-        # შემოსავალი/ხარჯი journal-იდან
-        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         retained = float(cur.fetchone()["total"])
-        cur.execute("SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND tenant_id = %s",
+            (tenant_id,),
+        )
         expenses_total = float(cur.fetchone()["total"])
 
     finally:
@@ -107,6 +120,7 @@ def balance_sheet(req: StatementRequest):
 
     return ok_response("Balance Sheet", {
         "period": f"{req.year}" + (f"-{str(req.month).zfill(2)}" if req.month else ""),
+        "tenant_id": tenant_id,
         "assets": {
             "cash_and_bank": [{"name": a["name"], "currency": a["currency"],
                                "balance": float(a["balance"])} for a in bank_accounts],
@@ -128,7 +142,8 @@ def balance_sheet(req: StatementRequest):
     })
 
 @router.post("/cashflow")
-def cash_flow(req: StatementRequest):
+def cash_flow(req: StatementRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -136,9 +151,9 @@ def cash_flow(req: StatementRequest):
         cur.execute("""
             SELECT reason, account_code,
                    COALESCE(SUM(amount),0) as total
-            FROM journal_drafts WHERE date LIKE %s
+            FROM journal_drafts WHERE date LIKE %s AND tenant_id = %s
             GROUP BY reason, account_code ORDER BY account_code
-        """, (period,))
+        """, (period, tenant_id))
         rows = [dict(r) for r in cur.fetchall()]
     finally:
         cur.close(); conn.close()
@@ -151,6 +166,7 @@ def cash_flow(req: StatementRequest):
 
     return ok_response("Cash Flow Statement", {
         "period": f"{req.year}" + (f"-{str(req.month).zfill(2)}" if req.month else ""),
+        "tenant_id": tenant_id,
         "operating": {
             "cash_inflows": round(operating_in, 2),
             "cash_outflows": round(operating_out, 2),

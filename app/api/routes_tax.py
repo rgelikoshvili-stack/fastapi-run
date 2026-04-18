@@ -3,7 +3,7 @@ Bridge Hub — Tax Routes V2
 → app/api/routes_tax.py
 + accounting_rules integration (GEL format, VAT posting, Dividend 2-step)
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from app.api.response_utils import ok_response, error_response
@@ -255,27 +255,28 @@ def annual_tax_summary(req: AnnualTaxRequest):
  
  
 @router.get("/from-journal/{year}")
-def tax_from_journal(year: int):
+def tax_from_journal(year: int, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s",
-            (f"{year}%",)
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s AND tenant_id = %s",
+            (f"{year}%", tenant_id)
         )
         r = cur.fetchone()
         revenue = float(r["total"]) if r else 0.0
- 
+
         cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND date LIKE %s",
-            (f"{year}%",)
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND date LIKE %s AND tenant_id = %s",
+            (f"{year}%", tenant_id)
         )
         r = cur.fetchone()
         expenses = float(r["total"]) if r else 0.0
- 
+
         cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s",
-            (f"{year}%",)
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s AND tenant_id = %s",
+            (f"{year}%", tenant_id)
         )
         r = cur.fetchone()
         tax_paid = float(r["total"]) if r else 0.0

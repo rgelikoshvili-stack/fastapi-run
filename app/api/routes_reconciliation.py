@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from app.api.response_utils import ok_response, error_response
 
 log = logging.getLogger(__name__)
@@ -34,7 +34,8 @@ def reconciliation_status():
         return error_response("Status failed", "RECON_STATUS_ERROR", str(e))
 
 @router.get("/history")
-def reconciliation_history():
+def reconciliation_history(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     from app.api.db import get_db
     import psycopg2.extras
     conn = get_db()
@@ -43,8 +44,8 @@ def reconciliation_history():
         cur.execute("""
             SELECT status, COUNT(*) as cnt,
                    MIN(created_at) as first, MAX(created_at) as last
-            FROM journal_drafts GROUP BY status ORDER BY cnt DESC
-        """)
+            FROM journal_drafts WHERE tenant_id = %s GROUP BY status ORDER BY cnt DESC
+        """, (tenant_id,))
         rows = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         log.warning("reconciliation history query failed: %s", e)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 import psycopg2, psycopg2.extras
 import openpyxl, io
@@ -8,11 +8,15 @@ from app.api.response_utils import error_response
 router = APIRouter(prefix="/export", tags=["export"])
 
 @router.get("/journal/excel")
-def export_journal_excel(status: str = "approved"):
+def export_journal_excel(request: Request, status: str = "approved"):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE status=%s ORDER BY created_at DESC", (status,))
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id=%s ORDER BY created_at DESC",
+            (status, tenant_id),
+        )
         rows = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         return error_response("Export failed", "EXPORT_ERROR", str(e))

@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <title>Bridge Hub — AI Financial OS</title>
 <style>
 :root{
@@ -641,19 +644,20 @@ async function doLogin(email, password, tenant) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, tenant_id: tenant || 'default' })
     });
-    const d = await r.json();
-    if (!r.ok || !d.data?.access_token) {
-      return d.data?.error || d.message || 'ავტორიზაცია ვერ მოხერხდა';
+    const d = await r.json().catch(() => ({}));
+    const token = d.data?.access_token;
+    if (!r.ok || !token) {
+      return d.error?.details || d.data?.error || d.message || `სერვერი: ${r.status}`;
     }
-    TOKEN  = d.data.access_token;
-    TENANT = tenant || d.data.tenant_id || 'default';
+    TOKEN  = token;
+    TENANT = tenant || d.data?.tenant_id || d.data?.user?.tenant_id || 'default';
     localStorage.setItem('access_token', TOKEN);
     localStorage.setItem('tenant_id', TENANT);
     hideLoginModal();
     loadPage();
     return null;
   } catch (e) {
-    return 'კავშირის შეცდომა';
+    return `კავშირის შეცდომა: ${e.message}`;
   }
 }
 
@@ -1751,9 +1755,22 @@ window.addEventListener('load', async function () {
   recalculateAllRows();
   if (!TOKEN) {
     showLoginModal();
-  } else {
-    await loadPage();
+    return;
   }
+  // Verify token is still valid (catches expired / wrong-key tokens)
+  try {
+    const chk = await fetch(BASE + '/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'X-Tenant-ID': TENANT }
+    });
+    const cd = await chk.json().catch(() => ({}));
+    if (!cd.ok) {
+      TOKEN = null;
+      localStorage.removeItem('access_token');
+      showLoginModal();
+      return;
+    }
+  } catch { /* network error — try anyway */ }
+  await loadPage();
 });
 </script>
 </body>

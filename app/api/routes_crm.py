@@ -114,6 +114,12 @@ def add_interaction(customer_id: int, data: InteractionCreate, request: Request)
     conn = get_db()
     cur = conn.cursor()
     try:
+        cur.execute(
+            "SELECT id FROM customers WHERE id=%s AND tenant_id=%s",
+            (customer_id, tenant_id),
+        )
+        if not cur.fetchone():
+            return error_response("Not found", "NOT_FOUND", "Customer not found for this tenant")
         cur.execute("""
             INSERT INTO customer_interactions (customer_id, type, note, amount, created_by)
             VALUES (%s,%s,%s,%s,%s) RETURNING id

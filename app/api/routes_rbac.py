@@ -1,10 +1,22 @@
-from fastapi import APIRouter, Header, Depends
+from fastapi import APIRouter, Header
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
 from app.api.db import get_db
-from app.api.rbac import get_user_by_key, can, ROLE_PERMISSIONS, require_permission
+from app.api.authz import ROLE_PERMISSIONS, has_role_permission
 from app.api.response_utils import ok_response, error_response
+
+
+def get_user_by_key(api_key: str):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT * FROM users WHERE api_key=%s AND active=TRUE", (api_key,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        cur.close()
+        conn.close()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -21,7 +33,7 @@ def get_me(x_api_key: Optional[str] = Header(None)):
     user = get_user_by_key(x_api_key)
     if not user:
         return error_response("Invalid API key", "AUTH_ERROR", "")
-    perms = ROLE_PERMISSIONS.get(user.get("role","viewer"), [])
+    perms = sorted(ROLE_PERMISSIONS.get(user.get("role", "viewer"), set()))
     return ok_response("User info", {
         "id": user["id"],
         "name": user["name"],
@@ -35,7 +47,7 @@ def list_users(x_api_key: Optional[str] = Header(None)):
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
     caller = get_user_by_key(x_api_key)
-    if not caller or not can(caller, "manage_users"):
+    if not caller or not has_role_permission(caller.get("role", "viewer"), "tenants:manage"):
         return error_response("Admin only", "FORBIDDEN", "")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -51,7 +63,7 @@ def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None)):
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
     caller = get_user_by_key(x_api_key)
-    if not caller or not can(caller, "manage_users"):
+    if not caller or not has_role_permission(caller.get("role", "viewer"), "tenants:manage"):
         return error_response("Admin only", "FORBIDDEN", "")
     if data.role not in ROLE_PERMISSIONS:
         return error_response("Invalid role", "VALIDATION_ERROR", f"Use: {list(ROLE_PERMISSIONS.keys())}")
@@ -75,4 +87,4 @@ def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None)):
 
 @router.get("/roles")
 def list_roles():
-    return ok_response("Roles & permissions", ROLE_PERMISSIONS)
+    return ok_response("Roles & permissions", {r: sorted(p) for r, p in ROLE_PERMISSIONS.items()})

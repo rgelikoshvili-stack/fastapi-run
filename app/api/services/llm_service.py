@@ -207,13 +207,19 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
     return f"ტრანზაქცია: {desc} — თანხა: {amount:.2f} ₾"
 
 
-def chat_with_claude(message: str, context: str = "", tenant_id: str = "default") -> Optional[str]:
+def chat_with_claude(
+    message: str,
+    context: str = "",
+    tenant_id: str = "default",
+    role: Optional[str] = None,
+) -> Optional[str]:
     """
     Claude as main Bridge Hub chat brain.
-    იყენებს ოფიციალურ anthropic SDK-ს.
+    role: 'accountant' | 'consultant' | 'assistant' (default)
     """
     try:
         import anthropic
+        from app.api.services.prompt_profiles import get_profile
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
@@ -221,14 +227,9 @@ def chat_with_claude(message: str, context: str = "", tenant_id: str = "default"
 
         client = anthropic.Anthropic(api_key=api_key)
 
-        system = (
-            "შენ ხარ Bridge Hub AI — ქართული AI ბუღალტრული სისტემის ასისტენტი. "
-            "შეგიძლია: VAT/დღგ 18%, Payroll PIT 20% + PAYG 2%, CIT 15%, "
-            "დივიდენდი 5%, Balance.ge გატარებები, TBC/BOG ბანკის ამონაწერი, "
-            "invoice OCR, 1C export, Excel/PDF export. "
-            "ყოველთვის პასუხობ ქართულად. ციფრებს ლარში წარმოადგენ. "
-            "ბუღალტრული კოდებისთვის გამოიყენე ქართული COA სტანდარტი."
-        )
+        profile = get_profile(role)
+        system = profile["system"]
+        max_tokens = profile.get("max_tokens", 1000)
 
         user_text = message
         if context:
@@ -236,7 +237,7 @@ def chat_with_claude(message: str, context: str = "", tenant_id: str = "default"
 
         resp = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1000,
+            max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user_text}],
         )

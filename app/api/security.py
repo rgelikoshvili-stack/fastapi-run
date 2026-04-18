@@ -1,7 +1,11 @@
-﻿from slowapi import Limiter
+﻿import os
+import logging
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+log = logging.getLogger(__name__)
 
 
 def _real_ip(request: Request) -> str:
@@ -11,7 +15,20 @@ def _real_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-limiter = Limiter(key_func=_real_ip)
+def _make_limiter() -> Limiter:
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            limiter = Limiter(key_func=_real_ip, storage_uri=redis_url)
+            log.info("Rate limiter: Redis storage (%s)", redis_url.split("@")[-1])
+            return limiter
+        except Exception as e:
+            log.warning("Redis limiter init failed (%s), falling back to memory: %s", redis_url, e)
+    log.info("Rate limiter: in-memory storage (single-instance only)")
+    return Limiter(key_func=_real_ip)
+
+
+limiter = _make_limiter()
 
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):

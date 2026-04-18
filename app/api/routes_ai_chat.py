@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     tenant_id: Optional[str] = "global"
     use_vector_search: Optional[bool] = True
+    role: Optional[str] = None  # "accountant" | "consultant" | "assistant"
 
 
 class ChatResponse(BaseModel):
@@ -108,6 +109,7 @@ async def ai_chat(
     session_id: str = Form(None),
     tenant_id: str = Form("global"),
     use_vector_search: bool = Form(True),
+    role: str = Form(None),
     file: UploadFile = File(None),
 ):
     message = (message or "").strip()
@@ -121,6 +123,7 @@ async def ai_chat(
         tenant_id=tenant_id,
         use_vector_search=use_vector_search,
         file=file,
+        role=role or None,
     )
 
     payload = ChatResponse(**result)

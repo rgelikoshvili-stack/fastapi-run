@@ -18,6 +18,7 @@ from app.api.services.posting_service import (
     post_draft_to_oris_service,
     apply_posting_service,
 )
+from app.api.services.posting_preview_service import preview_posting_service
 
 router = APIRouter(prefix="/posting", tags=["posting"])
 
@@ -140,6 +141,19 @@ def get_oris_status(request: Request):
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_oris_status_service(tenant_id=tenant_id)
+
+
+# ===============================
+# SHADOW POSTING (read-only preview)
+# ===============================
+@router.get("/preview/{draft_id}")
+def preview_posting(
+    request: Request,
+    draft_id: int = Path(...),
+):
+    require_permission(request, "posting:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return preview_posting_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 # ===============================

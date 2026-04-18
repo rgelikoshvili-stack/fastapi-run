@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
@@ -39,13 +39,14 @@ async def test_connection(config: BalanceGeConfig):
         return error_response("Connection error", "CONNECT_ERROR", str(e))
 
 @router.post("/post-journals")
-async def post_journals(req: JournalPostRequest):
+async def post_journals(req: JournalPostRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND status='approved'",
-            (req.draft_ids,)
+            "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND status='approved' AND tenant_id=%s",
+            (req.draft_ids, tenant_id),
         )
         drafts = [dict(r) for r in cur.fetchall()]
     finally:
@@ -86,14 +87,19 @@ async def post_journals(req: JournalPostRequest):
         "failed_count": len(failed),
         "posted": posted,
         "failed": failed,
+        "tenant_id": tenant_id,
     })
 
 @router.get("/export-format/{draft_id}")
-async def export_format(draft_id: int):
+async def export_format(draft_id: int, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE id=%s", (draft_id,))
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s",
+            (draft_id, tenant_id),
+        )
         d = cur.fetchone()
     finally:
         cur.close(); conn.close()
@@ -112,5 +118,6 @@ async def export_format(draft_id: int):
         "PartnerName": d.get("partner"),
         "DocumentType": "journal",
         "SourceSystem": "BridgeHub",
+        "TenantID": tenant_id,
     }
     return ok_response("Balance.ge format", balance_ge_format)

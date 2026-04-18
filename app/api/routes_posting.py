@@ -2,6 +2,7 @@ from fastapi import APIRouter, Path, Query, HTTPException, Request
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+from app.api.security import limiter
 
 from app.api.services.posting_service import (
     get_approved_drafts_service,
@@ -145,6 +146,7 @@ def get_oris_status(request: Request):
 # WRITE ENDPOINTS
 # ===============================
 @router.post("/mock/{draft_id}")
+@limiter.limit("20/minute")
 def mock_posting(
     request: Request,
     draft_id: int = Path(...),
@@ -156,6 +158,7 @@ def mock_posting(
 
 
 @router.post("/balance/{draft_id}")
+@limiter.limit("20/minute")
 def post_draft_to_balance(
     request: Request,
     draft_id: int = Path(...),

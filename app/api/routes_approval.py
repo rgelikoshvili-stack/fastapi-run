@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.api.response_utils import error_response
+from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.approval_service import (
     get_queue_service,
@@ -50,12 +51,14 @@ def get_queue(request: Request, status: str = "", limit: int = 100, offset: int 
 
 
 @router.post("/approve/{draft_id}")
+@limiter.limit("30/minute")
 def approve_draft(draft_id: int, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return approve_draft_service(draft_id, tenant_id=tenant_id)
 
 
 @router.post("/reject/{draft_id}")
+@limiter.limit("30/minute")
 def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)

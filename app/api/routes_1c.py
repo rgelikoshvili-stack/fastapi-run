@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -54,14 +54,21 @@ def drafts_to_1c_csv(drafts: list) -> str:
     return "\n".join(lines)
 
 @router.post("/export")
-async def export_1c(req: ExportRequest):
+async def export_1c(req: ExportRequest, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         if req.draft_ids:
-            cur.execute("SELECT * FROM journal_drafts WHERE id = ANY(%s)", (req.draft_ids,))
+            cur.execute(
+                "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND tenant_id = %s",
+                (req.draft_ids, tenant_id),
+            )
         else:
-            cur.execute("SELECT * FROM journal_drafts WHERE status=%s ORDER BY created_at", (req.status,))
+            cur.execute(
+                "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id = %s ORDER BY created_at",
+                (req.status, tenant_id),
+            )
         drafts = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
@@ -87,11 +94,15 @@ async def export_1c(req: ExportRequest):
         )
 
 @router.get("/preview/{status}")
-async def preview_1c(status: str = "approved"):
+async def preview_1c(status: str, request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT * FROM journal_drafts WHERE status=%s ORDER BY created_at LIMIT 20", (status,))
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id=%s ORDER BY created_at LIMIT 20",
+            (status, tenant_id),
+        )
         drafts = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
@@ -111,5 +122,6 @@ async def preview_1c(status: str = "approved"):
     return ok_response("1C export preview", {
         "count": len(preview),
         "format": "V8Exch XML / CSV",
+        "tenant_id": tenant_id,
         "entries": preview
     })

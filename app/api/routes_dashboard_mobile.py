@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app.api.db import get_db
 import psycopg2.extras, json
@@ -6,23 +6,45 @@ import psycopg2.extras, json
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 @router.get("/mobile", response_class=HTMLResponse)
-def mobile_dashboard():
+def mobile_dashboard(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT status, COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM journal_drafts GROUP BY status")
+        cur.execute(
+            "SELECT status, COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE tenant_id=%s GROUP BY status",
+            (tenant_id,),
+        )
         stats = {r["status"]: {"count": r["cnt"], "total": float(r["total"])} for r in cur.fetchall()}
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '6%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '6%%' AND tenant_id=%s",
+            (tenant_id,),
+        )
         income = float(cur.fetchone()["coalesce"])
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '7%'")
+        cur.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM journal_drafts WHERE account_code LIKE '7%%' AND tenant_id=%s",
+            (tenant_id,),
+        )
         expense = float(cur.fetchone()["coalesce"])
-        cur.execute("SELECT * FROM journal_drafts ORDER BY created_at DESC LIMIT 8")
+        cur.execute(
+            "SELECT * FROM journal_drafts WHERE tenant_id=%s ORDER BY created_at DESC LIMIT 8",
+            (tenant_id,),
+        )
         recent = [dict(r) for r in cur.fetchall()]
-        cur.execute("SELECT COUNT(*) FROM invoices")
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices WHERE tenant_id=%s",
+            (tenant_id,),
+        )
         inv_count = cur.fetchone()["count"]
-        cur.execute("SELECT COALESCE(SUM(total),0) FROM invoices WHERE status='paid'")
+        cur.execute(
+            "SELECT COALESCE(SUM(total),0) FROM invoices WHERE status='paid' AND tenant_id=%s",
+            (tenant_id,),
+        )
         inv_paid = float(cur.fetchone()["coalesce"])
-        cur.execute("SELECT COUNT(*) FROM journal_drafts WHERE status='pending_approval'")
+        cur.execute(
+            "SELECT COUNT(*) FROM journal_drafts WHERE status='pending_approval' AND tenant_id=%s",
+            (tenant_id,),
+        )
         pending = cur.fetchone()["count"]
     finally:
         cur.close(); conn.close()

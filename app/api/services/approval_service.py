@@ -178,6 +178,7 @@ def approve_draft_service(draft_id: int, tenant_id: str):
             """
             SELECT * FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
+            FOR UPDATE
             """,
             (draft_id, tenant_id),
         )
@@ -317,6 +318,7 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             """
             SELECT * FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
+            FOR UPDATE
             """,
             (draft_id, tenant_id),
         )

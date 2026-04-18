@@ -2,11 +2,6 @@ import psycopg2
 import os
 
 def get_db():
-    conn = psycopg2.connect(
-        host=os.environ.get("DB_HOST", "35.192.214.120"),
-        dbname=os.environ.get("DB_NAME", "bridgehub"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", "BridgeHub2026x"),
-    )
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
     conn.set_client_encoding("UTF8")
     return conn

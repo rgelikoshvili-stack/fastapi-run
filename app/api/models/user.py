@@ -1,4 +1,5 @@
-﻿import os, hashlib, secrets, psycopg2
+﻿import os, psycopg2
+import bcrypt
 from psycopg2.extras import RealDictCursor
 
 ROLES = ("admin", "accountant", "reviewer", "ai_supervisor")
@@ -26,14 +27,11 @@ def create_users_table():
     conn.close()
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-    return f"{salt}:{h}"
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(12)).decode()
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        salt, h = password_hash.split(":", 1)
-        return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == h
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
     except Exception:
         return False
 

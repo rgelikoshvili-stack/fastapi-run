@@ -285,6 +285,7 @@ input,select,textarea{font-family:inherit}
     <button class="btn btn-ghost" onclick="loadPage()">⟳</button>
     <button class="notif-btn" onclick="toggleAI()">💬<div class="notif-dot"></div></button>
     <button class="btn btn-blue btn-sm" onclick="toggleAI()">AI ჩათი</button>
+    <button class="btn btn-ghost btn-sm" onclick="logout()" title="გამოსვლა" style="opacity:.7">⎋</button>
   </header>
 
   <div class="content">
@@ -560,6 +561,7 @@ const BASE = window.location.hostname === '127.0.0.1'
   : 'https://fastapi-run-226875230147.us-central1.run.app';
 
 let TENANT = localStorage.getItem('tenant_id') || 'default';
+let TOKEN  = localStorage.getItem('auth_token') || null;
 let allPending = [];
 let apOn = false;
 let apTimer = null;
@@ -589,6 +591,8 @@ async function api(path, method = 'GET', body = null) {
       headers: { 'X-Tenant-ID': TENANT }
     };
 
+    if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+
     if (body && !(body instanceof FormData)) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
@@ -597,11 +601,114 @@ async function api(path, method = 'GET', body = null) {
     }
 
     const r = await fetch(BASE + path, opts);
+
+    if (r.status === 401) {
+      TOKEN = null;
+      localStorage.removeItem('auth_token');
+      showLoginModal();
+      return null;
+    }
+
     if (!r.ok) return null;
     return await r.json();
   } catch {
     return null;
   }
+}
+
+async function doLogin(email, password, tenant) {
+  try {
+    const r = await fetch(BASE + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, tenant_id: tenant || 'default' })
+    });
+    const d = await r.json();
+    if (!r.ok || !d.data?.access_token) {
+      return d.data?.error || d.message || 'ავტორიზაცია ვერ მოხერხდა';
+    }
+    TOKEN  = d.data.access_token;
+    TENANT = tenant || d.data.tenant_id || 'default';
+    localStorage.setItem('auth_token', TOKEN);
+    localStorage.setItem('tenant_id', TENANT);
+    hideLoginModal();
+    loadPage();
+    return null;
+  } catch (e) {
+    return 'კავშირის შეცდომა';
+  }
+}
+
+function showLoginModal() {
+  let m = document.getElementById('login-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'login-modal';
+    m.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;
+      display:flex;align-items:center;justify-content:center;
+    `;
+    m.innerHTML = `
+      <div style="background:#1e2532;border-radius:12px;padding:32px 28px;min-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+        <div style="font-size:20px;font-weight:700;color:#e2e8f0;margin-bottom:6px">🔐 Bridge Hub</div>
+        <div style="font-size:13px;color:#94a3b8;margin-bottom:24px">შესასვლელად გაიარეთ ავტორიზაცია</div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;color:#94a3b8">ელ-ფოსტა</label>
+          <input id="li-email" type="email" placeholder="admin@bridgehub.ge"
+            style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;color:#94a3b8">პაროლი</label>
+          <input id="li-pass" type="password" placeholder="••••••••"
+            style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+        </div>
+        <div style="margin-bottom:20px">
+          <label style="font-size:12px;color:#94a3b8">Tenant ID</label>
+          <input id="li-tenant" type="text" value="${TENANT}"
+            style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+        </div>
+        <div id="li-err" style="color:#f87171;font-size:12px;margin-bottom:12px;min-height:16px"></div>
+        <button id="li-btn" onclick="handleLogin()"
+          style="width:100%;padding:10px;background:#3b82f6;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">
+          შესვლა
+        </button>
+      </div>
+    `;
+    document.body.appendChild(m);
+    document.getElementById('li-pass').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleLogin();
+    });
+  }
+  m.style.display = 'flex';
+  setTimeout(() => document.getElementById('li-email')?.focus(), 50);
+}
+
+function hideLoginModal() {
+  const m = document.getElementById('login-modal');
+  if (m) m.style.display = 'none';
+}
+
+async function handleLogin() {
+  const btn = document.getElementById('li-btn');
+  const errEl = document.getElementById('li-err');
+  const email  = document.getElementById('li-email').value.trim();
+  const pass   = document.getElementById('li-pass').value;
+  const tenant = document.getElementById('li-tenant').value.trim();
+  if (!email || !pass) { errEl.textContent = 'შეიყვანეთ ელ-ფოსტა და პაროლი'; return; }
+  btn.textContent = 'გთხოვთ დაიცადოთ...';
+  btn.disabled = true;
+  const err = await doLogin(email, pass, tenant);
+  if (err) {
+    errEl.textContent = err;
+    btn.textContent = 'შესვლა';
+    btn.disabled = false;
+  }
+}
+
+function logout() {
+  TOKEN = null;
+  localStorage.removeItem('auth_token');
+  showLoginModal();
 }
 
 function toast(msg, type = 'ok') {
@@ -1514,7 +1621,11 @@ async function loadInbox() {
 
 window.addEventListener('load', async function () {
   recalculateAllRows();
-  await loadPage();
+  if (!TOKEN) {
+    showLoginModal();
+  } else {
+    await loadPage();
+  }
 });
 </script>
 </body>

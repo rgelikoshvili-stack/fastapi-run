@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from bridge_hub_knowledge import classify_transaction, calculate_vat, learn_new_rule, get_stats; print\\('bridge_hub_knowledge shim OK'\\)\")",
+      "Bash(python -c \"from app.knowledge import classify_transaction, calculate_vat, learn_new_rule, get_stats; print\\('app.knowledge import OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/integration/test_classification_accuracy.py -v)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/health)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/health)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/docs)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/openapi.json)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/ai/stats)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/approval/queue)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/dashboard/mobile)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" \"https://fastapi-run-226875230147.us-central1.run.app/api/ai/classify?description=tbc+bank+commission\")",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/bank-sync/status)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/static/approval.html)",
+      "Bash(curl -s -X POST -H \"Content-Type: application/json\" -d '{\"description\":\"tbc bank commission\"}' https://fastapi-run-226875230147.us-central1.run.app/api/ai/classify)",
+      "Bash(curl -s https://fastapi-run-226875230147.us-central1.run.app/openapi.json)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/health/)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/ai/index)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\n\" https://fastapi-run-226875230147.us-central1.run.app/api/ai/vector-stats)",
+      "Bash(cat)",
+      "Bash(bash /tmp/test_with_auth.sh)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

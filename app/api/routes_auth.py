@@ -1,10 +1,11 @@
-﻿from fastapi import APIRouter, Header
+﻿from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
 from typing import Optional
 
 from app.api.models.user import create_user, create_users_table
 from app.api.services.auth_service import login, verify_token, refresh_token
 from app.api.response_utils import ok_response, error_response
+from app.api.security import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,7 +20,6 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     tenant_id: str = "default"
-    role: str = "accountant"
 
 
 class RefreshRequest(BaseModel):
@@ -35,7 +35,8 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
 
 
 @router.post("/login")
-def auth_login(data: LoginRequest):
+@limiter.limit("5/minute")
+def auth_login(request: Request, data: LoginRequest):
     result = login(data.email, data.password, data.tenant_id)
     if not result.get("ok"):
         return error_response("Login failed", "AUTH_ERROR", result.get("error"))
@@ -46,7 +47,7 @@ def auth_login(data: LoginRequest):
 def auth_register(data: RegisterRequest):
     try:
         create_users_table()
-        user = create_user(data.email, data.password, data.tenant_id, data.role)
+        user = create_user(data.email, data.password, data.tenant_id, "accountant")
         if not user:
             return error_response("User exists", "USER_EXISTS", "ეს email უკვე რეგისტრირებულია")
         return ok_response("Registered", {

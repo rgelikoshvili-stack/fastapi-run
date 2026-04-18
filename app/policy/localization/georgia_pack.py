@@ -53,6 +53,9 @@ ACCOUNT_MAP = {
     "vat_receivable":      "2210",
     "income_tax":          "3320",
     "payg":                "3120",
+    "cit_payable":         "3340",
+    "withholding_payable": "3350",
+    "dividend_payable":    "3370",
 }
 
 
@@ -98,6 +101,111 @@ def calculate_payg(gross_salary: Decimal) -> dict:
         "gross": float(gross_salary),
         "payg": float(payg),
         "net": float(net),
+    }
+
+
+# ========== CIT (Corporate Income Tax — Estonian Model) ==========
+
+WITHHOLDING_RATES = {
+    "dividend": Decimal("0.05"),
+    "interest": Decimal("0.05"),
+    "royalty":  Decimal("0.10"),
+    "services": Decimal("0.10"),
+}
+CIT_DIVISOR = Decimal("0.85")  # gross-up: tax_base = profit / 0.85
+
+
+def calculate_cit(distributed_profit: Decimal) -> dict:
+    """
+    კორპ. გადასახადი ესტონური მოდელით (15%).
+    ბაზა = განაცხადებული მოგება ÷ 0.85
+    CIT  = ბაზა × 15%
+    Dr 4210 / Cr 3370  — მოგების განაწილება
+    Dr 3370 / Cr 3340 + Cr 1120  — გადახდა
+    """
+    profit = Decimal(str(distributed_profit))
+    tax_base = (profit / CIT_DIVISOR).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    cit = (tax_base * CIT_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    net_dividend = (profit - cit).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return {
+        "distributed_profit": float(profit),
+        "tax_base": float(tax_base),
+        "cit": float(cit),
+        "net_dividend": float(net_dividend),
+        "journal_step1": {"debit": "4210", "credit": "3370", "amount": float(profit)},
+        "journal_step2": [
+            {"debit": "3370", "credit": "3340", "amount": float(cit)},
+            {"debit": "3370", "credit": "1120", "amount": float(net_dividend)},
+        ],
+        "deadline_days": 15,
+        "form": "N101",
+        "source": "საგ.კოდ.მ.97(3)",
+    }
+
+
+# ========== Withholding Tax ==========
+
+def calculate_withholding(amount: Decimal, payment_type: str = "dividend", is_resident: bool = True) -> dict:
+    """
+    გადახდის წყაროსთან დაკავება.
+    არარეზიდენტი — dividend:5%, interest:5%, royalty:10%, services:10%.
+    რეზიდენტი — მხოლოდ royalty:10%, დანარჩენი 0%.
+    Dr 3370 / Cr 3350  — tax დაკავება
+    Dr 3350 / Cr 1120  — გადახდა RSA-ში
+    """
+    ptype = payment_type.lower().strip()
+    if is_resident and ptype != "royalty":
+        rate = Decimal("0")
+    else:
+        rate = WITHHOLDING_RATES.get(ptype, Decimal("0.10"))
+
+    amt = Decimal(str(amount))
+    tax = (amt * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    net = (amt - tax).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return {
+        "amount": float(amt),
+        "payment_type": ptype,
+        "is_resident": is_resident,
+        "rate_pct": int(rate * 100),
+        "tax": float(tax),
+        "net": float(net),
+        "journal": {"debit": "3350", "credit": "1120", "amount": float(tax)} if tax else None,
+        "deadline_days": 15,
+        "source": "საგ.კოდ.მ.134",
+    }
+
+
+# ========== Dividend (full flow: accrual + CIT + withholding) ==========
+
+def calculate_dividend(gross_profit: Decimal, recipient_is_resident: bool = True) -> dict:
+    """
+    დივიდენდის სრული ნაკადი:
+      1. CIT on distribution (Estonian model)
+      2. Withholding on net dividend paid to shareholder
+    """
+    cit_result = calculate_cit(gross_profit)
+    net_after_cit = Decimal(str(cit_result["net_dividend"]))
+
+    wth_result = calculate_withholding(
+        net_after_cit,
+        payment_type="dividend",
+        is_resident=recipient_is_resident,
+    )
+
+    return {
+        "gross_profit": float(gross_profit),
+        "cit": cit_result["cit"],
+        "net_after_cit": float(net_after_cit),
+        "withholding_tax": wth_result["tax"],
+        "net_to_shareholder": wth_result["net"],
+        "total_tax": round(cit_result["cit"] + wth_result["tax"], 2),
+        "effective_rate_pct": round(
+            (cit_result["cit"] + wth_result["tax"]) / float(gross_profit) * 100, 2
+        ) if float(gross_profit) else 0,
+        "cit_detail": cit_result,
+        "withholding_detail": wth_result,
     }
 
 

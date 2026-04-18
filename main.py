@@ -257,6 +257,13 @@ async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
+    # JSON → DB one-time migration
+    try:
+        from bridge_hub_knowledge import migrate_json_to_db
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, migrate_json_to_db)
+    except Exception as e:
+        print(f"⚠️ KB migration error (non-fatal): {e}")
     # Knowledge Base preload
     try:
         from bridge_hub_knowledge import _load_files as _kb_load

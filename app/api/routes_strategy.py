@@ -1,26 +1,32 @@
-from fastapi import APIRouter
-import psycopg2, psycopg2.extras, os
-from openai import OpenAI
+from fastapi import APIRouter, Request
+import psycopg2, psycopg2.extras
 from app.api.db import get_db
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
 
 
-
-def get_financial_snapshot():
+def get_financial_snapshot(tenant_id: str) -> dict:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # pipeline_runs is a global table (no tenant_id column)
     cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
     total_docs = cur.fetchone()["total"]
     cur.execute("SELECT COUNT(*) as approved FROM pipeline_runs WHERE state='APPROVED'")
     approved = cur.fetchone()["approved"]
     cur.execute("SELECT COUNT(*) as pending FROM pipeline_runs WHERE state='PENDING_APPROVAL'")
     pending = cur.fetchone()["pending"]
-    cur.execute("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as inflow FROM bank_transactions")
+
+    cur.execute(
+        "SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as inflow FROM bank_transactions WHERE tenant_id = %s",
+        (tenant_id,),
+    )
     inflow = float(cur.fetchone()["inflow"])
-    cur.execute("SELECT COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) as outflow FROM bank_transactions")
+    cur.execute(
+        "SELECT COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) as outflow FROM bank_transactions WHERE tenant_id = %s",
+        (tenant_id,),
+    )
     outflow = float(cur.fetchone()["outflow"])
-    cur.execute("SELECT COUNT(*) as total FROM bank_transactions")
+    cur.execute("SELECT COUNT(*) as total FROM bank_transactions WHERE tenant_id = %s", (tenant_id,))
     total_txs = cur.fetchone()["total"]
     cur.close(); conn.close()
     return {
@@ -31,18 +37,22 @@ def get_financial_snapshot():
         "total_inflow_gel": round(inflow, 2),
         "total_outflow_gel": round(outflow, 2),
         "net_cashflow_gel": round(inflow - outflow, 2),
-        "approval_rate": round(approved / total_docs * 100, 1) if total_docs > 0 else 0
+        "approval_rate": round(approved / total_docs * 100, 1) if total_docs > 0 else 0,
     }
 
+
 @router.get("/cfo-report")
-def cfo_report():
-    snapshot = get_financial_snapshot()
+def cfo_report(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    snapshot = get_financial_snapshot(tenant_id)
     report = f"CFO Summary: {snapshot['total_documents']} docs, approved {snapshot['approval_rate']}%, net cashflow {snapshot['net_cashflow_gel']} GEL"
-    return {"ok": True, "snapshot": snapshot, "cfo_report": report}
+    return {"ok": True, "tenant_id": tenant_id, "snapshot": snapshot, "cfo_report": report}
+
 
 @router.get("/recommendations")
-def get_recommendations():
-    snapshot = get_financial_snapshot()
+def get_recommendations(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    snapshot = get_financial_snapshot(tenant_id)
     recs = []
     if snapshot["pending"] > 5:
         recs.append({"priority": "HIGH", "action": "დაჩქარდეს approval პროცესი", "reason": f"{snapshot['pending']} დოკუმენტი ელოდება"})
@@ -52,10 +62,12 @@ def get_recommendations():
         recs.append({"priority": "MEDIUM", "action": "გაუმჯობესდეს approval rate", "reason": f"მიმდინარე: {snapshot['approval_rate']}%"})
     if not recs:
         recs.append({"priority": "LOW", "action": "სისტემა სტაბილურია", "reason": "ყველა მაჩვენებელი ნორმაშია"})
-    return {"ok": True, "snapshot": snapshot, "recommendations": recs}
+    return {"ok": True, "tenant_id": tenant_id, "snapshot": snapshot, "recommendations": recs}
+
 
 @router.get("/status")
-def strategy_status():
-    snapshot = get_financial_snapshot()
+def strategy_status(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    snapshot = get_financial_snapshot(tenant_id)
     health = "CRITICAL" if snapshot["net_cashflow_gel"] < 0 else "WARNING" if snapshot["pending"] > 10 else "HEALTHY"
-    return {"ok": True, "health": health, "snapshot": snapshot}
+    return {"ok": True, "tenant_id": tenant_id, "health": health, "snapshot": snapshot}

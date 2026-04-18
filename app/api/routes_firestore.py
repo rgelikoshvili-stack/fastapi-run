@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import psycopg2, psycopg2.extras, json
 from datetime import datetime
 from app.api.db import get_db
@@ -68,13 +68,14 @@ def sync_status():
     return {"ok": True, "total_synced": total, "total_operations": total_ops, "breakdown": breakdown}
 
 @router.post("/export/all")
-def export_all_to_firestore():
+def export_all_to_firestore(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     ensure_tables(cur)
     synced = 0
 
-    # Export pipeline_runs
+    # Export pipeline_runs (global table — no tenant_id column)
     cur.execute("SELECT id, filename, status, created_at FROM pipeline_runs ORDER BY created_at DESC LIMIT 100")
     for r in cur.fetchall():
         cur.execute("""INSERT INTO firestore_sync (collection, doc_id, data, sync_status)
@@ -83,8 +84,11 @@ def export_all_to_firestore():
              "created_at": str(r["created_at"])})))
         synced += 1
 
-    # Export bank_transactions
-    cur.execute("SELECT id, bank, date, amount, description FROM bank_transactions ORDER BY created_at DESC LIMIT 100")
+    # Export bank_transactions scoped to tenant
+    cur.execute(
+        "SELECT id, bank, date, amount, description FROM bank_transactions WHERE tenant_id = %s ORDER BY created_at DESC LIMIT 100",
+        (tenant_id,),
+    )
     for r in cur.fetchall():
         cur.execute("""INSERT INTO firestore_sync (collection, doc_id, data, sync_status)
             VALUES ('transactions',%s,%s,'SYNCED') ON CONFLICT DO NOTHING""",

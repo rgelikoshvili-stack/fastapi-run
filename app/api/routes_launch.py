@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import psycopg2, psycopg2.extras
 from datetime import datetime
 from app.api.db import get_db
@@ -8,19 +8,27 @@ router = APIRouter(prefix="/v1", tags=["launch"])
 
 
 @router.get("/status")
-def system_status():
+def system_status(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # pipeline_runs is a global table (no tenant_id column)
         cur.execute("SELECT COUNT(*) as c FROM pipeline_runs")
         docs = cur.fetchone()["c"]
-        cur.execute("SELECT COUNT(*) as c FROM bank_transactions")
+        cur.execute("SELECT COUNT(*) as c FROM bank_transactions WHERE tenant_id = %s", (tenant_id,))
         txs = cur.fetchone()["c"]
         cur.execute("SELECT COUNT(*) as c FROM pipeline_runs WHERE state='APPROVED'")
         approved = cur.fetchone()["c"]
-        cur.execute("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as v FROM bank_transactions")
+        cur.execute(
+            "SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) as v FROM bank_transactions WHERE tenant_id = %s",
+            (tenant_id,),
+        )
         inflow = float(cur.fetchone()["v"])
-        cur.execute("SELECT COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) as v FROM bank_transactions")
+        cur.execute(
+            "SELECT COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) as v FROM bank_transactions WHERE tenant_id = %s",
+            (tenant_id,),
+        )
         outflow = float(cur.fetchone()["v"])
         cur.close(); conn.close()
         return {

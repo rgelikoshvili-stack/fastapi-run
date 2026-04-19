@@ -63,18 +63,36 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
 .sb-item.active{color:var(--amber);background:rgba(240,165,0,.08);border-left-color:var(--amber);font-weight:600;}
 .sb-icon-sm{font-size:15px;width:20px;text-align:center;flex-shrink:0;opacity:.8;}
 .sb-badge{margin-left:auto;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;min-width:16px;text-align:center;font-family:var(--mono);}
-.sb-footer{margin-top:auto;padding:12px;border-top:1px solid var(--border);}
-.sb-live{display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(34,197,94,.08);border-radius:var(--r);border:1px solid rgba(34,197,94,.15);}
-.sb-live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;}
-.sb-live-txt{font-size:10px;font-weight:700;color:var(--green);font-family:var(--mono);letter-spacing:.06em;}
-.sb-clock{font-size:10px;color:var(--muted);font-family:var(--mono);margin-left:auto;}
+.sb-status{display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9.5px;}
+.sb-status-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0;}
+.sb-status-txt{color:var(--muted);letter-spacing:.04em;}
+.sb-svc{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;letter-spacing:.04em;}
+.sb-svc-bal{background:rgba(59,130,246,.12);color:#60a5fa;}
+.sb-svc-1c{background:rgba(34,197,94,.10);color:#4ade80;}
+.sb-svc-rs{background:rgba(240,165,0,.10);color:var(--amber2);}
+.sb-svc-bank{background:rgba(168,85,247,.10);color:#c084fc;}
+.sb-footer{margin-top:auto;padding:10px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;}
+.sb-chat-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);background:rgba(59,130,246,.10);border:1px solid rgba(59,130,246,.2);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer;transition:.15s;font-family:var(--mono);}
+.sb-chat-btn:hover{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.35);}
+.sb-chat-icon{font-size:14px;}
+.sb-live{display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(34,197,94,.06);border-radius:var(--r);border:1px solid rgba(34,197,94,.12);}
+.sb-live-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;}
+.sb-live-txt{font-size:9.5px;font-weight:700;color:var(--green);font-family:var(--mono);letter-spacing:.06em;}
+.sb-clock{font-size:9.5px;color:var(--muted);font-family:var(--mono);margin-left:auto;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
 /* ── MAIN LAYOUT ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
 .header{height:var(--header);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 22px;flex-shrink:0;}
 .h-title{font-size:14px;font-weight:600;color:var(--text);letter-spacing:.04em;font-family:var(--mono);}
-.h-sub{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono);letter-spacing:.03em;}
+.h-sub{display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap;}
+.h-svc{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:9.5px;font-weight:600;padding:1px 6px;border-radius:3px;letter-spacing:.04em;}
+.h-svc-hub{background:rgba(240,165,0,.12);color:var(--amber2);}
+.h-svc-bal{background:rgba(59,130,246,.12);color:#60a5fa;}
+.h-svc-1c{background:rgba(34,197,94,.10);color:#4ade80;}
+.h-svc-rs{background:rgba(240,165,0,.10);color:#fcd34d;}
+.h-svc-bank{background:rgba(168,85,247,.10);color:#c084fc;}
+.h-svc-sep{color:var(--dim);font-size:10px;}
 .h-spacer{flex:1;}
 .search-wrap{position:relative;}
 .search{width:200px;background:rgba(255,255,255,.04);border:1px solid var(--border2);border-radius:6px;padding:6px 10px 6px 28px;font-size:12px;color:var(--text);outline:none;transition:.15s;font-family:var(--mono);}
@@ -336,6 +354,14 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
     <div class="sb-icon">🌉</div>
     <div><div class="sb-name">Bridge Hub</div><div class="sb-ver">AI Financial OS</div></div>
   </div>
+  <div class="sb-status">
+    <div class="sb-status-dot"></div>
+    <span class="sb-status-txt">Cloud Run · </span>
+    <span class="sb-svc sb-svc-bal">BAL</span>
+    <span class="sb-svc sb-svc-1c">1C</span>
+    <span class="sb-svc sb-svc-rs">RS</span>
+    <span class="sb-svc sb-svc-bank">BANK</span>
+  </div>
   <div class="sb-section">მთავარი</div>
   <div class="sb-item active" onclick="goPage('dashboard',this)"><span class="sb-icon-sm">📊</span> Dashboard</div>
   <div class="sb-section">ტრანზაქციები</div>
@@ -366,6 +392,11 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
   <div class="sb-item" onclick="goPage('health',this)"><span class="sb-icon-sm">💊</span> Health Check</div>
   <div class="sb-item" onclick="goPage('settings',this)"><span class="sb-icon-sm">⚙️</span> Settings</div>
   <div class="sb-footer">
+    <div class="sb-chat-btn" onclick="toggleAI()">
+      <span class="sb-chat-icon">💬</span>
+      <span>AI ჩატი</span>
+      <span style="margin-left:auto;font-size:9px;opacity:.6;font-family:var(--mono)">Claude</span>
+    </div>
     <div class="sb-live">
       <div class="sb-live-dot"></div>
       <span class="sb-live-txt">LIVE</span>
@@ -378,7 +409,17 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
   <header class="header">
     <div>
       <div class="h-title" id="page-title">Dashboard</div>
-      <div class="h-sub">Bridge Hub · Balance.ge · 1C · RS.GE · Bank Sync</div>
+      <div class="h-sub">
+        <span class="h-svc h-svc-hub">Bridge Hub</span>
+        <span class="h-svc-sep">·</span>
+        <span class="h-svc h-svc-bal">Balance.ge</span>
+        <span class="h-svc-sep">·</span>
+        <span class="h-svc h-svc-1c">1C</span>
+        <span class="h-svc-sep">·</span>
+        <span class="h-svc h-svc-rs">RS.GE</span>
+        <span class="h-svc-sep">·</span>
+        <span class="h-svc h-svc-bank">Bank Sync</span>
+      </div>
     </div>
     <div class="h-spacer"></div>
     <div class="search-wrap">

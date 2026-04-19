@@ -108,8 +108,11 @@ def notifications_feed(
     tenant_id = getattr(request.state, "tenant_id", "default") or "default"
     items = []
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    except Exception as e:
+        return error_response("Notifications feed failed", "FEED_ERROR", str(e))
     try:
         # --- pending approval ---
         cur.execute(

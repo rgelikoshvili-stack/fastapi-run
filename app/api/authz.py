@@ -30,6 +30,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "export:any",
         "chat:use",
         "dashboard:admin",
+        "dashboard:view",
     },
     "accountant": {
         "reports:read",

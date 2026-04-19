@@ -304,7 +304,9 @@ def _run_db_migrations():
             ALTER TABLE journal_drafts
                 ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC,
-                ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC
+                ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC,
+                ADD COLUMN IF NOT EXISTS review_required      BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS partner              TEXT
         """)
         conn.commit()
         cur.close()

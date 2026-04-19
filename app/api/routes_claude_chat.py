@@ -13,6 +13,57 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/claude", tags=["Claude Chat"])
 
+# Knowledge keyword map → section keys
+_TAX_KEYWORDS = {
+    "vat": ["დღგ", "vat", "დღგ-ს", "დღგ-ის"],
+    "pit": ["საშემოსავლო", "pit", "income tax", "personal"],
+    "cit": ["მოგების", "cit", "profit tax", "corporate"],
+    "withholding": ["წყაროსთან", "withholding", "retention"],
+    "property": ["ქონება", "property tax"],
+    "penalty": ["სანქცი", "penalty", "fine", "ჯარიმ"],
+    "non_resident": ["არარეზიდენტ", "non-resident", "foreign"],
+    "micro": ["მცირე ბიზნეს", "micro", "small business"],
+}
+_ACC_KEYWORDS = {
+    "salary": ["ხელფას", "salary", "payroll", "payg", "შრომ"],
+    "dividends": ["დივიდენდ", "dividend"],
+    "depreciation": ["ამორტიზაც", "depreciation"],
+    "fixed_assets": ["ძირითადი საშუალებ", "fixed asset", "სიმდიდრ"],
+    "inventory": ["მარაგ", "inventory", "stock"],
+    "receivables": ["მოთხოვნ", "receivable", "debtor"],
+    "payables": ["ვალდებულ", "payable", "creditor"],
+    "loan": ["სესხ", "loan", "credit"],
+    "capital": ["კაპიტალ", "capital", "equity"],
+    "principles": ["პრინციპ", "principle", "standard", "ifrs", "gaap"],
+}
+
+
+def _fetch_knowledge_context(message: str) -> str:
+    """Pull relevant sections from loaded knowledge files based on message content."""
+    try:
+        from app.knowledge.knowledge_loader import get_tax_section, get_accounting_section
+    except Exception:
+        return ""
+
+    msg_lower = message.lower()
+    parts = []
+
+    for key, keywords in _TAX_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            section = get_tax_section(key)
+            if section:
+                parts.append(f"📜 საგადასახადო კოდექსი ({key}):\n{section[:2000]}")
+            break  # one tax section per message to avoid token bloat
+
+    for key, keywords in _ACC_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            section = get_accounting_section(key)
+            if section:
+                parts.append(f"📚 ბუღალტრული სტანდარტი ({key}):\n{section[:2000]}")
+            break
+
+    return "\n\n".join(parts)
+
 SYSTEM_PROMPT = """\
 შენ ხარ Bridge Hub AI — ქართული ფინანსური OS-ის ჭკვიანი ასისტენტი.
 შენ მუშაობ ისევე როგორც Claude — სრულყოფილი, გარჩეული, ნებისმიერ კითხვაზე პასუხობ.
@@ -220,11 +271,14 @@ async def claude_chat(
         except Exception:
             hist = []
 
-        # Fetch DB context
+        # Fetch DB context + knowledge file context
         db_context = _fetch_db_context(message, tenant_id)
+        kb_context = _fetch_knowledge_context(message)
 
-        # Build system with live DB data
+        # Build system with live DB data + knowledge files
         system = SYSTEM_PROMPT
+        if kb_context:
+            system += f"\n\n--- Bridge Hub ცოდნის ბაზა (საგადასახადო/ბუღალტრული ფაილები) ---\n{kb_context}\n---"
         if db_context:
             system += f"\n\n--- Bridge Hub-ის მიმდინარე მონაცემები ---\n{db_context}\n---"
 
@@ -257,7 +311,7 @@ async def claude_chat(
         )
 
         answer = resp.content[0].text if resp.content else "პასუხი ვერ მივიღე."
-        return {"ok": True, "answer": answer, "model": "claude-sonnet-4-6", "had_context": bool(db_context)}
+        return {"ok": True, "answer": answer, "model": "claude-sonnet-4-6", "had_context": bool(db_context or kb_context)}
 
     except Exception as e:
         log.error("claude_chat error: %s", e)

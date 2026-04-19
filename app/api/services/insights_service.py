@@ -229,15 +229,15 @@ def get_dashboard_insights(tenant_id: str) -> dict:
         cur.execute(
             """
             SELECT
-                TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS month,
+                TO_CHAR(DATE_TRUNC('month', date::date), 'YYYY-MM') AS month,
                 COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '6%%'), 0) AS revenue,
                 COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS expenses
             FROM journal_drafts
             WHERE tenant_id = %s
               AND status = 'approved'
-              AND date >= CURRENT_DATE - INTERVAL '6 months'
-            GROUP BY DATE_TRUNC('month', date)
-            ORDER BY DATE_TRUNC('month', date)
+              AND date::date >= CURRENT_DATE - INTERVAL '6 months'
+            GROUP BY DATE_TRUNC('month', date::date)
+            ORDER BY DATE_TRUNC('month', date::date)
             """,
             (tenant_id,),
         )

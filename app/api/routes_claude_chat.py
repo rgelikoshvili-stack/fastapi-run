@@ -303,16 +303,30 @@ async def claude_chat(
         content_parts.append({"type": "text", "text": user_text})
         messages.append({"role": "user", "content": content_parts})
 
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=3000,
-            system=system,
-            messages=messages,
-        )
+        _CLAUDE_TIMEOUT = 10.0
+        _CLAUDE_FALLBACK = {"ok": False, "answer": "AI temporarily unavailable. Please try again.", "model": "claude-sonnet-4-6", "had_context": False}
 
-        answer = resp.content[0].text if resp.content else "პასუხი ვერ მივიღე."
-        return {"ok": True, "answer": answer, "model": "claude-sonnet-4-6", "had_context": bool(db_context or kb_context)}
+        last_err = None
+        for attempt in range(2):
+            try:
+                resp = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=3000,
+                    system=system,
+                    messages=messages,
+                    timeout=_CLAUDE_TIMEOUT,
+                )
+                answer = resp.content[0].text if resp.content else "პასუხი ვერ მივიღე."
+                return {"ok": True, "answer": answer, "model": "claude-sonnet-4-6", "had_context": bool(db_context or kb_context)}
+            except Exception as e:
+                last_err = e
+                log.warning("claude_chat attempt %d failed: %s", attempt + 1, e)
+                if attempt == 0:
+                    import time; time.sleep(1)
+
+        log.error("claude_chat all retries failed: %s", last_err)
+        return JSONResponse(status_code=503, content=_CLAUDE_FALLBACK)
 
     except Exception as e:
-        log.error("claude_chat error: %s", e)
-        return JSONResponse(status_code=500, content={"ok": False, "answer": f"შეცდომა: {e}"})
+        log.error("claude_chat setup error: %s", e)
+        return JSONResponse(status_code=503, content={"ok": False, "answer": "AI temporarily unavailable. Please try again.", "model": "claude-sonnet-4-6", "had_context": False})

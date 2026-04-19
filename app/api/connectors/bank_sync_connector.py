@@ -32,11 +32,14 @@ class TBCConnector:
         self.mode = "live" if TBC_CLIENT_ID and TBC_CLIENT_SECRET else "demo"
 
     def status(self) -> dict:
+        connected = self.mode == "demo" or self._check_connection()
         return {
             "bank": "TBC",
             "mode": self.mode,
-            "connected": self.mode == "demo" or self._check_connection(),
+            "status": "LIVE" if (self.mode == "live" and connected) else ("DEMO" if self.mode == "demo" else "ERROR"),
+            "connected": connected,
             "api_base": TBC_API_BASE,
+            "config_present": bool(TBC_CLIENT_ID and TBC_CLIENT_SECRET),
         }
 
     def _check_connection(self) -> bool:
@@ -138,8 +141,10 @@ class BOGConnector:
         return {
             "bank": "BOG",
             "mode": self.mode,
+            "status": "LIVE" if self.mode == "live" else "DEMO",
             "connected": True,
             "api_base": BOG_API_BASE,
+            "config_present": bool(BOG_CLIENT_ID and BOG_CLIENT_SECRET),
         }
 
     def sync_transactions(

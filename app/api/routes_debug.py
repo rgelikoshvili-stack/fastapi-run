@@ -61,6 +61,45 @@ def debug_balance_ping():
     )
 
 
+@router.get("/ai-routing")
+def debug_ai_routing():
+    """Returns which knowledge buckets are loaded and how PDF routing works."""
+    try:
+        from app.knowledge.knowledge_loader import (
+            get_tax_section, get_accounting_section, _TAX_TEXT, _ACC_TEXT
+        )
+        tax_loaded = bool(_TAX_TEXT and _TAX_TEXT.strip())
+        acc_loaded = bool(_ACC_TEXT and _ACC_TEXT.strip())
+        tax_size = len(_TAX_TEXT or "")
+        acc_size = len(_ACC_TEXT or "")
+    except Exception as e:
+        return ok_response("ai-routing", {"error": str(e), "loaded": False})
+
+    try:
+        from app.knowledge.knowledge_loader import _TAX_FILENAME_KEYWORDS
+        tax_kw = list(_TAX_FILENAME_KEYWORDS)
+    except Exception:
+        tax_kw = ["საგადასახადო", "გადასახადი", "დღგ", "შემოსავლო", "tax", "vat", "income_tax"]
+
+    anthropic_key = bool(os.getenv("ANTHROPIC_API_KEY"))
+
+    return ok_response(
+        "AI knowledge routing",
+        {
+            "buckets": {
+                "TAX_TEXT": {"loaded": tax_loaded, "chars": tax_size},
+                "ACC_TEXT": {"loaded": acc_loaded, "chars": acc_size},
+            },
+            "pdf_routing": {
+                "rule": "filename contains keyword → TAX_TEXT, otherwise → ACC_TEXT",
+                "tax_keywords": tax_kw,
+            },
+            "claude_available": anthropic_key,
+            "status": "ok" if (tax_loaded or acc_loaded) else "no_files_loaded",
+        },
+    )
+
+
 @router.get("/kb-files")
 async def debug_kb_files():
     paths = [

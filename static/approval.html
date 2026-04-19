@@ -52,28 +52,61 @@ button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;color-scheme:dark}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sidebar);background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;}
-.sb-brand{padding:18px 16px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.sidebar{width:256px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;overflow-x:hidden;}
+.sb-brand{padding:16px 16px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
 .sb-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--amber),var(--teal));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;box-shadow:0 2px 12px rgba(240,165,0,.25);}
 .sb-name{font-size:14px;font-weight:600;color:var(--text);letter-spacing:.03em;font-family:var(--mono);}
 .sb-ver{font-size:10px;color:var(--muted);margin-top:2px;letter-spacing:.06em;text-transform:uppercase;}
-.sb-section{padding:14px 14px 4px;font-size:9.5px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.12em;font-family:var(--mono);}
-.sb-item{display:flex;align-items:center;gap:9px;padding:8px 14px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;transition:.15s;border-left:2px solid transparent;margin:1px 0;}
-.sb-item:hover{color:var(--text);background:rgba(59,130,246,.06);border-left-color:var(--dim);}
-.sb-item.active{color:var(--amber);background:rgba(240,165,0,.08);border-left-color:var(--amber);font-weight:600;}
-.sb-icon-sm{font-size:15px;width:20px;text-align:center;flex-shrink:0;opacity:.8;}
-.sb-badge{margin-left:auto;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;min-width:16px;text-align:center;font-family:var(--mono);}
-.sb-status{display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9.5px;}
+
+/* section headers */
+.sb-section{padding:16px 14px 5px;font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.14em;font-family:var(--mono);display:flex;align-items:center;gap:6px;}
+.sb-section::after{content:'';flex:1;height:1px;background:var(--border);opacity:.5;}
+/* section color accents */
+.sb-section.s-fin  {color:#4ade80;}
+.sb-section.s-ops  {color:#60a5fa;}
+.sb-section.s-biz  {color:#c084fc;}
+.sb-section.s-ai   {color:var(--amber2);}
+.sb-section.s-sys  {color:var(--dim);}
+
+/* nav items */
+.sb-item{display:flex;align-items:flex-start;gap:10px;padding:7px 14px;cursor:pointer;transition:.15s;border-left:2px solid transparent;margin:1px 4px 1px 0;border-radius:0 6px 6px 0;}
+.sb-item:hover{background:rgba(255,255,255,.04);border-left-color:rgba(255,255,255,.15);}
+.sb-item-ico{font-size:16px;width:22px;text-align:center;flex-shrink:0;margin-top:1px;opacity:.75;}
+.sb-item-body{display:flex;flex-direction:column;gap:1px;min-width:0;}
+.sb-item-label{font-size:12.5px;font-weight:500;color:var(--muted);line-height:1.3;transition:.15s;}
+.sb-item-hint{font-size:10px;color:var(--dim);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sb-item:hover .sb-item-label{color:var(--text);}
+.sb-item:hover .sb-item-hint{color:var(--muted);}
+/* active states per section */
+.sb-item.active                        {background:rgba(240,165,0,.07);border-left-color:var(--amber);}
+.sb-item.active .sb-item-label         {color:var(--amber);font-weight:600;}
+.sb-item.active .sb-item-hint          {color:rgba(240,165,0,.55);}
+.s-fin  ~ .sb-item.active              {background:rgba(74,222,128,.07);border-left-color:#4ade80;}
+.s-fin  ~ .sb-item.active .sb-item-label{color:#4ade80;}
+.s-ops  ~ .sb-item.active              {background:rgba(96,165,250,.07);border-left-color:#60a5fa;}
+.s-ops  ~ .sb-item.active .sb-item-label{color:#60a5fa;}
+.s-biz  ~ .sb-item.active              {background:rgba(192,132,252,.07);border-left-color:#c084fc;}
+.s-biz  ~ .sb-item.active .sb-item-label{color:#c084fc;}
+.s-ai   ~ .sb-item.active              {background:rgba(240,165,0,.07);border-left-color:var(--amber2);}
+.s-ai   ~ .sb-item.active .sb-item-label{color:var(--amber2);}
+
+/* badge */
+.sb-badge{background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;min-width:16px;text-align:center;font-family:var(--mono);margin-left:auto;flex-shrink:0;margin-top:2px;}
+
+/* status strip */
+.sb-status{display:flex;align-items:center;gap:5px;padding:6px 14px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;}
 .sb-status-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0;}
 .sb-status-txt{color:var(--muted);letter-spacing:.04em;}
-.sb-svc{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;letter-spacing:.04em;}
+.sb-svc{display:inline-flex;align-items:center;font-family:var(--mono);font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;letter-spacing:.04em;}
 .sb-svc-bal{background:rgba(59,130,246,.12);color:#60a5fa;}
 .sb-svc-1c{background:rgba(34,197,94,.10);color:#4ade80;}
 .sb-svc-rs{background:rgba(240,165,0,.10);color:var(--amber2);}
 .sb-svc-bank{background:rgba(168,85,247,.10);color:#c084fc;}
+
+/* footer */
 .sb-footer{margin-top:auto;padding:10px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;}
-.sb-chat-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);background:rgba(59,130,246,.10);border:1px solid rgba(59,130,246,.2);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer;transition:.15s;font-family:var(--mono);}
-.sb-chat-btn:hover{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.35);}
+.sb-chat-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);background:rgba(99,102,241,.10);border:1px solid rgba(99,102,241,.2);color:#a5b4fc;font-size:12px;font-weight:600;cursor:pointer;transition:.15s;font-family:var(--mono);}
+.sb-chat-btn:hover{background:rgba(99,102,241,.18);border-color:rgba(99,102,241,.4);}
 .sb-chat-icon{font-size:14px;}
 .sb-live{display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(34,197,94,.06);border-radius:var(--r);border:1px solid rgba(34,197,94,.12);}
 .sb-live-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;}
@@ -362,35 +395,121 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
     <span class="sb-svc sb-svc-rs">RS</span>
     <span class="sb-svc sb-svc-bank">BANK</span>
   </div>
-  <div class="sb-section">მთავარი</div>
-  <div class="sb-item active" onclick="goPage('dashboard',this)"><span class="sb-icon-sm">📊</span> Dashboard</div>
-  <div class="sb-section">ტრანზაქციები</div>
-  <div class="sb-item" onclick="goPage('pending',this)"><span class="sb-icon-sm">⏳</span> მოლოდინი <span class="sb-badge" id="sb-pending">0</span></div>
-  <div class="sb-item" onclick="goPage('approved',this)"><span class="sb-icon-sm">✅</span> დამტკიცებული</div>
-  <div class="sb-item" onclick="goPage('rejected',this)"><span class="sb-icon-sm">❌</span> უარყოფილი</div>
-  <div class="sb-section">ინსტრუმენტები</div>
-  <div class="sb-item" onclick="goPage('ocr',this)"><span class="sb-icon-sm">🧾</span> OCR / Invoice</div>
-  <div class="sb-item" onclick="goPage('export',this)"><span class="sb-icon-sm">📤</span> Export</div>
-  <div class="sb-item" onclick="goPage('inbox',this)"><span class="sb-icon-sm">📧</span> Email Inbox <span class="sb-badge" id="sb-inbox">0</span></div>
-  <div class="sb-item" onclick="goPage('bank',this)"><span class="sb-icon-sm">🏦</span> Bank Sync</div>
-  <div class="sb-item" onclick="goPage('payroll',this)"><span class="sb-icon-sm">💰</span> Payroll</div>
-  <div class="sb-item" onclick="goPage('collab',this)"><span class="sb-icon-sm">👥</span> Collaboration</div>
-  <div class="sb-section">ბიზნესი</div>
-  <div class="sb-item" onclick="goPage('crm',this)"><span class="sb-icon-sm">👤</span> CRM</div>
-  <div class="sb-item" onclick="goPage('budget',this)"><span class="sb-icon-sm">🎯</span> Budget</div>
-  <div class="sb-item" onclick="goPage('contracts',this)"><span class="sb-icon-sm">📝</span> Contracts</div>
-  <div class="sb-item" onclick="goPage('expenses',this)"><span class="sb-icon-sm">🧾</span> Expenses</div>
-  <div class="sb-item" onclick="goPage('invoices',this)"><span class="sb-icon-sm">📄</span> Invoices</div>
-  <div class="sb-item" onclick="goPage('reports',this)"><span class="sb-icon-sm">📑</span> Reports</div>
-  <div class="sb-section">სისტემა</div>
-  <div class="sb-item" onclick="goPage('auditlog',this)"><span class="sb-icon-sm">🔍</span> Audit Log</div>
-  <div class="sb-item" onclick="goPage('currency',this)"><span class="sb-icon-sm">💱</span> Currency</div>
-  <div class="sb-item" onclick="goPage('insights',this)"><span class="sb-icon-sm">📈</span> Insights</div>
-  <div class="sb-item" onclick="goPage('recommend',this)"><span class="sb-icon-sm">💡</span> AI Recommend</div>
-  <div class="sb-item" onclick="goPage('decision-engine',this)"><span class="sb-icon-sm">🧠</span> Decision Engine <span class="sb-badge" id="sb-de">0</span></div>
-  <div class="sb-item" onclick="goPage('learning',this)"><span class="sb-icon-sm">🧠</span> Learning</div>
-  <div class="sb-item" onclick="goPage('health',this)"><span class="sb-icon-sm">💊</span> Health Check</div>
-  <div class="sb-item" onclick="goPage('settings',this)"><span class="sb-icon-sm">⚙️</span> Settings</div>
+  <!-- ── მთავარი ── -->
+  <div class="sb-item active" onclick="goPage('dashboard',this)">
+    <span class="sb-item-ico">📊</span>
+    <div class="sb-item-body"><div class="sb-item-label">Dashboard</div><div class="sb-item-hint">KPI-ები და მიმოხილვა</div></div>
+  </div>
+
+  <!-- ── ფინანსები ── -->
+  <div class="sb-section s-fin">ფინანსები</div>
+  <div class="sb-item" onclick="goPage('pending',this)">
+    <span class="sb-item-ico">⏳</span>
+    <div class="sb-item-body"><div class="sb-item-label">Approval Queue</div><div class="sb-item-hint">დასამტკიცებელი ჩანაწერები</div></div>
+    <span class="sb-badge" id="sb-pending">0</span>
+  </div>
+  <div class="sb-item" onclick="goPage('invoices',this)">
+    <span class="sb-item-ico">🧾</span>
+    <div class="sb-item-body"><div class="sb-item-label">Invoices</div><div class="sb-item-hint">გაცემული ინვოისები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('expenses',this)">
+    <span class="sb-item-ico">💸</span>
+    <div class="sb-item-body"><div class="sb-item-label">Expenses</div><div class="sb-item-hint">ხარჯების მართვა</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('budget',this)">
+    <span class="sb-item-ico">🎯</span>
+    <div class="sb-item-body"><div class="sb-item-label">Budget</div><div class="sb-item-hint">ბიუჯეტი vs ფაქტობრივი</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('reports',this)">
+    <span class="sb-item-ico">📑</span>
+    <div class="sb-item-body"><div class="sb-item-label">Reports</div><div class="sb-item-hint">P&amp;L, ბალანსი, ფულადი ნაკადი</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('payroll',this)">
+    <span class="sb-item-ico">💰</span>
+    <div class="sb-item-body"><div class="sb-item-label">Payroll</div><div class="sb-item-hint">ხელფასების დარიცხვა</div></div>
+  </div>
+
+  <!-- ── ოპერაციები ── -->
+  <div class="sb-section s-ops">ოპერაციები</div>
+  <div class="sb-item" onclick="goPage('bank',this)">
+    <span class="sb-item-ico">🏦</span>
+    <div class="sb-item-body"><div class="sb-item-label">Bank Sync</div><div class="sb-item-hint">ბანკის ამონაწერი, ტრანზაქციები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('inbox',this)">
+    <span class="sb-item-ico">📧</span>
+    <div class="sb-item-body"><div class="sb-item-label">Email Inbox</div><div class="sb-item-hint">ინვოისები ფოსტიდან</div></div>
+    <span class="sb-badge" id="sb-inbox">0</span>
+  </div>
+  <div class="sb-item" onclick="goPage('ocr',this)">
+    <span class="sb-item-ico">📷</span>
+    <div class="sb-item-body"><div class="sb-item-label">OCR სკანირება</div><div class="sb-item-hint">დოკუმენტი → ჩანაწერი</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('export',this)">
+    <span class="sb-item-ico">📤</span>
+    <div class="sb-item-body"><div class="sb-item-label">Export</div><div class="sb-item-hint">Excel, PDF, 1C ფორმატები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('approved',this)">
+    <span class="sb-item-ico">✅</span>
+    <div class="sb-item-body"><div class="sb-item-label">დამტკიცებული</div><div class="sb-item-hint">დაბუქებული ჩანაწერები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('rejected',this)">
+    <span class="sb-item-ico">↩️</span>
+    <div class="sb-item-body"><div class="sb-item-label">უარყოფილი</div><div class="sb-item-hint">გადასინჯვის საჭირო ჩანაწერები</div></div>
+  </div>
+
+  <!-- ── ბიზნესი ── -->
+  <div class="sb-section s-biz">ბიზნესი</div>
+  <div class="sb-item" onclick="goPage('crm',this)">
+    <span class="sb-item-ico">👤</span>
+    <div class="sb-item-body"><div class="sb-item-label">CRM</div><div class="sb-item-hint">კლიენტები და კონტაქტები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('contracts',this)">
+    <span class="sb-item-ico">📝</span>
+    <div class="sb-item-body"><div class="sb-item-label">Contracts</div><div class="sb-item-hint">ხელშეკრულებები და ვადები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('collab',this)">
+    <span class="sb-item-ico">💬</span>
+    <div class="sb-item-body"><div class="sb-item-label">Collaboration</div><div class="sb-item-hint">კომენტარები, დავალებები</div></div>
+  </div>
+
+  <!-- ── AI ── -->
+  <div class="sb-section s-ai">ინტელექტი</div>
+  <div class="sb-item" onclick="goPage('decision-engine',this)">
+    <span class="sb-item-ico">⚡</span>
+    <div class="sb-item-body"><div class="sb-item-label">Decision Engine</div><div class="sb-item-hint">AI ავტომატური კლასიფიკაცია</div></div>
+    <span class="sb-badge" id="sb-de">0</span>
+  </div>
+  <div class="sb-item" onclick="goPage('recommend',this)">
+    <span class="sb-item-ico">💡</span>
+    <div class="sb-item-body"><div class="sb-item-label">AI Recommend</div><div class="sb-item-hint">ჭკვიანი რეკომენდაციები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('learning',this)">
+    <span class="sb-item-ico">🧠</span>
+    <div class="sb-item-body"><div class="sb-item-label">Learning</div><div class="sb-item-hint">სასწავლო შაბლონები</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('insights',this)">
+    <span class="sb-item-ico">📈</span>
+    <div class="sb-item-body"><div class="sb-item-label">Insights</div><div class="sb-item-hint">ბიზნეს ანალიტიკა</div></div>
+  </div>
+
+  <!-- ── სისტემა ── -->
+  <div class="sb-section s-sys">სისტემა</div>
+  <div class="sb-item" onclick="goPage('currency',this)">
+    <span class="sb-item-ico">💱</span>
+    <div class="sb-item-body"><div class="sb-item-label">Currency</div><div class="sb-item-hint">კურსები და კონვერტაცია</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('auditlog',this)">
+    <span class="sb-item-ico">🔍</span>
+    <div class="sb-item-body"><div class="sb-item-label">Audit Log</div><div class="sb-item-hint">ყველა ოპერაციის ისტორია</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('health',this)">
+    <span class="sb-item-ico">❤️</span>
+    <div class="sb-item-body"><div class="sb-item-label">Health Check</div><div class="sb-item-hint">სერვისების სტატუსი</div></div>
+  </div>
+  <div class="sb-item" onclick="goPage('settings',this)">
+    <span class="sb-item-ico">⚙️</span>
+    <div class="sb-item-body"><div class="sb-item-label">Settings</div><div class="sb-item-hint">API გასაღებები, კონფიგურაცია</div></div>
+  </div>
   <div class="sb-footer">
     <div class="sb-chat-btn" onclick="toggleAI()">
       <span class="sb-chat-icon">💬</span>

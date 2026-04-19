@@ -176,6 +176,7 @@ from app.api import routes_payroll
 from app.api import routes_email_invoice
 from app.api import routes_bank_sync
 from app.api import routes_ai_chat
+from app.api.routes_claude_chat import router as routes_claude_chat
 from app.api.routes_ai_recommend import router as routes_ai_recommend
 from app.api import routes_audit
 from app.api.middleware.auth_middleware import auth_middleware
@@ -243,6 +244,7 @@ app.include_router(routes_email_invoice.router)
 app.include_router(routes_bank_sync.router)
 app.include_router(routes_ai_chat.router)
 app.include_router(routes_ai_recommend)
+app.include_router(routes_claude_chat)
 
 
 # --- RATE LIMITING ---

@@ -94,22 +94,21 @@ function ChatPanel({onClose}) {
     const q = input.trim();
     if((!q && !file) || busy) return;
     const userText = file ? (q ? `${q} [📎 ${file.name}]` : `📎 ${file.name}`) : q;
-    setMsgs(m=>[...m,{role:"user",text:userText}]);
-    setInput(""); setBusy(true);
+    const newMsgs = [...msgs, {role:"user", text:userText}];
+    setMsgs(newMsgs); setInput(""); setBusy(true);
     try {
       const fd = new FormData();
       fd.append("message", q || "");
-      fd.append("tenant_id", "global");
+      // send last 10 messages as history (exclude greeting)
+      const hist = newMsgs.slice(1).slice(-10);
+      fd.append("history", JSON.stringify(hist));
       if(file) fd.append("file", file);
-      const r = await fetch(API+"/api/ai/chat", {method:"POST", body:fd});
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const r = await fetch(API+"/api/claude/chat", {method:"POST", body:fd});
+      if(!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.answer || `HTTP ${r.status}`); }
       const d = await r.json();
-      const reply = d.answer || d.reply || d.message || d.response || JSON.stringify(d);
-      const sources = (d.sources||[]).filter(Boolean);
-      const fullReply = sources.length ? reply + "\n\n📚 წყარო: " + sources.join(", ") : reply;
-      setMsgs(m=>[...m,{role:"ai",text:fullReply}]);
+      setMsgs(m=>[...m, {role:"ai", text: d.answer || "პასუხი ვერ მივიღე."}]);
     } catch(e) {
-      setMsgs(m=>[...m,{role:"ai",text:"⚠️ შეცდომა: "+e.message}]);
+      setMsgs(m=>[...m, {role:"ai", text:"⚠️ შეცდომა: "+e.message}]);
     }
     setFile(null); setBusy(false);
   };

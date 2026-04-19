@@ -294,15 +294,37 @@ async def decay_loop():
         await asyncio.sleep(3600)
 
 
+def _run_db_migrations():
+    """Safe startup migrations — ADD COLUMN IF NOT EXISTS only."""
+    try:
+        import psycopg2, os
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute("""
+            ALTER TABLE journal_drafts
+                ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC,
+                ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ DB migration OK (journal_drafts columns)")
+    except Exception as e:
+        print(f"⚠️ DB migration skipped (non-fatal): {e}")
+
+
 @app.on_event("startup")
 async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
+    # DB column migrations
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run_db_migrations)
     # JSON → DB one-time migration
     try:
         from bridge_hub_knowledge import migrate_json_to_db
-        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, migrate_json_to_db)
     except Exception as e:
         print(f"⚠️ KB migration error (non-fatal): {e}")

@@ -475,3 +475,65 @@ def autopilot_check(
             "thresholds": {"confidence": 0.90, "success_rate": 0.80},
         },
     )
+
+
+@router.patch("/patterns/{pattern_id}")
+def update_pattern(pattern_id: int, payload: dict, request: Request):
+    """Human correction of a learned pattern (account_code, reason, status)."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            "SELECT id FROM learning_patterns WHERE id = %s AND tenant_id = %s FOR UPDATE",
+            (pattern_id, tenant_id),
+        )
+        if not cur.fetchone():
+            return error_response("Pattern not found", "NOT_FOUND", f"pattern {pattern_id}")
+
+        allowed = {"account_code", "reason", "status", "confidence_score"}
+        updates = {k: v for k, v in payload.items() if k in allowed}
+        if not updates:
+            return error_response("No valid fields", "NO_FIELDS", "Send account_code, reason, status, or confidence_score")
+
+        set_clause = ", ".join(f"{k} = %s" for k in updates)
+        values = list(updates.values()) + [pattern_id, tenant_id]
+        cur.execute(
+            f"UPDATE learning_patterns SET {set_clause}, last_confirmed_at = NOW() "
+            f"WHERE id = %s AND tenant_id = %s RETURNING *",
+            values,
+        )
+        row = dict(cur.fetchone())
+        conn.commit()
+        return ok_response("Pattern updated", {"pattern": row})
+    except Exception as e:
+        conn.rollback()
+        return error_response("Update failed", "UPDATE_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.delete("/patterns/{pattern_id}")
+def delete_pattern(pattern_id: int, request: Request):
+    """Soft-delete a pattern (sets status = 'archived')."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE learning_patterns SET status = 'archived', last_confirmed_at = NOW() "
+            "WHERE id = %s AND tenant_id = %s AND status != 'archived'",
+            (pattern_id, tenant_id),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return error_response("Not found or already archived", "NOT_FOUND", f"pattern {pattern_id}")
+        conn.commit()
+        return ok_response("Pattern archived", {"pattern_id": pattern_id})
+    except Exception as e:
+        conn.rollback()
+        return error_response("Delete failed", "DELETE_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()

@@ -1419,6 +1419,22 @@ async function loadCollab() {
 }
 
 async function approve(id) {
+  if (typeof window.approveWithPreview === 'function') {
+    window.approveWithPreview(id, async (confirmedId) => {
+      for (const ep of [`/approval/approve/${confirmedId}`, `/approvals/${confirmedId}/approve`]) {
+        const r = await api(ep, 'POST');
+        if (r) {
+          toast('დრაფტი დამტკიცდა ✅', 'ok');
+          await loadPending();
+          await loadKPI();
+          if (curPage === 'approved') await loadApproved();
+          return;
+        }
+      }
+      toast('error', 'err');
+    });
+    return;
+  }
   if (!confirm('ნამდვილად გსურთ გატარების დადასტურება?')) return;
   for (const ep of [`/approval/approve/${id}`, `/approvals/${id}/approve`]) {
     const r = await api(ep, 'POST');
@@ -3182,5 +3198,10 @@ window.addEventListener('load', async function () {
 <script src="/static/js/pages/payroll_export.js"></script>
 <script src="/static/js/pages/ocr_split.js"></script>
 <script src="/static/js/pages/bank_dnd.js"></script>
+<script src="/static/js/pages/shadow_posting.js"></script>
+<script src="/static/js/pages/dashboard_kpi.js"></script>
+<script src="/static/js/pages/banking_connectors.js"></script>
+<script src="/static/js/pages/learning_patterns.js"></script>
+<script src="/static/js/pages/smart_inbox.js"></script>
 </body>
 </html>

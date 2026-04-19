@@ -361,6 +361,7 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
   <div class="sb-item" onclick="goPage('currency',this)"><span class="sb-icon-sm">💱</span> Currency</div>
   <div class="sb-item" onclick="goPage('insights',this)"><span class="sb-icon-sm">📈</span> Insights</div>
   <div class="sb-item" onclick="goPage('recommend',this)"><span class="sb-icon-sm">💡</span> AI Recommend</div>
+  <div class="sb-item" onclick="goPage('decision-engine',this)"><span class="sb-icon-sm">🧠</span> Decision Engine <span class="sb-badge" id="sb-de">0</span></div>
   <div class="sb-item" onclick="goPage('learning',this)"><span class="sb-icon-sm">🧠</span> Learning</div>
   <div class="sb-item" onclick="goPage('health',this)"><span class="sb-icon-sm">💊</span> Health Check</div>
   <div class="sb-item" onclick="goPage('settings',this)"><span class="sb-icon-sm">⚙️</span> Settings</div>
@@ -943,6 +944,79 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
         <div class="settings-item"><h4>📧 Email · SMTP</h4><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="email" placeholder="accountant@company.ge"/></div><div class="pay-emp-row" style="grid-template-columns:1fr 80px;margin-bottom:8px;"><input class="finput" type="text" placeholder="smtp.gmail.com"/><input class="finput" type="number" value="587"/></div><div class="pay-emp-row" style="grid-template-columns:1fr;margin-bottom:8px;"><input class="finput" type="password" placeholder="App Password"/></div><button class="btn btn-ghost btn-sm" onclick="toast('📨 Test email გაიგზავნა','ok')">📨 Test</button></div>
       </div>
     </div>
+
+  <!-- ── Decision Engine Page ────────────────────────────────────────────── -->
+  <div id="pg-decision-engine" class="page">
+    <div class="row-2" style="gap:16px;margin-bottom:16px;">
+      <div class="card" style="border-top:2px solid var(--purple)">
+        <div class="card-header"><div class="card-title">🧠 Decision Engine</div>
+          <button class="btn btn-sm" style="background:var(--purple-s);color:var(--purple)" onclick="loadDeQueue()">⟳ Refresh</button>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Hybrid Matching Pipeline: Exact → Partial (GPT-4o) → Residual (Claude) → Gemini Validation</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap" id="de-stats-row">
+            <div class="kpi" style="flex:1;min-width:100px;border-top:2px solid var(--purple)"><div class="kpi-val" id="de-stat-pending">—</div><div class="kpi-sub">Pending</div></div>
+            <div class="kpi" style="flex:1;min-width:100px;border-top:2px solid var(--green)"><div class="kpi-val" id="de-stat-approved">—</div><div class="kpi-sub">Approved</div></div>
+            <div class="kpi" style="flex:1;min-width:100px;border-top:2px solid var(--amber)"><div class="kpi-val" id="de-stat-conf">—</div><div class="kpi-sub">Avg Confidence</div></div>
+            <div class="kpi" style="flex:1;min-width:100px;border-top:2px solid var(--teal)"><div class="kpi-val" id="de-stat-amount">—</div><div class="kpi-sub">Total GEL</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analyze Panel -->
+      <div class="card" style="border-top:2px solid var(--teal)">
+        <div class="card-header"><div class="card-title">🔍 Analyze Invoice</div></div>
+        <div class="card-body" style="padding:12px 16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <input class="finput" id="de-desc" placeholder="Invoice description / აღწერა"/>
+            <input class="finput" id="de-partner" placeholder="Partner / პარტნიორი"/>
+            <input class="finput" id="de-amount" type="number" placeholder="Amount (GEL)"/>
+            <input class="finput" id="de-date" type="date"/>
+          </div>
+          <div style="margin-bottom:8px">
+            <textarea class="finput" id="de-candidates-json" rows="3"
+              placeholder='Candidates JSON (optional): [{"description":"...","amount":100,"partner":"...","date":"2024-01-01"}]'
+              style="width:100%;resize:vertical;font-family:var(--mono);font-size:11px"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" style="background:var(--cyan-s);color:var(--cyan)" onclick="dePreview()">👁 Preview</button>
+            <button class="btn btn-sm" style="background:var(--purple-s);color:var(--purple)" onclick="deAnalyze()">🧠 Analyze &amp; Create Drafts</button>
+          </div>
+          <div id="de-analyze-result" style="margin-top:10px;font-size:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Queue -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📋 Decision Engine Queue</div>
+        <span style="font-size:11px;color:var(--muted)">source_type = decision_engine · status = pending_approval</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>#</th><th>Date</th><th>Description</th><th>Amount</th>
+            <th>Account</th><th>Match</th><th>Confidence</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="de-queue-rows">
+            <tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DE Detail Modal -->
+  <div id="de-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1200;align-items:center;justify-content:center">
+    <div style="background:var(--panel);border:1px solid var(--border2);border-radius:10px;width:min(900px,95vw);max-height:90vh;overflow:auto;padding:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel);z-index:1">
+        <div style="font-weight:600;font-size:15px">🧠 Decision Engine Detail</div>
+        <button onclick="document.getElementById('de-modal').style.display='none'" class="btn btn-ghost btn-sm">✕ Close</button>
+      </div>
+      <div id="de-modal-body" style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:20px"></div>
+    </div>
+  </div>
 
   </div>
 </div>
@@ -3344,5 +3418,218 @@ window.addEventListener('load', async function () {
 <script src="/static/js/pages/banking_connectors.js"></script>
 <script src="/static/js/pages/learning_patterns.js"></script>
 <script src="/static/js/pages/smart_inbox.js"></script>
+<!-- ── Decision Engine JS ─────────────────────────────────────────────────── -->
+<script>
+(function(){
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function deMatchBadge(type) {
+    const map = {
+      exact:   { bg:'var(--green-s)',  color:'var(--green)',  label:'Exact Match' },
+      partial: { bg:'var(--amber-s,#fffbeb)', color:'var(--amber)', label:'Partial Match' },
+      residual:{ bg:'var(--purple-s)', color:'var(--purple)', label:'Residual' },
+    };
+    const s = map[type] || { bg:'var(--blue-s)', color:'var(--blue)', label: type || '?' };
+    return `<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:${s.bg};color:${s.color}">${s.label}</span>`;
+  }
+
+  function deConfMeter(conf) {
+    const pct = Math.round((conf || 0) * 100);
+    const color = pct >= 85 ? 'var(--green)' : pct >= 65 ? 'var(--amber)' : 'var(--red)';
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:56px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${color};border-radius:3px"></div>
+      </div>
+      <span style="font-size:11px;color:${color};font-family:var(--mono);min-width:32px">${pct}%</span>
+    </div>`;
+  }
+
+  function deStatusBadge(flag) {
+    if (!flag) return '';
+    if (flag === 'ready_for_approval')
+      return `<span style="padding:2px 7px;border-radius:20px;font-size:10px;background:var(--green-s);color:var(--green)">✅ Ready</span>`;
+    return `<span style="padding:2px 7px;border-radius:20px;font-size:10px;background:var(--amber-s,#fffbeb);color:var(--amber)">⚠️ Review</span>`;
+  }
+
+  // ── Load queue ────────────────────────────────────────────────────────────
+  window.loadDeQueue = async function() {
+    const tbody = document.getElementById('de-queue-rows');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr>`;
+
+    const [qRes, statsRes] = await Promise.all([
+      window.api('/decision-engine/queue?limit=100'),
+      window.api('/decision-engine/stats'),
+    ]);
+
+    // stats
+    if (statsRes && statsRes.ok) {
+      const s = statsRes.data || {};
+      const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setEl('de-stat-pending',  s.pending ?? '—');
+      setEl('de-stat-approved', s.approved ?? '—');
+      setEl('de-stat-conf',     Math.round((s.avg_confidence || 0) * 100) + '%');
+      setEl('de-stat-amount',   (s.total_amount || 0).toLocaleString('en', {maximumFractionDigits:0}) + ' ₾');
+      const sb = document.getElementById('sb-de');
+      if (sb) sb.textContent = s.pending ?? 0;
+    }
+
+    if (!qRes || !qRes.ok || !tbody) return;
+    const items = qRes.data?.items || [];
+
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🧠</div><div class="empty-text">Decision Engine drafts არ მოიძებნა</div></div></td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(r => {
+      const meta = r.engine_metadata || {};
+      const matchType = meta.line_match_type || meta.match_type || '';
+      return `<tr>
+        <td class="td-mono">#${String(r.id).slice(-5)}</td>
+        <td class="td-mono">${window.fmtDate ? window.fmtDate(r.date || r.created_at) : (r.date || '—')}</td>
+        <td class="td-desc" style="max-width:220px" title="${window.esc ? window.esc(r.description || '') : ''}">${window.esc ? window.esc(r.description || '—') : (r.description || '—')}</td>
+        <td class="td-mono">${window.fmtAmt ? window.fmtAmt(r.amount) : (r.amount || 0).toFixed(2) + ' ₾'}</td>
+        <td class="td-mono">${window.esc ? window.esc(r.account_code || '—') : (r.account_code || '—')}</td>
+        <td>${deMatchBadge(matchType)}</td>
+        <td>${deConfMeter(r.confidence)}</td>
+        <td><div class="act-wrap">
+          ${deStatusBadge(r.autopilot_flag)}
+          <button class="act act-approve" onclick="window.approve('${r.id}');setTimeout(loadDeQueue,800)">✅</button>
+          <button class="act act-reject" onclick="window.reject('${r.id}');setTimeout(loadDeQueue,800)">❌</button>
+          <button class="act" style="background:var(--purple-s);color:var(--purple);font-size:10px;padding:3px 7px" onclick="openDeDetail(${JSON.stringify(r).replaceAll("'","&#39;")})">🔍</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  };
+
+  // ── Detail modal ──────────────────────────────────────────────────────────
+  window.openDeDetail = function(r) {
+    const meta = r.engine_metadata || {};
+    const modal = document.getElementById('de-modal');
+    const body  = document.getElementById('de-modal-body');
+    if (!modal || !body) return;
+
+    const esc = window.esc || (s => String(s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+
+    body.innerHTML = `
+      <!-- Left: Entry details -->
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">JOURNAL ENTRY</div>
+        <div style="font-weight:600;font-size:15px;margin-bottom:12px">${esc(r.description || '—')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:12px">
+          <div><span style="color:var(--muted)">Amount</span><div style="font-family:var(--mono);color:var(--amber);font-size:14px;font-weight:600">${(r.amount||0).toLocaleString('en',{minimumFractionDigits:2})} ₾</div></div>
+          <div><span style="color:var(--muted)">Account</span><div style="font-family:var(--mono)">${esc(r.account_code||'—')}</div></div>
+          <div><span style="color:var(--muted)">Dr</span><div style="font-family:var(--mono)">${esc(r.debit_account||'—')}</div></div>
+          <div><span style="color:var(--muted)">Cr</span><div style="font-family:var(--mono)">${esc(r.credit_account||'—')}</div></div>
+          <div><span style="color:var(--muted)">Partner</span><div>${esc(r.partner||'—')}</div></div>
+          <div><span style="color:var(--muted)">Date</span><div class="td-mono">${r.date||'—'}</div></div>
+        </div>
+        <div style="margin-bottom:8px">${deConfMeter(r.confidence)} <span style="font-size:11px;color:var(--muted);margin-left:4px">confidence</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          ${deMatchBadge(meta.line_match_type || meta.match_type || '')}
+          ${deStatusBadge(r.autopilot_flag)}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" style="background:var(--green-s);color:var(--green)" onclick="window.approve('${r.id}');document.getElementById('de-modal').style.display='none';setTimeout(loadDeQueue,800)">✅ Approve</button>
+          <button class="btn btn-sm" style="background:var(--red-s);color:var(--red)" onclick="window.reject('${r.id}');document.getElementById('de-modal').style.display='none';setTimeout(loadDeQueue,800)">❌ Reject</button>
+        </div>
+      </div>
+
+      <!-- Right: AI Explanation -->
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">AI EXPLANATION</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;margin-bottom:12px">
+          ${esc(meta.line_explanation || '—')}
+          ${meta.model_used ? `<div style="margin-top:6px;font-size:10px;color:var(--muted)">Model: ${esc(meta.model_used)}</div>` : ''}
+        </div>
+
+        ${meta.scores ? `
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">MATCH SCORES</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;margin-bottom:12px">
+          ${Object.entries(meta.scores).map(([k,v]) => `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="width:60px;color:var(--muted)">${k}</span>
+              <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+                <div style="width:${Math.round((v||0)*100)}%;height:100%;background:var(--blue);border-radius:3px"></div>
+              </div>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--text);min-width:32px">${Math.round((v||0)*100)}%</span>
+            </div>
+          `).join('')}
+        </div>` : ''}
+
+        ${meta.residual != null ? `
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">RESIDUAL</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px">
+          <span style="font-family:var(--mono);color:${Math.abs(meta.residual||0)>=5?'var(--amber)':'var(--green)'}">${(meta.residual||0).toFixed(2)} ₾</span>
+          ${Math.abs(meta.residual||0)>=5?' — classified by Claude':''}
+        </div>` : ''}
+      </div>
+    `;
+    modal.style.display = 'flex';
+  };
+
+  // ── Analyze ───────────────────────────────────────────────────────────────
+  function _buildDePayload() {
+    const desc    = document.getElementById('de-desc')?.value?.trim();
+    const partner = document.getElementById('de-partner')?.value?.trim();
+    const amount  = parseFloat(document.getElementById('de-amount')?.value || '0');
+    const date    = document.getElementById('de-date')?.value;
+    const candRaw = document.getElementById('de-candidates-json')?.value?.trim();
+
+    if (!desc || !amount) { window.toast && window.toast('Description და Amount სავალდებულოა', 'error'); return null; }
+
+    let candidates = [];
+    if (candRaw) {
+      try { candidates = JSON.parse(candRaw); }
+      catch(e) { window.toast && window.toast('Candidates JSON invalid', 'error'); return null; }
+    }
+
+    return { description: desc, partner, amount, date: date || undefined, candidates };
+  }
+
+  window.dePreview = async function() {
+    const payload = _buildDePayload();
+    if (!payload) return;
+    const resEl = document.getElementById('de-analyze-result');
+    if (resEl) resEl.innerHTML = `<span class="spinner"></span> Analyzing...`;
+    const r = await window.api('/decision-engine/preview', 'POST', payload);
+    if (!r || !resEl) return;
+    if (!r.ok) { resEl.innerHTML = `<span style="color:var(--red)">${r.message || 'Preview failed'}</span>`; return; }
+    const d = r.data || {};
+    resEl.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px">
+        <div style="display:flex;gap:8px;margin-bottom:8px">${deMatchBadge(d.match_type)} ${deConfMeter(d.confidence)}</div>
+        <div style="font-size:11px;color:var(--muted)">VAT: gross=${d.amount_info?.gross} / net=${d.amount_info?.net} / vat=${d.amount_info?.vat}</div>
+      </div>`;
+  };
+
+  window.deAnalyze = async function() {
+    const payload = _buildDePayload();
+    if (!payload) return;
+    const resEl = document.getElementById('de-analyze-result');
+    if (resEl) resEl.innerHTML = `<span class="spinner"></span> Running AI pipeline...`;
+    const r = await window.api('/decision-engine/analyze', 'POST', payload);
+    if (!r || !resEl) return;
+    if (!r.ok) { resEl.innerHTML = `<span style="color:var(--red)">${r.message || 'Failed'}</span>`; return; }
+    const d = r.data || {};
+    const draftCount = (d.draft_ids || []).length;
+    resEl.innerHTML = `
+      <div style="background:var(--green-s);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px;margin-top:8px">
+        ✅ ${draftCount} draft(s) created → Pending Approval
+        <div style="display:flex;gap:6px;margin-top:6px">${deMatchBadge(d.match_type)} ${deConfMeter(d.confidence)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">${d.message || ''}</div>
+      </div>`;
+    setTimeout(loadDeQueue, 500);
+  };
+
+  // ── Hook into goPage ──────────────────────────────────────────────────────
+  const _origGoPage = window.goPage;
+  if (_origGoPage) {
+    window.goPage = function(page, el) {
+      _origGoPage(page, el);
+      if (page === 'decision-engine') requestAnimationFrame(loadDeQueue);
+    };
+  }
+})();
+</script>
 </body>
 </html>

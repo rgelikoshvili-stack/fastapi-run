@@ -179,6 +179,7 @@ from app.api import routes_ai_chat
 from app.api.routes_claude_chat import router as routes_claude_chat
 from app.api.routes_ai_recommend import router as routes_ai_recommend
 from app.api import routes_audit
+from app.api.routes_decision_engine import router as decision_engine_router
 from app.api.middleware.auth_middleware import auth_middleware
 from app.api.middleware.audit_log_middleware import audit_log_middleware
 
@@ -245,6 +246,7 @@ app.include_router(routes_bank_sync.router)
 app.include_router(routes_ai_chat.router)
 app.include_router(routes_ai_recommend)
 app.include_router(routes_claude_chat)
+app.include_router(decision_engine_router)
 
 
 # --- RATE LIMITING ---
@@ -306,7 +308,9 @@ def _run_db_migrations():
                 ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC,
                 ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC,
                 ADD COLUMN IF NOT EXISTS review_required      BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS partner              TEXT
+                ADD COLUMN IF NOT EXISTS partner              TEXT,
+                ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT,
+                ADD COLUMN IF NOT EXISTS engine_metadata      JSONB
         """)
         conn.commit()
         cur.close()

@@ -74,3 +74,15 @@ def health_check():
 @router.get("/ping")
 def ping():
     return {"ok": True, "pong": True, "ts": datetime.now(timezone.utc).isoformat()}
+
+
+# Standalone /version endpoint (no prefix — registered separately in main.py)
+version_router = APIRouter(tags=["health"])
+
+@version_router.get("/version")
+def get_version():
+    return ok_response("Version", {
+        "version": os.environ.get("APP_VERSION", "1.0.0"),
+        "service": "Bridge Hub",
+        "environment": os.environ.get("ENVIRONMENT", "production"),
+    })

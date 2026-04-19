@@ -1058,9 +1058,11 @@ input,select,textarea{font-family:inherit;color-scheme:dark}
 const BASE = window.location.hostname === '127.0.0.1'
   ? 'http://127.0.0.1:8000'
   : 'https://fastapi-run-226875230147.us-central1.run.app';
+window.BASE = BASE;  // expose for external JS modules
 
 let TENANT = localStorage.getItem('tenant_id') || 'default';
 let TOKEN  = localStorage.getItem('access_token') || null;
+window.TOKEN = TOKEN;
 let allPending = [];
 let apOn = false;
 let apTimer = null;
@@ -1102,7 +1104,7 @@ async function api(path, method = 'GET', body = null) {
     const r = await fetch(BASE + path, opts);
 
     if (r.status === 401) {
-      TOKEN = null;
+      TOKEN = null; window.TOKEN = null;
       localStorage.removeItem('access_token');
       showLoginModal();
       toast('ავტორიზაცია საჭიროა', 'err');
@@ -1139,6 +1141,7 @@ async function doLogin(email, password, tenant) {
       return d.error?.details || d.data?.error || d.message || `სერვერი: ${r.status}`;
     }
     TOKEN  = token;
+    window.TOKEN = TOKEN;
     TENANT = tenant || d.data?.tenant_id || d.data?.user?.tenant_id || 'default';
     localStorage.setItem('access_token', TOKEN);
     localStorage.setItem('tenant_id', TENANT);
@@ -1292,7 +1295,7 @@ async function handleRegister() {
 }
 
 function logout() {
-  TOKEN = null;
+  TOKEN = null; window.TOKEN = null;
   localStorage.removeItem('access_token');
   showLoginModal();
 }
@@ -3399,7 +3402,7 @@ window.addEventListener('load', async function () {
     });
     const cd = await chk.json().catch(() => ({}));
     if (!cd.ok) {
-      TOKEN = null;
+      TOKEN = null; window.TOKEN = null;
       localStorage.removeItem('access_token');
       showLoginModal();
       return;

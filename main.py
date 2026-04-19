@@ -118,6 +118,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 # --- ROUTES IMPORTS ---
 from app.api import routes_health
+from app.api.routes_health import version_router
 from app.api import routes_debug
 from app.api import routes_bank_csv
 from app.api import routes_bank_process
@@ -186,6 +187,7 @@ from app.api.middleware.audit_log_middleware import audit_log_middleware
 
 # --- INCLUDE ROUTERS ---
 app.include_router(routes_health.router)
+app.include_router(version_router)
 app.include_router(routes_debug.router)
 app.include_router(routes_bank_csv.router)
 app.include_router(routes_bank_process.router)

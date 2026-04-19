@@ -71,25 +71,29 @@ def create_annual_budget(data: AnnualBudgetCreate, request: Request):
 @router.get("/vs-actual/{year}")
 def budget_vs_actual(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute(
-            "SELECT * FROM budgets WHERE year=%s AND tenant_id=%s ORDER BY account_code",
-            (year, tenant_id),
-        )
-        budgets = [dict(r) for r in cur.fetchall()]
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT * FROM budgets WHERE year=%s AND tenant_id=%s ORDER BY account_code",
+                (year, tenant_id),
+            )
+            budgets = [dict(r) for r in cur.fetchall()]
 
-        cur.execute("""
-            SELECT account_code, reason as category,
-                   COALESCE(SUM(amount),0) as actual
-            FROM journal_drafts
-            WHERE date LIKE %s AND tenant_id=%s
-            GROUP BY account_code, reason
-        """, (f"{year}%", tenant_id))
-        actuals = {(r["account_code"], r["category"]): float(r["actual"]) for r in cur.fetchall()}
-    finally:
-        cur.close(); conn.close()
+            cur.execute("""
+                SELECT account_code, reason as category,
+                       COALESCE(SUM(amount),0) as actual
+                FROM journal_drafts
+                WHERE EXTRACT(YEAR FROM COALESCE(date::date, created_at::date)) = %s
+                  AND tenant_id = %s
+                GROUP BY account_code, reason
+            """, (year, tenant_id))
+            actuals = {(r["account_code"], r["category"]): float(r["actual"]) for r in cur.fetchall()}
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        return error_response("Budget vs-actual failed", "BUDGET_ERROR", str(e))
 
     comparison = []
     total_budgeted = 0

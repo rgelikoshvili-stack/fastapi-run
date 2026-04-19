@@ -299,11 +299,13 @@ async def decay_loop():
 
 
 def _run_db_migrations():
-    """Safe startup migrations — ADD COLUMN IF NOT EXISTS only."""
+    """Safe startup migrations — CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS."""
     try:
         import psycopg2, os
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
         cur = conn.cursor()
+
+        # journal_drafts columns
         cur.execute("""
             ALTER TABLE journal_drafts
                 ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE,
@@ -314,10 +316,140 @@ def _run_db_migrations():
                 ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT,
                 ADD COLUMN IF NOT EXISTS engine_metadata      JSONB
         """)
+
+        # CRM tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                id          SERIAL PRIMARY KEY,
+                tenant_id   TEXT NOT NULL DEFAULT 'default',
+                name        TEXT NOT NULL,
+                email       TEXT,
+                phone       TEXT,
+                company     TEXT,
+                type        TEXT DEFAULT 'client',
+                tax_id      TEXT,
+                address     TEXT,
+                notes       TEXT,
+                status      TEXT DEFAULT 'active',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS customer_interactions (
+                id          SERIAL PRIMARY KEY,
+                customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+                tenant_id   TEXT NOT NULL DEFAULT 'default',
+                type        TEXT,
+                note        TEXT,
+                amount      NUMERIC,
+                created_by  TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Contracts tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS contracts (
+                id              SERIAL PRIMARY KEY,
+                tenant_id       TEXT NOT NULL DEFAULT 'default',
+                contract_number TEXT,
+                title           TEXT NOT NULL,
+                party_name      TEXT,
+                party_tax_id    TEXT,
+                contract_type   TEXT DEFAULT 'service',
+                status          TEXT DEFAULT 'draft',
+                value           NUMERIC DEFAULT 0,
+                currency        TEXT DEFAULT 'GEL',
+                start_date      DATE,
+                end_date        DATE,
+                payment_terms   TEXT,
+                auto_renew      BOOLEAN DEFAULT FALSE,
+                notes           TEXT,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS contract_milestones (
+                id          SERIAL PRIMARY KEY,
+                tenant_id   TEXT NOT NULL DEFAULT 'default',
+                contract_id INTEGER REFERENCES contracts(id) ON DELETE CASCADE,
+                title       TEXT NOT NULL,
+                due_date    DATE,
+                amount      NUMERIC DEFAULT 0,
+                status      TEXT DEFAULT 'pending',
+                notes       TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Expense categories + expenses
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS expense_categories (
+                id           SERIAL PRIMARY KEY,
+                code         TEXT UNIQUE NOT NULL,
+                name         TEXT NOT NULL,
+                account_code TEXT DEFAULT '7990',
+                active       BOOLEAN DEFAULT TRUE
+            );
+            INSERT INTO expense_categories (code, name, account_code) VALUES
+                ('travel',      'მივლინება / მგზავრობა', '7310'),
+                ('office',      'საოფისე ხარჯები',        '7210'),
+                ('software',    'პროგრამული უზრუნველყოფა','7410'),
+                ('marketing',   'მარკეტინგი',             '7510'),
+                ('utilities',   'კომუნალური',              '7220'),
+                ('salary',      'ხელფასი',                 '7110'),
+                ('other',       'სხვა',                    '7990')
+            ON CONFLICT (code) DO NOTHING;
+
+            CREATE TABLE IF NOT EXISTS expenses (
+                id          SERIAL PRIMARY KEY,
+                tenant_id   TEXT NOT NULL DEFAULT 'default',
+                date        DATE DEFAULT CURRENT_DATE,
+                description TEXT NOT NULL,
+                category    TEXT,
+                account_code TEXT DEFAULT '7990',
+                amount      NUMERIC NOT NULL,
+                currency    TEXT DEFAULT 'GEL',
+                partner     TEXT,
+                receipt_ref TEXT,
+                submitted_by TEXT,
+                status      TEXT DEFAULT 'pending',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Invoices tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoices (
+                id             SERIAL PRIMARY KEY,
+                tenant_id      TEXT NOT NULL DEFAULT 'default',
+                invoice_number TEXT,
+                partner        TEXT,
+                issue_date     DATE DEFAULT CURRENT_DATE,
+                due_date       DATE,
+                subtotal       NUMERIC DEFAULT 0,
+                vat_amount     NUMERIC DEFAULT 0,
+                total          NUMERIC DEFAULT 0,
+                vat_rate       NUMERIC DEFAULT 18,
+                currency       TEXT DEFAULT 'GEL',
+                status         TEXT DEFAULT 'draft',
+                notes          TEXT,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS invoice_items (
+                id          SERIAL PRIMARY KEY,
+                invoice_id  INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
+                description TEXT,
+                quantity    NUMERIC DEFAULT 1,
+                unit_price  NUMERIC DEFAULT 0,
+                total       NUMERIC DEFAULT 0
+            );
+        """)
+
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB migration OK (journal_drafts columns)")
+        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices)")
     except Exception as e:
         print(f"⚠️ DB migration skipped (non-fatal): {e}")
 

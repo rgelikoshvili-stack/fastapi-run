@@ -171,6 +171,7 @@ from app.api import routes_notifications_ws
 from app.api import routes_collaboration
 from app.api import routes_dashboard_live
 from app.api import routes_client_portal
+from app.api.routes_dashboard_insights import router as dashboard_insights_router
 from app.api import routes_payroll
 from app.api import routes_email_invoice
 from app.api import routes_bank_sync
@@ -235,6 +236,7 @@ app.include_router(routes_ocr.router)
 app.include_router(routes_notifications_ws.router)
 app.include_router(routes_collaboration.router)
 app.include_router(routes_dashboard_live.router)
+app.include_router(dashboard_insights_router)
 app.include_router(routes_client_portal.router)
 app.include_router(routes_payroll.router)
 app.include_router(routes_email_invoice.router)

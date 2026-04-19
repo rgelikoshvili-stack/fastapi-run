@@ -1,3 +1,5 @@
+# DEPRECATED — legacy API-key based RBAC. Not imported by any route.
+# Use app/api/authz.py (Source of Truth) or app/compliance/rbac.py instead.
 import psycopg2.extras
 from app.api.db import get_db
 from fastapi import Header, HTTPException

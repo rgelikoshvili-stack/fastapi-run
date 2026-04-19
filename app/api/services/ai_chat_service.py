@@ -582,9 +582,11 @@ def run_classify_tx(request):
     if not KB_LOADED:
         return {"error": "KB not loaded"}
 
+    from app.api.services.classification_explanation_service import build_explanation
     result = classify_transaction(request.description, request.tenant_id)
+    enriched = build_explanation(result)
     return {
-        **result,
+        **enriched,
         "account_type": CHART_OF_ACCOUNTS.get(
             result.get("account") or result.get("account_code"),
             {}

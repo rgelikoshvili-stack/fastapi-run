@@ -478,6 +478,7 @@ def autopilot_approve_service(
                 jd.id,
                 jd.confidence,
                 jd.description,
+                jd.amount,
                 jd.account_code,
                 jd.tenant_id,
                 jd.classification_source,

@@ -1,10 +1,11 @@
 import os
 import sys
+import time
 from pathlib import Path
 
-# ✅ ეს არის მთავარი — RBAC გამორთვა ტესტებისთვის
 os.environ["TEST_MODE"] = "1"
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,7 +15,23 @@ if str(ROOT) not in sys.path:
 
 from main import app
 
+_TEST_JWT_SECRET = os.environ.get("JWT_SECRET", "test")
+
+
+def _make_test_token(role: str = "admin", tenant_id: str = "test") -> str:
+    payload = {
+        "sub": "1",
+        "type": "access",
+        "email": "test@test.com",
+        "role": role,
+        "tenant_id": tenant_id,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+    return jwt.encode(payload, _TEST_JWT_SECRET, algorithm="HS256")
+
 
 @pytest.fixture(scope="session")
 def client():
-    return TestClient(app)
+    token = _make_test_token()
+    return TestClient(app, headers={"Authorization": f"Bearer {token}"})

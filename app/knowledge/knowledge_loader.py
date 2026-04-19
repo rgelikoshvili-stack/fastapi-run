@@ -1,7 +1,10 @@
 """app/knowledge/knowledge_loader.py — File loading, learned rules, DB operations"""
 import json
+import logging
 import os
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -126,7 +129,7 @@ def _load_learned_from_db():
             for r in rows
         ]
     except Exception as e:
-        print(f"⚠️ DB learned load failed: {e}")
+        log.warning("DB learned load failed: %s", e)
         return []
 
 

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Request
+from collections import defaultdict
+
+from fastapi import APIRouter, Request, Query
 from pydantic import BaseModel
 from typing import Optional
 import psycopg2.extras
@@ -91,6 +93,181 @@ def list_notifications(request: Request, limit: int = 20):
     finally:
         cur.close()
         conn.close()
+
+
+@router.get("/feed")
+def notifications_feed(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    high_amount_threshold: float = Query(5000.0),
+):
+    """
+    Enriched, actionable notification feed. Read-only. No emails sent.
+    Types: pending_approval, high_amount, failed_posting, repeated_anomaly.
+    """
+    tenant_id = getattr(request.state, "tenant_id", "default") or "default"
+    items = []
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        # --- pending approval ---
+        cur.execute(
+            """
+            SELECT id, description, partner, amount, account_code, created_at
+            FROM journal_drafts
+            WHERE tenant_id = %s AND status = 'pending_approval'
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (tenant_id, limit),
+        )
+        for row in cur.fetchall():
+            amt = float(row["amount"] or 0)
+            items.append({
+                "type": "pending_approval",
+                "severity": "warning",
+                "title": "დასამტკიცებელი draft",
+                "message": (
+                    f"Draft #{row['id']} — {row['description'] or 'N/A'} "
+                    f"({amt:,.2f} GEL) ელოდება დამტკიცებას"
+                ),
+                "draft_id": row["id"],
+                "amount": amt,
+                "account_code": row["account_code"],
+                "partner": row["partner"],
+                "created_at": str(row["created_at"]),
+                "action": f"/approval/approve/{row['id']}",
+            })
+
+        # --- high amount pending ---
+        cur.execute(
+            """
+            SELECT id, description, partner, amount, account_code, status, created_at
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND amount >= %s
+              AND status IN ('drafted', 'pending_approval')
+            ORDER BY amount DESC
+            LIMIT 20
+            """,
+            (tenant_id, high_amount_threshold),
+        )
+        for row in cur.fetchall():
+            amt = float(row["amount"] or 0)
+            items.append({
+                "type": "high_amount",
+                "severity": "critical",
+                "title": "მაღალი თანხა — საჭიროა შემოწმება",
+                "message": (
+                    f"Draft #{row['id']}: {row['description'] or 'N/A'} — "
+                    f"{amt:,.2f} GEL (status: {row['status']})"
+                ),
+                "draft_id": row["id"],
+                "amount": amt,
+                "account_code": row["account_code"],
+                "partner": row["partner"],
+                "created_at": str(row["created_at"]),
+                "action": f"/posting/preview/{row['id']}",
+            })
+
+        # --- failed postings (last 7 days) ---
+        try:
+            cur.execute(
+                """
+                SELECT pl.id, pl.draft_id, pl.target_system,
+                       pl.error_message, pl.created_at,
+                       jd.description, jd.amount
+                FROM posting_logs pl
+                LEFT JOIN journal_drafts jd
+                  ON jd.id = pl.draft_id AND jd.tenant_id = %s
+                WHERE pl.tenant_id = %s
+                  AND pl.status = 'error'
+                  AND pl.created_at >= NOW() - INTERVAL '7 days'
+                ORDER BY pl.created_at DESC
+                LIMIT 20
+                """,
+                (tenant_id, tenant_id),
+            )
+            for row in cur.fetchall():
+                amt = float(row["amount"] or 0) if row["amount"] else None
+                items.append({
+                    "type": "failed_posting",
+                    "severity": "critical",
+                    "title": "Posting-ი ვერ მოხდა",
+                    "message": (
+                        f"Draft #{row['draft_id']} → {row['target_system']}: "
+                        f"{(row['error_message'] or 'unknown error')[:120]}"
+                    ),
+                    "draft_id": row["draft_id"],
+                    "amount": amt,
+                    "account_code": None,
+                    "partner": None,
+                    "created_at": str(row["created_at"]),
+                    "action": f"/posting/apply/{row['draft_id']}",
+                })
+        except Exception:
+            pass
+
+        # --- repeated anomaly: same description 3+ times in pending ---
+        cur.execute(
+            """
+            SELECT description, COUNT(*) AS cnt, SUM(amount) AS total
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND status IN ('drafted', 'pending_approval')
+              AND description IS NOT NULL
+            GROUP BY description
+            HAVING COUNT(*) >= 3
+            ORDER BY cnt DESC
+            LIMIT 10
+            """,
+            (tenant_id,),
+        )
+        for row in cur.fetchall():
+            items.append({
+                "type": "repeated_anomaly",
+                "severity": "warning",
+                "title": "განმეორებადი ტრანზაქცია",
+                "message": (
+                    f"'{row['description']}' — {row['cnt']}-ჯერ pending, "
+                    f"ჯამი: {float(row['total'] or 0):,.2f} GEL"
+                ),
+                "draft_id": None,
+                "amount": float(row["total"] or 0),
+                "account_code": None,
+                "partner": None,
+                "created_at": None,
+                "action": "/approval/queue",
+            })
+
+    except Exception as e:
+        return error_response("Notifications feed failed", "FEED_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+    items.sort(
+        key=lambda x: (
+            {"critical": 0, "warning": 1, "info": 2}.get(x["severity"], 3),
+            x["created_at"] or "",
+        ),
+        reverse=False,
+    )
+    items = items[:limit]
+
+    summary = {
+        "total": len(items),
+        "critical": sum(1 for i in items if i["severity"] == "critical"),
+        "warning": sum(1 for i in items if i["severity"] == "warning"),
+        "info": sum(1 for i in items if i["severity"] == "info"),
+    }
+
+    return ok_response("Notifications feed", {
+        "tenant_id": tenant_id,
+        "summary": summary,
+        "items": items,
+    })
 
 
 @router.post("/test")

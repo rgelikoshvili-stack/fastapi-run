@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.api.response_utils import ok_response, error_response
 from app.api.transaction_classifier import classify
 from app.api.services.approval_service import autopilot_approve_service
+from app.api.services.classification_explanation_service import build_explanation
 from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/transaction-ai", tags=["transaction-ai"])
@@ -112,7 +113,7 @@ def analyze_transaction(data: TransactionAnalyzeRequest, request: Request):
 
         result["input_amount"] = resolved_amount
         result["input_direction"] = resolved_direction
-        result["explanation"] = _build_explanation(result)
+        result.update(build_explanation(result))
         result["tenant_id"] = tenant_id
         result["llm_cost"] = result.get("llm_cost", 0.0)
         result["vat_info"] = {"suggested": result.get("vat_suggested", False), "amount": result.get("vat_amount"), "payg_required": result.get("payg_required", False), "payg_amount": result.get("payg_amount")}

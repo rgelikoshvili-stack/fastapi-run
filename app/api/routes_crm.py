@@ -89,8 +89,8 @@ def get_customer(customer_id: int, request: Request):
         exp = cur.fetchone()
 
         cur.execute(
-            "SELECT * FROM customer_interactions WHERE customer_id=%s ORDER BY created_at DESC LIMIT 10",
-            (customer_id,),
+            "SELECT * FROM customer_interactions WHERE customer_id=%s AND tenant_id=%s ORDER BY created_at DESC LIMIT 10",
+            (customer_id, tenant_id),
         )
         interactions = [dict(r) for r in cur.fetchall()]
     finally:

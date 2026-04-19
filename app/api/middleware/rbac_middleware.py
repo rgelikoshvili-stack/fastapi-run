@@ -22,6 +22,7 @@ async def rbac_middleware(request: Request, call_next):
         "/health",
         "/static",
         "/api/ai/",
+        "/api/claude/",
         "/dashboard/",
         "/coa/",
     )

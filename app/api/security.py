@@ -57,7 +57,7 @@ SECURITY_HEADERS = {
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
         "img-src 'self' data: https:; "
         "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com; "
-        "connect-src 'self' https://fastapi-run-226875230147.us-central1.run.app;"
+        "connect-src 'self' https://fastapi-run-226875230147.us-central1.run.app https://unpkg.com;"
     ),
     "X-Powered-By": "BridgeHub/1.0",
 }

@@ -103,6 +103,7 @@
   }
 
   window.enrichDashboard = async function (force = false) {
+    if (!window.TOKEN) return;
     const pg = document.getElementById('pg-dashboard');
     if (!pg) return;
     if (!force && pg.dataset.kpiEnriched) return;

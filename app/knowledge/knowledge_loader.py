@@ -16,6 +16,11 @@ _TAX_TEXT = ""
 _ACC_TEXT = ""
 _FILES_LOADED = False
 
+_TAX_FILENAME_KEYWORDS = (
+    "საგადასახადო", "გადასახადი", "დღგ", "შემოსავლო",
+    "tax", "vat", "income_tax",
+)
+
 LEARNED_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "learned_rules.json")
 
 
@@ -62,11 +67,6 @@ def _load_files():
                         import fitz
                         pdf = fitz.open(fp)
                         text = "".join(pdf[i].get_text() for i in range(len(pdf)))
-                        # Route by filename: tax PDFs → _TAX_TEXT, accounting/finance → _ACC_TEXT
-                        _TAX_FILENAME_KEYWORDS = (
-                            "საგადასახადო", "გადასახადი", "დღგ", "შემოსავლო",
-                            "tax", "vat", "income_tax",
-                        )
                         if any(kw in fn.lower() for kw in _TAX_FILENAME_KEYWORDS):
                             _TAX_TEXT += "\n\n" + text
                         else:

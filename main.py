@@ -85,7 +85,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def root():
     try:
-        return FileResponse("static/index.html")
+        return FileResponse("static/approval.html")
     except Exception:
         return HTMLResponse("<h1>Bridge Hub v1.0.0</h1><p><a href='/docs'>API Docs</a></p>")
 

@@ -498,6 +498,9 @@ input,select,textarea{font-family:inherit}
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="calcMode" value="net" checked onchange="recalculateAllRows()"> Net input</label>
             <button type="button" class="btn btn-ghost btn-sm" onclick="addRow()">+ თანამშრომლის დამატება</button>
             <button type="button" class="btn btn-blue btn-sm" onclick="calculatePayroll()">⚡ გაანგარიშება</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="exportPayrollExcel()">📊 Excel</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="exportPayrollRsXml()">📋 RS.ge XML</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="generatePayrollDrafts()">📝 Journal Drafts</button>
           </div>
         </div>
         <div class="card-body">
@@ -3176,5 +3179,8 @@ window.addEventListener('load', async function () {
   loadNotifications();
 });
 </script>
+<script src="/static/js/pages/payroll_export.js"></script>
+<script src="/static/js/pages/ocr_split.js"></script>
+<script src="/static/js/pages/bank_dnd.js"></script>
 </body>
 </html>

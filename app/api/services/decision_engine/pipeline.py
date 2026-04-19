@@ -99,67 +99,101 @@ def _needs_gemini(match_result: dict, lines: list[dict]) -> bool:
     )
 
 
+def _invoice_fingerprint(invoice: dict, tenant_id: str) -> str:
+    """Stable fingerprint for deduplication: tenant+description+amount+date."""
+    import hashlib
+    desc = (invoice.get("description") or "").strip().lower()
+    amount = str(round(float(invoice.get("amount") or 0), 2))
+    date = str(invoice.get("date") or "")
+    partner = (invoice.get("partner") or "").strip().lower()
+    raw = f"{tenant_id}|{desc}|{amount}|{date}|{partner}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 def _save_drafts(lines: list[dict], invoice: dict, match_result: dict, tenant_id: str) -> list[int]:
-    """Persist journal draft lines to DB. Returns list of created draft IDs."""
+    """
+    Persist journal draft lines to DB. Returns list of created draft IDs.
+    Raises on DB error so callers can surface the failure.
+    """
     created_ids = []
-
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            engine_meta = {
-                "match_type": match_result.get("match_type"),
-                "confidence": match_result.get("confidence"),
-                "autopilot_flag": match_result.get("autopilot_flag"),
-                "line_count": len(lines),
-                "residual": match_result.get("residual"),
-                "scores": match_result.get("scores"),
-            }
+        fingerprint = _invoice_fingerprint(invoice, tenant_id)
 
-            for line in lines:
-                cur.execute(
-                    """
-                    INSERT INTO journal_drafts
-                        (tenant_id, date, description, amount,
-                         debit_account, credit_account, account_code,
-                         confidence, status, source_type, partner,
-                         autopilot_flag, engine_metadata, created_at, updated_at)
-                    VALUES
-                        (%s, %s, %s, %s,
-                         %s, %s, %s,
-                         %s, 'pending_approval', 'decision_engine', %s,
-                         %s, %s, NOW(), NOW())
-                    RETURNING id
-                    """,
-                    (
-                        tenant_id,
-                        invoice.get("date") or datetime.now().date(),
-                        line["description"],
-                        line["amount"],
-                        line.get("debit_account") or "1110",
-                        line.get("credit_account") or "2110",
-                        line.get("account_code") or "2110",
-                        round(line.get("confidence") or 0.5, 4),
-                        invoice.get("partner") or "",
-                        match_result.get("autopilot_flag") or "needs_review",
-                        json.dumps({
-                            **engine_meta,
-                            "line_explanation": line.get("explanation") or "",
-                            "line_match_type": line.get("match_type") or "",
-                            "model_used": line.get("model_used"),
-                        }),
-                    ),
-                )
-                row = cur.fetchone()
-                if row:
-                    created_ids.append(row["id"])
-
-            conn.commit()
-        finally:
+        # Idempotency: skip if drafts with this fingerprint already exist
+        cur.execute(
+            """
+            SELECT id FROM journal_drafts
+            WHERE tenant_id = %s
+              AND source_type = 'decision_engine'
+              AND engine_metadata->>'invoice_fingerprint' = %s
+            LIMIT 1
+            """,
+            (tenant_id, fingerprint),
+        )
+        if cur.fetchone():
+            log.info("_save_drafts: fingerprint %s already exists — skipping duplicate", fingerprint)
             cur.close()
             conn.close()
-    except Exception as e:
-        log.error("_save_drafts failed: %s", e)
+            return []
+
+        engine_meta = {
+            "match_type": match_result.get("match_type"),
+            "confidence": match_result.get("confidence"),
+            "autopilot_flag": match_result.get("autopilot_flag"),
+            "line_count": len(lines),
+            "residual": match_result.get("residual"),
+            "scores": match_result.get("scores"),
+            "invoice_fingerprint": fingerprint,
+            "fallback_used": any(l.get("model_used") == "fallback" for l in lines),
+        }
+
+        for line in lines:
+            cur.execute(
+                """
+                INSERT INTO journal_drafts
+                    (tenant_id, date, description, amount,
+                     debit_account, credit_account, account_code,
+                     confidence, status, source_type, partner,
+                     autopilot_flag, engine_metadata, created_at, updated_at)
+                VALUES
+                    (%s, %s, %s, %s,
+                     %s, %s, %s,
+                     %s, 'pending_approval', 'decision_engine', %s,
+                     %s, %s, NOW(), NOW())
+                RETURNING id
+                """,
+                (
+                    tenant_id,
+                    invoice.get("date") or datetime.now().date(),
+                    line["description"],
+                    line["amount"],
+                    line.get("debit_account") or "1110",
+                    line.get("credit_account") or "2110",
+                    line.get("account_code") or "2110",
+                    round(line.get("confidence") or 0.5, 4),
+                    invoice.get("partner") or "",
+                    match_result.get("autopilot_flag") or "needs_review",
+                    json.dumps({
+                        **engine_meta,
+                        "line_explanation": line.get("explanation") or "",
+                        "line_match_type": line.get("match_type") or "",
+                        "model_used": line.get("model_used"),
+                    }),
+                ),
+            )
+            row = cur.fetchone()
+            if row:
+                created_ids.append(row["id"])
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
     return created_ids
 
@@ -215,7 +249,9 @@ def run_decision_pipeline(
             match_result["autopilot_flag"] = "needs_review"
 
     # ── Save to DB ────────────────────────────────────────────────────────────
+    # _save_drafts raises on DB error — let it propagate to the route handler
     draft_ids = _save_drafts(lines, norm_invoice, match_result, tenant_id)
+    skipped_duplicate = len(draft_ids) == 0 and len(lines) > 0
 
     return {
         "ok": True,
@@ -228,7 +264,10 @@ def run_decision_pipeline(
         "gemini_validation": gemini_result,
         "amount_info": amount_info,
         "status": "pending_approval",
+        "skipped_duplicate": skipped_duplicate,
         "message": (
+            "Duplicate skipped — drafts already exist for this invoice"
+            if skipped_duplicate else
             f"{'Exact' if match_result['match_type'] == 'exact' else 'Partial'} match — "
             f"{len(draft_ids)} draft(s) created for approval"
         ),

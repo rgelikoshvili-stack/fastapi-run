@@ -52,12 +52,12 @@ SECURITY_HEADERS = {
     "X-XSS-Protection": "1; mode=block",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Content-Security-Policy": (
-        "default-src 'self' https://cdn.jsdelivr.net; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
         "img-src 'self' data: https:; "
-        "font-src 'self' data: https://cdn.jsdelivr.net; "
-        "connect-src 'self';"
+        "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com; "
+        "connect-src 'self' https://fastapi-run-226875230147.us-central1.run.app;"
     ),
     "X-Powered-By": "BridgeHub/1.0",
 }

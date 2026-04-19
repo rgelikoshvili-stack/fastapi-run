@@ -82,38 +82,70 @@ input:focus,textarea:focus{border-color:#4fffb0}
 const API = "https://fastapi-run-226875230147.us-central1.run.app";
 
 function ChatPanel({onClose}) {
-  const [msgs, setMsgs] = React.useState([{role:"ai",text:"გამარჯობა! მე Bridge Hub AI ვარ. დამისვი კითხვა ბუღალტრიაზე, გადასახადებზე ან კლასიფიკაციაზე."}]);
+  const [msgs, setMsgs] = React.useState([{role:"ai",text:"გამარჯობა! მე Bridge Hub AI ვარ 🌉\n\nდამისვი კითხვა ბუღალტრიაზე, გადასახადებზე, კლასიფიკაციაზე, ან ატვირთე PDF ფაილი ანალიზისთვის."}]);
   const [input, setInput] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [file, setFile] = React.useState(null);
   const endRef = React.useRef(null);
+  const fileRef = React.useRef(null);
   React.useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"})},[msgs]);
+
   const send = async () => {
-    const q = input.trim(); if(!q||busy) return;
-    setMsgs(m=>[...m,{role:"user",text:q}]); setInput(""); setBusy(true);
+    const q = input.trim();
+    if((!q && !file) || busy) return;
+    const userText = file ? (q ? `${q} [📎 ${file.name}]` : `📎 ${file.name}`) : q;
+    setMsgs(m=>[...m,{role:"user",text:userText}]);
+    setInput(""); setBusy(true);
     try {
-      const r = await fetch(API+"/api/ai/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:q,tenant_id:"default"})});
+      const fd = new FormData();
+      fd.append("message", q || "");
+      fd.append("tenant_id", "global");
+      if(file) fd.append("file", file);
+      const r = await fetch(API+"/api/ai/chat", {method:"POST", body:fd});
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
-      const reply = d.reply || d.message || d.response || d.answer || JSON.stringify(d);
-      setMsgs(m=>[...m,{role:"ai",text:reply}]);
+      const reply = d.answer || d.reply || d.message || d.response || JSON.stringify(d);
+      const sources = (d.sources||[]).filter(Boolean);
+      const fullReply = sources.length ? reply + "\n\n📚 წყარო: " + sources.join(", ") : reply;
+      setMsgs(m=>[...m,{role:"ai",text:fullReply}]);
     } catch(e) {
-      setMsgs(m=>[...m,{role:"ai",text:"შეცდომა: "+e.message}]);
+      setMsgs(m=>[...m,{role:"ai",text:"⚠️ შეცდომა: "+e.message}]);
     }
-    setBusy(false);
+    setFile(null); setBusy(false);
   };
+
   return (
     <div className="chat-panel">
       <div className="chat-header">
         <span style={{fontSize:20}}>🌉</span>
-        <div style={{flex:1}}><div style={{color:"#fff",fontWeight:600,fontSize:14}}>Bridge Hub AI</div><div style={{color:"#4fffb0",fontSize:11}}>ონლაინ</div></div>
-        <span onClick={onClose} style={{cursor:"pointer",color:"#6b6b8a",fontSize:18}}>✕</span>
+        <div style={{flex:1}}>
+          <div style={{color:"#fff",fontWeight:600,fontSize:14}}>Bridge Hub AI</div>
+          <div style={{color:"#4fffb0",fontSize:11}}>ბუღალტრული ასისტენტი</div>
+        </div>
+        <span onClick={onClose} style={{cursor:"pointer",color:"#6b6b8a",fontSize:18,lineHeight:1}}>✕</span>
       </div>
       <div className="chat-messages">
-        {msgs.map((m,i)=><div key={i} className={`chat-msg ${m.role}`}>{m.text}</div>)}
-        {busy && <div className="chat-msg ai" style={{color:"#6b6b8a"}}>...</div>}
+        {msgs.map((m,i)=>(
+          <div key={i} className={`chat-msg ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
+        ))}
+        {busy && (
+          <div className="chat-msg ai" style={{color:"#6b6b8a",display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:12,height:12,border:"2px solid #1a1a2e",borderTopColor:"#4fffb0",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+            ფიქრობს...
+          </div>
+        )}
         <div ref={endRef}/>
       </div>
+      {file && (
+        <div style={{padding:"6px 12px",background:"#1a1a2e",fontSize:12,color:"#4fffb0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span>📎 {file.name}</span>
+          <span onClick={()=>setFile(null)} style={{cursor:"pointer",color:"#ff4757"}}>✕</span>
+        </div>
+      )}
       <div className="chat-input-row">
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="კითხვა..."/>
+        <span onClick={()=>fileRef.current.click()} style={{cursor:"pointer",fontSize:18,color:"#6b6b8a",padding:"0 4px"}} title="PDF ატვირთვა">📎</span>
+        <input ref={fileRef} type="file" accept=".pdf,.docx,.csv,.xlsx" style={{display:"none"}} onChange={e=>{setFile(e.target.files[0]);e.target.value="";}}/>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="კითხვა..." style={{flex:1}}/>
         <button className="chat-send" onClick={send} disabled={busy}>→</button>
       </div>
     </div>

@@ -1043,6 +1043,10 @@ function showLoginModal() {
           style="width:100%;padding:10px;background:#3b82f6;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">
           შესვლა
         </button>
+        <div style="text-align:center;margin-top:14px;font-size:12px;color:#94a3b8">
+          ანგარიში არ გაქვს?
+          <span onclick="showRegisterModal()" style="color:#60a5fa;cursor:pointer;font-weight:600;margin-left:4px">რეგისტრაცია</span>
+        </div>
       </div>
     `;
     document.body.appendChild(m);
@@ -1074,6 +1078,77 @@ async function handleLogin() {
     btn.textContent = 'შესვლა';
     btn.disabled = false;
   }
+}
+
+function showRegisterModal() {
+  const m = document.getElementById('login-modal');
+  if (!m) return;
+  m.querySelector('div').innerHTML = `
+    <div style="font-size:20px;font-weight:700;color:#e2e8f0;margin-bottom:6px">📝 Bridge Hub</div>
+    <div style="font-size:13px;color:#94a3b8;margin-bottom:24px">ახალი ანგარიშის შექმნა</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#94a3b8">სახელი</label>
+      <input id="reg-name" type="text" placeholder="სრული სახელი"
+        style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#94a3b8">ელ-ფოსტა</label>
+      <input id="reg-email" type="email" placeholder="you@example.com"
+        style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#94a3b8">პაროლი</label>
+      <input id="reg-pass" type="password" placeholder="მინ. 8 სიმბოლო"
+        style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;color:#94a3b8">Tenant ID</label>
+      <input id="reg-tenant" type="text" value="default"
+        style="width:100%;margin-top:4px;padding:9px 12px;background:#0f1623;border:1px solid #2d3748;border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box"/>
+    </div>
+    <div id="reg-err" style="color:#f87171;font-size:12px;margin-bottom:12px;min-height:16px"></div>
+    <button id="reg-btn" onclick="handleRegister()"
+      style="width:100%;padding:10px;background:#10b981;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">
+      რეგისტრაცია
+    </button>
+    <div style="text-align:center;margin-top:14px;font-size:12px;color:#94a3b8">
+      უკვე გაქვს ანგარიში?
+      <span onclick="showLoginModal()" style="color:#60a5fa;cursor:pointer;font-weight:600;margin-left:4px">შესვლა</span>
+    </div>`;
+  setTimeout(() => document.getElementById('reg-name')?.focus(), 50);
+}
+
+async function handleRegister() {
+  const btn = document.getElementById('reg-btn');
+  const errEl = document.getElementById('reg-err');
+  const name   = document.getElementById('reg-name')?.value.trim();
+  const email  = document.getElementById('reg-email')?.value.trim();
+  const pass   = document.getElementById('reg-pass')?.value;
+  const tenant = document.getElementById('reg-tenant')?.value.trim() || 'default';
+  if (!name || !email || !pass) { errEl.textContent = 'შეავსეთ ყველა ველი'; return; }
+  if (pass.length < 6) { errEl.textContent = 'პაროლი მინ. 6 სიმბოლო'; return; }
+  btn.textContent = 'გთხოვთ დაიცადოთ...'; btn.disabled = true;
+  try {
+    const r = await fetch(BASE + '/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass, name, tenant_id: tenant })
+    });
+    const d = await r.json();
+    if (d.ok || r.status === 200 || r.status === 201) {
+      errEl.style.color = '#34d399';
+      errEl.textContent = '✅ რეგისტრაცია წარმატებულია! შედიხართ...';
+      const err = await doLogin(email, pass, tenant);
+      if (err) { errEl.style.color = '#f87171'; errEl.textContent = err; }
+    } else {
+      errEl.style.color = '#f87171';
+      errEl.textContent = d.error?.details || d.message || 'რეგისტრაცია ვერ მოხდა';
+    }
+  } catch(e) {
+    errEl.style.color = '#f87171';
+    errEl.textContent = 'კავშირის შეცდომა';
+  }
+  btn.textContent = 'რეგისტრაცია'; btn.disabled = false;
 }
 
 function logout() {

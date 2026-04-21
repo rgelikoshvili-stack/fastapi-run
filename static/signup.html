@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub · რეგისტრაცია</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f3ecdc;--paper:#faf7f2;--accent:#8c3c2d;--ink:#1a1512;
+  --ink-soft:#5c4a3a;--line:#e0d8cc;--radius:10px;--mono:'Courier New',monospace;
+}
+body{background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;color:var(--ink);}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:40px 44px;width:100%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.08);}
+.logo{display:flex;align-items:center;gap:10px;margin-bottom:28px;}
+.logo svg{width:36px;height:36px;}
+.logo-text{font-size:20px;font-weight:700;letter-spacing:.02em;}
+.logo-text em{font-style:italic;color:var(--accent);}
+h1{font-size:22px;margin-bottom:6px;}
+.sub{color:var(--ink-soft);font-size:14px;margin-bottom:28px;}
+.field{margin-bottom:16px;}
+label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;}
+input,select{width:100%;padding:10px 13px;border:1.5px solid var(--line);border-radius:var(--radius);font-size:14px;font-family:inherit;background:var(--bg);color:var(--ink);outline:none;transition:border-color .15s;}
+input:focus,select:focus{border-color:var(--accent);}
+.inn-wrap{position:relative;}
+.inn-status{position:absolute;right:11px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--ink-soft);}
+.inn-status.ok{color:#2d7a4f;}
+.inn-status.err{color:var(--accent);}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.toggle-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.toggle-row label{margin:0;text-transform:none;font-size:13px;color:var(--ink);}
+input[type=checkbox]{width:auto;cursor:pointer;}
+.btn{width:100%;padding:12px;border:none;border-radius:var(--radius);font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;background:var(--accent);color:#fff;margin-top:8px;transition:opacity .15s;}
+.btn:hover{opacity:.88;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.err{color:var(--accent);font-size:13px;margin-top:8px;min-height:18px;}
+.foot{text-align:center;margin-top:20px;font-size:13px;color:var(--ink-soft);}
+.foot a{color:var(--accent);cursor:pointer;text-decoration:underline;}
+.divider{border:none;border-top:1px solid var(--line);margin:20px 0;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <svg viewBox="0 0 40 40" fill="none">
+      <rect width="40" height="40" rx="8" fill="#8c3c2d"/>
+      <path d="M8 28 L20 12 L32 28" stroke="#f3ecdc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M14 22 L26 22" stroke="#f3ecdc" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <div class="logo-text">Bridge <em>Hub</em></div>
+  </div>
+
+  <h1>კომპანიის რეგისტრაცია</h1>
+  <p class="sub">ახალი ანგარიშის შექმნა · 14 დღე უფასოდ</p>
+
+  <div class="field">
+    <label>კომპანიის ტიპი</label>
+    <select id="company_type" onchange="onTypeChange()">
+      <option value="legal_entity">იურიდიული პირი (9 ციფრი)</option>
+      <option value="individual_entrepreneur">ინდ. მეწარმე (11 ციფრი)</option>
+      <option value="individual">ფიზიკური პირი (11 ციფრი)</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>საიდენტიფიკაციო ნომერი</label>
+    <div class="inn-wrap">
+      <input id="company_inn" type="text" placeholder="202192643" maxlength="11" oninput="validateInn()"/>
+      <span class="inn-status" id="inn-status"></span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>კომპანიის სახელი (სრული)</label>
+    <input id="company_name" type="text" placeholder="შპს მაგალითი"/>
+  </div>
+
+  <div class="toggle-row">
+    <input type="checkbox" id="is_vat_payer" checked/>
+    <label for="is_vat_payer">დღგ-ის გადამხდელი ვარ</label>
+  </div>
+
+  <hr class="divider"/>
+
+  <div class="row">
+    <div class="field">
+      <label>ელ-ფოსტა</label>
+      <input id="reg_email" type="email" placeholder="you@company.ge"/>
+    </div>
+    <div class="field">
+      <label>პაროლი</label>
+      <input id="reg_pass" type="password" placeholder="მინ. 8 სიმბოლო"/>
+    </div>
+  </div>
+
+  <div class="err" id="reg-err"></div>
+  <button class="btn" id="reg-btn" onclick="doSignup()">რეგისტრაცია</button>
+
+  <div class="foot">
+    უკვე გაქვთ ანგარიში? <a href="/static/approval.html">შესვლა</a>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+let INN_VALID = false;
+
+function onTypeChange() {
+  validateInn();
+}
+
+function validateInn() {
+  const v = document.getElementById('company_inn').value.trim();
+  const type = document.getElementById('company_type').value;
+  const el = document.getElementById('inn-status');
+
+  if (!v) { el.textContent = ''; el.className = 'inn-status'; INN_VALID = false; return; }
+  if (!/^\d+$/.test(v)) { el.textContent = 'მხოლოდ ციფრები'; el.className = 'inn-status err'; INN_VALID = false; return; }
+
+  const expected = type === 'legal_entity' ? 9 : 11;
+  if (v.length !== expected) {
+    el.textContent = `${expected} ციფრი საჭიროა`;
+    el.className = 'inn-status err';
+    INN_VALID = false;
+  } else {
+    el.textContent = '✓';
+    el.className = 'inn-status ok';
+    INN_VALID = true;
+  }
+}
+
+async function doSignup() {
+  const btn = document.getElementById('reg-btn');
+  const errEl = document.getElementById('reg-err');
+  errEl.textContent = '';
+
+  const company_type = document.getElementById('company_type').value;
+  const company_inn = document.getElementById('company_inn').value.trim();
+  const company_name_legal = document.getElementById('company_name').value.trim();
+  const is_vat_payer = document.getElementById('is_vat_payer').checked;
+  const email = document.getElementById('reg_email').value.trim();
+  const password = document.getElementById('reg_pass').value;
+
+  if (!INN_VALID) { errEl.textContent = 'შეამოწმეთ საიდენტიფიკაციო ნომერი'; return; }
+  if (!company_name_legal) { errEl.textContent = 'კომპანიის სახელი სავალდებულოა'; return; }
+  if (!email || !password) { errEl.textContent = 'ელ-ფოსტა და პაროლი სავალდებულოა'; return; }
+  if (password.length < 8) { errEl.textContent = 'პაროლი მინიმუმ 8 სიმბოლო'; return; }
+
+  btn.textContent = 'გთხოვთ დაიცადოთ…'; btn.disabled = true;
+
+  try {
+    const r = await fetch(BASE + '/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_type, company_inn, company_name_legal, is_vat_payer, email, password })
+    });
+    const d = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      errEl.textContent = d.error?.details || d.message || `შეცდომა: ${r.status}`;
+      btn.textContent = 'რეგისტრაცია'; btn.disabled = false;
+      return;
+    }
+
+    const data = d.data || d;
+    if (data.access_token) {
+      localStorage.setItem('access_token', data.access_token);
+      localStorage.setItem('tenant_id', data.tenant_id || '');
+      window.location.href = '/static/approval.html';
+    } else {
+      errEl.textContent = d.error?.details || 'რეგისტრაცია ვერ მოხერხდა';
+      btn.textContent = 'რეგისტრაცია'; btn.disabled = false;
+    }
+  } catch (e) {
+    errEl.textContent = `კავშირის შეცდომა: ${e.message}`;
+    btn.textContent = 'რეგისტრაცია'; btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

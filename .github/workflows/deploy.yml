@@ -11,7 +11,28 @@ env:
   REGION: us-central1
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        env:
+          JWT_SECRET: test-secret-ci
+          TEST_MODE: "1"
+        run: python -m pytest tests/unit/ -v --tb=short
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

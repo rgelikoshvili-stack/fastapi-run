@@ -213,8 +213,9 @@ def apply_posting(
     request: Request,
     draft_id: int = Path(...),
     target: str = Query(...),
+    force: bool = Query(False),
 ):
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id)
+    return apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)

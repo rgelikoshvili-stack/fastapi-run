@@ -168,6 +168,7 @@ from app.api.routes_patterns import router as patterns_router
 from app.api.routes_expense_articles import router as expense_articles_router
 from app.api.routes_learning_explain import router as learning_explain_router
 from app.api import routes_ocr
+from app.api.routes_documents import router as routes_documents_router
 from app.api import routes_notifications_ws
 from app.api import routes_collaboration
 from app.api import routes_dashboard_live
@@ -237,6 +238,7 @@ app.include_router(routes_qa.router)
 app.include_router(routes_tenants.router)
 app.include_router(routes_export_v2.router)
 app.include_router(routes_ocr.router)
+app.include_router(routes_documents_router)
 app.include_router(routes_notifications_ws.router)
 app.include_router(routes_collaboration.router)
 app.include_router(routes_dashboard_live.router)
@@ -304,6 +306,19 @@ def _run_db_migrations():
         import psycopg2, os
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
         cur = conn.cursor()
+
+        # Fix tenant_id UUID → TEXT for tables that were created with wrong type
+        for tbl in ("expenses", "invoices", "contracts", "customers"):
+            cur.execute(f"""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='{tbl}' AND column_name='tenant_id' AND data_type='uuid'
+                    ) THEN
+                        ALTER TABLE {tbl} ALTER COLUMN tenant_id TYPE TEXT USING tenant_id::text;
+                    END IF;
+                END $$;
+            """)
 
         # journal_drafts columns
         cur.execute("""
@@ -446,10 +461,27 @@ def _run_db_migrations():
             );
         """)
 
+        # Collaboration: draft_comments + journal_drafts assignment columns
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS draft_comments (
+                id          SERIAL PRIMARY KEY,
+                tenant_id   TEXT NOT NULL DEFAULT 'default',
+                draft_id    INTEGER,
+                comment_text TEXT,
+                author      TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+            ALTER TABLE journal_drafts
+                ADD COLUMN IF NOT EXISTS assigned_to   TEXT,
+                ADD COLUMN IF NOT EXISTS assigned_by   TEXT,
+                ADD COLUMN IF NOT EXISTS assigned_at   TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS priority      TEXT DEFAULT 'normal';
+        """)
+
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices)")
+        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration)")
     except Exception as e:
         print(f"⚠️ DB migration skipped (non-fatal): {e}")
 

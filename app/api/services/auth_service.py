@@ -42,6 +42,28 @@ def _create_refresh_token(user: dict) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_access_token(payload_extra: dict) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "access",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)).timestamp()),
+        **payload_extra,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(payload_extra: dict) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "refresh",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
+        **payload_extra,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def login(email: str, password: str, tenant_id: str = "default") -> dict:
     user = get_user(email, tenant_id)
     if not user:

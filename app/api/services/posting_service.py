@@ -524,7 +524,46 @@ def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
     return apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
 
 
-def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"):
+def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]:
+    """Return a duplicate warning dict if a similar posted draft exists (same partner+amount±1GEL, ±3 days)."""
+    partner = (draft.get("partner") or "").strip()
+    amount = float(draft.get("amount") or 0)
+    date_str = draft.get("date")
+    if not partner or not amount or not date_str:
+        return None
+    try:
+        cur.execute(
+            """
+            SELECT id, date, description, amount, partner
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND id <> %s
+              AND LOWER(TRIM(COALESCE(partner, ''))) = LOWER(TRIM(%s))
+              AND ABS(COALESCE(amount, 0) - %s) < 1.0
+              AND status IN ('approved', 'posted', 'simulated_success')
+              AND date IS NOT NULL
+              AND date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND ABS(date::date - %s::date) <= 3
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (tenant_id, draft["id"], partner, amount, date_str),
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "id": row["id"],
+                "date": str(row["date"]),
+                "description": row["description"],
+                "amount": float(row["amount"] or 0),
+                "partner": row["partner"],
+            }
+    except Exception:
+        pass
+    return None
+
+
+def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
     target_normalized = _normalize_target(target)
 
     if target_normalized not in {"mock", "balance", "onec", "oris"}:
@@ -538,6 +577,15 @@ def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"
                 err = _validate_approved_draft(draft, draft_id, tenant_id)
                 if err:
                     return err
+
+                if not force:
+                    dup = _check_duplicate_invoice(cur, draft, tenant_id)
+                    if dup:
+                        return error_response(
+                            f"სავარაუდო დუბლიკატი: draft #{dup['id']} ({dup['partner']}, {dup['amount']}, {dup['date']})",
+                            code="DUPLICATE_INVOICE_WARNING",
+                            details={"duplicate_draft": dup, "hint": "force=true-ით გაიმეორე თუ განზრახ გინდა"},
+                        )
 
                 existing = _find_successful_post(cur, tenant_id, draft_id, target_normalized)
                 if existing:

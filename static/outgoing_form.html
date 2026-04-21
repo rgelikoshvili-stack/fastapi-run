@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — გამავალი ინვოისი</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
+  --green:#27500A;--green-bg:#EAF3DE;
+  --amber:#7a4f00;--amber-bg:#FAEEDA;--amber-border:#EF9F27;
+  --red:#791F1F;--red-bg:#FCEBEB;
+  --header-goods:#8c3c2d;--header-service:#BA7517;
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',serif;
+  --mono:'Geist Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px;min-height:100vh;}
+body{background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font-family:inherit;font-size:14px;border:none;background:none}
+button{cursor:pointer}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+
+/* TOPBAR */
+.topbar{
+  height:64px;padding:0 28px;
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px;
+  background:var(--card);
+  position:sticky;top:0;z-index:30;
+}
+.top-type-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 14px;border-radius:8px;
+  color:#fff;font-size:13px;font-weight:600;letter-spacing:-0.01em;
+}
+.top-type-badge.goods{background:var(--header-goods)}
+.top-type-badge.service{background:var(--header-service)}
+.top-title{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-0.015em;flex:1;margin-left:8px}
+.autosave-indicator{font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost);letter-spacing:.04em;display:flex;align-items:center;gap:5px}
+.autosave-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;transition:.15s;cursor:pointer;border:none;}
+.btn-dark{background:var(--ink);color:#fff}.btn-dark:hover{opacity:.88}
+.btn-outline{background:transparent;color:var(--ink-soft);border:1px solid var(--line-strong)}.btn-outline:hover{background:var(--card-hover)}
+.btn-finalize{color:#fff}.btn-finalize.goods{background:var(--header-goods)}.btn-finalize.service{background:var(--header-service)}
+.btn-finalize:hover{filter:brightness(.9)}
+.btn svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:1fr 340px;gap:24px;padding:28px;max-width:1200px;margin:0 auto}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+/* CARD */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px;}
+.card-head-stripe{width:3px;height:18px;border-radius:2px;flex-shrink:0}
+.card-head-stripe.goods{background:var(--header-goods)}
+.card-head-stripe.service{background:var(--header-service)}
+.card-title{font-size:13.5px;font-weight:600;color:var(--ink)}
+.card-body{padding:18px}
+
+/* FORM FIELDS */
+.form-row{display:grid;gap:14px;margin-bottom:14px}
+.form-row.cols-2{grid-template-columns:1fr 1fr}
+.form-row.cols-3{grid-template-columns:1fr 1fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);}
+.form-control{
+  padding:9px 12px;background:var(--paper-soft);
+  border:1px solid var(--line-strong);border-radius:8px;
+  color:var(--ink);transition:.12s;outline:none;
+}
+.form-control:focus{border-color:var(--header-goods);background:var(--card)}
+.form-control.service:focus{border-color:var(--header-service)}
+textarea.form-control{resize:vertical;min-height:80px}
+.form-hint{font-size:11px;color:var(--ink-ghost);font-family:var(--serif);font-style:italic}
+
+/* COMMENT SECTION */
+.comment-box{
+  background:var(--paper-soft);border:1px solid var(--line-strong);
+  border-radius:8px;overflow:hidden;
+}
+.comment-box textarea{
+  width:100%;padding:10px 12px;background:transparent;
+  border:none;outline:none;color:var(--ink);resize:vertical;min-height:70px;
+}
+.comment-box-foot{
+  padding:6px 10px;border-top:1px solid var(--line-soft);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+}
+.template-chip{
+  display:inline-flex;align-items:center;padding:3px 8px;
+  border-radius:5px;font-size:11px;color:var(--ink-dim);
+  border:1px solid var(--line-strong);cursor:pointer;transition:.1s;
+}
+.template-chip:hover{background:var(--card-hover);color:var(--ink)}
+.char-count{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost)}
+
+/* LINE ITEMS */
+.line-items-head{display:grid;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);}
+.line-items-head.goods{grid-template-columns:1fr 80px 90px 90px 32px}
+.line-items-head.service{grid-template-columns:1fr 90px 32px}
+.line-item-row{display:grid;gap:8px;margin-bottom:8px;align-items:center}
+.line-item-row.goods{grid-template-columns:1fr 80px 90px 90px 32px}
+.line-item-row.service{grid-template-columns:1fr 90px 32px}
+.line-item-row .form-control{padding:7px 10px;font-size:13px}
+.li-total{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink);text-align:right;padding:7px 4px}
+.rm-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-ghost);transition:.1s;}
+.rm-btn:hover{background:var(--red-bg);color:var(--red);border-color:rgba(121,31,31,.3)}
+.rm-btn svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none}
+.add-line-btn{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:7px;border:1px dashed var(--line-strong);font-size:12.5px;color:var(--ink-dim);cursor:pointer;transition:.12s;width:100%;background:transparent;}
+.add-line-btn:hover{background:var(--card-hover);color:var(--ink);border-style:solid}
+.add-line-btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none}
+
+/* PREVIEW PANEL */
+.preview-panel{position:sticky;top:80px}
+.preview-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.preview-header{padding:14px 18px;color:#fff;font-weight:600;font-size:13.5px}
+.preview-header.goods{background:var(--header-goods)}
+.preview-header.service{background:var(--header-service)}
+.preview-header .sub{font-weight:400;font-family:var(--serif);font-style:italic;font-size:13px;opacity:.85;margin-left:6px}
+.preview-body{padding:16px 18px}
+.preview-docs{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.preview-doc{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-radius:8px;border:1px solid var(--line-soft);background:var(--paper-soft);
+}
+.preview-doc .doc-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.preview-doc .doc-icon svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;fill:none}
+.preview-doc .doc-icon.goods-icon{background:rgba(140,60,45,.12);color:var(--header-goods)}
+.preview-doc .doc-icon.service-icon{background:rgba(186,117,23,.12);color:var(--header-service)}
+.preview-doc .doc-icon.tax-icon{background:var(--amber-bg);color:var(--amber)}
+.preview-doc .doc-label{font-size:12.5px;font-weight:500;color:var(--ink)}
+.preview-doc .doc-sub{font-size:11px;color:var(--ink-ghost);font-family:var(--serif);font-style:italic;margin-top:1px}
+.totals-grid{display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:12px}
+.tot-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);display:flex;align-items:center}
+.tot-val{font-family:var(--mono);font-size:12px;color:var(--ink-soft);text-align:right}
+.tot-total .tot-label{font-weight:700;color:var(--ink);font-size:11px}
+.tot-total .tot-val{font-size:14px;font-weight:700;color:var(--ink)}
+.tot-sep{grid-column:1/-1;height:1px;background:var(--line-soft);margin:4px 0}
+.finalize-btn{width:100%;margin-top:14px;justify-content:center;padding:11px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="btn btn-outline" onclick="history.back()" style="padding:7px 10px">
+    <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div id="topBadge" class="top-type-badge goods">
+    <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    <span id="topType">საქონელი</span>
+  </div>
+  <div class="top-title" id="topTitle">გამავალი ინვოისი</div>
+  <div class="autosave-indicator">
+    <div class="autosave-dot" id="saveDot"></div>
+    <span id="saveStatus">შენახვა...</span>
+  </div>
+  <div style="display:flex;gap:8px;margin-left:8px">
+    <button class="btn btn-outline" onclick="location.href='/static/approval.html'">გაუქმება</button>
+    <button class="btn btn-finalize goods" id="btnFinalize" onclick="finalizeInvoice()">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      გამოქვეყნება
+    </button>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- LEFT — FORM -->
+  <div>
+    <!-- Buyer -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripe1"></div>
+        <div class="card-title">მყიდველი</div>
+      </div>
+      <div class="card-body">
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">INN / ID ნომერი</label>
+            <input class="form-control" id="buyerInn" placeholder="2051234567" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">კომპანიის სახელი</label>
+            <input class="form-control" id="buyerName" placeholder="კომპანია ООО" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">ელ. ფოსტა (ინვოისის გასაგზავნად)</label>
+            <input class="form-control" type="email" id="buyerEmail" placeholder="buyer@company.ge" oninput="scheduleAutosave()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transport (goods only) -->
+    <div class="card" id="transportCard">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripe2"></div>
+        <div class="card-title">ტრანსპორტი</div>
+      </div>
+      <div class="card-body">
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">გამოსვლის პუნქტი</label>
+            <input class="form-control" id="transportFrom" placeholder="თბილისი, ვაზისუბანი" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">დანიშნულება</label>
+            <input class="form-control" id="transportTo" placeholder="ბათუმი, პორტი" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">სანომრე ნიშანი</label>
+            <input class="form-control" id="vehicleNum" placeholder="GD 123 AB" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">მძღოლი</label>
+            <input class="form-control" id="driverName" placeholder="გიორგი მაისურაძე" oninput="scheduleAutosave()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Line Items -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripe3"></div>
+        <div class="card-title" id="lineItemsTitle">საქონლის ჩამონათვალი</div>
+      </div>
+      <div class="card-body">
+        <div class="line-items-head goods" id="lineItemsHead">
+          <span>დასახელება</span><span>რაოდ.</span><span>ერთ. ფასი</span><span>ჯამი</span><span></span>
+        </div>
+        <div id="lineItemsBody"></div>
+        <button class="add-line-btn" onclick="addLine()">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          სტრიქონის დამატება
+        </button>
+      </div>
+    </div>
+
+    <!-- Comment -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripe4"></div>
+        <div class="card-title">💬 კომენტარი</div>
+        <span style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-left:8px">→ ზედნადების + ფაქტურის notes</span>
+      </div>
+      <div class="card-body">
+        <div class="comment-box">
+          <textarea id="comment" placeholder="კომენტარი გადაეცემა ავტომატურად ზედნადებს და საგ. ანგ-ფაქტურას..." oninput="updateCharCount();scheduleAutosave()" maxlength="500"></textarea>
+          <div class="comment-box-foot">
+            <span class="template-chip" onclick="appendComment('გადახდის ვადა: 30 დღე')">გადახდის ვადა: 30 დღე</span>
+            <span class="template-chip" onclick="appendComment('წინასწარი გადახდა')">წინასწარი გადახდა</span>
+            <span class="template-chip" onclick="appendComment('ბარტერი')">ბარტერი</span>
+            <span class="template-chip" onclick="appendComment('გამოიყენოს 2025 წლამდე')">ვადა: 2025</span>
+            <div class="char-count"><span id="charCount">0</span>/500</div>
+          </div>
+        </div>
+        <div class="form-hint" style="margin-top:6px">კომენტარი ავტომატურად გადაეცემა ზედნადებსა და საგ. ანგ-ფაქტურას</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT — PREVIEW -->
+  <div class="preview-panel">
+    <div class="preview-card">
+      <div class="preview-header goods" id="previewHeader">
+        გამავალი ინვოისი <span class="sub" id="previewNum">DRAFT</span>
+      </div>
+      <div class="preview-body">
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px">გენერირდება</div>
+        <div class="preview-docs" id="previewDocs">
+          <!-- filled by JS -->
+        </div>
+
+        <div style="height:1px;background:var(--line-soft);margin:12px 0"></div>
+
+        <div class="totals-grid" id="totalsGrid">
+          <span class="tot-label">ნეტო</span><span class="tot-val" id="prevSubtotal">0.00 ₾</span>
+          <span class="tot-label">დღგ 18%</span><span class="tot-val" id="prevVat">0.00 ₾</span>
+          <div class="tot-sep"></div>
+          <span class="tot-label tot-total">სულ</span><span class="tot-val tot-total" id="prevTotal">0.00 ₾</span>
+        </div>
+
+        <button class="btn btn-finalize goods finalize-btn" id="btnFinalize2" onclick="finalizeInvoice()">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          გამოქვეყნება
+        </button>
+      </div>
+    </div>
+
+    <!-- buyer summary -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-body">
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:10px">მყიდველი</div>
+        <div style="font-size:13px;font-weight:500;color:var(--ink)" id="prevBuyerName">—</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-ghost);margin-top:2px" id="prevBuyerInn">—</div>
+        <div style="font-size:12px;color:var(--ink-dim);margin-top:4px" id="prevBuyerEmail">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+let TOKEN = localStorage.getItem('bh_token') || '';
+let _type = 'goods'; // 'goods' | 'service'
+let _invoiceId = null;
+let _autosaveTimer = null;
+let _lines = [];
+let _saving = false;
+
+function _authH(){ return TOKEN ? {Authorization:'Bearer '+TOKEN, 'Content-Type':'application/json'} : {'Content-Type':'application/json'} }
+
+function _q(id){ return document.getElementById(id) }
+
+// ── Init ────────────────────────────────────────────────────────────────────
+function init(){
+  const params = new URLSearchParams(location.search);
+  _type = params.get('type') === 'service' ? 'service' : 'goods';
+  _invoiceId = params.get('id') ? parseInt(params.get('id')) : null;
+
+  applyType();
+  if(_invoiceId) loadDraft();
+  else { addLine(); addLine(); updatePreview(); }
+}
+
+function applyType(){
+  const isGoods = _type === 'goods';
+  const label = isGoods ? 'საქონელი' : 'მომსახურება';
+  const color = isGoods ? 'var(--header-goods)' : 'var(--header-service)';
+
+  _q('topBadge').className = 'top-type-badge '+_type;
+  _q('topType').textContent = label;
+  _q('topTitle').textContent = `გამავალი ინვოისი — ${label}`;
+  _q('btnFinalize').className = `btn btn-finalize ${_type}`;
+  _q('btnFinalize2').className = `btn btn-finalize ${_type} finalize-btn`;
+
+  // stripes
+  ['headStripe1','headStripe2','headStripe3','headStripe4'].forEach(id=>{
+    const el=_q(id);
+    if(el) el.className='card-head-stripe '+_type;
+  });
+
+  // transport visibility
+  _q('transportCard').style.display = isGoods ? '' : 'none';
+
+  // line items header
+  const head = _q('lineItemsHead');
+  const title = _q('lineItemsTitle');
+  if(isGoods){
+    head.className='line-items-head goods';
+    head.innerHTML='<span>დასახელება</span><span>რაოდ.</span><span>ერთ. ფასი</span><span>ჯამი</span><span></span>';
+    title.textContent='საქონლის ჩამონათვალი';
+  } else {
+    head.className='line-items-head service';
+    head.innerHTML='<span>სერვისის აღწერა</span><span>თანხა ₾</span><span></span>';
+    title.textContent='სერვისების ჩამონათვალი';
+  }
+
+  // preview header
+  _q('previewHeader').className='preview-header '+_type;
+
+  // preview docs
+  updatePreviewDocs();
+}
+
+// ── Line Items ───────────────────────────────────────────────────────────────
+function addLine(){
+  const idx = _lines.length;
+  _lines.push({description:'',qty:1,unit_price:0,amount:0});
+  renderLines();
+  scheduleAutosave();
+}
+
+function removeLine(idx){
+  _lines.splice(idx,1);
+  renderLines();
+  updatePreview();
+  scheduleAutosave();
+}
+
+function renderLines(){
+  const isGoods = _type==='goods';
+  const body = _q('lineItemsBody');
+  body.innerHTML = _lines.map((li,i)=>{
+    if(isGoods){
+      const total = (parseFloat(li.qty||1)*parseFloat(li.unit_price||0)).toFixed(2);
+      return `<div class="line-item-row goods">
+        <input class="form-control" placeholder="დასახელება" value="${_esc(li.description)}" oninput="_lines[${i}].description=this.value;updatePreview();scheduleAutosave()">
+        <input class="form-control" type="number" min="0" step="0.01" value="${li.qty||1}" style="text-align:right" oninput="_lines[${i}].qty=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <input class="form-control" type="number" min="0" step="0.01" value="${li.unit_price||0}" style="text-align:right" oninput="_lines[${i}].unit_price=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <div class="li-total">${total}</div>
+        <button class="rm-btn" onclick="removeLine(${i})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>`;
+    } else {
+      return `<div class="line-item-row service">
+        <input class="form-control" placeholder="სერვისის აღწერა" value="${_esc(li.description)}" oninput="_lines[${i}].description=this.value;updatePreview();scheduleAutosave()">
+        <input class="form-control" type="number" min="0" step="0.01" value="${li.amount||0}" style="text-align:right" oninput="_lines[${i}].amount=parseFloat(this.value)||0;_lines[${i}].unit_price=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <button class="rm-btn" onclick="removeLine(${i})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>`;
+    }
+  }).join('');
+}
+
+function _esc(s){ return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;') }
+
+// ── Totals ───────────────────────────────────────────────────────────────────
+function calcTotals(){
+  let subtotal=0;
+  for(const li of _lines){
+    if(_type==='goods') subtotal += (parseFloat(li.qty||1))*(parseFloat(li.unit_price||0));
+    else subtotal += parseFloat(li.amount||li.unit_price||0);
+  }
+  const vat = subtotal*0.18;
+  const total = subtotal+vat;
+  return {subtotal:subtotal.toFixed(2), vat:vat.toFixed(2), total:total.toFixed(2)};
+}
+
+function _fmt(n){ return Number(n).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+
+function updatePreview(){
+  const t = calcTotals();
+  _q('prevSubtotal').textContent = _fmt(t.subtotal)+' ₾';
+  _q('prevVat').textContent = _fmt(t.vat)+' ₾';
+  _q('prevTotal').textContent = _fmt(t.total)+' ₾';
+  const bn = (_q('buyerName')||{}).value||'';
+  const bi = (_q('buyerInn')||{}).value||'';
+  const be = (_q('buyerEmail')||{}).value||'';
+  _q('prevBuyerName').textContent = bn||'—';
+  _q('prevBuyerInn').textContent = bi ? `INN: ${bi}` : '—';
+  _q('prevBuyerEmail').textContent = be||'';
+  updatePreviewDocs();
+}
+
+function updatePreviewDocs(){
+  const docs = [];
+  if(_type==='goods'){
+    docs.push({icon:'goods-icon',svg:'<rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',label:'ზედნადები',sub:'auto-generated'});
+  }
+  docs.push({icon:'tax-icon',svg:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',label:'საგ. ანგ-ფაქტურა',sub:'auto-generated'});
+
+  const container = _q('previewDocs');
+  container.innerHTML = docs.map(d=>`
+    <div class="preview-doc">
+      <div class="preview-doc doc-icon ${d.icon}">
+        <svg viewBox="0 0 24 24">${d.svg}</svg>
+      </div>
+      <div>
+        <div class="doc-label">${d.label}</div>
+        <div class="doc-sub">${d.sub}</div>
+      </div>
+    </div>`).join('');
+}
+
+function updateCharCount(){
+  const v=(_q('comment')||{}).value||'';
+  _q('charCount').textContent=v.length;
+}
+
+function appendComment(text){
+  const el=_q('comment');
+  if(!el) return;
+  const cur=el.value;
+  el.value = cur ? cur+(cur.endsWith(' ')?'':' ')+text : text;
+  updateCharCount();
+  scheduleAutosave();
+}
+
+// ── Auto-save ────────────────────────────────────────────────────────────────
+function scheduleAutosave(){
+  if(_autosaveTimer) clearTimeout(_autosaveTimer);
+  _q('saveStatus').textContent='ჩაიწერება...';
+  _q('saveDot').style.background='var(--amber-border)';
+  _autosaveTimer = setTimeout(doAutosave, 2000);
+}
+
+async function doAutosave(){
+  if(_saving) return;
+  _saving=true;
+  try{
+    const payload = _buildPayload();
+    if(!_invoiceId){
+      const r = await fetch(BASE+'/outgoing/drafts',{method:'POST',headers:_authH(),body:JSON.stringify(payload)});
+      const d = await r.json();
+      if(d.ok){
+        _invoiceId = d.data?.id;
+        history.replaceState(null,'',`?type=${_type}&id=${_invoiceId}`);
+      }
+    } else {
+      await fetch(BASE+`/outgoing/drafts/${_invoiceId}`,{method:'PATCH',headers:_authH(),body:JSON.stringify(payload)});
+    }
+    _q('saveStatus').textContent='შენახულია';
+    _q('saveDot').style.background='var(--green)';
+  }catch(e){
+    _q('saveStatus').textContent='შეცდომა';
+    _q('saveDot').style.background='var(--red)';
+  } finally { _saving=false; }
+}
+
+function _buildPayload(){
+  const li = _lines.map(l=>({...l}));
+  return {
+    invoice_type: _type,
+    buyer_inn: _q('buyerInn')?.value||null,
+    buyer_name: _q('buyerName')?.value||null,
+    buyer_email: _q('buyerEmail')?.value||null,
+    transport_from: _type==='goods'?(_q('transportFrom')?.value||null):null,
+    transport_to: _type==='goods'?(_q('transportTo')?.value||null):null,
+    vehicle_number: _type==='goods'?(_q('vehicleNum')?.value||null):null,
+    driver_name: _type==='goods'?(_q('driverName')?.value||null):null,
+    line_items: li,
+    comment: _q('comment')?.value||null,
+  };
+}
+
+// ── Load draft ────────────────────────────────────────────────────────────────
+async function loadDraft(){
+  try{
+    const r=await fetch(BASE+`/outgoing/${_invoiceId}`,{headers:_authH()});
+    const d=await r.json();
+    if(!d.ok) return;
+    const inv=d.data;
+    if(_q('buyerInn')) _q('buyerInn').value=inv.buyer_inn||'';
+    if(_q('buyerName')) _q('buyerName').value=inv.buyer_name||'';
+    if(_q('buyerEmail')) _q('buyerEmail').value=inv.buyer_email||'';
+    if(_q('transportFrom')) _q('transportFrom').value=inv.transport_from||'';
+    if(_q('transportTo')) _q('transportTo').value=inv.transport_to||'';
+    if(_q('vehicleNum')) _q('vehicleNum').value=inv.vehicle_number||'';
+    if(_q('driverName')) _q('driverName').value=inv.driver_name||'';
+    if(_q('comment')) _q('comment').value=inv.comment||'';
+    _lines = Array.isArray(inv.line_items)?inv.line_items:(typeof inv.line_items==='string'?JSON.parse(inv.line_items):[]);
+    if(!_lines.length){addLine();addLine();}
+    else renderLines();
+    updateCharCount();
+    updatePreview();
+    _q('previewNum').textContent = inv.invoice_number || 'DRAFT';
+    _q('saveStatus').textContent='შენახულია';
+    _q('saveDot').style.background='var(--green)';
+  }catch(e){}
+}
+
+// ── Finalize ──────────────────────────────────────────────────────────────────
+async function finalizeInvoice(){
+  if(!confirm('გამოქვეყნება — ზედნადები და ფაქტურა შეიქმნება. გავაგრძელოთ?')) return;
+  if(!_invoiceId){
+    await doAutosave();
+    if(!_invoiceId){ alert('პირველ შეინახეთ draft'); return; }
+  }
+  try{
+    const r=await fetch(BASE+`/outgoing/drafts/${_invoiceId}/finalize`,{method:'POST',headers:_authH()});
+    const d=await r.json();
+    if(d.ok){
+      const data=d.data;
+      alert(`გამოქვეყნდა! ინვოისი: ${data.invoice_number}${data.waybill_id?`\nზ/ნ ID: ${data.waybill_id}`:''}
+ფაქ. ID: ${data.tax_invoice_id}`);
+      location.href='/static/approval.html';
+    } else {
+      alert('შეცდომა: '+(d.error||JSON.stringify(d)));
+    }
+  }catch(e){ alert('შეცდომა: '+e.message) }
+}
+
+init();
+</script>
+</body>
+</html>

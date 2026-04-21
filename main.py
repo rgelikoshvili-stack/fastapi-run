@@ -169,6 +169,7 @@ from app.api.routes_expense_articles import router as expense_articles_router
 from app.api.routes_learning_explain import router as learning_explain_router
 from app.api import routes_ocr
 from app.api.routes_documents import router as routes_documents_router
+from app.api.routes_outgoing import router as routes_outgoing_router
 from app.api import routes_notifications_ws
 from app.api import routes_collaboration
 from app.api import routes_dashboard_live
@@ -239,6 +240,7 @@ app.include_router(routes_tenants.router)
 app.include_router(routes_export_v2.router)
 app.include_router(routes_ocr.router)
 app.include_router(routes_documents_router)
+app.include_router(routes_outgoing_router)
 app.include_router(routes_notifications_ws.router)
 app.include_router(routes_collaboration.router)
 app.include_router(routes_dashboard_live.router)

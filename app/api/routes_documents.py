@@ -52,7 +52,7 @@ def _confidence_score(parsed: dict, extracted: ExtractedDocument, party, cat_con
 
 
 def _get_tenant_vat(tenant_id: str) -> bool:
-    conn = get_db()
+    conn = get_db(tenant_id)
     try:
         cur = conn.cursor()
         cur.execute("SELECT is_vat_payer FROM tenants WHERE tenant_id = %s", (tenant_id,))
@@ -66,7 +66,7 @@ def _get_tenant_vat(tenant_id: str) -> bool:
 def _upsert_counterparty(tenant_id: str, inn: str, name: str, cp_type: str) -> None:
     if not inn:
         return
-    conn = get_db()
+    conn = get_db(tenant_id)
     try:
         cur = conn.cursor()
         cur.execute(
@@ -101,7 +101,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     mime_type = file.content_type or "application/pdf"
 
     # ── 1. Dedup by file hash ──────────────────────────────────────────────
-    conn = get_db()
+    conn = get_db(tenant_id)
     cur = conn.cursor()
     cur.execute(
         "SELECT id FROM processed_documents WHERE tenant_id = %s AND file_hash = %s",
@@ -112,7 +112,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     conn.close()
 
     if existing_file:
-        conn2 = get_db()
+        conn2 = get_db(tenant_id)
         cur2 = conn2.cursor()
         cur2.execute(
             "SELECT id, status FROM journal_drafts WHERE source_document_id = %s LIMIT 1",
@@ -141,7 +141,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     extracted = await extract_document(parsed.get("text", ""), llm_service)
 
     # ── 4. Save processed document record ─────────────────────────────────
-    conn = get_db()
+    conn = get_db(tenant_id)
     cur = conn.cursor()
     try:
         cur.execute(
@@ -173,7 +173,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
 
     # ── 5. Dedup by document series+number ────────────────────────────────
     if extracted.document_series and extracted.document_number:
-        conn = get_db()
+        conn = get_db(tenant_id)
         cur = conn.cursor()
         cur.execute(
             """
@@ -201,7 +201,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
 
     # ── 7. Foreign document — save + return early ──────────────────────────
     if party.our_role == OurRole.FOREIGN:
-        conn = get_db()
+        conn = get_db(tenant_id)
         cur = conn.cursor()
         try:
             cur.execute(
@@ -249,7 +249,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     confidence = _confidence_score(parsed, extracted, party, cat_confidence)
 
     # ── 11. Insert draft ───────────────────────────────────────────────────
-    conn = get_db()
+    conn = get_db(tenant_id)
     cur = conn.cursor()
     try:
         cur.execute(

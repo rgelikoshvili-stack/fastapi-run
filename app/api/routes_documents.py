@@ -1,21 +1,32 @@
 """app/api/routes_documents.py
 Document upload + intelligence pipeline:
   parse → extract → resolve party → classify operation → build journal
+
+Triangle document endpoints:
+  POST /documents/upload-waybill
+  POST /documents/upload-tax-invoice
+  POST /documents/upload-commercial-invoice
 """
 import hashlib
 import json
 import logging
-from fastapi import APIRouter, UploadFile, File, Request
+import re
+from datetime import date
+from decimal import Decimal, InvalidOperation
+from fastapi import APIRouter, UploadFile, File, Request, Query
 from fastapi.responses import JSONResponse
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_db
+from app.api.security import limiter
 from app.api.services.document_parser import parse_document
 from app.api.services.document_extractor import extract_document, ExtractedDocument
 from app.api.services.party_resolver import resolve_party, OurRole
 from app.api.services.operation_classifier import classify_operation_async
 from app.api.services.doc_journal_builder import build_journal
+from app.api.services.triangle_matcher import compute_match_score, find_candidates, upsert_triangle_match
+from app.api.services.correction_detector import detect_corrections, save_corrections
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 log = logging.getLogger(__name__)
@@ -90,6 +101,7 @@ def _upsert_counterparty(tenant_id: str, inn: str, name: str, cp_type: str) -> N
 
 
 @router.post("/upload")
+@limiter.limit("10/minute")
 async def upload_document(file: UploadFile = File(...), request: Request = None):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
 
@@ -307,4 +319,351 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
         "extracted": extracted.dict(),
         "warnings": journal["warnings"],
         "extraction_method": parsed.get("method"),
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Triangle document upload helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _dec_or_none(val):
+    try:
+        return float(Decimal(str(val))) if val is not None else None
+    except (InvalidOperation, TypeError):
+        return None
+
+
+def _parse_date(val) -> str | None:
+    if not val:
+        return None
+    s = str(val).strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+        try:
+            from datetime import datetime
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", s)
+    return m.group(1) if m else None
+
+
+async def _extract_from_file(file_bytes: bytes, mime_type: str) -> tuple[dict, ExtractedDocument]:
+    """Parse file and extract structured data."""
+    try:
+        from app.api.services.llm_service import llm_service as _llm
+        llm_service = _llm
+    except Exception:
+        llm_service = None
+    parsed = await parse_document(file_bytes, mime_type, llm_service)
+    extracted = await extract_document(parsed.get("text", ""), llm_service)
+    return parsed, extracted
+
+
+def _try_match_triangle(conn, tenant_id: str, doc_type: str, doc_id: int, doc: dict):
+    """After inserting a doc, find candidates and create/update triangle match."""
+    try:
+        candidates = find_candidates(conn, tenant_id, doc_type, doc)
+        if not candidates:
+            return None
+
+        best = candidates[0]
+        match_data = {"waybill_id": None, "tax_invoice_id": None, "commercial_invoice_id": None}
+        match_data[f"{doc_type}_id"] = doc_id
+        match_data[f"{best['doc_type']}_id"] = best["id"]
+
+        wb = None
+        ti = None
+        ci = None
+        if doc_type == "waybill":
+            wb = doc
+        elif doc_type == "tax_invoice":
+            ti = doc
+        elif doc_type == "commercial_invoice":
+            ci = doc
+
+        if best["doc_type"] == "waybill":
+            wb = best
+        elif best["doc_type"] == "tax_invoice":
+            ti = best
+        elif best["doc_type"] == "commercial_invoice":
+            ci = best
+
+        result = compute_match_score(wb, ti, ci)
+        match_data.update({
+            "match_score": result["score"],
+            "match_status": result["status"],
+            "mismatch_fields": result["mismatches"],
+            "waybill_total": _dec_or_none((wb or {}).get("total_amount")),
+            "tax_invoice_total": _dec_or_none((ti or {}).get("total_amount")),
+            "commercial_invoice_total": _dec_or_none((ci or {}).get("total_amount")),
+            "amount_diff": None,
+        })
+
+        match_id = upsert_triangle_match(conn, tenant_id, match_data)
+        return {"match_id": match_id, "score": result["score"], "status": result["status"]}
+    except Exception as e:
+        log.warning("triangle match failed: %s", e)
+        return None
+
+
+# ── Upload Waybill ────────────────────────────────────────────────────────────
+
+@router.post("/upload-waybill")
+@limiter.limit("20/minute")
+async def upload_waybill(file: UploadFile = File(...), request: Request = None):
+    """Upload a waybill (ზედნადები). Extracts fields + attempts triangle match."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+
+    mime_type = file.content_type or "application/pdf"
+    parsed, extracted = await _extract_from_file(file_bytes, mime_type)
+
+    doc = {
+        "waybill_number": extracted.document_number or "",
+        "waybill_date": _parse_date(extracted.issue_date),
+        "seller_inn": extracted.seller.inn,
+        "seller_name": extracted.seller.name,
+        "buyer_inn": extracted.buyer.inn,
+        "buyer_name": extracted.buyer.name,
+        "subtotal": _dec_or_none(extracted.total_without_vat),
+        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "total_amount": _dec_or_none(extracted.total_with_vat),
+        "raw_text": (parsed.get("text") or "")[:5000],
+    }
+
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO waybills
+                (tenant_id, waybill_number, waybill_date, seller_inn, seller_name,
+                 buyer_inn, buyer_name, subtotal, vat_amount, total_amount,
+                 status, raw_text, version)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s,1)
+            RETURNING id
+            """,
+            (
+                tenant_id, doc["waybill_number"], doc["waybill_date"],
+                doc["seller_inn"], doc["seller_name"],
+                doc["buyer_inn"], doc["buyer_name"],
+                doc["subtotal"], doc["vat_amount"], doc["total_amount"],
+                doc["raw_text"],
+            ),
+        )
+        waybill_id = cur.fetchone()[0]
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return error_response("DB error saving waybill", "DB_ERROR", str(e))
+    finally:
+        cur.close()
+
+    match_info = _try_match_triangle(conn, tenant_id, "waybill", waybill_id, doc)
+    conn.close()
+
+    log.info("action=waybill_uploaded tenant=%s id=%s num=%s",
+             tenant_id, waybill_id, doc["waybill_number"])
+
+    return ok_response("Waybill uploaded", {
+        "waybill_id": waybill_id,
+        "waybill_number": doc["waybill_number"],
+        "extracted": extracted.dict(),
+        "triangle_match": match_info,
+        "extraction_method": parsed.get("method"),
+    })
+
+
+# ── Upload Tax Invoice ────────────────────────────────────────────────────────
+
+@router.post("/upload-tax-invoice")
+@limiter.limit("20/minute")
+async def upload_tax_invoice(file: UploadFile = File(...), request: Request = None):
+    """Upload a tax invoice (საგადასახადო ანგარიშ-ფაქტურა)."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+
+    mime_type = file.content_type or "application/pdf"
+    parsed, extracted = await _extract_from_file(file_bytes, mime_type)
+
+    doc = {
+        "invoice_number": extracted.document_number or "",
+        "invoice_series": extracted.document_series or "",
+        "invoice_date": _parse_date(extracted.issue_date),
+        "seller_inn": extracted.seller.inn,
+        "seller_name": extracted.seller.name,
+        "buyer_inn": extracted.buyer.inn,
+        "buyer_name": extracted.buyer.name,
+        "subtotal": _dec_or_none(extracted.total_without_vat),
+        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "total_amount": _dec_or_none(extracted.total_with_vat),
+        "raw_text": (parsed.get("text") or "")[:5000],
+    }
+
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO tax_invoices
+                (tenant_id, invoice_number, invoice_series, invoice_date,
+                 seller_inn, seller_name, buyer_inn, buyer_name,
+                 subtotal, vat_amount, total_amount, status, raw_text)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
+            RETURNING id
+            """,
+            (
+                tenant_id, doc["invoice_number"], doc["invoice_series"], doc["invoice_date"],
+                doc["seller_inn"], doc["seller_name"],
+                doc["buyer_inn"], doc["buyer_name"],
+                doc["subtotal"], doc["vat_amount"], doc["total_amount"],
+                doc["raw_text"],
+            ),
+        )
+        ti_id = cur.fetchone()[0]
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return error_response("DB error saving tax invoice", "DB_ERROR", str(e))
+    finally:
+        cur.close()
+
+    match_info = _try_match_triangle(conn, tenant_id, "tax_invoice", ti_id, doc)
+    conn.close()
+
+    log.info("action=tax_invoice_uploaded tenant=%s id=%s num=%s",
+             tenant_id, ti_id, doc["invoice_number"])
+
+    return ok_response("Tax invoice uploaded", {
+        "tax_invoice_id": ti_id,
+        "invoice_number": doc["invoice_number"],
+        "extracted": extracted.dict(),
+        "triangle_match": match_info,
+        "extraction_method": parsed.get("method"),
+    })
+
+
+# ── Upload Commercial Invoice ─────────────────────────────────────────────────
+
+@router.post("/upload-commercial-invoice")
+@limiter.limit("20/minute")
+async def upload_commercial_invoice(file: UploadFile = File(...), request: Request = None):
+    """Upload a commercial invoice (ანგარიში)."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+
+    mime_type = file.content_type or "application/pdf"
+    parsed, extracted = await _extract_from_file(file_bytes, mime_type)
+
+    doc = {
+        "invoice_number": extracted.document_number or "",
+        "invoice_date": _parse_date(extracted.issue_date),
+        "seller_inn": extracted.seller.inn,
+        "seller_name": extracted.seller.name,
+        "buyer_inn": extracted.buyer.inn,
+        "buyer_name": extracted.buyer.name,
+        "subtotal": _dec_or_none(extracted.total_without_vat),
+        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "total_amount": _dec_or_none(extracted.total_with_vat),
+        "raw_text": (parsed.get("text") or "")[:5000],
+    }
+
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO commercial_invoices
+                (tenant_id, invoice_number, invoice_date,
+                 seller_inn, seller_name, buyer_inn, buyer_name,
+                 subtotal, vat_amount, total_amount, status, raw_text)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
+            RETURNING id
+            """,
+            (
+                tenant_id, doc["invoice_number"], doc["invoice_date"],
+                doc["seller_inn"], doc["seller_name"],
+                doc["buyer_inn"], doc["buyer_name"],
+                doc["subtotal"], doc["vat_amount"], doc["total_amount"],
+                doc["raw_text"],
+            ),
+        )
+        ci_id = cur.fetchone()[0]
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return error_response("DB error saving commercial invoice", "DB_ERROR", str(e))
+    finally:
+        cur.close()
+
+    match_info = _try_match_triangle(conn, tenant_id, "commercial_invoice", ci_id, doc)
+    conn.close()
+
+    log.info("action=commercial_invoice_uploaded tenant=%s id=%s num=%s",
+             tenant_id, ci_id, doc["invoice_number"])
+
+    return ok_response("Commercial invoice uploaded", {
+        "commercial_invoice_id": ci_id,
+        "invoice_number": doc["invoice_number"],
+        "extracted": extracted.dict(),
+        "triangle_match": match_info,
+        "extraction_method": parsed.get("method"),
+    })
+
+
+# ── Triangle match status ─────────────────────────────────────────────────────
+
+@router.get("/triangle-matches")
+def list_triangle_matches(
+    request: Request,
+    status: str = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """List triangle matches for tenant, optionally filtered by match_status."""
+    import psycopg2.extras
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db(tenant_id)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        where = "WHERE tenant_id = %s"
+        params = [tenant_id]
+        if status:
+            where += " AND match_status = %s"
+            params.append(status)
+        cur.execute(
+            f"""
+            SELECT id, waybill_id, tax_invoice_id, commercial_invoice_id,
+                   match_score, match_status, mismatch_fields,
+                   waybill_total, tax_invoice_total, commercial_invoice_total,
+                   amount_diff, matched_at
+            FROM triangle_matches {where}
+            ORDER BY matched_at DESC LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"SELECT COUNT(*) FROM triangle_matches {where}", params)
+        total = cur.fetchone()["count"]
+    finally:
+        cur.close()
+        conn.close()
+
+    return ok_response("Triangle matches", {
+        "total": total, "limit": limit, "offset": offset, "items": rows
     })

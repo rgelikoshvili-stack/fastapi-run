@@ -107,15 +107,15 @@ def _create_tenant(tenant_id: str, inn: str, name: str, company_type: str, is_va
         cur.execute(
             """
             INSERT INTO tenants (
-                tenant_id, name, company_inn, company_name_legal,
+                tenant_id, name, slug, company_inn, company_name_legal,
                 company_name_aliases, company_type, is_vat_payer,
                 subscription_tier, trial_ends_at, status,
                 is_active, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW())
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW())
             ON CONFLICT DO NOTHING
             """,
             (
-                tenant_id, name, inn, name,
+                tenant_id, name, tenant_id, inn, name,
                 aliases, company_type, is_vat_payer,
                 "trial", datetime.utcnow() + timedelta(days=14),
                 "active",

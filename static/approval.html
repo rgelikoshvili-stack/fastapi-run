@@ -758,10 +758,29 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
   padding:40px 20px;text-align:center;cursor:pointer;transition:.15s;
   background:var(--paper-soft);
 }
-.upload-zone:hover{border-color:var(--accent);background:var(--accent-soft)}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:var(--accent-soft)}
 .uz-ic{font-family:var(--serif);font-style:italic;font-size:44px;margin-bottom:10px;color:var(--accent);opacity:.7}
 .uz-t{font-size:15px;font-weight:500;color:var(--ink);margin-bottom:5px}
 .uz-s{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim)}
+
+/* doc-upload preview card */
+.doc-preview{background:var(--paper-soft);border-radius:var(--r-lg);padding:18px;margin-top:16px}
+.doc-preview .dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.doc-preview .dp-title{font-size:14px;font-weight:600;color:var(--ink)}
+.conf-bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;margin-top:4px;width:140px}
+.conf-fill{height:100%;border-radius:3px;transition:.4s}
+.conf-fill.high{background:var(--green)}
+.conf-fill.mid{background:#e8a219}
+.conf-fill.low{background:#c0392b}
+.je-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+.je-table th{text-align:left;padding:4px 8px;color:var(--ink-dim);font-weight:500;border-bottom:1px solid var(--line-soft)}
+.je-table td{padding:5px 8px;border-bottom:1px solid var(--line-soft)}
+.je-dr{color:var(--ink);font-weight:500}
+.je-cr{color:var(--ink-dim)}
+.badge-role{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-role.buyer{background:#e8f4f8;color:#1a6e96}
+.badge-role.seller{background:#e8f8ee;color:#1a7a3e}
+.badge-role.foreign{background:#fef3cd;color:#856404}
 
 /* health rows */
 .health-row{
@@ -1148,6 +1167,18 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <span class="lbl">Email Inbox</span>
       <span class="badge hidden" id="sb-inbox">0</span>
     </div>
+    <div class="item" onclick="goPage('documents',this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      <span class="lbl">დოკუმენტები</span>
+    </div>
+    <div class="item" onclick="location.href='/static/waybills.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      <span class="lbl">ზედნადებები</span>
+    </div>
+    <div class="item" onclick="location.href='/static/tax_invoices.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span class="lbl">საგ. ანგ-ფაქტურები</span>
+    </div>
     <div class="item" onclick="goPage('ocr',this)">
       <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3"/></svg>
       <span class="lbl">OCR სკანირება</span>
@@ -1155,6 +1186,17 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
     <div class="item" onclick="goPage('export',this)">
       <svg class="ic" viewBox="0 0 24 24"><path d="M12 4v12m-4-4l4 4 4-4"/><path d="M4 20h16"/></svg>
       <span class="lbl">Export</span>
+    </div>
+
+    <!-- გამავალი -->
+    <div class="sec">გამავალი</div>
+    <div class="item" onclick="location.href='/static/outgoing_form.html?type=goods'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      <span class="lbl">გამ. ინვ. (საქ.)</span>
+    </div>
+    <div class="item" onclick="location.href='/static/outgoing_form.html?type=service'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/></svg>
+      <span class="lbl">გამ. ინვ. (მომ.)</span>
     </div>
 
     <!-- ბიზნესი -->
@@ -1804,6 +1846,58 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <div class="card">
         <div class="card-body" id="inbox-body" style="padding:0">
           <div class="loading-row"><span class="spinner"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ DOCUMENTS ════════ -->
+    <div class="page" id="pg-documents">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Operations · Documents</div>
+          <div class="p-title">დოკუმენტების ატვირთვა <em>· intelligence</em></div>
+          <div class="p-sub">ინვოისი, ზედნადები, ქვითარი → AI პარსავს, ახარისხებს და ქმნის draft-ს.</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Upload zone -->
+        <div class="card">
+          <div class="card-head"><div class="card-title">ფაილის ატვირთვა</div></div>
+          <div class="card-body">
+            <div class="upload-zone" id="doc-drop-zone" onclick="document.getElementById('doc-file-input').click()">
+              <div class="uz-ic" id="doc-uz-ic">↑</div>
+              <div class="uz-t" id="doc-uz-t">ჩამოაგდე ფაილი ან დააჭირე</div>
+              <div class="uz-s">PDF · PNG · JPG — max 10MB</div>
+            </div>
+            <input type="file" id="doc-file-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg" onchange="uploadDocument(this.files[0])"/>
+
+            <div id="doc-upload-progress" style="display:none;margin-top:14px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span class="spinner"></span>
+                <span id="doc-progress-text" style="font-size:13px;color:var(--ink-dim)">ანალიზი მიმდინარეობს…</span>
+              </div>
+              <div style="margin-top:8px;font-family:var(--serif);font-style:italic;font-size:11px;color:var(--ink-dim)" id="doc-progress-step"></div>
+            </div>
+
+            <div id="doc-upload-history" style="margin-top:16px"></div>
+          </div>
+        </div>
+
+        <!-- Preview card -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">ანალიზის შედეგი</div>
+            <div id="doc-draft-link" style="display:none">
+              <button class="btn-sm" onclick="goPage('pending',null)">Draft-ის ნახვა →</button>
+            </div>
+          </div>
+          <div class="card-body" id="doc-preview-area">
+            <div class="empty">
+              <div class="empty-ic">⎙</div>
+              <div class="empty-txt">ატვირთე დოკუმენტი შედეგის სანახავად</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3168,6 +3262,162 @@ async function doOCR(input) {
     }
   } catch (e) { toast('OCR ვერ მოხერხდა', 'err'); }
   input.value = '';
+}
+
+/* ═════════ DOCUMENT UPLOAD ═════════ */
+(function() {
+  const zone = () => document.getElementById('doc-drop-zone');
+  document.addEventListener('DOMContentLoaded', () => {
+    const z = zone();
+    if (!z) return;
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('drag-over'); });
+    z.addEventListener('dragleave', () => z.classList.remove('drag-over'));
+    z.addEventListener('drop', e => {
+      e.preventDefault();
+      z.classList.remove('drag-over');
+      const f = e.dataTransfer.files[0];
+      if (f) uploadDocument(f);
+    });
+  });
+})();
+
+async function uploadDocument(file) {
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { toast('ფაილი > 10MB', 'err'); return; }
+
+  const zone = document.getElementById('doc-drop-zone');
+  const progress = document.getElementById('doc-upload-progress');
+  const stepEl = document.getElementById('doc-progress-step');
+  const preview = document.getElementById('doc-preview-area');
+  const draftLink = document.getElementById('doc-draft-link');
+  const fileInput = document.getElementById('doc-file-input');
+
+  zone.style.opacity = '0.5';
+  if (progress) progress.style.display = '';
+  if (preview) preview.innerHTML = '';
+  if (draftLink) draftLink.style.display = 'none';
+
+  const steps = ['ფაილი იხსნება…','ტექსტი ამოიღება…','სტრუქტურა ანალიზდება…','ჟურნალი ფორმირდება…'];
+  let si = 0;
+  const stepTimer = setInterval(() => {
+    if (stepEl && si < steps.length) stepEl.textContent = steps[si++];
+  }, 1800);
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(BASE + '/documents/upload', {
+      method: 'POST',
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {},
+      body: fd,
+    });
+    const d = await r.json();
+    clearInterval(stepTimer);
+
+    if (d.ok) {
+      const data = d.data || {};
+      _renderDocPreview(data, file.name);
+      _addUploadHistory(file.name, data);
+      toast(`✓ Draft #${data.draft_id || '—'} შეიქმნა`, 'ok');
+      if (draftLink) draftLink.style.display = '';
+      loadKPI(); loadPending();
+    } else {
+      const errMsg = d.error?.details || d.message || 'Upload error';
+      if (preview) preview.innerHTML = `<div class="empty"><div class="empty-ic">✕</div><div class="empty-txt">${esc(errMsg)}</div></div>`;
+      toast('ატვირთვა ვერ მოხერხდა', 'err');
+    }
+  } catch (e) {
+    clearInterval(stepTimer);
+    if (preview) preview.innerHTML = `<div class="empty"><div class="empty-ic">✕</div><div class="empty-txt">კავშირი ვერ მოხერხდა</div></div>`;
+    toast('სერვერთან კავშირი ვერ მოხერხდა', 'err');
+  } finally {
+    zone.style.opacity = '';
+    if (progress) progress.style.display = 'none';
+    if (fileInput) fileInput.value = '';
+  }
+}
+
+function _confClass(c) { return c >= 0.7 ? 'high' : c >= 0.4 ? 'mid' : 'low'; }
+
+function _renderDocPreview(data, fileName) {
+  const preview = document.getElementById('doc-preview-area');
+  if (!preview) return;
+
+  const conf = data.confidence ?? 0;
+  const role = data.our_role || 'unknown';
+  const ext = data.extracted || {};
+  const entries = data.journal_entries || [];
+  const warnings = data.warnings || [];
+  const status = data.status || '—';
+
+  const roleLabel = {buyer:'მყიდველი',seller:'გამყიდველი',foreign:'უცხო დოკ.',internal:'შიდა',unknown:'?'}[role] || role;
+  const roleCls = {buyer:'buyer',seller:'seller',foreign:'foreign'}[role] || 'buyer';
+
+  const entriesHtml = entries.length ? `
+    <table class="je-table">
+      <thead><tr><th>Dr</th><th>Cr</th><th>თანხა</th><th>აღწ.</th></tr></thead>
+      <tbody>
+        ${entries.map(e => `
+          <tr>
+            <td class="je-dr">${esc(e.debit_account||'—')}</td>
+            <td class="je-cr">${esc(e.credit_account||'—')}</td>
+            <td>${fmtMoney(e.amount||0)}</td>
+            <td style="font-size:11px;color:var(--ink-dim)">${esc(e.description||'')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>` : '<div style="font-size:12px;color:var(--ink-dim);margin-top:8px">ჩანაწერები არ არის</div>';
+
+  const warningsHtml = warnings.length ? `
+    <div style="margin-top:10px">
+      ${warnings.map(w => `<div style="font-size:11.5px;color:#856404;padding:4px 0">⚠ ${esc(w)}</div>`).join('')}
+    </div>` : '';
+
+  preview.innerHTML = `
+    <div class="doc-preview">
+      <div class="dp-head">
+        <div>
+          <div class="dp-title">${esc(fileName)}</div>
+          <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
+            <span class="badge-role ${roleCls}">${esc(roleLabel)}</span>
+            <span style="font-size:11px;color:var(--ink-dim)">Draft #${esc(String(data.draft_id||'—'))} · ${esc(status)}</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--ink-dim);margin-bottom:4px">სიზუსტე</div>
+          <div style="font-size:16px;font-weight:700;color:var(--ink)">${Math.round(conf*100)}%</div>
+          <div class="conf-bar"><div class="conf-fill ${_confClass(conf)}" style="width:${Math.round(conf*100)}%"></div></div>
+        </div>
+      </div>
+
+      <div class="mf-row"><div class="mf-k">კატეგორია</div><div class="mf-v">${esc(data.operation_category||'—')}</div></div>
+      <div class="mf-row"><div class="mf-k">კონტრაგენტი</div><div class="mf-v">${esc(data.counterparty?.name||'—')} ${data.counterparty?.inn?'('+esc(data.counterparty.inn)+')':''}</div></div>
+      <div class="mf-row"><div class="mf-k">თარიღი</div><div class="mf-v">${esc(ext.issue_date||'—')}</div></div>
+      <div class="mf-row"><div class="mf-k">თანხა</div><div class="mf-v" style="font-weight:600">${fmtMoney(ext.total_with_vat||0)} ${esc(ext.currency||'GEL')}</div></div>
+      ${ext.document_series||ext.document_number ? `<div class="mf-row"><div class="mf-k">№</div><div class="mf-v">${esc(ext.document_series||'')} ${esc(ext.document_number||'')}</div></div>` : ''}
+      <div style="font-size:11.5px;color:var(--ink-dim);margin-top:4px">მეთოდი: ${esc(data.extraction_method||'—')}</div>
+
+      <div style="margin-top:14px;font-size:12px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.05em">ჟურნალური ჩანაწერები</div>
+      ${entriesHtml}
+      ${warningsHtml}
+    </div>
+  `;
+}
+
+function _addUploadHistory(fileName, data) {
+  const hist = document.getElementById('doc-upload-history');
+  if (!hist) return;
+  const conf = data.confidence ?? 0;
+  const item = document.createElement('div');
+  item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:12px';
+  item.innerHTML = `
+    <span style="color:var(--ink)">${esc(fileName)}</span>
+    <span style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--ink-dim)">${Math.round(conf*100)}%</span>
+      <span class="chip chip-${data.status==='pending'?'pending':'approved'}">#${esc(String(data.draft_id||'—'))}</span>
+    </span>
+  `;
+  hist.prepend(item);
 }
 
 /* ═════════ EXPORT ═════════ */

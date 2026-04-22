@@ -28,6 +28,11 @@ _audit/
 *.db
 learned_rules.json
 pending_queue.json
+
+# Draft / temporary files
+static/approval_new.html
+generate_audit.py
+BridgeHub_Audit.docx
 patterns_top.json
 example_response.json
 

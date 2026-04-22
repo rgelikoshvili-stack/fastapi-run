@@ -1,8 +1,17 @@
 from fastapi import APIRouter, Query, Request
+from typing import Optional
 import psycopg2
 import psycopg2.extras
 from app.api.db import get_db
 from app.api.authz import require_permission
+from app.api.security import limiter
+from app.api.services.ledger_service import (
+    get_account_ledger,
+    get_trial_balance,
+    get_counterparty_ledger,
+    get_payroll_ledger,
+    get_journal_entries,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -234,3 +243,86 @@ def cashflow_report(
     finally:
         cur.close()
         conn.close()
+
+
+# ===============================
+# ACCOUNT LEDGER
+# ===============================
+@limiter.limit("10/minute")
+@router.get("/ledger/{account_code}")
+def ledger_report(
+    account_code: str,
+    request: Request,
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    data = get_account_ledger(tenant_id, account_code, date_from, date_to)
+    return {"ok": True, "report": "ledger", **data}
+
+
+# ===============================
+# TRIAL BALANCE
+# ===============================
+@limiter.limit("10/minute")
+@router.get("/trial-balance")
+def trial_balance_report(
+    request: Request,
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    data = get_trial_balance(tenant_id, date_from, date_to)
+    return {"ok": True, "report": "trial_balance", **data}
+
+
+# ===============================
+# COUNTERPARTY LEDGER
+# ===============================
+@limiter.limit("10/minute")
+@router.get("/counterparty/{inn}")
+def counterparty_ledger_report(
+    inn: str,
+    request: Request,
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    data = get_counterparty_ledger(tenant_id, inn, date_from, date_to)
+    return {"ok": True, "report": "counterparty_ledger", **data}
+
+
+# ===============================
+# PAYROLL LEDGER
+# ===============================
+@limiter.limit("10/minute")
+@router.get("/payroll")
+def payroll_ledger_report(
+    request: Request,
+    employee_id: Optional[str] = Query(None, description="Employee personal tax number"),
+    year: Optional[int] = Query(None),
+):
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    data = get_payroll_ledger(tenant_id, employee_id, year)
+    return {"ok": True, "report": "payroll_ledger", **data}
+
+
+# ===============================
+# JOURNAL
+# ===============================
+@limiter.limit("10/minute")
+@router.get("/journal")
+def journal_report(
+    request: Request,
+    date: Optional[str] = Query(None, description="YYYY-MM-DD — specific date, or omit for latest"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    data = get_journal_entries(tenant_id, date, limit, offset)
+    return {"ok": True, "report": "journal", **data}

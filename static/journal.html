@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Journal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;
+  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
+  --green:#27500A;--green-bg:#EAF3DE;--red:#791F1F;--red-bg:#FCEBEB;
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',serif;
+  --mono:'Geist Mono',ui-monospace,monospace;
+  --sidebar:280px;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px}
+body{display:flex;min-height:100vh;background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);}
+.logo{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:22px;flex-shrink:0;}
+.bname{font-size:17px;font-weight:500;letter-spacing:-0.015em;line-height:1}
+.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
+.brole{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
+.nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
+.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);}
+.sec::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;margin:1px 0;}
+.item:hover{background:var(--card-hover)}
+.item .ic{width:16px;height:16px;stroke:var(--ink-mute);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.item .lbl{font-size:13.5px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:450;}
+.item.active{background:var(--ink);box-shadow:0 4px 12px -3px rgba(26,21,18,.4);}
+.item.active .lbl{color:var(--paper);font-weight:500}.item.active .ic{stroke:var(--paper)}
+.foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:11px;}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:16px;flex-shrink:0;}
+.uname{font-size:13px;font-weight:500}.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:72px;padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--paper);position:sticky;top:0;z-index:30;}
+.crumbs{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase;}
+.crumbs em{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)}
+.content{flex:1;padding:28px;overflow-y:auto}
+.filters{display:flex;gap:10px;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:11px;font-weight:500;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.06em}
+.fld input{height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-family:var(--font);font-size:13.5px;color:var(--ink);outline:none;transition:.15s;width:160px}
+.fld input:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.btn-run{height:36px;padding:0 20px;background:var(--ink);color:var(--paper);border-radius:8px;font-size:13px;font-weight:500;transition:.15s;}
+.btn-run:hover{background:var(--accent)}
+.btn-run:disabled{opacity:.5;cursor:not-allowed}
+
+/* journal cards */
+.j-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.j-card-head{padding:14px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;transition:.1s}
+.j-card-head:hover{background:var(--card-hover)}
+.j-date{font-family:var(--mono);font-size:11px;color:var(--ink-dim);white-space:nowrap;margin-top:2px;min-width:82px}
+.j-meta{flex:1}
+.j-desc{font-size:14px;font-weight:500;color:var(--ink);line-height:1.4}
+.j-sub{display:flex;gap:10px;margin-top:5px;flex-wrap:wrap}
+.j-tag{font-size:11.5px;color:var(--ink-dim);display:flex;align-items:center;gap:4px}
+.j-tag b{font-family:var(--mono);font-size:11px;background:var(--paper-sunk);padding:1px 6px;border-radius:4px;color:var(--ink-mute)}
+.j-amount{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);white-space:nowrap}
+.j-toggle{font-size:11px;color:var(--ink-ghost);align-self:center;padding:4px 8px;border-radius:6px;background:var(--paper-sunk)}
+.j-entries{display:none;padding:0 18px 14px;border-top:1px solid var(--line-soft)}
+.entry-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.entry-row:last-child{border-bottom:none}
+.dr-chip{font-family:var(--mono);font-size:11.5px;font-weight:600;background:var(--green-bg);color:var(--green);padding:3px 9px;border-radius:5px}
+.cr-chip{font-family:var(--mono);font-size:11.5px;font-weight:600;background:var(--red-bg);color:var(--red);padding:3px 9px;border-radius:5px}
+.entry-arrow{color:var(--ink-ghost);font-size:13px}
+.entry-amt{font-family:var(--mono);font-size:12.5px;font-weight:600;margin-left:auto}
+.entry-note{font-size:12px;color:var(--ink-dim);flex:1;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.pagination{display:flex;align-items:center;gap:8px;margin-top:20px;justify-content:center}
+.pag-btn{height:34px;padding:0 14px;background:var(--card);border:1px solid var(--line);border-radius:7px;font-size:13px;color:var(--ink);transition:.1s}
+.pag-btn:hover:not(:disabled){background:var(--card-hover)}
+.pag-btn:disabled{opacity:.4;cursor:not-allowed}
+.pag-info{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
+
+.empty{text-align:center;padding:52px;color:var(--ink-dim);font-family:var(--serif);font-style:italic;font-size:15px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="brand">
+    <div class="logo">B</div>
+    <div><div class="bname">Bridge <em>Hub</em></div><div class="brole">Financial OS</div></div>
+  </div>
+  <div class="nav">
+    <div class="sec">მთავარი</div>
+    <div class="item" onclick="location.href='/static/approval.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span class="lbl">Dashboard</span>
+    </div>
+    <div class="item" onclick="location.href='/static/drafts.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span class="lbl">დრაფტები</span>
+    </div>
+    <div class="sec">ანალიტიკა</div>
+    <div class="item" onclick="location.href='/static/ledger.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span class="lbl">Account Ledger</span>
+    </div>
+    <div class="item" onclick="location.href='/static/trial_balance.html'">
+      <svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <span class="lbl">Trial Balance</span>
+    </div>
+    <div class="item" onclick="location.href='/static/counterparty_ledger.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span class="lbl">Counterparty Ledger</span>
+    </div>
+    <div class="item" onclick="location.href='/static/payroll_ledger.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+      <span class="lbl">Payroll Ledger</span>
+    </div>
+    <div class="item active" onclick="location.href='/static/journal.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <span class="lbl">Journal</span>
+    </div>
+    <div class="sec">AI · სისტემა</div>
+    <div class="item" onclick="location.href='/static/ai_control.html'">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      <span class="lbl">AI Control</span>
+    </div>
+    <div class="item" onclick="location.href='/static/settings.html'">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      <span class="lbl">Settings</span>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="av" id="avLetter">U</div>
+    <div><div class="uname" id="footName">—</div><div class="urole" id="footRole">—</div></div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">ანალიტიკა / <em>Journal</em></div>
+    <span id="totalPill" style="font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:var(--paper-sunk);padding:3px 10px;border-radius:20px;display:none">0 ჩანაწერი</span>
+  </div>
+  <div class="content">
+
+    <div class="filters">
+      <div class="fld">
+        <label>თარიღი (სრულ. სურვ.)</label>
+        <input id="fDate" type="date">
+      </div>
+      <button class="btn-run" id="btnRun" onclick="load(0)">
+        <span id="btnTxt">ჩვენება</span>
+      </button>
+      <button class="btn-run" style="background:var(--paper-sunk);color:var(--ink)" onclick="document.getElementById('fDate').value='';load(0)">
+        გასუფთავება
+      </button>
+    </div>
+
+    <div id="list"></div>
+    <div id="emptyMsg" class="empty" style="display:none">მონაცემები ვერ მოიძებნა</div>
+
+    <div class="pagination" id="pag" style="display:none">
+      <button class="pag-btn" id="pagPrev" onclick="prevPage()">← წინა</button>
+      <span class="pag-info" id="pagInfo"></span>
+      <button class="pag-btn" id="pagNext" onclick="nextPage()">შემდეგი →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const token = () => localStorage.getItem('bh_token') || '';
+const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+try {
+  const pl = JSON.parse(atob(token().split('.')[1]));
+  document.getElementById('footName').textContent = pl.sub || pl.email || '—';
+  document.getElementById('footRole').textContent = pl.role || '—';
+  document.getElementById('avLetter').textContent = (pl.sub||pl.email||'U')[0].toUpperCase();
+} catch(_){}
+
+const PAGE = 50;
+let currentOffset = 0;
+let totalItems = 0;
+
+async function load(offset){
+  currentOffset = offset;
+  const date = document.getElementById('fDate').value;
+  const btn  = document.getElementById('btnRun');
+  document.getElementById('btnTxt').innerHTML = '<span class="spin"></span>';
+  btn.disabled = true;
+
+  const p = new URLSearchParams({limit: PAGE, offset});
+  if(date) p.set('date', date);
+  const url = '/reports/journal?' + p.toString();
+
+  try {
+    const res = await fetch(url, {headers:{'Authorization':'Bearer '+token()}});
+    const d = await res.json();
+    if(!d.ok) throw new Error(d.detail || 'შეცდომა');
+    totalItems = d.total;
+    renderList(d);
+  } catch(e){
+    alert('შეცდომა: ' + e.message);
+  } finally {
+    document.getElementById('btnTxt').textContent = 'ჩვენება';
+    btn.disabled = false;
+  }
+}
+
+function renderList(d){
+  const pill = document.getElementById('totalPill');
+  pill.textContent = `${d.total} ჩანაწერი`;
+  pill.style.display = '';
+
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  if(!d.items || d.items.length === 0){
+    document.getElementById('emptyMsg').style.display = '';
+    document.getElementById('pag').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('emptyMsg').style.display = 'none';
+
+  d.items.forEach((item, i) => {
+    const card = document.createElement('div');
+    card.className = 'j-card';
+    const hasEntries = item.entries && item.entries.length > 0;
+
+    const entriesHtml = hasEntries ? item.entries.map(e => `
+      <div class="entry-row">
+        <span class="dr-chip">Dr ${esc(e.dr)}</span>
+        <span class="entry-arrow">→</span>
+        <span class="cr-chip">Cr ${esc(e.cr)}</span>
+        <span class="entry-note">${esc(e.note||'')}</span>
+        <span class="entry-amt">${fmt(e.amount)}</span>
+      </div>
+    `).join('') : '';
+
+    card.innerHTML = `
+      <div class="j-card-head" onclick="toggleCard(${i})">
+        <div class="j-date">${esc(item.date||'—')}</div>
+        <div class="j-meta">
+          <div class="j-desc">${esc(item.description||'—')}</div>
+          <div class="j-sub">
+            ${item.account_code ? `<span class="j-tag">ანგ. <b>${esc(item.account_code)}</b></span>` : ''}
+            ${item.counterparty_name ? `<span class="j-tag">კონტ. <b>${esc(item.counterparty_name)}</b></span>` : ''}
+            ${item.reason ? `<span class="j-tag"><b>${esc(item.reason)}</b></span>` : ''}
+          </div>
+        </div>
+        <div class="j-amount">${fmt(item.amount)}</div>
+        ${hasEntries ? `<div class="j-toggle">${item.entries.length} პრ.</div>` : ''}
+      </div>
+      ${hasEntries ? `<div class="j-entries" id="entries-${i}">${entriesHtml}</div>` : ''}
+    `;
+    list.appendChild(card);
+  });
+
+  // pagination
+  const pag = document.getElementById('pag');
+  if(d.total > PAGE){
+    pag.style.display = '';
+    const page = Math.floor(currentOffset / PAGE) + 1;
+    const total = Math.ceil(d.total / PAGE);
+    document.getElementById('pagInfo').textContent = `${page} / ${total}`;
+    document.getElementById('pagPrev').disabled = currentOffset === 0;
+    document.getElementById('pagNext').disabled = currentOffset + PAGE >= d.total;
+  } else {
+    pag.style.display = 'none';
+  }
+}
+
+function toggleCard(i){
+  const el = document.getElementById(`entries-${i}`);
+  if(!el) return;
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function prevPage(){ if(currentOffset > 0) load(Math.max(0, currentOffset - PAGE)); }
+function nextPage(){ if(currentOffset + PAGE < totalItems) load(currentOffset + PAGE); }
+
+// auto-load on page open
+load(0);
+</script>
+</body>
+</html>

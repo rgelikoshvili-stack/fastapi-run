@@ -12,13 +12,12 @@
   --card:#faf3e3;--card-hover:#ebe0c5;
   --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
   --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
-  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
-  --green:#27500A;--green-bg:#EAF3DE;
+  --accent:#8c3c2d;--accent-d:#6a2e22;
+  --green:#27500A;--green-bg:#EAF3DE;--green-border:rgba(39,80,10,.2);
   --amber:#7a4f00;--amber-bg:#FAEEDA;--amber-border:#EF9F27;
   --red:#791F1F;--red-bg:#FCEBEB;
   --blue:#3a5a8c;--blue-soft:rgba(58,90,140,.1);
-  --teal:#1a5a5a;--teal-soft:rgba(26,90,90,.1);
-  --purple:#6a3a7c;--purple-soft:rgba(106,58,124,.1);
+  --teal:#1a5a5a;--teal-soft:rgba(26,90,90,.08);--teal-border:rgba(26,90,90,.2);
   --font:'Inter',ui-sans-serif,system-ui,sans-serif;
   --serif:'Instrument Serif',serif;
   --mono:'Geist Mono',ui-monospace,monospace;
@@ -26,72 +25,87 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px}
-body{display:flex;min-height:100vh;background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);}
+body{display:flex;min-height:100vh;background:
+  radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),
+  radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),
+  var(--paper);}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit;cursor:pointer;border:none;background:none}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
 
 /* SIDEBAR */
-.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;box-shadow:inset -1px 0 0 rgba(255,250,235,.4);}
 .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);}
 .logo{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:22px;flex-shrink:0;}
-.bname{font-size:17px;font-weight:500;color:var(--ink)}.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
+.bname{font-size:17px;font-weight:500;letter-spacing:-0.015em;line-height:1}
+.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
 .brole{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
 .nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
-.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink-dim);}
+.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);}
 .sec::after{content:'';flex:1;height:1px;background:var(--line-strong)}
-.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;color:var(--ink-soft);margin:1px 0;user-select:none;}
+.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;margin:1px 0;user-select:none;}
 .item:hover{background:var(--card-hover)}
 .item .ic{width:16px;height:16px;stroke:var(--ink-mute);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
-.item .lbl{font-size:13.5px;color:var(--ink);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:450;}
-.item.active{background:var(--ink);color:var(--paper);box-shadow:0 4px 12px -3px rgba(26,21,18,.4);}
-.item.active .lbl{color:var(--paper);font-weight:500}.item.active .ic{stroke:var(--paper)}
+.item .lbl{font-size:13.5px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:450;}
+.item .badge{font-family:var(--mono);font-size:10px;background:var(--paper-sunk);color:var(--ink-ghost);padding:1px 6px;border-radius:10px;}
+.item.active{background:var(--ink);box-shadow:0 4px 12px -3px rgba(26,21,18,.4);}
+.item.active .lbl{color:var(--paper);font-weight:500}
+.item.active .ic{stroke:var(--paper)}
+.item.active .badge{background:rgba(255,255,255,.15);color:rgba(255,255,255,.7)}
 .foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:11px;}
 .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:16px;flex-shrink:0;}
-.uname{font-size:13px;color:var(--ink);font-weight:500}.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
+.uname{font-size:13px;font-weight:500}
+.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
 
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
-.topbar{height:var(--header);padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;background:var(--paper);position:sticky;top:0;z-index:30;}
+.topbar{height:var(--header);padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--paper);position:sticky;top:0;z-index:30;}
 .crumbs{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase;}
 .crumbs em{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);margin-left:2px}
 .icon-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.12s;}
-.icon-btn:hover{background:var(--card-hover);border-color:var(--ink-ghost)}
+.icon-btn:hover{background:var(--card-hover)}
 .icon-btn svg{width:15px;height:15px;stroke:var(--ink-mute);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;}
-.btn-primary{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:var(--ink);color:var(--paper);border-radius:8px;font-size:13px;font-weight:500;transition:.15s;}
+.btn-primary{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:var(--ink);color:var(--paper);border-radius:8px;font-size:13px;font-weight:500;transition:.15s;letter-spacing:-0.01em;cursor:pointer;border:none;}
 .btn-primary:hover{background:var(--ink-soft)}
-.btn-primary svg{width:14px;height:14px;stroke:var(--paper);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.btn-primary svg{width:14px;height:14px;stroke:var(--paper);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 
 /* CONTENT */
 .content{flex:1;padding:28px;overflow-y:auto}
 .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px;}
-.page-title{font-size:22px;font-weight:600;letter-spacing:-0.02em;line-height:1.2}
+.page-title{font-size:22px;font-weight:600;letter-spacing:-0.02em}
 .page-title em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-dim);margin-left:6px;font-size:18px}
 .page-sub{font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink-dim);margin-top:4px}
 
+/* RS.GE banner */
+.rsge-banner{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--teal-soft);border:1px solid var(--teal-border);border-radius:var(--r);margin-bottom:20px;font-size:13px;}
+.rsge-icon{width:32px;height:32px;border-radius:8px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.rsge-icon svg{width:16px;height:16px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;}
+.rsge-text{color:var(--teal);font-weight:500}
+.rsge-sub{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--teal);opacity:.7;margin-top:1px}
+.rsge-link{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--teal);font-weight:500;padding:5px 10px;border:1px solid var(--teal-border);border-radius:6px;cursor:pointer;transition:.12s;}
+.rsge-link:hover{background:var(--teal-soft)}
+.rsge-link svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none}
+
+/* STATS */
+.stats-strip{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+.stat-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:12px;min-width:130px;flex:1;}
+.stat-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.stat-num{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--ink);line-height:1}
+.stat-lbl{font-size:11.5px;color:var(--ink-ghost);margin-top:2px;font-family:var(--serif);font-style:italic}
+
 /* FILTERS */
-.filters{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+.filters{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .filter-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid var(--line-strong);background:var(--card);font-size:12.5px;color:var(--ink-soft);cursor:pointer;transition:.12s;font-family:var(--mono);letter-spacing:.02em;}
-.filter-chip:hover{background:var(--card-hover)}.filter-chip.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.filter-chip:hover{background:var(--card-hover);border-color:var(--ink-ghost)}
+.filter-chip.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .filter-chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.filter-count{font-size:10.5px;opacity:.7;margin-left:2px}
-.search-bar{flex:1;min-width:180px;max-width:320px;display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--card);border:1px solid var(--line-strong);border-radius:8px;transition:.15s;}
+.filter-chip .cnt{font-size:10.5px;opacity:.7;margin-left:2px}
+.search-bar{flex:1;min-width:200px;max-width:340px;display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--card);border:1px solid var(--line-strong);border-radius:8px;transition:.15s;}
 .search-bar:focus-within{border-color:var(--accent)}
 .search-bar svg{width:13px;height:13px;stroke:var(--ink-dim);stroke-width:2;fill:none;flex-shrink:0;}
 .search-bar input{flex:1;background:transparent;border:none;outline:none;color:var(--ink-soft);font-size:12.5px}
 .search-bar input::placeholder{color:var(--ink-ghost);font-family:var(--serif);font-style:italic;font-size:13px}
-
-/* rs.ge notice banner */
-.rs-banner{
-  display:flex;align-items:center;gap:12px;
-  padding:12px 16px;margin-bottom:20px;
-  background:transparent;border:1.5px dashed var(--line-strong);
-  border-radius:var(--r);color:var(--ink-dim);font-size:13px;
-}
-.rs-banner svg{width:16px;height:16px;stroke:var(--ink-ghost);stroke-width:1.8;fill:none;flex-shrink:0}
-.rs-banner strong{color:var(--ink-mute)}
-.rs-lock{font-size:11px;margin-left:auto;background:var(--paper-sunk);color:var(--ink-ghost);border:1px solid var(--line-strong);border-radius:5px;padding:2px 8px;font-family:var(--mono);letter-spacing:.04em;display:flex;align-items:center;gap:4px;white-space:nowrap;}
 
 /* TABLE */
 .tbl-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -101,43 +115,55 @@ tbody tr{border-bottom:1px solid var(--line-soft);transition:.1s;cursor:pointer}
 tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:var(--card-hover)}
 td{padding:11px 14px;font-size:13px;color:var(--ink-soft);vertical-align:middle}
-.st-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
-.st-full{background:var(--green-bg);color:var(--green)}.st-partial{background:#FFF3CD;color:#7a4f00}
-.st-mismatch{background:var(--red-bg);color:var(--red)}.st-imported{background:var(--paper-sunk);color:var(--ink-ghost)}
-td.num{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:500}
-td.amt{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink);text-align:right}
+
+.inv-num{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink)}
+.inv-id{font-size:10.5px;color:var(--ink-ghost);margin-top:2px}
+.party-name{font-size:13px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.party-inn{font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost);margin-top:2px}
+td.amt{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink);text-align:right;white-space:nowrap}
 td.amt .curr{font-size:10px;color:var(--ink-ghost);margin-left:3px;font-weight:400}
-td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
-.vat-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:5px;font-family:var(--mono);font-size:10.5px;font-weight:600;background:var(--teal-soft);color:var(--teal)}
-.wb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;transition:.1s;white-space:nowrap;}
+.vat-badge{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:11px;color:var(--teal);background:var(--teal-soft);padding:2px 7px;border-radius:4px;margin-top:3px}
+td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft);white-space:nowrap}
+.acc-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-family:var(--mono);font-size:11px;font-weight:600;background:var(--blue-soft);color:var(--blue);letter-spacing:.03em;}
+.wb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:500;border:1px solid;transition:.1s;white-space:nowrap;cursor:pointer}
 .wb-chip.linked{background:var(--green-bg);color:var(--green);border-color:rgba(39,80,10,.2)}
-.wb-chip.missing{background:var(--paper-sunk);color:var(--ink-ghost);border-color:var(--line-strong)}
+.wb-chip.missing{background:var(--paper-sunk);color:var(--ink-ghost);border-color:var(--line-strong);cursor:default}
 .wb-chip svg{width:9px;height:9px;stroke:currentColor;stroke-width:2.5;fill:none}
-.inn-badge{font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost);display:block;margin-top:2px}
+.status-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;font-size:11px;font-family:var(--mono)}
+.pill-matched{background:var(--green-bg);color:var(--green)}
+.pill-partial{background:var(--amber-bg);color:var(--amber)}
+.pill-new{background:var(--paper-sunk);color:var(--ink-ghost)}
 
-/* pager */
 .pager{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--line-soft);}
-.pager-info{font-family:var(--mono);font-size:11px;color:var(--ink-dim);letter-spacing:.05em}
+.pager-info{font-family:var(--mono);font-size:11px;color:var(--ink-dim)}
 .pager-btns{display:flex;gap:6px}
-.pg-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--line-strong);font-size:12px;color:var(--ink-soft);background:var(--card);cursor:pointer;transition:.1s;}
-.pg-btn:hover{background:var(--card-hover)}.pg-btn:disabled{opacity:.4;cursor:default}
+.pg-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--line-strong);font-size:12px;color:var(--ink-soft);background:var(--card);cursor:pointer;transition:.1s;font-family:var(--mono);}
+.pg-btn:hover{background:var(--card-hover)}
+.pg-btn:disabled{opacity:.4;cursor:default}
+.empty-state{text-align:center;padding:64px 20px}
+.empty-state svg{width:40px;height:40px;stroke:var(--line-strong);stroke-width:1.5;fill:none;margin:0 auto 12px;display:block}
+.empty-state p{font-family:var(--serif);font-style:italic;font-size:16px;color:var(--ink-dim);margin-bottom:4px}
 
-/* modal */
-.modal-bg{position:fixed;inset:0;background:rgba(26,21,18,.5);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center}
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(26,21,18,.5);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
 .modal-bg.open{display:flex}
-.modal{background:var(--card);border-radius:14px;border:1px solid var(--line);max-width:680px;width:92%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px -10px rgba(26,21,18,.4);}
+.modal{background:var(--card);border-radius:14px;border:1px solid var(--line);max-width:700px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px -10px rgba(26,21,18,.4);}
 .modal-head{padding:20px 24px 16px;border-bottom:1px solid var(--line-soft);display:flex;align-items:flex-start;gap:12px;}
 .modal-title{font-size:17px;font-weight:600;letter-spacing:-0.015em;flex:1}
 .modal-sub{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
 .modal-close{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--line-strong);transition:.1s;flex-shrink:0;}
 .modal-close:hover{background:var(--card-hover)}
-.modal-close svg{width:13px;height:13px;stroke:var(--ink-mute);stroke-width:2;fill:none;}
+.modal-close svg{width:13px;height:13px;stroke:var(--ink-mute);stroke-width:2;fill:none}
 .modal-body{padding:20px 24px;overflow-y:auto;flex:1}
-.kv-grid{display:grid;grid-template-columns:160px 1fr;gap:6px 16px}
-.kv-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);display:flex;align-items:center;padding-top:2px}
-.kv-val{font-size:13px;color:var(--ink-soft)}.kv-val strong{color:var(--ink);font-weight:500}
-.rs-preview-box{margin-top:16px;border:1.5px dashed var(--line-strong);border-radius:8px;padding:16px;color:var(--ink-ghost);text-align:center}
-.rs-preview-box .rs-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--ink-dim)}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:6px 16px;margin-bottom:16px}
+.kl{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);padding-top:2px}
+.kv-val{font-size:13px;color:var(--ink-soft)}
+.kv-val strong{color:var(--ink);font-weight:500}
+.section-title{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-dim);margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--line-soft)}
+.rsge-preview{border:2px dashed var(--teal-border);border-radius:var(--r);padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;background:var(--teal-soft)}
+.rsge-preview svg{width:20px;height:20px;stroke:var(--teal);stroke-width:1.8;fill:none;flex-shrink:0}
+.rsge-preview-text{font-size:13px;color:var(--teal)}
+.rsge-preview-sub{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--teal);opacity:.7;margin-top:2px}
 </style>
 </head>
 <body>
@@ -145,7 +171,10 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
 <nav class="sidebar">
   <div class="brand">
     <div class="logo">B</div>
-    <div><div class="bname">Bridge <em>Hub</em></div><div class="brole">Financial OS</div></div>
+    <div>
+      <div class="bname">Bridge <em>Hub</em></div>
+      <div class="brole">Financial OS</div>
+    </div>
   </div>
   <div class="nav">
     <div class="sec">მთავარი</div>
@@ -153,14 +182,20 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
       <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       <span class="lbl">სამუშაო სივრცე</span>
     </div>
-    <div class="sec">დოკუმენტები</div>
+    <div class="sec">შემომავალი</div>
     <div class="item" onclick="location.href='/static/waybills.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8l4 2v5h-4"/><path d="M7 13v4"/><path d="M5 13v4"/></svg>
       <span class="lbl">ზედნადებები</span>
     </div>
     <div class="item active">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
       <span class="lbl">საგ. ანგ-ფაქტურები</span>
+      <span class="badge" id="sideTiCount">0</span>
+    </div>
+    <div class="sec">გამავალი</div>
+    <div class="item" onclick="location.href='/static/outgoing_form.html?type=goods'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      <span class="lbl">ჩემი ინვოისები</span>
     </div>
     <div class="sec">ჩანაწერები</div>
     <div class="item" onclick="location.href='/static/approval.html'">
@@ -170,94 +205,133 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
   </div>
   <div class="foot">
     <div class="av" id="footAv">?</div>
-    <div><div class="uname" id="footName">—</div><div class="urole" id="footRole">—</div></div>
+    <div>
+      <div class="uname" id="footName">—</div>
+      <div class="urole" id="footRole">—</div>
+    </div>
   </div>
 </nav>
 
 <div class="main">
   <div class="topbar">
-    <div class="crumbs">Bridge Hub <span style="margin:0 7px;color:var(--ink-ghost)">/</span> დოკუმენტები <span style="margin:0 7px;color:var(--ink-ghost)">/</span> <em>საგ. ანგ-ფაქტურები</em></div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <button class="icon-btn" onclick="loadInvoices()">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
-      </button>
-      <label class="btn-primary" style="cursor:pointer">
-        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        ფაქტურის ატვირთვა
-        <input type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" style="display:none" onchange="uploadTaxInvoice(this)">
-      </label>
-    </div>
+    <div class="crumbs">Bridge Hub / შემომავალი / <em>საგ. ანგ-ფაქტურები</em></div>
+    <button class="icon-btn" title="განახლება" onclick="load()">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+    </button>
+    <label class="btn-primary" style="cursor:pointer">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      ფაქტ. ატვირთვა
+      <input type="file" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadTI(this)">
+    </label>
   </div>
 
   <div class="content">
     <div class="page-header">
       <div>
-        <div class="page-title">საგ. ანგ-ფაქტურები <em>Tax Invoices</em></div>
-        <div class="page-sub">rs.ge-დან ჩამოტვირთული ფაქტურების სია</div>
+        <div class="page-title">საგ. ანგარიშ-ფაქტურები <em>Tax Invoices</em></div>
+        <div class="page-sub">rs.ge-სინქრონიზებული · triangle reconciliation</div>
       </div>
     </div>
 
-    <div class="rs-banner">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <div><strong>rs.ge ინტეგრაცია:</strong> ავტო-სინქრონიზაცია ჩართული. ფაქტურები პირდაპირ rs.ge პორტალიდანაც ატვირთება.</div>
-      <div class="rs-lock">
-        <svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:currentColor;stroke-width:2;fill:none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        rs.ge live
+    <!-- rs.ge banner -->
+    <div class="rsge-banner">
+      <div class="rsge-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <div>
+        <div class="rsge-text">rs.ge ინტეგრაცია</div>
+        <div class="rsge-sub">ფაქტურები მოწმდება საგადასახადო სამსახურის მონაცემებით</div>
+      </div>
+      <div class="rsge-link" onclick="alert('rs.ge sync: available via /tax endpoint')">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+        სინქრ.
       </div>
     </div>
 
+    <!-- Stats -->
+    <div class="stats-strip">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--paper-sunk)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-mute)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <div><div class="stat-num" id="stTotal">—</div><div class="stat-lbl">სულ ფაქტ.</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--green-bg)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div><div class="stat-num" id="stMatched">—</div><div class="stat-lbl">ზ/ნ-თან ✓</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--teal-soft)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div><div class="stat-num" id="stVat">—</div><div class="stat-lbl">სულ დღგ ₾</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--blue-soft)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div><div class="stat-num" id="stTotal2">—</div><div class="stat-lbl">სულ ₾</div></div>
+      </div>
+    </div>
+
+    <!-- Filters -->
     <div class="filters">
       <div class="search-bar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input id="searchInput" placeholder="სერია, ნომერი, INN, გამყიდველი..." oninput="filterTable()">
+        <input id="searchInput" placeholder="ნომ., INN, სახელი..." oninput="onSearch()">
       </div>
-      <div class="filter-chip active" onclick="setFilter('all',this)">ყველა <span class="filter-count" id="cnt-all">0</span></div>
-      <div class="filter-chip" onclick="setFilter('verified',this)">
-        <span class="dot" style="background:var(--green)"></span> დადასტურებული <span class="filter-count" id="cnt-verified">0</span>
+      <div class="filter-chip active" onclick="setFilter('all',this)">
+        <span class="dot" style="background:var(--ink-ghost)"></span> ყველა <span class="cnt" id="cnt-all">0</span>
       </div>
-      <div class="filter-chip" onclick="setFilter('matched',this)">
-        <span class="dot" style="background:#3a5a8c"></span> დაბმული <span class="filter-count" id="cnt-matched">0</span>
+      <div class="filter-chip" onclick="setFilter('linked',this)">
+        <span class="dot" style="background:var(--green)"></span> ზ/ნ-თან <span class="cnt" id="cnt-linked">0</span>
       </div>
-      <div class="filter-chip" onclick="setFilter('imported',this)">
-        <span class="dot" style="background:var(--ink-ghost)"></span> ახალი <span class="filter-count" id="cnt-imported">0</span>
+      <div class="filter-chip" onclick="setFilter('unlinked',this)">
+        <span class="dot" style="background:var(--ink-ghost)"></span> დაკავშირება არ აქვს <span class="cnt" id="cnt-unlinked">0</span>
       </div>
     </div>
 
+    <!-- Table -->
     <div class="tbl-wrap">
       <table>
         <thead>
           <tr>
-            <th style="width:36px"></th>
-            <th>სერია / ნომერი</th>
+            <th>ნომერი</th>
             <th>გამყიდველი</th>
             <th>მყიდველი</th>
-            <th style="text-align:right">ჯამი</th>
-            <th style="text-align:right">დღგ</th>
-            <th>თარიღი</th>
+            <th style="text-align:right">სუბტ. (₾)</th>
+            <th style="text-align:right">დღგ (₾)</th>
+            <th style="text-align:right">სულ (₾)</th>
             <th>ზედნადები</th>
+            <th>თარიღი</th>
           </tr>
         </thead>
         <tbody id="tblBody">
-          <tr><td colspan="8" style="padding:50px;text-align:center;font-family:var(--serif);font-style:italic;color:var(--ink-dim)">ჩატვირთვა...</td></tr>
+          <tr><td colspan="8" class="empty-state">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <p>ჩატვირთვა...</p>
+          </td></tr>
         </tbody>
       </table>
       <div class="pager">
         <div class="pager-info" id="pagerInfo">—</div>
         <div class="pager-btns">
           <button class="pg-btn" id="pgPrev" onclick="changePage(-1)" disabled>← წინა</button>
-          <button class="pg-btn" id="pgNext" onclick="changePage(1)" disabled>შემდეგი →</button>
+          <button class="pg-btn" id="pgNext" onclick="changePage(1)">შემდეგი →</button>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- DETAIL MODAL -->
+<!-- MODAL -->
 <div class="modal-bg" id="detailModal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-head">
       <div>
-        <div class="modal-title" id="mdTitle">საგ. ანგ-ფაქტურა</div>
+        <div class="modal-title" id="mdTitle">ანგ-ფაქტურა</div>
         <div class="modal-sub" id="mdSub">—</div>
       </div>
       <div class="modal-close" onclick="closeModal()">
@@ -269,181 +343,186 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
 </div>
 
 <script>
-const BASE = '';
-let TOKEN = localStorage.getItem('bh_token') || '';
-let _allRows = [];
-let _filter = 'all';
-let _page = 0;
-const PAGE_SIZE = 25;
+const BASE='';
+let TOKEN=localStorage.getItem('bh_token')||'';
+let _all=[], _filter='all', _page=0;
+const PG=25;
 
-function _authH(){ return TOKEN ? {Authorization:'Bearer '+TOKEN} : {} }
+const H=()=>TOKEN?{Authorization:'Bearer '+TOKEN}:{};
 
-async function loadCompanyInfo(){
-  if(!TOKEN) return;
+async function loadMe(){
+  if(!TOKEN)return;
   try{
-    const r = await fetch(BASE+'/auth/me',{headers:_authH()});
-    const d = await r.json();
+    const d=await fetch(BASE+'/auth/me',{headers:H()}).then(r=>r.json());
     if(d.ok){
-      const u = d.data||d;
-      const name = u.company_name||u.email||'User';
-      document.getElementById('footAv').textContent = name[0].toUpperCase();
-      document.getElementById('footName').textContent = name;
-      document.getElementById('footRole').textContent = u.role||'viewer';
+      const u=d.data||d, n=u.company_name||u.email||'User';
+      document.getElementById('footAv').textContent=n[0].toUpperCase();
+      document.getElementById('footName').textContent=n;
+      document.getElementById('footRole').textContent=u.role||'viewer';
     }
   }catch(e){}
 }
 
-async function loadInvoices(){
+async function load(){
+  showLoading();
   try{
-    const conn = await fetch(BASE+'/documents/triangle-matches?limit=200',{headers:_authH()});
-    const d = await conn.json();
-    if(!d.ok){ showEmpty('ჩატვირთვის შეცდომა'); return; }
-    // filter to ones that have tax_invoice_id
-    _allRows = (d.data?.items||[]).filter(r=>r.tax_invoice_id);
-    _updateCounts();
-    _render();
-  }catch(e){ showEmpty('კავშირის შეცდომა') }
+    const r=await fetch(BASE+'/documents/tax-invoices?limit=200',{headers:H()});
+    const d=await r.json();
+    if(!d.ok){showEmpty('ჩატვირთვის შეცდომა');return;}
+    _all=d.data?.items||[];
+    updateStats();
+    _page=0;
+    render();
+    document.getElementById('sideTiCount').textContent=_all.length;
+  }catch(e){showEmpty('კავშირის შეცდომა');}
 }
 
-function _updateCounts(){
-  const counts={all:_allRows.length,verified:0,matched:0,imported:0};
-  for(const r of _allRows){
-    const st = r.match_status||'imported';
-    if(st==='full') counts.verified++;
-    else if(st==='partial') counts.matched++;
-    else counts.imported++;
+function updateStats(){
+  let total=_all.length, matched=0, vatSum=0, amtSum=0, unlinked=0;
+  for(const r of _all){
+    if(r.related_waybill_id||r.related_waybill_number) matched++;
+    else unlinked++;
+    vatSum+=parseFloat(r.vat_amount||0);
+    amtSum+=parseFloat(r.total_amount||0);
   }
-  for(const k of Object.keys(counts)){
-    const el=document.getElementById('cnt-'+k);
-    if(el) el.textContent=counts[k];
-  }
+  document.getElementById('stTotal').textContent=total;
+  document.getElementById('stMatched').textContent=matched;
+  document.getElementById('stVat').textContent=_fmt(vatSum);
+  document.getElementById('stTotal2').textContent=_fmt(amtSum);
+  document.getElementById('cnt-all').textContent=total;
+  document.getElementById('cnt-linked').textContent=matched;
+  document.getElementById('cnt-unlinked').textContent=unlinked;
 }
 
 function setFilter(f,el){
   _filter=f;_page=0;
   document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
-  _render();
+  render();
 }
 
-function filterTable(){ _page=0;_render(); }
+let _st;
+function onSearch(){clearTimeout(_st);_st=setTimeout(()=>{_page=0;render()},200)}
 
-function _filtered(){
+function filtered(){
   const q=(document.getElementById('searchInput').value||'').toLowerCase();
-  return _allRows.filter(r=>{
-    if(_filter==='verified' && r.match_status!=='full') return false;
-    if(_filter==='matched' && r.match_status!=='partial') return false;
-    if(_filter==='imported' && !['imported',null,undefined].includes(r.match_status)) return false;
-    if(q && !JSON.stringify(r).toLowerCase().includes(q)) return false;
+  return _all.filter(r=>{
+    if(_filter==='linked'&&!(r.related_waybill_id||r.related_waybill_number))return false;
+    if(_filter==='unlinked'&&(r.related_waybill_id||r.related_waybill_number))return false;
+    if(q){
+      const hay=[r.invoice_number,r.seller_inn,r.seller_name,r.buyer_inn,r.buyer_name].join(' ').toLowerCase();
+      if(!hay.includes(q))return false;
+    }
     return true;
   });
 }
 
-function _render(){
-  const rows=_filtered();
-  const start=_page*PAGE_SIZE;
-  const page=rows.slice(start,start+PAGE_SIZE);
-  const tbody=document.getElementById('tblBody');
+function render(){
+  const rows=filtered();
+  const slice=rows.slice(_page*PG,(_page+1)*PG);
+  const tb=document.getElementById('tblBody');
   if(!rows.length){
-    tbody.innerHTML='<tr><td colspan="8" style="padding:50px;text-align:center;font-family:var(--serif);font-style:italic;color:var(--ink-dim)">ჩანაწერი არ მოიძებნა</td></tr>';
-    _pagerUpdate(0);return;
+    tb.innerHTML=`<tr><td colspan="8" class="empty-state">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <p>ჩანაწერი არ მოიძებნა</p></td></tr>`;
+    pagerUpdate(0);return;
   }
-  tbody.innerHTML=page.map(r=>_rowHtml(r)).join('');
-  _pagerUpdate(rows.length);
+  tb.innerHTML=slice.map(rowHtml).join('');
+  pagerUpdate(rows.length);
 }
 
-function _rowHtml(r){
-  const status=r.match_status||'imported';
-  const stIcon={
-    full:'<div class="st-icon st-full">✓</div>',
-    partial:'<div class="st-icon st-partial">!</div>',
-    mismatch:'<div class="st-icon st-mismatch">✗</div>',
-    imported:'<div class="st-icon st-imported">·</div>',
-  }[status]||'<div class="st-icon st-imported">·</div>';
-
-  const total=r.tax_invoice_total?_fmt(r.tax_invoice_total):'—';
-  const vat=r.tax_invoice_total?_fmt(Number(r.tax_invoice_total)*18/118):'—';
-
-  const wbChip=r.waybill_id
-    ?`<span class="wb-chip linked"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ზ/ნ #${r.waybill_id}</span>`
+function rowHtml(r){
+  const invNum=r.invoice_number||`#${r.id}`;
+  const numCell=`<div class="inv-num">${_esc(invNum)}</div><div class="inv-id">ID ${r.id}</div>`;
+  const seller=`<div class="party-name">${_esc(r.seller_name||'—')}</div><div class="party-inn">${r.seller_inn||'—'}</div>`;
+  const buyer=`<div class="party-name">${_esc(r.buyer_name||'—')}</div><div class="party-inn">${r.buyer_inn||'—'}</div>`;
+  const sub=r.subtotal!=null?`${_fmt(r.subtotal)}<span class="curr">₾</span>`:'—';
+  const vat=r.vat_amount!=null?`${_fmt(r.vat_amount)}<span class="curr">₾</span>`:'—';
+  const tot=r.total_amount!=null?`${_fmt(r.total_amount)}<span class="curr">₾</span>`:'—';
+  const hasWb=!!(r.related_waybill_id||r.related_waybill_number);
+  const wbChip=hasWb
+    ?`<span class="wb-chip linked"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ${_esc(r.related_waybill_number||'ზ/ნ ✓')}</span>`
     :`<span class="wb-chip missing">ზ/ნ ○</span>`;
-
-  const dateStr=r.matched_at?r.matched_at.slice(0,10):'—';
-
-  return `<tr onclick="showDetail(${JSON.stringify(r).replace(/"/g,'&quot;')})">
-    <td>${stIcon}</td>
-    <td class="num">#${r.tax_invoice_id}</td>
-    <td style="max-width:160px">
-      <div style="font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
-      <span class="inn-badge">INN: —</span>
-    </td>
-    <td style="max-width:160px">
-      <div style="font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
-      <span class="inn-badge">INN: —</span>
-    </td>
-    <td class="amt">${total}<span class="curr">₾</span></td>
-    <td class="amt" style="color:var(--teal)">${vat}<span class="curr">₾</span></td>
-    <td class="date-cell">${dateStr}</td>
+  const dt=(r.invoice_date||r.created_at||'—').slice(0,10);
+  const enc=encodeURIComponent(JSON.stringify(r));
+  return `<tr onclick="showDetail('${enc}')">
+    <td>${numCell}</td>
+    <td>${seller}</td>
+    <td>${buyer}</td>
+    <td class="amt">${sub}</td>
+    <td class="amt">${vat}</td>
+    <td class="amt">${tot}</td>
     <td>${wbChip}</td>
+    <td class="date-cell">${dt}</td>
   </tr>`;
 }
 
-function _fmt(n){ return Number(n).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+function _fmt(n){return Number(n).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-function _pagerUpdate(total){
-  const start=_page*PAGE_SIZE+1, end=Math.min((_page+1)*PAGE_SIZE,total);
-  document.getElementById('pagerInfo').textContent=total?`${start}–${end} / ${total}`:'0';
+function pagerUpdate(total){
+  const s=_page*PG+1,e=Math.min((_page+1)*PG,total);
+  document.getElementById('pagerInfo').textContent=total?`${s}–${e} / ${total}`:'0';
   document.getElementById('pgPrev').disabled=_page===0;
-  document.getElementById('pgNext').disabled=(_page+1)*PAGE_SIZE>=total;
+  document.getElementById('pgNext').disabled=(_page+1)*PG>=total;
 }
+function changePage(d){_page+=d;render();window.scrollTo(0,0)}
+function showLoading(){document.getElementById('tblBody').innerHTML=`<tr><td colspan="8" class="empty-state"><p>ჩატვირთვა...</p></td></tr>`;}
+function showEmpty(m){document.getElementById('tblBody').innerHTML=`<tr><td colspan="8" class="empty-state"><p>${m}</p></td></tr>`;}
 
-function changePage(dir){ _page+=dir;_render();window.scrollTo(0,0); }
-
-function showDetail(r){
-  document.getElementById('mdTitle').textContent=`საგ. ანგ-ფაქტურა #${r.tax_invoice_id}`;
-  document.getElementById('mdSub').textContent=`Match score: ${Math.round((r.match_score||0)*100)}% · ${r.match_status||'imported'}`;
+function showDetail(enc){
+  const r=JSON.parse(decodeURIComponent(enc));
+  document.getElementById('mdTitle').textContent=`ანგ-ფაქტ. ${r.invoice_number||'#'+r.id}`;
+  document.getElementById('mdSub').textContent=`${(r.invoice_date||'—').slice(0,10)} · ${r.total_amount?_fmt(r.total_amount)+' ₾':'—'}`;
   document.getElementById('mdBody').innerHTML=`
-    <div class="kv-grid">
-      <span class="kv-label">სტატუსი</span><span class="kv-val"><strong>${r.match_status||'imported'}</strong></span>
-      <span class="kv-label">Match Score</span><span class="kv-val"><strong>${Math.round((r.match_score||0)*100)}%</strong></span>
-      <span class="kv-label">ფაქ. ID</span><span class="kv-val">${r.tax_invoice_id||'—'}</span>
-      <span class="kv-label">ზ/ნ ID</span><span class="kv-val">${r.waybill_id||'—'}</span>
-      <span class="kv-label">ჯამი</span><span class="kv-val"><strong>${r.tax_invoice_total?_fmt(r.tax_invoice_total)+' ₾':'—'}</strong></span>
-      <span class="kv-label">ზ/ნ ჯამი</span><span class="kv-val">${r.waybill_total?_fmt(r.waybill_total)+' ₾':'—'}</span>
-      <span class="kv-label">თარიღი</span><span class="kv-val">${(r.matched_at||'—').slice(0,16).replace('T',' ')}</span>
-    </div>
-    <div class="rs-preview-box">
-      <div class="rs-title">rs.ge ვიზუალიზაცია</div>
-      <div style="font-family:var(--serif);font-style:italic;color:var(--ink-ghost);font-size:14px">rs.ge ინტეგრაცია · live preview</div>
-      <div style="margin-top:8px;font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--ink-ghost)">
-        <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        rs.ge.gov.ge / პირდაპირი კავშირი
+    <div class="rsge-preview">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div>
+        <div class="rsge-preview-text">rs.ge-ზე გადამოწმება</div>
+        <div class="rsge-preview-sub">ფაქტ. ${_esc(r.invoice_number||'—')} · ${(r.invoice_date||'').slice(0,7)}</div>
       </div>
-    </div>`;
+    </div>
+    <div class="section-title">ძირითადი</div>
+    <div class="kv">
+      <span class="kl">ნომერი</span><span class="kv-val"><strong>${_esc(r.invoice_number||'—')}</strong></span>
+      <span class="kl">თარიღი</span><span class="kv-val">${(r.invoice_date||'—').slice(0,10)}</span>
+      <span class="kl">ზედნადები</span><span class="kv-val">${_esc(r.related_waybill_number||'—')}</span>
+    </div>
+    <div class="section-title">მხარეები</div>
+    <div class="kv">
+      <span class="kl">გამყიდველი</span><span class="kv-val"><strong>${_esc(r.seller_name||'—')}</strong></span>
+      <span class="kl">გამყ. INN</span><span class="kv-val">${r.seller_inn||'—'}</span>
+      <span class="kl">მყიდველი</span><span class="kv-val"><strong>${_esc(r.buyer_name||'—')}</strong></span>
+      <span class="kl">მყიდ. INN</span><span class="kv-val">${r.buyer_inn||'—'}</span>
+    </div>
+    <div class="section-title">თანხები</div>
+    <div class="kv">
+      <span class="kl">სუბტოტალი</span><span class="kv-val">${r.subtotal!=null?_fmt(r.subtotal)+' ₾':'—'}</span>
+      <span class="kl">დღგ 18%</span><span class="kv-val">${r.vat_amount!=null?_fmt(r.vat_amount)+' ₾':'—'}</span>
+      <span class="kl">სულ</span><span class="kv-val"><strong>${r.total_amount!=null?_fmt(r.total_amount)+' ₾':'—'}</strong></span>
+    </div>
+    ${r.notes?`<div class="section-title">შენიშვნა</div><p style="font-size:13px;color:var(--ink-soft)">${_esc(r.notes)}</p>`:''}
+  `;
   document.getElementById('detailModal').classList.add('open');
 }
 
-function showEmpty(msg){
-  document.getElementById('tblBody').innerHTML=`<tr><td colspan="8" style="padding:50px;text-align:center;font-family:var(--serif);font-style:italic;color:var(--ink-dim)">${msg}</td></tr>`;
-}
+function closeModal(){document.getElementById('detailModal').classList.remove('open')}
 
-function closeModal(){ document.getElementById('detailModal').classList.remove('open'); }
-
-async function uploadTaxInvoice(inp){
+async function uploadTI(inp){
   const file=inp.files[0];if(!file)return;inp.value='';
   const fd=new FormData();fd.append('file',file);
   try{
-    const r=await fetch(BASE+'/documents/upload-tax-invoice',{method:'POST',headers:_authH(),body:fd});
+    const r=await fetch(BASE+'/documents/upload-tax-invoice',{method:'POST',headers:H(),body:fd});
     const d=await r.json();
-    if(d.ok){ alert('ფაქტურა ატვირთულია! ID: '+(d.data?.tax_invoice_id||'?')); loadInvoices(); }
-    else alert('შეცდომა: '+(d.error||JSON.stringify(d)));
-  }catch(e){ alert('შეცდომა: '+e.message) }
+    if(d.ok){load();}
+    else{alert('შეცდომა: '+(d.error?.details||d.message||'unknown'));}
+  }catch(e){alert('ატვირთვის შეცდომა');}
 }
 
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal() });
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
-loadCompanyInfo();
-loadInvoices();
+loadMe();
+load();
 </script>
 </body>
 </html>

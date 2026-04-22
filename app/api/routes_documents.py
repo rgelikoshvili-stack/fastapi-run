@@ -667,3 +667,117 @@ def list_triangle_matches(
     return ok_response("Triangle matches", {
         "total": total, "limit": limit, "offset": offset, "items": rows
     })
+
+
+# ── Waybills list ─────────────────────────────────────────────────────────────
+
+@router.get("/waybills")
+def list_waybills(
+    request: Request,
+    q: str = Query(None),
+    status: str = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List waybills with triangle-match status joined."""
+    import psycopg2.extras
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db(tenant_id)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conditions = ["w.tenant_id = %s"]
+        params: list = [tenant_id]
+        if status:
+            conditions.append("w.status = %s")
+            params.append(status)
+        if q:
+            conditions.append(
+                "(w.waybill_number ILIKE %s OR w.seller_inn ILIKE %s"
+                " OR w.buyer_inn ILIKE %s OR w.seller_name ILIKE %s OR w.buyer_name ILIKE %s)"
+            )
+            like = f"%{q}%"
+            params += [like, like, like, like, like]
+        where = "WHERE " + " AND ".join(conditions)
+        cur.execute(
+            f"""
+            SELECT w.id, w.waybill_number, w.seller_inn, w.seller_name,
+                   w.buyer_inn, w.buyer_name, w.waybill_date,
+                   w.subtotal, w.vat_amount, w.total_amount,
+                   w.transport_from, w.transport_to,
+                   w.status, w.version, w.original_waybill_id, w.notes,
+                   w.created_at,
+                   tm.match_status, tm.match_score,
+                   tm.tax_invoice_id, tm.commercial_invoice_id, tm.id AS match_id
+            FROM waybills w
+            LEFT JOIN triangle_matches tm
+              ON tm.waybill_id = w.id AND tm.tenant_id = w.tenant_id
+            {where}
+            ORDER BY w.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"SELECT COUNT(*) FROM waybills w {where}", params)
+        total = cur.fetchone()["count"]
+    finally:
+        cur.close()
+        conn.close()
+
+    return ok_response("Waybills", {"total": total, "limit": limit, "offset": offset, "items": rows})
+
+
+# ── Tax invoices list ─────────────────────────────────────────────────────────
+
+@router.get("/tax-invoices")
+def list_tax_invoices(
+    request: Request,
+    q: str = Query(None),
+    status: str = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List tax invoices with optional waybill link status."""
+    import psycopg2.extras
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db(tenant_id)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conditions = ["ti.tenant_id = %s"]
+        params: list = [tenant_id]
+        if status:
+            conditions.append("ti.status = %s")
+            params.append(status)
+        if q:
+            conditions.append(
+                "(ti.invoice_number ILIKE %s OR ti.seller_inn ILIKE %s"
+                " OR ti.buyer_inn ILIKE %s OR ti.seller_name ILIKE %s OR ti.buyer_name ILIKE %s)"
+            )
+            like = f"%{q}%"
+            params += [like, like, like, like, like]
+        where = "WHERE " + " AND ".join(conditions)
+        cur.execute(
+            f"""
+            SELECT ti.id, ti.invoice_number, ti.seller_inn, ti.seller_name,
+                   ti.buyer_inn, ti.buyer_name, ti.invoice_date,
+                   ti.subtotal, ti.vat_amount, ti.total_amount,
+                   ti.related_waybill_number, ti.related_waybill_id,
+                   ti.status, ti.notes, ti.created_at,
+                   tm.match_status, tm.match_score, tm.id AS match_id
+            FROM tax_invoices ti
+            LEFT JOIN triangle_matches tm
+              ON tm.tax_invoice_id = ti.id AND tm.tenant_id = ti.tenant_id
+            {where}
+            ORDER BY ti.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"SELECT COUNT(*) FROM tax_invoices ti {where}", params)
+        total = cur.fetchone()["count"]
+    finally:
+        cur.close()
+        conn.close()
+
+    return ok_response("Tax invoices", {"total": total, "limit": limit, "offset": offset, "items": rows})

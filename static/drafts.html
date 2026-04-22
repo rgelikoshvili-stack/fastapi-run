@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — დრაფტები</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
+  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
+  --green:#27500A;--green-soft:rgba(39,80,10,.1);--green-bg:#EAF3DE;
+  --amber:#7a4f00;--amber-soft:rgba(181,125,26,.1);--amber-bg:#FAEEDA;--amber-border:#EF9F27;
+  --red:#791F1F;--red-soft:rgba(168,56,40,.1);--red-bg:#FCEBEB;
+  --blue:#3a5a8c;--blue-soft:rgba(58,90,140,.1);
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',serif;
+  --mono:'Geist Mono',ui-monospace,monospace;
+  --sidebar:280px;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px}
+body{display:flex;min-height:100vh;background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+
+/* SIDEBAR */
+.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);}
+.logo{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:22px;flex-shrink:0;}
+.bname{font-size:17px;font-weight:500;letter-spacing:-0.015em;line-height:1}
+.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
+.brole{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
+.nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
+.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);}
+.sec::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;margin:1px 0;}
+.item:hover{background:var(--card-hover)}
+.item .ic{width:16px;height:16px;stroke:var(--ink-mute);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.item .lbl{font-size:13.5px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:450;}
+.item.active{background:var(--ink);box-shadow:0 4px 12px -3px rgba(26,21,18,.4);}
+.item.active .lbl{color:var(--paper);font-weight:500}.item.active .ic{stroke:var(--paper)}
+.badge{font-family:var(--mono);font-size:10px;min-width:18px;padding:1px 5px;border-radius:9px;background:var(--accent);color:var(--paper);text-align:center;line-height:16px;}
+.foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:11px;}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:16px;flex-shrink:0;}
+.uname{font-size:13px;font-weight:500}.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:72px;padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--paper);position:sticky;top:0;z-index:30;}
+.crumbs{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase;}
+.crumbs em{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)}
+.content{flex:1;padding:28px;overflow-y:auto}
+.page-title{font-size:22px;font-weight:600;letter-spacing:-0.02em}
+.page-title em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-dim);margin-left:6px;font-size:18px}
+.page-sub{font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink-dim);margin-top:4px;margin-bottom:24px}
+
+/* STATS STRIP */
+.stats-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px}
+.stat-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:5px}
+.stat-val{font-size:22px;font-weight:600;letter-spacing:-0.02em;color:var(--ink)}
+.stat-sub{font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--ink-ghost);margin-top:2px}
+
+/* TABS */
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:24px}
+.tab{display:flex;align-items:center;gap:8px;padding:10px 20px;cursor:pointer;font-size:13.5px;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;font-weight:450;}
+.tab:hover{color:var(--ink);background:var(--card-hover)}
+.tab.active{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+.tab svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.tab-badge{font-family:var(--mono);font-size:10px;background:var(--paper-sunk);color:var(--ink-ghost);padding:1px 6px;border-radius:10px}
+.tab.active .tab-badge{background:var(--ink);color:var(--paper)}
+.tab-badge.urgent{background:var(--accent);color:var(--paper)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.filter-bar{display:flex;gap:6px;flex:1;flex-wrap:wrap}
+.filter-chip{padding:5px 13px;border-radius:20px;font-size:12.5px;cursor:pointer;border:1px solid var(--line);color:var(--ink-dim);transition:.12s;background:transparent;font-family:var(--font)}
+.filter-chip:hover{background:var(--card-hover)}
+.filter-chip.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.search-box{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);min-width:200px}
+.search-box svg{width:14px;height:14px;stroke:var(--ink-dim);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.search-box input{border:none;background:transparent;outline:none;font-family:var(--font);font-size:13px;color:var(--ink);width:100%}
+.search-box input::placeholder{color:var(--ink-ghost)}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto;border-radius:var(--r);border:1px solid var(--line);background:var(--card)}
+table{width:100%;border-collapse:collapse}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);padding:10px 14px;text-align:left;border-bottom:2px solid var(--line);white-space:nowrap;background:var(--paper-soft)}
+td{padding:11px 14px;border-bottom:1px solid var(--line-soft);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--card-hover)}
+td.mono{font-family:var(--mono);font-size:11.5px}
+td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
+td.desc{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.dim{color:var(--ink-dim)}
+
+/* STATUS */
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;flex-shrink:0}
+.s-pending .status-dot{background:var(--amber-border)}
+.s-approved .status-dot{background:var(--green)}
+.s-rejected .status-dot{background:var(--red)}
+.status-wrap{display:flex;align-items:center;font-size:12.5px;font-weight:500}
+
+/* CHIPS */
+.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.02em}
+.chip-approved{background:var(--green-bg);color:var(--green)}
+.chip-rejected{background:var(--red-bg);color:var(--red)}
+.chip-pending{background:var(--amber-bg);color:var(--amber)}
+.chip-draft{background:var(--paper-sunk);color:var(--ink-dim)}
+
+/* CONF BAR */
+.conf-track{height:5px;background:var(--paper-sunk);border-radius:3px;overflow:hidden;min-width:44px}
+.conf-fill{height:100%;border-radius:3px}
+.conf-high{background:var(--green)}
+.conf-mid{background:var(--amber-border)}
+.conf-low{background:var(--red)}
+
+/* ACTIONS */
+.act-wrap{display:flex;gap:4px;justify-content:flex-end}
+.act{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;transition:.1s;cursor:pointer}
+.act-ok{background:var(--green-soft);color:var(--green)}.act-ok:hover{background:var(--green-bg)}
+.act-no{background:var(--red-soft);color:var(--red)}.act-no:hover{background:var(--red-bg)}
+.act-view{background:var(--paper-sunk);color:var(--ink-dim)}.act-view:hover{background:var(--line)}
+
+/* BULK BAR */
+.bulk-bar{display:none;align-items:center;gap:10px;padding:10px 16px;background:var(--ink);color:var(--paper);border-radius:var(--r);margin-bottom:14px;font-size:13px;font-weight:500}
+.bulk-bar.show{display:flex}
+.bulk-bar-info{flex:1}
+
+/* BATCH MODAL */
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(26,21,18,.5);z-index:100;align-items:center;justify-content:center}
+.modal-backdrop.show{display:flex}
+.modal{background:var(--card);border-radius:14px;padding:28px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-title{font-size:17px;font-weight:600;margin-bottom:6px}
+.modal-sub{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-bottom:20px}
+.modal-body{margin-bottom:20px}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end}
+
+/* BTN */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;}
+.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--ink-soft)}
+.btn-outline{background:transparent;color:var(--ink-soft);border:1px solid var(--line-strong)}.btn-outline:hover{background:var(--card-hover)}
+.btn-ghost{background:transparent;color:var(--ink-dim);padding:5px 10px}.btn-ghost:hover{background:var(--card-hover);color:var(--ink)}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn-success{background:var(--green-bg);color:var(--green)}.btn-success:hover{opacity:.85}
+.btn-danger{background:var(--red-bg);color:var(--red)}.btn-danger:hover{opacity:.85}
+.btn svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* EMPTY */
+.empty{padding:48px;text-align:center}
+.empty-ic{font-size:36px;color:var(--ink-ghost);margin-bottom:8px}
+.empty-txt{font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink-dim)}
+
+/* SPINNER */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-row{padding:28px;text-align:center;color:var(--ink-dim)}
+
+/* POSTING PREVIEW */
+.preview-panel{background:var(--paper-soft);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:12px;font-size:12.5px;display:none}
+.preview-panel.show{display:block}
+.je-line{display:flex;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid var(--line-soft)}
+.je-line:last-child{border-bottom:none}
+.je-acc{font-family:var(--mono);font-size:11px;min-width:50px;color:var(--ink-soft)}
+.je-desc{flex:1;color:var(--ink-dim)}
+.je-dr{font-family:var(--mono);font-size:12px;text-align:right;min-width:70px;color:var(--green)}
+.je-cr{font-family:var(--mono);font-size:12px;text-align:right;min-width:70px;color:var(--red)}
+
+/* TOAST */
+#toast{position:fixed;bottom:24px;right:24px;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:500;background:var(--ink);color:var(--paper);box-shadow:0 4px 16px rgba(0,0,0,.2);transform:translateY(8px);opacity:0;transition:.25s;pointer-events:none;z-index:9999}
+#toast.show{opacity:1;transform:none}
+#toast.ok{background:var(--green)}
+#toast.warn{background:var(--amber)}
+#toast.err{background:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo">B</div>
+    <div>
+      <div class="bname">Bridge <em>Hub</em></div>
+      <div class="brole">Financial OS</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <div class="sec">მთავარი</div>
+    <div class="item" onclick="location.href='/static/approval.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      <span class="lbl">Dashboard</span>
+    </div>
+
+    <div class="sec">ჩანაწერები</div>
+    <div class="item active">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+      <span class="lbl">📋 დრაფტები</span>
+      <span class="badge" id="sbPendingBadge" style="display:none">0</span>
+    </div>
+
+    <div class="sec">AI</div>
+    <div class="item" onclick="location.href='/static/ai_control.html'">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+      <span class="lbl">🧠 AI Control</span>
+    </div>
+
+    <div class="sec">დოკუმენტები</div>
+    <div class="item" onclick="location.href='/static/documents.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      <span class="lbl">Documents Hub</span>
+    </div>
+    <div class="item" onclick="location.href='/static/waybills.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      <span class="lbl">ზედნადებები</span>
+    </div>
+    <div class="item" onclick="location.href='/static/tax_invoices.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span class="lbl">საგ. ანგ-ფაქტურები</span>
+    </div>
+  </nav>
+
+  <div class="foot">
+    <div class="av">R</div>
+    <div>
+      <div class="uname" id="footUser">—</div>
+      <div class="urole" id="footTenant">—</div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub / <em>დრაფტები</em></div>
+    <button class="btn btn-success btn-sm" id="btnApproveAll" onclick="approveAll()" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M5 13l4 4 10-10"/></svg>
+      ყველა
+    </button>
+    <button class="btn btn-outline btn-sm" onclick="refreshCurrent()">
+      <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-5.9"/></svg>
+      განახლება
+    </button>
+  </div>
+
+  <div class="content">
+    <div class="page-title">Journal <em>Drafts</em></div>
+    <div class="page-sub">დამტკიცების რიგი · ისტორია · ფილტრები</div>
+
+    <!-- STATS -->
+    <div class="stats-strip">
+      <div class="stat-card">
+        <div class="stat-label">სულ</div>
+        <div class="stat-val" id="st-total">—</div>
+        <div class="stat-sub">all drafts</div>
+      </div>
+      <div class="stat-card" style="border-left:3px solid var(--amber-border)">
+        <div class="stat-label">მოლოდინში</div>
+        <div class="stat-val" id="st-pending" style="color:var(--amber)">—</div>
+        <div class="stat-sub">pending approval</div>
+      </div>
+      <div class="stat-card" style="border-left:3px solid var(--green)">
+        <div class="stat-label">დამტკიცებული</div>
+        <div class="stat-val" id="st-approved" style="color:var(--green)">—</div>
+        <div class="stat-sub">approved</div>
+      </div>
+      <div class="stat-card" style="border-left:3px solid var(--red)">
+        <div class="stat-label">უარყოფილი</div>
+        <div class="stat-val" id="st-rejected" style="color:var(--red)">—</div>
+        <div class="stat-sub">rejected</div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('all',this)">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        ყველა
+        <span class="tab-badge" id="tabAll">0</span>
+      </div>
+      <div class="tab" onclick="switchTab('pending',this)">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        მოლოდინში
+        <span class="tab-badge" id="tabPending">0</span>
+      </div>
+      <div class="tab" onclick="switchTab('approved',this)">
+        <svg viewBox="0 0 24 24"><path d="M5 13l4 4 10-10"/></svg>
+        დამტკიცებული
+        <span class="tab-badge" id="tabApproved">0</span>
+      </div>
+      <div class="tab" onclick="switchTab('rejected',this)">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        უარყოფილი
+        <span class="tab-badge" id="tabRejected">0</span>
+      </div>
+    </div>
+
+    <!-- ALL TAB -->
+    <div class="tab-panel active" id="panel-all">
+      <div class="toolbar">
+        <div class="search-box" style="flex:1;max-width:320px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="searchAll" placeholder="ძებნა…" oninput="filterTable('all-rows', this.value)"/>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="loadAll()">↻</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="chkAllAll" onchange="toggleSelectAll('all-rows', this.checked)"/></th>
+            <th>ID</th><th>თარიღი</th><th>აღწ.</th><th style="text-align:right">თანხა</th>
+            <th>კატ.</th><th>კონფ.</th><th>სტ.</th><th></th>
+          </tr></thead>
+          <tbody id="all-rows"><tr><td colspan="9"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PENDING TAB -->
+    <div class="tab-panel" id="panel-pending">
+      <div class="bulk-bar" id="bulkBar">
+        <div class="bulk-bar-info"><span id="bulkCount">0</span> არჩეული</div>
+        <button class="btn btn-success btn-sm" onclick="batchApprove()">✓ ჯგუფური დამტკ.</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--paper)" onclick="clearSelection()">გაუქმება</button>
+      </div>
+      <div class="toolbar">
+        <div class="search-box" style="flex:1;max-width:320px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="searchPending" placeholder="ძებნა…" oninput="filterTable('pending-rows', this.value)"/>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-chip active" onclick="filterConf('all',this)">ყველა</button>
+          <button class="filter-chip" onclick="filterConf('high',this)">≥80% conf.</button>
+          <button class="filter-chip" onclick="filterConf('mid',this)">50-79%</button>
+          <button class="filter-chip" onclick="filterConf('low',this)">&lt;50%</button>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="loadPending()">↻</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="chkAllPend" onchange="toggleSelectAll('pending-rows', this.checked)"/></th>
+            <th>ID</th><th>თარიღი</th><th>აღწ.</th><th style="text-align:right">თანხა</th>
+            <th>კატ.</th><th>კონფ.</th><th>სტ.</th><th>მოქ.</th>
+          </tr></thead>
+          <tbody id="pending-rows"><tr><td colspan="9"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- APPROVED TAB -->
+    <div class="tab-panel" id="panel-approved">
+      <div class="toolbar">
+        <div class="search-box" style="flex:1;max-width:320px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="searchApproved" placeholder="ძებნა…" oninput="filterTable('approved-rows', this.value)"/>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="loadApproved()">↻</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>თარიღი</th><th>აღწ.</th><th style="text-align:right">თანხა</th>
+            <th>კატ.</th><th>კონფ.</th><th>წყარო</th><th>სტ.</th>
+          </tr></thead>
+          <tbody id="approved-rows"><tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- REJECTED TAB -->
+    <div class="tab-panel" id="panel-rejected">
+      <div class="toolbar">
+        <div class="search-box" style="flex:1;max-width:320px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="searchRejected" placeholder="ძებნა…" oninput="filterTable('rejected-rows', this.value)"/>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="loadRejected()">↻</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>თარიღი</th><th>აღწ.</th><th style="text-align:right">თანხა</th>
+            <th>კატ.</th><th>კონფ.</th><th>მიზეზი</th><th>სტ.</th>
+          </tr></thead>
+          <tbody id="rejected-rows"><tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: reject reason -->
+<div class="modal-backdrop" id="rejectModal">
+  <div class="modal">
+    <div class="modal-title">უარყოფის მიზეზი</div>
+    <div class="modal-sub">Draft #<span id="rejectDraftId">—</span></div>
+    <div class="modal-body">
+      <textarea id="rejectReason" rows="3" placeholder="მიზეზი…"
+        style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--paper-soft);font-family:var(--font);font-size:13px;resize:vertical;outline:none;color:var(--ink)"></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeRejectModal()">გაუქმება</button>
+      <button class="btn btn-danger" onclick="confirmReject()">✕ უარყოფა</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const TOKEN_KEY = 'bh_token';
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() } };
+  if (body) opts.body = JSON.stringify(body);
+  try { const r = await fetch(path, opts); return await r.json(); } catch { return null; }
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtMoney(v) { return (Number(v)||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₾'; }
+function fmtAmt(v) { return (Number(v)||0).toLocaleString('ka-GE',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function fmtDate(s) { if (!s) return '—'; return new Date(s).toLocaleDateString('ka-GE',{day:'2-digit',month:'2-digit',year:'2-digit'}); }
+
+function fmtConf(v) {
+  const pct = Math.round((v||0)*100);
+  const cls = pct>=80?'conf-high':pct>=50?'conf-mid':'conf-low';
+  return `<div style="display:flex;align-items:center;gap:6px">
+    <div class="conf-track"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div>
+    <span style="font-family:var(--mono);font-size:10.5px;min-width:28px">${pct}%</span></div>`;
+}
+
+function fmtStatus(s) {
+  const map = {
+    pending_approval: ['chip-pending','მოლოდინი'],
+    approved:['chip-approved','✓ დამტ.'],
+    rejected:['chip-rejected','✕ უარ.'],
+    drafted:['chip-draft','draft'],
+    needs_review:['chip-pending','review'],
+  };
+  const [cls, lbl] = map[s] || ['chip-draft', s||'—'];
+  return `<span class="chip ${cls}">${lbl}</span>`;
+}
+
+function getId(r) { return r.id || r.draft_id || '—'; }
+function getDesc(r) { return r.description || r.narration || r.memo || '—'; }
+function getCat(r) { return r.account_code || r.category || '—'; }
+function getConfV(r) { return r.confidence || r.ai_confidence || 0; }
+function getSource(r) { return r.classification_source || r.source || 'manual'; }
+function getRejReason(r) { return r.rejection_reason || r.reason || '—'; }
+
+function toast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.className=''; }, 2800);
+}
+
+// ── TAB LOGIC ──
+let currentTab = 'all';
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  currentTab = name;
+  const approveAllBtn = document.getElementById('btnApproveAll');
+  if (approveAllBtn) approveAllBtn.style.display = name === 'pending' ? 'inline-flex' : 'none';
+  const loaders = { all:loadAll, pending:loadPending, approved:loadApproved, rejected:loadRejected };
+  if (loaders[name]) loaders[name]();
+}
+
+function refreshCurrent() {
+  const loaders = { all:loadAll, pending:loadPending, approved:loadApproved, rejected:loadRejected };
+  if (loaders[currentTab]) loaders[currentTab]();
+  toast('განახლდა', 'ok');
+}
+
+// ── FILTER / SEARCH ──
+function filterTable(tbodyId, q) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const lq = q.toLowerCase();
+  Array.from(tbody.querySelectorAll('tr[data-text]')).forEach(tr => {
+    tr.style.display = tr.dataset.text.toLowerCase().includes(lq) ? '' : 'none';
+  });
+}
+
+let confFilter = 'all';
+function filterConf(level, el) {
+  document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  confFilter = level;
+  applyConfFilter();
+}
+
+function applyConfFilter() {
+  const tbody = document.getElementById('pending-rows');
+  if (!tbody) return;
+  Array.from(tbody.querySelectorAll('tr[data-conf]')).forEach(tr => {
+    const pct = parseInt(tr.dataset.conf || '0');
+    let show = true;
+    if (confFilter === 'high') show = pct >= 80;
+    else if (confFilter === 'mid') show = pct >= 50 && pct < 80;
+    else if (confFilter === 'low') show = pct < 50;
+    tr.style.display = show ? '' : 'none';
+  });
+}
+
+// ── SELECT ALL ──
+let selectedIds = new Set();
+function toggleSelectAll(tbodyId, checked) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  tbody.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = checked;
+    const id = cb.dataset.id;
+    if (id) { if (checked) selectedIds.add(id); else selectedIds.delete(id); }
+  });
+  updateBulkBar();
+}
+
+function toggleRow(id, checked) {
+  if (checked) selectedIds.add(String(id));
+  else selectedIds.delete(String(id));
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const cnt = document.getElementById('bulkCount');
+  if (bar) bar.classList.toggle('show', selectedIds.size > 0);
+  if (cnt) cnt.textContent = selectedIds.size;
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+  updateBulkBar();
+}
+
+// ── LOAD ALL ──
+async function loadAll() {
+  const [pendD, appD, rejD] = await Promise.all([
+    api('/approval/queue?limit=200'),
+    api('/approval/queue?status=approved&limit=200'),
+    api('/approval/queue?status=rejected&limit=200'),
+  ]);
+
+  const pend = pendD?.data?.queue || pendD?.data?.items || pendD?.items || [];
+  const app = appD?.data?.queue || appD?.data?.items || appD?.items || [];
+  const rej = rejD?.data?.queue || rejD?.data?.items || rejD?.items || [];
+  const all = [...pend, ...app, ...rej];
+
+  // update stats
+  document.getElementById('st-total').textContent = all.length;
+  document.getElementById('st-pending').textContent = pend.length;
+  document.getElementById('st-approved').textContent = app.length;
+  document.getElementById('st-rejected').textContent = rej.length;
+  document.getElementById('tabAll').textContent = all.length;
+  document.getElementById('tabPending').textContent = pend.length;
+  document.getElementById('tabApproved').textContent = app.length;
+  document.getElementById('tabRejected').textContent = rej.length;
+
+  const sb = document.getElementById('sbPendingBadge');
+  if (sb) { sb.textContent = pend.length; sb.style.display = pend.length ? 'block' : 'none'; }
+
+  const tbody = document.getElementById('all-rows');
+  if (!all.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">დრაფტები არ მოიძებნა</div></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = all.map(r => {
+    const id = getId(r);
+    const text = [id, r.date||'', getDesc(r), r.amount||'', getCat(r), r.status||''].join(' ');
+    const pct = Math.round(getConfV(r)*100);
+    return `<tr data-text="${esc(text)}" data-conf="${pct}">
+      <td><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
+      <td class="mono">#${String(id).slice(-6)}</td>
+      <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
+      <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
+      <td class="num">${fmtAmt(r.amount)}</td>
+      <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
+      <td>${fmtConf(getConfV(r))}</td>
+      <td>${fmtStatus(r.status)}</td>
+      <td class="dim" style="font-size:11.5px;font-family:var(--mono)">${esc(getSource(r))}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── LOAD PENDING ──
+async function loadPending() {
+  const d = await api('/approval/queue?limit=200');
+  const rows = d?.data?.queue || d?.data?.items || d?.items || [];
+
+  document.getElementById('tabPending').textContent = rows.length;
+  document.getElementById('st-pending').textContent = rows.length;
+  const sb = document.getElementById('sbPendingBadge');
+  if (sb) { sb.textContent = rows.length; sb.style.display = rows.length ? 'block' : 'none'; }
+
+  const btnAll = document.getElementById('btnApproveAll');
+  if (btnAll) btnAll.style.display = rows.length > 0 ? 'inline-flex' : 'none';
+
+  const tbody = document.getElementById('pending-rows');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty"><div class="empty-ic">✓</div><div class="empty-txt">ცარიელი რიგი — ყველაფერი დამუშავებულია</div></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const id = getId(r);
+    const pct = Math.round(getConfV(r)*100);
+    const text = [id, r.date||'', getDesc(r), r.amount||'', getCat(r)].join(' ');
+    return `<tr data-text="${esc(text)}" data-conf="${pct}">
+      <td><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
+      <td class="mono">#${String(id).slice(-6)}</td>
+      <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
+      <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
+      <td class="num">${fmtAmt(r.amount)}</td>
+      <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
+      <td>${fmtConf(getConfV(r))}</td>
+      <td>${fmtStatus(r.status)}</td>
+      <td><div class="act-wrap">
+        <button class="act act-ok" title="Approve" onclick="doApprove('${esc(String(id))}')">✓</button>
+        <button class="act act-no" title="Reject" onclick="openReject('${esc(String(id))}')">✕</button>
+        <button class="act act-view" title="Draft detail" onclick="location.href='/static/draft_detail.html?id=${esc(String(id))}'">👁</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  applyConfFilter();
+}
+
+// ── LOAD APPROVED ──
+async function loadApproved() {
+  const d = await api('/approval/queue?status=approved&limit=200');
+  const rows = d?.data?.queue || d?.data?.items || [];
+  document.getElementById('tabApproved').textContent = rows.length;
+  document.getElementById('st-approved').textContent = rows.length;
+  const tbody = document.getElementById('approved-rows');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">დამტკიცებული ჩანაწერი არ მოიძებნა</div></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="mono">#${String(getId(r)).slice(-6)}</td>
+    <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
+    <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
+    <td class="num">${fmtAmt(r.amount)}</td>
+    <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
+    <td>${fmtConf(getConfV(r))}</td>
+    <td class="mono dim" style="font-size:11px">${esc(getSource(r))}</td>
+    <td>${fmtStatus(r.status)}</td>
+  </tr>`).join('');
+}
+
+// ── LOAD REJECTED ──
+async function loadRejected() {
+  const d = await api('/approval/queue?status=rejected&limit=200');
+  const rows = d?.data?.queue || d?.data?.items || [];
+  document.getElementById('tabRejected').textContent = rows.length;
+  document.getElementById('st-rejected').textContent = rows.length;
+  const tbody = document.getElementById('rejected-rows');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">უარყოფილი ჩანაწერი არ მოიძებნა</div></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="mono">#${String(getId(r)).slice(-6)}</td>
+    <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
+    <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
+    <td class="num">${fmtAmt(r.amount)}</td>
+    <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
+    <td>${fmtConf(getConfV(r))}</td>
+    <td style="font-size:12px;color:var(--red);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(getRejReason(r))}">${esc(getRejReason(r))}</td>
+    <td>${fmtStatus(r.status)}</td>
+  </tr>`).join('');
+}
+
+// ── APPROVE / REJECT ACTIONS ──
+async function doApprove(id) {
+  const d = await api('/approval/approve/' + id, 'POST');
+  if (d?.ok || d) {
+    toast('✓ დამტკიცდა #' + id, 'ok');
+    setTimeout(() => { loadPending(); loadAll(); }, 500);
+  } else toast('დამტკიცება ვერ მოხერხდა', 'err');
+}
+
+let pendingRejectId = null;
+function openReject(id) {
+  pendingRejectId = id;
+  document.getElementById('rejectDraftId').textContent = id;
+  document.getElementById('rejectReason').value = '';
+  document.getElementById('rejectModal').classList.add('show');
+}
+function closeRejectModal() {
+  document.getElementById('rejectModal').classList.remove('show');
+  pendingRejectId = null;
+}
+async function confirmReject() {
+  const reason = document.getElementById('rejectReason').value.trim() || 'no reason';
+  closeRejectModal();
+  if (!pendingRejectId) return;
+  const d = await api('/approval/reject/' + pendingRejectId, 'POST', { reason });
+  if (d?.ok || d) {
+    toast('✕ უარყოფილია #' + pendingRejectId, 'warn');
+    setTimeout(() => { loadPending(); loadAll(); }, 500);
+  } else toast('უარყოფა ვერ მოხერხდა', 'err');
+  pendingRejectId = null;
+}
+
+async function approveAll() {
+  const rows = document.querySelectorAll('#pending-rows tr[data-text]');
+  const visible = Array.from(rows).filter(tr => tr.style.display !== 'none');
+  if (!visible.length) { toast('სია ცარიელია', 'warn'); return; }
+  if (!confirm(`ყველა ${visible.length} draft-ი დამტკიცდეს?`)) return;
+
+  let ok = 0, fail = 0;
+  for (const tr of visible) {
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (!cb) continue;
+    const id = cb.dataset.id;
+    const d = await api('/approval/approve/' + id, 'POST');
+    if (d?.ok || d) ok++; else fail++;
+  }
+  toast(`✓ ${ok} დამტკ.${fail ? ` · ${fail} შეცდ.` : ''}`, ok ? 'ok' : 'err');
+  setTimeout(() => { loadPending(); loadAll(); }, 600);
+}
+
+async function batchApprove() {
+  if (!selectedIds.size) return;
+  if (!confirm(`${selectedIds.size} draft-ი დამტკიცდეს?`)) return;
+  let ok = 0, fail = 0;
+  for (const id of selectedIds) {
+    const d = await api('/approval/approve/' + id, 'POST');
+    if (d?.ok || d) ok++; else fail++;
+  }
+  toast(`✓ ${ok} დამტკ.${fail ? ` · ${fail} შეცდ.` : ''}`, ok ? 'ok' : 'err');
+  clearSelection();
+  setTimeout(() => { loadPending(); loadAll(); }, 600);
+}
+
+// ── BOOT ──
+function boot() {
+  const token = getToken();
+  if (token) {
+    try {
+      const p = JSON.parse(atob(token.split('.')[1]));
+      const fu = document.getElementById('footUser');
+      const ft = document.getElementById('footTenant');
+      if (fu) fu.textContent = p.sub || p.email || '—';
+      if (ft) ft.textContent = p.tenant_id || '—';
+    } catch {}
+  }
+  loadAll();
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+document.getElementById('rejectModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('rejectModal')) closeRejectModal();
+});
+</script>
+</body>
+</html>

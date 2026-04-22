@@ -1126,13 +1126,9 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <span class="lbl">დასამტკიცებელი</span>
       <span class="badge hidden" id="sb-pending">0</span>
     </div>
-    <div class="item" onclick="goPage('approved',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M5 13l4 4 10-10"/></svg>
-      <span class="lbl">დამტკიცებული</span>
-    </div>
-    <div class="item" onclick="goPage('rejected',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      <span class="lbl">უარყოფილი</span>
+    <div class="item" onclick="location.href='/static/drafts.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+      <span class="lbl">📋 დრაფტები</span>
     </div>
     <div class="item" onclick="goPage('invoices',this)">
       <svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 10h8M8 14h6"/></svg>
@@ -1162,14 +1158,9 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <span class="lbl">Bank Sync</span>
       <span class="badge-live">live</span>
     </div>
-    <div class="item" onclick="goPage('inbox',this)">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
-      <span class="lbl">Email Inbox</span>
-      <span class="badge hidden" id="sb-inbox">0</span>
-    </div>
-    <div class="item" onclick="goPage('documents',this)">
+    <div class="item" onclick="location.href='/static/documents.html'">
       <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-      <span class="lbl">დოკუმენტები</span>
+      <span class="lbl">Documents Hub</span>
     </div>
     <div class="item" onclick="location.href='/static/waybills.html'">
       <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
@@ -1178,10 +1169,6 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
     <div class="item" onclick="location.href='/static/tax_invoices.html'">
       <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <span class="lbl">საგ. ანგ-ფაქტურები</span>
-    </div>
-    <div class="item" onclick="goPage('ocr',this)">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3"/></svg>
-      <span class="lbl">OCR სკანირება</span>
     </div>
     <div class="item" onclick="goPage('export',this)">
       <svg class="ic" viewBox="0 0 24 24"><path d="M12 4v12m-4-4l4 4 4-4"/><path d="M4 20h16"/></svg>
@@ -1209,49 +1196,17 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <svg class="ic" viewBox="0 0 24 24"><path d="M6 3h10l4 4v14H6z"/><path d="M10 11h8M10 15h5"/></svg>
       <span class="lbl">კონტრაქტები</span>
     </div>
-    <div class="item" onclick="goPage('collab',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      <span class="lbl">Collaboration</span>
-    </div>
 
-    <!-- ინტელექტი -->
-    <div class="sec">ინტელექტი</div>
-    <div class="item" onclick="goPage('decision-engine',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
-      <span class="lbl">Decision Engine</span>
+    <!-- AI & სისტემა -->
+    <div class="sec">AI · სისტემა</div>
+    <div class="item" onclick="location.href='/static/ai_control.html'">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+      <span class="lbl">🧠 AI Control</span>
       <span class="badge-ai">AI</span>
     </div>
-    <div class="item" onclick="goPage('recommend',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a6 6 0 00-6 6c0 3 2 4 2 7h8c0-3 2-4 2-7a6 6 0 00-6-6z"/><path d="M10 20h4"/></svg>
-      <span class="lbl">Recommendations</span>
-      <span class="badge-ai">AI</span>
-    </div>
-    <div class="item" onclick="goPage('learning',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M12 3L2 8l10 5 10-5-10-5z"/><path d="M2 16l10 5 10-5M2 12l10 5 10-5"/></svg>
-      <span class="lbl">Learning</span>
-    </div>
-    <div class="item" onclick="goPage('insights',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
-      <span class="lbl">Insights</span>
-    </div>
-
-    <!-- სისტემა -->
-    <div class="sec">სისტემა</div>
-    <div class="item" onclick="goPage('currency',this)">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9a3 3 0 00-6 0c0 3 6 3 6 6a3 3 0 01-6 0M12 6v12"/></svg>
-      <span class="lbl">Currency</span>
-    </div>
-    <div class="item" onclick="goPage('auditlog',this)">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <span class="lbl">Audit Log</span>
-    </div>
-    <div class="item" onclick="goPage('health',this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M20 12h-4l-3 8-6-16-3 8H4"/></svg>
-      <span class="lbl">Health Check</span>
-    </div>
-    <div class="item" onclick="goPage('settings',this)">
+    <div class="item" onclick="location.href='/static/settings.html'">
       <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.2 4.2l4.3 4.3M15.5 15.5l4.3 4.3M1 12h6M17 12h6M4.2 19.8l4.3-4.3M15.5 8.5l4.3-4.3"/></svg>
-      <span class="lbl">Settings</span>
+      <span class="lbl">⚙ Settings</span>
     </div>
   </nav>
 

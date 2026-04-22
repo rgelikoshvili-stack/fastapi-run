@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Documents Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
+  --accent:#8c3c2d;--accent-d:#6a2e22;
+  --green:#27500A;--green-bg:#EAF3DE;
+  --amber:#7a4f00;--amber-bg:#FAEEDA;--amber-border:#EF9F27;
+  --red:#791F1F;--red-bg:#FCEBEB;
+  --blue:#3a5a8c;--blue-soft:rgba(58,90,140,.1);
+  --teal:#1a5a5a;--teal-soft:rgba(26,90,90,.08);
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',serif;
+  --mono:'Geist Mono',ui-monospace,monospace;
+  --sidebar:280px;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px}
+body{display:flex;min-height:100vh;background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+
+.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);}
+.logo{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:22px;flex-shrink:0;}
+.bname{font-size:17px;font-weight:500;letter-spacing:-0.015em;line-height:1}
+.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
+.brole{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
+.nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
+.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);}
+.sec::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;margin:1px 0;}
+.item:hover{background:var(--card-hover)}
+.item .ic{width:16px;height:16px;stroke:var(--ink-mute);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.item .lbl{font-size:13.5px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:450;}
+.item.active{background:var(--ink);box-shadow:0 4px 12px -3px rgba(26,21,18,.4);}
+.item.active .lbl{color:var(--paper);font-weight:500}.item.active .ic{stroke:var(--paper)}
+.foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:11px;}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:16px;flex-shrink:0;}
+.uname{font-size:13px;font-weight:500}.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:72px;padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--paper);position:sticky;top:0;z-index:30;}
+.crumbs{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase;}
+.crumbs em{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)}
+.content{flex:1;padding:28px;overflow-y:auto}
+.page-title{font-size:22px;font-weight:600;letter-spacing:-0.02em}
+.page-title em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-dim);margin-left:6px;font-size:18px}
+.page-sub{font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink-dim);margin-top:4px;margin-bottom:24px}
+
+/* TABS */
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:24px}
+.tab{display:flex;align-items:center;gap:8px;padding:10px 20px;cursor:pointer;font-size:13.5px;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;font-weight:450;}
+.tab:hover{color:var(--ink);background:var(--card-hover)}
+.tab.active{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+.tab svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.tab-badge{font-family:var(--mono);font-size:10px;background:var(--paper-sunk);color:var(--ink-ghost);padding:1px 6px;border-radius:10px}
+.tab.active .tab-badge{background:var(--ink);color:var(--paper)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* UPLOAD ZONE */
+.upload-zone{border:2px dashed var(--line-strong);border-radius:var(--r);padding:48px 32px;text-align:center;cursor:pointer;transition:.2s;background:var(--card);}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:var(--accent-soft)}
+.upload-zone svg{width:40px;height:40px;stroke:var(--line-strong);stroke-width:1.5;fill:none;margin:0 auto 14px;display:block}
+.upload-zone:hover svg,.upload-zone.drag svg{stroke:var(--accent)}
+.upload-zone p{font-size:15px;font-weight:500;color:var(--ink-dim);margin-bottom:4px}
+.upload-zone span{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-ghost)}
+.upload-types{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.type-pill{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;background:var(--paper-sunk);color:var(--ink-ghost)}
+
+/* BTN */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;}
+.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--ink-soft)}
+.btn-outline{background:transparent;color:var(--ink-soft);border:1px solid var(--line-strong)}.btn-outline:hover{background:var(--card-hover)}
+.btn svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* RESULT CARD */
+.result-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:20px}
+.result-head{padding:12px 18px;background:var(--paper-soft);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.result-head-title{font-size:13px;font-weight:600;color:var(--ink)}
+.result-body{padding:16px 18px}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.kl{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);padding-top:2px}
+.kv-v{font-size:13px;color:var(--ink-soft)}.kv-v strong{color:var(--ink);font-weight:500}
+
+/* RECENT */
+.recent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:16px}
+.recent-item{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.1s;}
+.recent-item:hover{background:var(--card-hover)}
+.ri-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ri-icon svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.8;fill:none}
+.ri-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.ri-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost)}
+
+/* EMAIL LIST */
+.email-list{display:flex;flex-direction:column;gap:1px}
+.email-row{padding:12px 16px;background:var(--card);border:1px solid var(--line-soft);border-radius:var(--r);margin-bottom:4px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.1s}
+.email-row:hover{background:var(--card-hover)}
+.email-row .em-icon{width:32px;height:32px;border-radius:7px;background:var(--blue-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.email-row .em-icon svg{width:15px;height:15px;stroke:var(--blue);stroke-width:1.8;fill:none}
+.em-subject{font-size:13px;font-weight:500;color:var(--ink)}
+.em-from{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
+.em-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10.5px;font-family:var(--mono);margin-left:4px}
+.chip-new{background:var(--amber-bg);color:var(--amber)}
+.chip-done{background:var(--green-bg);color:var(--green)}
+
+/* OCR result */
+.ocr-result{margin-top:20px}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-box{padding:32px;text-align:center;color:var(--ink-dim)}
+
+/* EMPTY */
+.empty-state{padding:48px 20px;text-align:center}
+.empty-state svg{width:36px;height:36px;stroke:var(--line-strong);stroke-width:1.5;fill:none;margin:0 auto 12px;display:block}
+.empty-state p{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-dim)}
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="brand">
+    <div class="logo">B</div>
+    <div><div class="bname">Bridge <em>Hub</em></div><div class="brole">Financial OS</div></div>
+  </div>
+  <div class="nav">
+    <div class="sec">მთავარი</div>
+    <div class="item" onclick="location.href='/static/approval.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span class="lbl">სამუშაო სივრცე</span>
+    </div>
+    <div class="sec">შემომავალი</div>
+    <div class="item" onclick="location.href='/static/waybills.html'">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8l4 2v5h-4"/></svg>
+      <span class="lbl">ზედნადებები</span>
+    </div>
+    <div class="item" onclick="location.href='/static/tax_invoices.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      <span class="lbl">საგ. ანგ-ფაქტურები</span>
+    </div>
+    <div class="sec">ოპერაციები</div>
+    <div class="item active">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span class="lbl">Documents Hub</span>
+    </div>
+    <div class="item" onclick="location.href='/static/ai_control.html'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M12 8v4l3 3"/></svg>
+      <span class="lbl">AI Control</span>
+    </div>
+    <div class="sec">გამავალი</div>
+    <div class="item" onclick="location.href='/static/outgoing_form.html?type=goods'">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      <span class="lbl">ჩემი ინვოისები</span>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="av" id="footAv">?</div>
+    <div><div class="uname" id="footName">—</div><div class="urole" id="footRole">—</div></div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub / ოპერაციები / <em>Documents Hub</em></div>
+  </div>
+  <div class="content">
+    <div class="page-title">Documents Hub <em>დოკუმენტები</em></div>
+    <div class="page-sub">ატვირთვა, OCR სკანირება, Email დანართები — ერთ ადგილას</div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('upload',this)">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        ატვირთვა
+      </div>
+      <div class="tab" onclick="switchTab('ocr',this)">
+        <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3"/><path d="M9 3h6"/></svg>
+        OCR სკანირება
+      </div>
+      <div class="tab" onclick="switchTab('email',this)">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+        Email დანართები
+        <span class="tab-badge" id="emailBadge">0</span>
+      </div>
+    </div>
+
+    <!-- TAB 1: UPLOAD -->
+    <div class="tab-panel active" id="panel-upload">
+      <div class="upload-zone" id="dropZone"
+        ondragover="ev.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')"
+        ondrop="handleDrop(event)"
+        onclick="document.getElementById('uploadFile').click()">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>ფაილი ჩამოაგდეთ ან დააწკაპეთ</p>
+        <span>ავტომატური ტიპის განსაზღვრა — ზედნადები, ფაქტ., ან ინვოისი</span>
+        <div class="upload-types">
+          <span class="type-pill">PDF</span>
+          <span class="type-pill">PNG / JPG</span>
+          <span class="type-pill">XLSX</span>
+          <span class="type-pill">max 10MB</span>
+        </div>
+        <input type="file" id="uploadFile" style="display:none" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" onchange="doUpload(this)">
+      </div>
+
+      <div id="uploadResult"></div>
+
+      <div style="margin-top:28px">
+        <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px">ბოლოს ატვირთული</div>
+        <div style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-bottom:14px">triangle match-ისთვის გამოიყენეთ სპეციფიური ატვირთვა</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <label class="btn btn-outline" style="cursor:pointer">
+            <svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8l4 2v5h-4"/></svg>
+            ზ/ნ ატვირთვა
+            <input type="file" style="display:none" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" onchange="doSpecificUpload(this,'waybill')">
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            ფაქტ. ატვირთვა
+            <input type="file" style="display:none" accept=".pdf,.png,.jpg,.jpeg" onchange="doSpecificUpload(this,'tax-invoice')">
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            კომ. ინვ.
+            <input type="file" style="display:none" accept=".pdf,.png,.jpg,.jpeg" onchange="doSpecificUpload(this,'commercial-invoice')">
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: OCR -->
+    <div class="tab-panel" id="panel-ocr">
+      <div style="max-width:640px">
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px;margin-bottom:20px">
+          <div style="font-size:15px;font-weight:600;color:var(--ink);margin-bottom:6px">OCR + AI Draft შექმნა</div>
+          <div style="font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-bottom:18px">ფაილი → OCR → AI კლასიფიკაცია → Draft ავტომატურად</div>
+          <label class="btn btn-primary" style="cursor:pointer">
+            <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3"/></svg>
+            ფაილის სკანირება
+            <input type="file" id="ocrFile" style="display:none" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" onchange="doOCR(this)">
+          </label>
+        </div>
+        <div id="ocrResult"></div>
+      </div>
+    </div>
+
+    <!-- TAB 3: EMAIL -->
+    <div class="tab-panel" id="panel-email">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-size:15px;font-weight:600;color:var(--ink)">Email Inbox</div>
+          <div style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:2px">ფოსტიდან შემოსული ფინანსური დოკუმენტები</div>
+        </div>
+        <button class="btn btn-outline" onclick="loadEmail()">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+          განახლება
+        </button>
+      </div>
+      <div id="emailList">
+        <div class="loading-box"><span class="spinner"></span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const BASE='';
+let TOKEN=localStorage.getItem('bh_token')||'';
+const H=()=>TOKEN?{Authorization:'Bearer '+TOKEN}:{};
+
+async function loadMe(){
+  if(!TOKEN)return;
+  try{
+    const d=await fetch(BASE+'/auth/me',{headers:H()}).then(r=>r.json());
+    if(d.ok){const u=d.data||d,n=u.company_name||u.email||'?';document.getElementById('footAv').textContent=n[0].toUpperCase();document.getElementById('footName').textContent=n;document.getElementById('footRole').textContent=u.role||'viewer';}
+  }catch(e){}
+}
+
+function switchTab(name, el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  if(name==='email') loadEmail();
+}
+
+function handleDrop(ev){
+  ev.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag');
+  const file=ev.dataTransfer.files[0];
+  if(file){const dt=new DataTransfer();dt.items.add(file);document.getElementById('uploadFile').files=dt.files;doUpload(document.getElementById('uploadFile'));}
+}
+
+async function doUpload(inp){
+  const file=inp.files[0];if(!file)return;inp.value='';
+  const box=document.getElementById('uploadResult');
+  box.innerHTML='<div class="loading-box"><span class="spinner"></span> ატვირთვა...</div>';
+  const fd=new FormData();fd.append('file',file);
+  try{
+    const r=await fetch(BASE+'/documents/upload',{method:'POST',headers:H(),body:fd});
+    const d=await r.json();
+    if(d.ok||r.ok){
+      box.innerHTML=`<div class="result-card">
+        <div class="result-head"><span class="result-head-title">✓ ატვირთვა წარმატებულია</span></div>
+        <div class="result-body"><pre style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);white-space:pre-wrap;max-height:200px;overflow:auto">${esc(JSON.stringify(d.data||d,null,2))}</pre></div></div>`;
+    } else {
+      box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">შეცდომა: ${esc(d.message||'unknown')}</div></div>`;
+    }
+  }catch(e){box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">კავშირის შეცდომა</div></div>`;}
+}
+
+async function doSpecificUpload(inp, type){
+  const file=inp.files[0];if(!file)return;inp.value='';
+  const box=document.getElementById('uploadResult');
+  box.innerHTML='<div class="loading-box"><span class="spinner"></span> ატვირთვა...</div>';
+  const fd=new FormData();fd.append('file',file);
+  try{
+    const r=await fetch(BASE+'/documents/upload-'+type,{method:'POST',headers:H(),body:fd});
+    const d=await r.json();
+    if(d.ok){
+      const data=d.data||{};
+      box.innerHTML=`<div class="result-card">
+        <div class="result-head"><span class="result-head-title">✓ ${type==='waybill'?'ზედნადები':type==='tax-invoice'?'ფაქტ.':'კომ. ინვ.'} ატვირთულია</span></div>
+        <div class="result-body">
+          <div class="kv">
+            ${data.waybill_id?`<span class="kl">ზ/ნ ID</span><span class="kv-v"><strong>${data.waybill_id}</strong></span>`:''}
+            ${data.tax_invoice_id?`<span class="kl">ფაქტ. ID</span><span class="kv-v"><strong>${data.tax_invoice_id}</strong></span>`:''}
+            ${data.invoice_number?`<span class="kl">ნომ.</span><span class="kv-v">${esc(data.invoice_number)}</span>`:''}
+            ${data.triangle_match?`<span class="kl">Match</span><span class="kv-v">${esc(JSON.stringify(data.triangle_match))}</span>`:''}
+          </div>
+        </div></div>`;
+    } else {
+      box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">შეცდომა: ${esc(d.error?.details||d.message||'unknown')}</div></div>`;
+    }
+  }catch(e){box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">კავშირის შეცდომა</div></div>`;}
+}
+
+async function doOCR(inp){
+  const file=inp.files[0];if(!file)return;inp.value='';
+  const box=document.getElementById('ocrResult');
+  box.innerHTML='<div class="loading-box"><span class="spinner"></span> სკანირება...</div>';
+  const fd=new FormData();fd.append('file',file);
+  try{
+    const r=await fetch(BASE+'/ocr/extract-and-draft',{method:'POST',headers:H(),body:fd});
+    const d=await r.json();
+    if(d.ok){
+      const f=d.extracted_fields||{};const dr=d.draft||{};
+      box.innerHTML=`<div class="result-card">
+        <div class="result-head"><span class="result-head-title">✓ OCR სრულია</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-ghost)">${esc(d.method||'')}</span></div>
+        <div class="result-body">
+          <div class="kv" style="margin-bottom:14px">
+            <span class="kl">ფაილი</span><span class="kv-v">${esc(f.filename||'—')}</span>
+            <span class="kl">მომწოდებელი</span><span class="kv-v"><strong>${esc(f.partner||f.vendor||'—')}</strong></span>
+            <span class="kl">თანხა</span><span class="kv-v"><strong>${fmtM(f.amount)} ${esc(f.currency||'GEL')}</strong></span>
+            <span class="kl">დღგ</span><span class="kv-v">${f.vat_amount!=null?fmtM(f.vat_amount):'—'}</span>
+            <span class="kl">თარიღი</span><span class="kv-v">${esc(f.invoice_date||f.date||'—')}</span>
+            <span class="kl">Invoice #</span><span class="kv-v">${esc(f.invoice_number||'—')}</span>
+            ${dr.draft_id?`<span class="kl">Draft ID</span><span class="kv-v"><strong>#${esc(dr.draft_id)}</strong> · ${esc(dr.status||'—')}</span>`:''}
+          </div>
+          ${dr.draft_id?`<a href="/static/draft_detail.html?id=${dr.draft_id}" class="btn btn-primary" style="text-decoration:none">Draft-ის ნახვა →</a>`:''}
+        </div></div>`;
+    }else{
+      box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">OCR შეცდომა: ${esc(d.error?.details||d.message||'failed')}</div></div>`;
+    }
+  }catch(e){box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">კავშირის შეცდომა</div></div>`;}
+}
+
+async function loadEmail(){
+  const box=document.getElementById('emailList');
+  box.innerHTML='<div class="loading-box"><span class="spinner"></span></div>';
+  try{
+    const r=await fetch(BASE+'/email-invoice/inbox',{headers:H()});
+    const d=await r.json();
+    const items=d?.data?.items||d?.items||d?.emails||[];
+    document.getElementById('emailBadge').textContent=items.length;
+    if(!items.length){
+      box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><p>ახალი ფოსტა არ არის</p></div>';
+      return;
+    }
+    box.innerHTML=items.map(m=>`
+      <div class="email-row">
+        <div class="em-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg></div>
+        <div style="flex:1;min-width:0">
+          <div class="em-subject">${esc(m.subject||'(No subject)')}
+            ${m.attachment_count?`<span class="em-chip chip-new">📎 ${m.attachment_count}</span>`:''}
+            <span class="em-chip ${m.processed?'chip-done':'chip-new'}">${m.processed?'processed':'new'}</span>
+          </div>
+          <div class="em-from">${esc(m.from||m.sender||'unknown')} · ${esc((m.date||m.received_at||'—').toString().slice(0,16))}</div>
+          ${m.snippet?`<div style="font-size:11.5px;color:var(--ink-mute);margin-top:4px">${esc(m.snippet)}</div>`:''}
+        </div>
+      </div>`).join('');
+  }catch(e){box.innerHTML='<div class="empty-state"><p>ჩატვირთვის შეცდომა</p></div>';}
+}
+
+function fmtM(n){return n!=null?Number(n).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+loadMe();
+</script>
+</body>
+</html>

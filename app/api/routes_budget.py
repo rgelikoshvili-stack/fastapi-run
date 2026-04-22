@@ -85,10 +85,11 @@ def budget_vs_actual(year: int, request: Request):
                 SELECT account_code, reason as category,
                        COALESCE(SUM(amount),0) as actual
                 FROM journal_drafts
-                WHERE EXTRACT(YEAR FROM COALESCE(date::date, created_at::date)) = %s
+                WHERE (date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND EXTRACT(YEAR FROM date::date) = %s
+                       OR date IS NULL AND EXTRACT(YEAR FROM created_at) = %s)
                   AND tenant_id = %s
                 GROUP BY account_code, reason
-            """, (year, tenant_id))
+            """, (year, year, tenant_id))
             actuals = {(r["account_code"], r["category"]): float(r["actual"]) for r in cur.fetchall()}
         finally:
             cur.close(); conn.close()

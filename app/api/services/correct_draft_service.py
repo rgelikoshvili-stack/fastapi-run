@@ -1,6 +1,8 @@
 import json
 import logging
 
+import psycopg2.errors
+
 from app.api.db import get_db
 from app.api.audit_service import log_event
 from app.api.services.learning_service import apply_correct_learning
@@ -33,17 +35,26 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
     cur = conn.cursor()
 
     try:
-        cur.execute(
-            """
-            SELECT id, description, partner, account_code, reason,
-                   debit_account, credit_account, amount, classification_source
-            FROM journal_drafts
-            WHERE id = %s
-              AND tenant_id = %s
-            FOR UPDATE
-            """,
-            (draft_id, tenant_id),
-        )
+        try:
+            cur.execute(
+                """
+                SELECT id, description, partner, account_code, reason,
+                       debit_account, credit_account, amount, classification_source
+                FROM journal_drafts
+                WHERE id = %s
+                  AND tenant_id = %s
+                FOR UPDATE NOWAIT
+                """,
+                (draft_id, tenant_id),
+            )
+        except psycopg2.errors.LockNotAvailable:
+            conn.rollback()
+            return {
+                "ok": False,
+                "error": {"code": "DRAFT_LOCKED", "details": "Draft is being processed by another request. Try again in a moment."},
+                "status_code": 409,
+            }
+
         row = cur.fetchone()
 
         if not row:

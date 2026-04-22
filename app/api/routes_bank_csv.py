@@ -5,11 +5,13 @@ import hashlib
 from app.api.response_utils import ok_response, error_response
 from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
 from app.api.tenant_context import resolve_tenant_id
+from app.api.security import limiter
 
 router = APIRouter(prefix="/bank-csv", tags=["bank"])
 
 
 @router.post("/upload")
+@limiter.limit("20/minute")
 async def upload_bank_file(
     request: Request,
     file: UploadFile = File(...),

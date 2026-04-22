@@ -60,7 +60,7 @@ def list_audit_log(
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        query = "SELECT * FROM audit_log WHERE tenant_id = %s"
+        query = "SELECT * FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = %s)"
         params = [tenant_id]
 
         if action:
@@ -100,7 +100,7 @@ def audit_stats(request: Request):
     try:
         cur.execute("""
             SELECT action, COUNT(*) as cnt
-            FROM audit_log WHERE tenant_id = %s
+            FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = %s)
             GROUP BY action
             ORDER BY cnt DESC
         """, (tenant_id,))
@@ -108,7 +108,7 @@ def audit_stats(request: Request):
 
         cur.execute("""
             SELECT resource, COUNT(*) as cnt
-            FROM audit_log WHERE tenant_id = %s
+            FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = %s)
             GROUP BY resource
             ORDER BY cnt DESC
         """, (tenant_id,))
@@ -116,20 +116,20 @@ def audit_stats(request: Request):
 
         cur.execute("""
             SELECT actor, role, COUNT(*) as cnt
-            FROM audit_log WHERE tenant_id = %s
+            FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = %s)
             GROUP BY actor, role
             ORDER BY cnt DESC
             LIMIT 10
         """, (tenant_id,))
         by_actor = [dict(r) for r in cur.fetchall()]
 
-        cur.execute("SELECT COUNT(*) as total FROM audit_log WHERE tenant_id = %s", (tenant_id,))
+        cur.execute("SELECT COUNT(*) as total FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = %s)", (tenant_id,))
         total = cur.fetchone()["total"]
 
         cur.execute("""
             SELECT COUNT(*) as cnt
             FROM audit_log
-            WHERE status = 'error' AND tenant_id = %s
+            WHERE status = 'error' AND (tenant_id IS NULL OR tenant_id::text = %s)
         """, (tenant_id,))
         errors = cur.fetchone()["cnt"]
 
@@ -164,7 +164,7 @@ def audit_timeline(request: Request):
                    COUNT(*) as cnt
             FROM audit_log
             WHERE COALESCE(event_time, created_at) >= NOW() - INTERVAL '24 hours'
-              AND tenant_id = %s
+              AND (tenant_id IS NULL OR tenant_id::text = %s)
             GROUP BY hour
             ORDER BY hour
         """, (tenant_id,))

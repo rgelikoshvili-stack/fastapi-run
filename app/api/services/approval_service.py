@@ -1,4 +1,6 @@
+import psycopg2
 import psycopg2.extras
+import psycopg2.errors
 
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
@@ -188,14 +190,23 @@ def approve_draft_service(draft_id: int, tenant_id: str):
     qa_result = {"ok": False, "score": 0, "issues": [], "recommendation": "unknown"}
 
     try:
-        cur.execute(
-            """
-            SELECT * FROM journal_drafts
-            WHERE id = %s AND tenant_id = %s
-            FOR UPDATE
-            """,
-            (draft_id, tenant_id),
-        )
+        try:
+            cur.execute(
+                """
+                SELECT * FROM journal_drafts
+                WHERE id = %s AND tenant_id = %s
+                FOR UPDATE NOWAIT
+                """,
+                (draft_id, tenant_id),
+            )
+        except psycopg2.errors.LockNotAvailable:
+            conn.rollback()
+            return error_response(
+                "Draft locked",
+                "DRAFT_LOCKED",
+                "Draft is being processed by another request. Try again in a moment.",
+            )
+
         draft = cur.fetchone()
 
         if not draft:
@@ -328,14 +339,23 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
     updated = None
 
     try:
-        cur.execute(
-            """
-            SELECT * FROM journal_drafts
-            WHERE id = %s AND tenant_id = %s
-            FOR UPDATE
-            """,
-            (draft_id, tenant_id),
-        )
+        try:
+            cur.execute(
+                """
+                SELECT * FROM journal_drafts
+                WHERE id = %s AND tenant_id = %s
+                FOR UPDATE NOWAIT
+                """,
+                (draft_id, tenant_id),
+            )
+        except psycopg2.errors.LockNotAvailable:
+            conn.rollback()
+            return error_response(
+                "Draft locked",
+                "DRAFT_LOCKED",
+                "Draft is being processed by another request. Try again in a moment.",
+            )
+
         draft = cur.fetchone()
 
         if not draft:

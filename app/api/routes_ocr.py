@@ -4,6 +4,7 @@ Bridge Hub — Invoice OCR Routes
 """
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from app.api.tenant_context import resolve_tenant_id
+from app.api.security import limiter
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
 from app.api.db import get_db
 import psycopg2.extras
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/ocr", tags=["ocr"])
 
 
 @router.post("/extract")
+@limiter.limit("10/minute")
 async def extract_from_file(
     request: Request,
     file: UploadFile = File(...),
@@ -47,6 +49,7 @@ async def extract_from_file(
 
 
 @router.post("/extract-and-draft")
+@limiter.limit("10/minute")
 async def extract_and_create_draft(
     request: Request,
     file: UploadFile = File(...),

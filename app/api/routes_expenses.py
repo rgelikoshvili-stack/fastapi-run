@@ -117,13 +117,13 @@ def expense_summary(request: Request):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("""
-            SELECT e.category, ec.name, ec.budget_limit,
+            SELECT e.category, ec.name,
                    COUNT(*) as tx_count,
                    COALESCE(SUM(e.amount),0) as total_spent
             FROM expenses e
             LEFT JOIN expense_categories ec ON ec.code=e.category
             WHERE e.tenant_id = %s
-            GROUP BY e.category, ec.name, ec.budget_limit
+            GROUP BY e.category, ec.name
             ORDER BY total_spent DESC
         """, (tenant_id,))
         by_category = [dict(r) for r in cur.fetchall()]
@@ -145,7 +145,7 @@ def expense_summary(request: Request):
     summary = []
     for r in by_category:
         spent = float(r["total_spent"])
-        limit = float(r["budget_limit"] or 0)
+        limit = 0.0
         summary.append({
             "category": r["category"],
             "name": r["name"],

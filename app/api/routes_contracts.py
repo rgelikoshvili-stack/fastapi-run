@@ -77,6 +77,46 @@ def create_contract(data: ContractCreate, request: Request):
         cur.close(); conn.close()
     return ok_response("Contract created", {"id": new_id, "contract_number": num, "tenant_id": tenant_id, **data.dict()})
 
+@router.get("/summary/stats")
+def contract_summary(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            "SELECT status, COUNT(*) as cnt, COALESCE(SUM(value),0) as total FROM contracts WHERE tenant_id=%s GROUP BY status",
+            (tenant_id,),
+        )
+        by_status = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT contract_type, COUNT(*) as cnt FROM contracts WHERE tenant_id=%s GROUP BY contract_type",
+            (tenant_id,),
+        )
+        by_type = {r["contract_type"]: r["cnt"] for r in cur.fetchall()}
+        cur.execute(
+            "SELECT COUNT(*) as cnt FROM contracts WHERE end_date <= CURRENT_DATE + INTERVAL '30 days' AND status='active' AND tenant_id=%s",
+            (tenant_id,),
+        )
+        expiring_soon = cur.fetchone()["cnt"]
+        cur.execute(
+            "SELECT COALESCE(SUM(value),0) as total FROM contracts WHERE status='active' AND tenant_id=%s",
+            (tenant_id,),
+        )
+        active_value = float(cur.fetchone()["total"])
+    finally:
+        cur.close(); conn.close()
+    return ok_response("Contract summary", {
+        "tenant_id": tenant_id,
+        "active_value": active_value,
+        "expiring_soon_30d": expiring_soon,
+        "by_status": by_status,
+        "by_type": by_type,
+        "total": sum(s["cnt"] for s in by_status),
+        "active": next((s["cnt"] for s in by_status if s["status"] == "active"), 0),
+        "draft": next((s["cnt"] for s in by_status if s["status"] == "draft"), 0),
+        "expired": next((s["cnt"] for s in by_status if s["status"] == "expired"), 0),
+    })
+
 @router.get("/{contract_id}")
 def get_contract(contract_id: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
@@ -142,39 +182,3 @@ def add_milestone(contract_id: int, data: MilestoneCreate, request: Request):
     finally:
         cur.close(); conn.close()
     return ok_response("Milestone added", {"id": new_id, "contract_id": contract_id, "title": data.title})
-
-@router.get("/summary/stats")
-def contract_summary(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT status, COUNT(*) as cnt, COALESCE(SUM(value),0) as total FROM contracts WHERE tenant_id=%s GROUP BY status",
-            (tenant_id,),
-        )
-        by_status = [dict(r) for r in cur.fetchall()]
-        cur.execute(
-            "SELECT contract_type, COUNT(*) as cnt FROM contracts WHERE tenant_id=%s GROUP BY contract_type",
-            (tenant_id,),
-        )
-        by_type = {r["contract_type"]: r["cnt"] for r in cur.fetchall()}
-        cur.execute(
-            "SELECT COUNT(*) as cnt FROM contracts WHERE end_date <= CURRENT_DATE + INTERVAL '30 days' AND status='active' AND tenant_id=%s",
-            (tenant_id,),
-        )
-        expiring_soon = cur.fetchone()["cnt"]
-        cur.execute(
-            "SELECT COALESCE(SUM(value),0) as total FROM contracts WHERE status='active' AND tenant_id=%s",
-            (tenant_id,),
-        )
-        active_value = float(cur.fetchone()["total"])
-    finally:
-        cur.close(); conn.close()
-    return ok_response("Contract summary", {
-        "tenant_id": tenant_id,
-        "active_value": active_value,
-        "expiring_soon_30d": expiring_soon,
-        "by_status": by_status,
-        "by_type": by_type,
-    })

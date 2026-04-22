@@ -54,9 +54,9 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
         "img-src 'self' data: https:; "
-        "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com; "
+        "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com https://fonts.gstatic.com; "
         "connect-src 'self' https://fastapi-run-226875230147.us-central1.run.app https://unpkg.com;"
     ),
     "X-Powered-By": "BridgeHub/1.0",

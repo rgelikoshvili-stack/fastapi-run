@@ -98,6 +98,41 @@ def list_invoices(request: Request, status: Optional[str] = None):
         cur.close(); conn.close()
     return ok_response("Invoices", {"count": len(invoices), "tenant_id": tenant_id, "invoices": invoices})
 
+@router.get("/stats/summary")
+def invoice_stats(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT status, COUNT(*) as cnt,
+                   COALESCE(SUM(total),0) as total_amount
+            FROM invoices WHERE tenant_id=%s GROUP BY status
+        """, (tenant_id,))
+        by_status = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='paid' AND tenant_id=%s",
+            (tenant_id,),
+        )
+        paid = dict(cur.fetchone())
+        cur.execute(
+            "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='sent' AND tenant_id=%s",
+            (tenant_id,),
+        )
+        outstanding = dict(cur.fetchone())
+    finally:
+        cur.close(); conn.close()
+    return ok_response("Invoice stats", {
+        "tenant_id": tenant_id,
+        "by_status": by_status,
+        "total_invoices": sum(s["cnt"] for s in by_status),
+        "total_paid": float(paid["total"]),
+        "total_pending": float(outstanding["total"]),
+        "overdue_count": next((s["cnt"] for s in by_status if s["status"] == "overdue"), 0),
+        "paid_total": float(paid["total"]),
+        "outstanding_total": float(outstanding["total"]),
+    })
+
 @router.get("/{invoice_id}")
 def get_invoice(invoice_id: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
@@ -139,34 +174,3 @@ def update_status(invoice_id: int, data: InvoiceStatusUpdate, request: Request):
     finally:
         cur.close(); conn.close()
     return ok_response("Status updated", {"id": invoice_id, "status": data.status})
-
-@router.get("/stats/summary")
-def invoice_stats(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
-            SELECT status, COUNT(*) as cnt,
-                   COALESCE(SUM(total),0) as total_amount
-            FROM invoices WHERE tenant_id=%s GROUP BY status
-        """, (tenant_id,))
-        by_status = [dict(r) for r in cur.fetchall()]
-        cur.execute(
-            "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='paid' AND tenant_id=%s",
-            (tenant_id,),
-        )
-        paid = dict(cur.fetchone())
-        cur.execute(
-            "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cnt FROM invoices WHERE status='sent' AND tenant_id=%s",
-            (tenant_id,),
-        )
-        outstanding = dict(cur.fetchone())
-    finally:
-        cur.close(); conn.close()
-    return ok_response("Invoice stats", {
-        "tenant_id": tenant_id,
-        "by_status": by_status,
-        "paid_total": float(paid["total"]),
-        "outstanding_total": float(outstanding["total"]),
-    })

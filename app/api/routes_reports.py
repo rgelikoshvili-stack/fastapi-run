@@ -135,12 +135,14 @@ def pnl_report(
         conditions = ["tenant_id = %s"]
         params = [tenant_id]
 
+        conditions.append("date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'")
+
         if year:
-            conditions.append("EXTRACT(YEAR FROM date) = %s")
+            conditions.append("EXTRACT(YEAR FROM date::date) = %s")
             params.append(year)
 
         if month:
-            conditions.append("EXTRACT(MONTH FROM date) = %s")
+            conditions.append("EXTRACT(MONTH FROM date::date) = %s")
             params.append(month)
 
         where_clause = " AND ".join(conditions)
@@ -193,12 +195,14 @@ def cashflow_report(
         conditions = ["tenant_id = %s"]
         params = [tenant_id]
 
+        conditions.append("date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'")
+
         if year:
-            conditions.append("EXTRACT(YEAR FROM date) = %s")
+            conditions.append("EXTRACT(YEAR FROM date::date) = %s")
             params.append(year)
 
         if month:
-            conditions.append("EXTRACT(MONTH FROM date) = %s")
+            conditions.append("EXTRACT(MONTH FROM date::date) = %s")
             params.append(month)
 
         where_clause = " AND ".join(conditions)

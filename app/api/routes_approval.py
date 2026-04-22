@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -53,13 +54,21 @@ def get_queue(request: Request, status: str = "", limit: int = 100, offset: int 
     return get_queue_service(status, limit, offset, tenant_id=tenant_id)
 
 
+def _check_locked(result):
+    """Return 409 JSONResponse if service detected a row lock conflict."""
+    if isinstance(result, dict) and result.get("error", {}).get("code") == "DRAFT_LOCKED":
+        return JSONResponse(status_code=409, content=result)
+    return None
+
+
 @router.post("/approve/{draft_id}")
 @limiter.limit("30/minute")
 def approve_draft(draft_id: int, request: Request):
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     log.info("action=approve draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
-    return approve_draft_service(draft_id, tenant_id=tenant_id)
+    result = approve_draft_service(draft_id, tenant_id=tenant_id)
+    return _check_locked(result) or result
 
 
 @router.post("/reject/{draft_id}")
@@ -68,7 +77,8 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     log.info("action=reject draft_id=%s user=%s tenant=%s reason=%s", draft_id, user_id, tenant_id, req.reason)
-    return reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
+    result = reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
+    return _check_locked(result) or result
 
 
 @router.post("/correct/{draft_id}")
@@ -83,7 +93,8 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
         "debit_account": req.debit_account,
         "credit_account": req.credit_account,
     }
-    return correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
+    result = correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
+    return _check_locked(result) or result
 
 
 @router.get("/audit")

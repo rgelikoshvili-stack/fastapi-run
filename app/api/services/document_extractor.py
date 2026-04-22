@@ -159,5 +159,5 @@ def _regex_extract(text: str) -> ExtractedDocument:
         seller=ExtractedParty(inn=seller_inn),
         buyer=ExtractedParty(inn=buyer_inn),
         total_with_vat=total,
-        notes="regex_fallback",
+        notes=text[:500],  # classifier searches notes for keywords
     )

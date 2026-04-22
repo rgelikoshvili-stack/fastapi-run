@@ -46,3 +46,6 @@ test_alias.csv
 structure.txt
 _archive/
 _audit/
+
+# Aider AI tool
+.aider*

@@ -1,3 +1,4 @@
+# Python / cache
 .venv/
 __pycache__/
 .pytest_cache/
@@ -9,26 +10,41 @@ env/
 venv/
 build/
 dist/
+
+# Git & dev tools
+.git/
+.gitignore
+.github/
+.aider*
+.claude/
+
+# Logs / ephemeral state
 *.log
 *.db
 *.zip
-
-.git/
-.gitignore
-
-chroma_db/
-tests/
-examples/
-
 server.log
 uvicorn.log
 pending_queue.json
 patterns_top.json
-
-.env
-knowledge_files/
-
-_audit/
-*.log
-*.db
 learned_rules.json
+
+# Large data dirs (not needed in container)
+chroma_db/
+knowledge_files/
+_audit/
+_archive/
+
+# Dev-only directories
+tests/
+scripts/
+examples/
+
+# Secrets
+.env
+
+# Dev docs & test artifacts
+*.md
+RUNBOOK.txt
+*.xml
+*.csv
+*.jsonl

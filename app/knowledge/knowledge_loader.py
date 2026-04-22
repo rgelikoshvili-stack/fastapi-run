@@ -72,11 +72,10 @@ def _load_files():
                         else:
                             _ACC_TEXT += "\n\n" + text
                 except Exception as e:
-                    print(f"⚠️ KB load error: {fn}: {e}")
+                    log.warning("KB load error: %s: %s", fn, e)
 
     _FILES_LOADED = True
-    print(f"✅ TAX TEXT: {len(_TAX_TEXT)} chars")
-    print(f"✅ ACC TEXT: {len(_ACC_TEXT)} chars")
+    log.info("KB loaded: TAX=%d chars ACC=%d chars", len(_TAX_TEXT), len(_ACC_TEXT))
 
 
 def get_tax_section(topic):
@@ -198,9 +197,9 @@ def migrate_json_to_db():
         cur.close()
         conn.close()
         os.rename(LEARNED_RULES_FILE, bak)
-        print(f"✅ JSON→DB migration: {migrated} rules migrated, file archived as .bak")
+        log.info("JSON->DB migration: %d rules migrated, file archived as .bak", migrated)
     except Exception as e:
-        print(f"⚠️ JSON→DB migration failed (non-fatal): {e}")
+        log.warning("JSON->DB migration failed (non-fatal): %s", e)
 
 
 def learn_new_rule(pattern, account, tenant_id="global", note=""):
@@ -291,5 +290,5 @@ def learn_new_rule(pattern, account, tenant_id="global", note=""):
         }
 
     except Exception as e:
-        print(f"❌ DB learn failed: {e}")
+        log.error("DB learn failed: %s", e)
         return {"status": "error", "message": f"DB შეცდომა: {e}"}

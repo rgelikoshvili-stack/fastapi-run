@@ -42,15 +42,18 @@ CATEGORY_KEYWORDS: dict[OperationCategory, list[str]] = {
         "საკანცელარიო", "ქაღალდი", "კალამი", "სტამბა",
         "ბეჭდვა", "ფარდა", "სკამი", "მაგიდა", "საოფისე",
         "სეიფი", "ფოტო", "კარტრიჯი",
+        "office supplies", "stationery", "paper", "cartridge",
     ],
     OperationCategory.OFFICE_RENT: ["ქირა", "იჯარა", "ოფისის ყოველთვიური", "rent"],
     OperationCategory.UTILITIES: [
         "ელექტრო", "წყალი", "გაზი", "ინტერნეტი", "ტელეფონი",
         "კომუნალ", "სილქნეტი", "magti", "silknet", "geocell",
+        "electricity", "electric", "water", "gas utility", "utility bill",
     ],
     OperationCategory.IT_SERVICES: [
         "სისტემის განახლება", "პროგრამირება", "ვებ-გვერდი",
         "development", "implementation", "ინტეგრაცია",
+        "it services", "software service", "technical service", "it support",
     ],
     OperationCategory.IT_SAAS: [
         "სისტემაზე წვდომა", "subscription", "აბონამენტი", "cloud",

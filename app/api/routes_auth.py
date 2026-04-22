@@ -147,7 +147,8 @@ def auth_login(request: Request, data: LoginRequest):
 
 
 @router.post("/register")
-def auth_register(data: RegisterRequest):
+@limiter.limit("5/minute")
+def auth_register(data: RegisterRequest, request: Request):
     """Simple register (existing tenant). For new company signup use /auth/signup."""
     try:
         create_users_table()
@@ -164,7 +165,8 @@ def auth_register(data: RegisterRequest):
 
 
 @router.post("/signup")
-def auth_signup(data: FullRegisterRequest):
+@limiter.limit("3/minute")
+def auth_signup(data: FullRegisterRequest, request: Request):
     """Full SaaS signup: creates new tenant + admin user. Returns JWT immediately."""
     try:
         if _tenant_exists_by_inn(data.company_inn):

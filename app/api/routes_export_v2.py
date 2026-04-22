@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from app.api.tenant_context import resolve_tenant_id
+from app.api.security import limiter
 from app.api.services.export_service import (
     export_excel,
     export_csv_drafts,
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/export/v2", tags=["export-v2"])
 
 
 @router.get("/journal/excel")
+@limiter.limit("20/minute")
 def journal_excel(request: Request, status: str = None):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     output = export_excel(tenant_id, status)
@@ -25,6 +27,7 @@ def journal_excel(request: Request, status: str = None):
 
 
 @router.get("/journal/csv")
+@limiter.limit("20/minute")
 def journal_csv(request: Request, status: str = None):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     output = export_csv_drafts(tenant_id, status)
@@ -37,6 +40,7 @@ def journal_csv(request: Request, status: str = None):
 
 
 @router.get("/journal/1c-xml")
+@limiter.limit("10/minute")
 def journal_1c_xml(request: Request, status: str = "approved"):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     xml = export_1c_xml(tenant_id, status)
@@ -49,6 +53,7 @@ def journal_1c_xml(request: Request, status: str = "approved"):
 
 
 @router.get("/journal/pdf")
+@limiter.limit("10/minute")
 def journal_pdf(request: Request, status: str = None):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     output = export_pdf(tenant_id, status)

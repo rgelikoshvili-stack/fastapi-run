@@ -235,8 +235,9 @@ def chat_with_claude(
         if context:
             user_text = f"კონტექსტი:\n{context}\n\nმომხმარებლის შეკითხვა:\n{message}"
 
+        model_id = "claude-3-5-sonnet-20241022"
         resp = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=model_id,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user_text}],
@@ -244,7 +245,7 @@ def chat_with_claude(
 
         input_tokens = getattr(resp.usage, "input_tokens", 0)
         output_tokens = getattr(resp.usage, "output_tokens", 0)
-        _log_cost(tenant_id, "claude-sonnet-4-6", input_tokens, output_tokens)
+        _log_cost(tenant_id, model_id, input_tokens, output_tokens)
 
         content = getattr(resp, "content", None) or []
         if not content:

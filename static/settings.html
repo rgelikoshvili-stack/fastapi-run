@@ -252,6 +252,10 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
         <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Email
       </div>
+      <div class="tab" onclick="switchTab('balance',this)">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        Balance.ge
+      </div>
     </div>
 
     <!-- ══════════ GENERAL ══════════ -->
@@ -463,6 +467,54 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
           </div>
         </div>
       </div>
+    <!-- ══════════ BALANCE.GE INTEGRATION ══════════ -->
+    <div class="tab-panel" id="panel-balance">
+      <div class="s-card">
+        <div class="s-head">
+          <div>
+            <div class="s-title">Balance.ge API</div>
+            <div class="s-sub">Balance.ge-ში ჩანაწერების ავტომატური გატარება</div>
+          </div>
+          <span id="balance-status-chip" class="chip chip-amber">Loading…</span>
+        </div>
+        <div class="s-body">
+          <div class="form-row">
+            <div class="form-col">
+              <label class="lbl">API Key</label>
+              <input class="inp" id="balanceApiKey" type="password" placeholder="balance_api_key_xxxxx" autocomplete="new-password"/>
+            </div>
+            <div class="form-col">
+              <label class="lbl">Company ID</label>
+              <input class="inp" id="balanceCompanyId" type="text" placeholder="company_id (optional)"/>
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <div class="form-col" style="max-width:360px">
+              <label class="lbl">API Base URL</label>
+              <input class="inp" id="balanceApiBase" type="text" value="https://api.balance.ge"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="testBalanceConn()">🔌 კავშირის ტესტი</button>
+            <button class="btn btn-primary btn-sm" onclick="saveBalanceCreds()">💾 შენახვა</button>
+          </div>
+          <div id="balance-msg" style="margin-top:12px;font-size:13px;min-height:18px"></div>
+        </div>
+      </div>
+      <div class="s-card">
+        <div class="s-head">
+          <div class="s-title">როგორ მუშაობს</div>
+        </div>
+        <div class="s-body" style="font-size:13px;line-height:1.7;color:var(--ink-mute)">
+          <p>1. AI ქმნის draft-ს → <strong>pending_human_review</strong></p>
+          <p>2. ბუღალტერი ამოწმებს → <strong>Approve</strong></p>
+          <p>3. Approve ღილაკი → Posting → <strong>Balance.ge LIVE</strong></p>
+          <p style="margin-top:8px;color:var(--green)">✓ Idempotency: ერთი draft ერთხელ ჩაიწერება</p>
+          <p style="color:var(--green)">✓ Audit: ყველა posting ჩაიწერება logs-ში</p>
+        </div>
+      </div>
+    </div>
+
     <!-- ══════════ EMAIL INTEGRATION ══════════ -->
     <div class="tab-panel" id="panel-email">
       <div class="s-card">
@@ -543,7 +595,7 @@ function switchTab(name, el) {
   el.classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
   currentTab = name;
-  const loaders = { currency: loadCurrencyRates, audit: loadAuditLog, health: loadHealth, apikeys: loadApiKeys, email: loadEmailStatus };
+  const loaders = { currency: loadCurrencyRates, audit: loadAuditLog, health: loadHealth, apikeys: loadApiKeys, email: loadEmailStatus, balance: loadBalanceStatus };
   if (loaders[name]) loaders[name]();
 }
 
@@ -816,6 +868,55 @@ function boot() {
   if (savedCurr) { const el = document.getElementById('genCurrency'); if (el) el.value = savedCurr; }
   const savedLang = localStorage.getItem('bh_lang');
   if (savedLang) { const el = document.getElementById('genLang'); if (el) el.value = savedLang; }
+}
+
+// ── BALANCE.GE ──
+async function loadBalanceStatus() {
+  const chip = document.getElementById('balance-status-chip');
+  const d = await api('/balance-credentials/status');
+  if (!d) return;
+  if (d.configured) {
+    chip.textContent = `✓ ${d.mode === 'live' ? 'LIVE' : 'DEMO'} · ${d.source}`;
+    chip.className = d.mode === 'live' ? 'chip chip-approved' : 'chip chip-pending';
+    if (d.company_id) document.getElementById('balanceCompanyId').value = d.company_id;
+    if (d.api_base) document.getElementById('balanceApiBase').value = d.api_base;
+  } else {
+    chip.textContent = 'DEMO mode';
+    chip.className = 'chip chip-amber';
+  }
+}
+
+async function testBalanceConn() {
+  const msg = document.getElementById('balance-msg');
+  msg.textContent = '🔌 ვამოწმებ...';
+  const d = await api('/balance-credentials/test', 'POST');
+  if (d && d.ok) {
+    msg.textContent = '✅ კავშირი წარმატებულია! Mode: ' + (d.mode || 'live');
+    msg.style.color = 'var(--green)';
+  } else {
+    msg.textContent = '❌ ' + (d?.message || d?.error || 'კავშირი ვერ მოხდა');
+    msg.style.color = 'var(--red)';
+  }
+}
+
+async function saveBalanceCreds() {
+  const key = document.getElementById('balanceApiKey').value.trim();
+  const cid = document.getElementById('balanceCompanyId').value.trim();
+  const base = document.getElementById('balanceApiBase').value.trim() || 'https://api.balance.ge';
+  const msg = document.getElementById('balance-msg');
+  if (!key) { msg.textContent = '⚠ API Key აუცილებელია'; msg.style.color='var(--amber)'; return; }
+  const d = await api('/balance-credentials/save', 'POST', {api_key: key, company_id: cid, api_base: base});
+  if (d && d.ok) {
+    msg.textContent = '✅ შენახულია!';
+    msg.style.color = 'var(--green)';
+    document.getElementById('balanceApiKey').value = '';
+    document.getElementById('balance-status-chip').textContent = '✓ LIVE';
+    document.getElementById('balance-status-chip').className = 'chip chip-approved';
+    toast('Balance.ge credentials შენახულია', 'ok');
+  } else {
+    msg.textContent = '❌ ' + (d?.error || 'შეცდომა');
+    msg.style.color = 'var(--red)';
+  }
 }
 
 // ── EMAIL INTEGRATION ──

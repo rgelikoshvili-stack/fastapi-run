@@ -210,6 +210,9 @@ async def ai_process_document(
 
     draft_id = _save_draft(tenant_id, result, source_doc_id=doc_id)
 
+    # Notify connected approval UI clients
+    _ws_notify_new_draft(tenant_id, draft_id, result)
+
     return {
         "ok": True,
         "draft_id": draft_id,
@@ -217,3 +220,29 @@ async def ai_process_document(
         "confidence": result.get("confidence", 0.5),
         "status": "pending_human_review",
     }
+
+
+def _ws_notify_new_draft(tenant_id: str, draft_id: int, ai_result: dict):
+    """Fire-and-forget WS push to approval UI when AI creates a new draft."""
+    try:
+        import asyncio
+        from app.api.routes_notifications_ws import manager
+        from datetime import datetime
+        msg = {
+            "type": "new_draft",
+            "draft_id": draft_id,
+            "status": "pending_human_review",
+            "description": ai_result.get("description", ""),
+            "amount": ai_result.get("amount", 0),
+            "confidence": ai_result.get("confidence", 0),
+            "model": ai_result.get("_model", "unknown"),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_to_tenant(tenant_id, msg))
+        except RuntimeError:
+            pass
+    except Exception as e:
+        log.debug("_ws_notify_new_draft: %s", e)

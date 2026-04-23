@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import psycopg2
 import psycopg2.extras
 import psycopg2.errors
@@ -5,6 +7,29 @@ import psycopg2.errors
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+
+log = logging.getLogger(__name__)
+
+
+def _ws_notify(tenant_id: str, event: str, draft_id: int, status: str):
+    """Fire-and-forget WebSocket notification — never raises."""
+    try:
+        from app.api.routes_notifications_ws import manager
+        from datetime import datetime
+        msg = {
+            "type": event,
+            "draft_id": draft_id,
+            "status": status,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_to_tenant(tenant_id, msg))
+        except RuntimeError:
+            pass  # no event loop running (sync context) — notification skipped
+    except Exception as e:
+        log.debug("_ws_notify: %s", e)
 from app.api.services.feedback_service import save_feedback
 from app.api.services.transaction_memory_service import save_transaction_memory
 from app.api.services.qa_engine import evaluate_decision
@@ -76,7 +101,7 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                 """
                 SELECT COUNT(*) AS total
                 FROM journal_drafts
-                WHERE status IN ('drafted', 'pending_approval', 'auto_approved')
+                WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
                   AND tenant_id = %s
                 """,
                 (tenant_id,),
@@ -86,7 +111,7 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                 """
                 SELECT *
                 FROM journal_drafts
-                WHERE status IN ('drafted', 'pending_approval', 'auto_approved')
+                WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
                   AND tenant_id = %s
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
@@ -243,7 +268,7 @@ def approve_draft_service(draft_id: int, tenant_id: str):
                 approved_by_mode = COALESCE(approved_by_mode, 'human'),
                 updated_at = NOW()
             WHERE id = %s AND tenant_id = %s
-              AND status IN ('drafted', 'pending_approval', 'auto_approved')
+              AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
             RETURNING *
             """,
             (draft_id, tenant_id),
@@ -320,6 +345,8 @@ def approve_draft_service(draft_id: int, tenant_id: str):
         },
     )
 
+    _ws_notify(tenant_id, "draft_approved", draft_id, "approved")
+
     return ok_response(
         "Draft approved",
         {
@@ -388,7 +415,7 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             UPDATE journal_drafts
             SET status = 'rejected', updated_at = NOW()
             WHERE id = %s AND tenant_id = %s
-              AND status IN ('drafted', 'pending_approval', 'auto_approved')
+              AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
             RETURNING *
             """,
             (draft_id, tenant_id),
@@ -450,6 +477,8 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             "pattern_update_result": pattern_update_result,
         },
     )
+
+    _ws_notify(tenant_id, "draft_rejected", draft_id, "rejected")
 
     return ok_response(
         "Draft rejected",

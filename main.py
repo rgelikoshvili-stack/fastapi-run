@@ -179,6 +179,7 @@ from app.api.routes_dashboard_insights import router as dashboard_insights_route
 from app.api import routes_payroll
 from app.api import routes_email_invoice
 from app.api.routes_email_collector import router as routes_email_collector
+from app.api.routes_balance_credentials import router as routes_balance_credentials
 from app.api import routes_bank_sync
 from app.api import routes_ai_chat
 from app.api.routes_claude_chat import router as routes_claude_chat
@@ -251,6 +252,7 @@ app.include_router(routes_client_portal.router)
 app.include_router(routes_payroll.router)
 app.include_router(routes_email_invoice.router)
 app.include_router(routes_email_collector)
+app.include_router(routes_balance_credentials)
 app.include_router(routes_bank_sync.router)
 app.include_router(routes_ai_chat.router)
 app.include_router(routes_ai_recommend)
@@ -524,6 +526,13 @@ async def start_background_tasks():
         print("✅ Email collector tables OK")
     except Exception as e:
         print(f"⚠️ Email tables migration error (non-fatal): {e}")
+    # Balance.ge per-tenant credentials table
+    try:
+        from app.api.services.balance_credentials_service import ensure_table as _ensure_balance_table
+        await loop.run_in_executor(None, _ensure_balance_table)
+        print("✅ Balance credentials table OK")
+    except Exception as e:
+        print(f"⚠️ Balance credentials table migration (non-fatal): {e}")
     # JSON → DB one-time migration
     try:
         from bridge_hub_knowledge import migrate_json_to_db

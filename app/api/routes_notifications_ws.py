@@ -54,13 +54,31 @@ manager = NotificationManager()
 # ========== WebSocket Endpoint ==========
 
 @router.websocket("/live")
-async def websocket_notifications(websocket: WebSocket, tenant_id: str = "default"):
+async def websocket_notifications(websocket: WebSocket, tenant_id: str = "default", token: str = ""):
+    """
+    WebSocket endpoint with JWT token verification.
+    Query params: ?tenant_id=xxx&token=<jwt>
+    """
+    # Verify JWT token
+    if token:
+        try:
+            from app.api.services.auth_service import verify_token
+            payload = verify_token(token, expected_type="access")
+            token_tenant = payload.get("tenant_id", "default")
+            # Enforce tenant isolation: token's tenant_id must match requested tenant_id
+            if token_tenant != tenant_id:
+                await websocket.close(code=4003)
+                return
+        except Exception:
+            await websocket.close(code=4001)
+            return
+
     await manager.connect(websocket, tenant_id)
     try:
         await websocket.send_text(json.dumps({
             "type": "connected",
             "tenant_id": tenant_id,
-            "message": "Bridge Hub notifications connected",
+            "message": "Bridge Hub live notifications connected",
             "timestamp": datetime.now().isoformat(),
         }, ensure_ascii=False))
 

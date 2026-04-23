@@ -4,14 +4,22 @@ from datetime import datetime, timezone
 from app.api.connectors.base_connector import BaseConnector
 
 logger = logging.getLogger(__name__)
-BALANCE_API_BASE = os.environ.get("BALANCE_API_BASE", "https://api.balance.ge")
 
 class BalanceConnector(BaseConnector):
     def __init__(self, tenant_id="default", company_id=None):
-        self.tenant_id  = tenant_id
-        self.company_id = company_id or os.environ.get("BALANCE_COMPANY_ID", "")
-        self.api_key    = os.environ.get("BALANCE_API_KEY", "")
-        self.mode       = "live" if self.api_key else "demo"
+        self.tenant_id = tenant_id
+        # Per-tenant credentials take priority over global env vars
+        try:
+            from app.api.services.balance_credentials_service import get_balance_credentials
+            creds = get_balance_credentials(tenant_id)
+            self.api_key   = creds.get("api_key", "")
+            self.company_id = company_id or creds.get("company_id", "")
+            self.api_base  = creds.get("api_base", "https://api.balance.ge")
+        except Exception:
+            self.api_key   = os.environ.get("BALANCE_API_KEY", "")
+            self.company_id = company_id or os.environ.get("BALANCE_COMPANY_ID", "")
+            self.api_base  = os.environ.get("BALANCE_API_BASE", "https://api.balance.ge")
+        self.mode = "live" if self.api_key else "demo"
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.api_key}",
@@ -23,7 +31,7 @@ class BalanceConnector(BaseConnector):
             return {"connected": True, "mode": "demo",
                     "message": "DEMO — BALANCE_API_KEY არ არის"}
         try:
-            r = requests.get(f"{BALANCE_API_BASE}/health",
+            r = requests.get(f"{self.api_base}/health",
                              headers=self._headers(), timeout=10)
             return {"connected": r.status_code == 200, "mode": "live",
                     "message": "OK" if r.status_code == 200 else r.text[:100]}
@@ -64,7 +72,7 @@ class BalanceConnector(BaseConnector):
                     "currency":    draft.get("currency", "GEL"),
                 }]
             }
-            url = f"{BALANCE_API_BASE}/api/v1/journal"
+            url = f"{self.api_base}/api/v1/journal"
             logger.debug("[Balance] POST %s headers=%s payload=%s",
                          url, self._safe_headers_log(), payload)
             r = requests.post(url, headers=self._headers(), json=payload, timeout=15)
@@ -85,7 +93,7 @@ class BalanceConnector(BaseConnector):
             return [{"erp_id": "DEMO-001", "date": "2026-04-01",
                      "amount": 1000, "description": "DEMO", "status": "posted"}]
         try:
-            r = requests.get(f"{BALANCE_API_BASE}/api/v1/journal",
+            r = requests.get(f"{self.api_base}/api/v1/journal",
                              headers=self._headers(),
                              params={"limit": limit}, timeout=15)
             return [{"erp_id": str(i.get("id")), "date": i.get("date"),

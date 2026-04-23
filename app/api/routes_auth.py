@@ -1,12 +1,16 @@
 import logging
 import json
 import secrets
+import smtplib
+import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 
-from app.api.models.user import create_user, create_users_table, get_user, hash_password
+from app.api.models.user import create_user, create_users_table, get_user, hash_password, verify_password
 from app.api.services.auth_service import login, verify_token, refresh_token, create_access_token, create_refresh_token
 from app.api.response_utils import ok_response, error_response
 from app.api.security import limiter
@@ -64,6 +68,35 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+    tenant_id: str = "default"
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("პაროლი — მინიმუმ 8 სიმბოლო")
+        return v
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("პაროლი — მინიმუმ 8 სიმბოლო")
+        return v
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -86,6 +119,61 @@ def _generate_name_aliases(legal_name: str) -> list:
     if clean and len(clean.split()) > 1:
         aliases.add(clean.split()[0])
     return list(aliases)
+
+
+def _ensure_reset_tokens_table():
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR(128) UNIQUE NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                tenant_id VARCHAR(100) NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _send_reset_email(to_email: str, reset_link: str):
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    if not smtp_user or not smtp_pass:
+        log.warning("SMTP not configured — reset link: %s", reset_link)
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Bridge Hub — პაროლის აღდგენა"
+    msg["From"] = smtp_user
+    msg["To"] = to_email
+
+    html = f"""
+    <div style="font-family:Georgia,serif;max-width:480px;margin:40px auto;background:#f3ecdc;padding:32px;border-radius:8px">
+      <h2 style="color:#8c3c2d;margin:0 0 8px">Bridge Hub</h2>
+      <p style="color:#4a3728;margin:0 0 24px">პაროლის აღდგენის მოთხოვნა მიღებულია.</p>
+      <a href="{reset_link}"
+         style="display:inline-block;background:#8c3c2d;color:#fff;padding:12px 24px;border-radius:4px;text-decoration:none;font-size:15px">
+        პაროლის შეცვლა
+      </a>
+      <p style="color:#888;font-size:13px;margin-top:24px">ლინკი მოქმედია 1 საათის განმავლობაში.<br>თუ თქვენ არ მოგითხოვიათ — უგულებელყავით ეს წერილი.</p>
+    </div>
+    """
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, to_email, msg.as_string())
+        log.info("action=reset_email_sent to=%s", to_email)
+    except Exception as e:
+        log.error("action=reset_email_error: %s", e)
 
 
 def _tenant_exists_by_inn(inn: str) -> bool:
@@ -276,3 +364,121 @@ def auth_refresh(data: RefreshRequest):
     if not refreshed:
         return error_response("Refresh failed", "AUTH_ERROR", "Invalid refresh token")
     return ok_response("Token refreshed", refreshed)
+
+
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
+    """Generate a reset token and send email. Always returns ok (security — don't leak email existence)."""
+    try:
+        _ensure_reset_tokens_table()
+        user = get_user(data.email, data.tenant_id)
+        if user:
+            token = secrets.token_urlsafe(48)
+            expires = datetime.utcnow() + timedelta(hours=1)
+            conn = get_db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO password_reset_tokens (token, email, tenant_id, expires_at) VALUES (%s, %s, %s, %s)",
+                    (token, data.email, data.tenant_id, expires)
+                )
+                conn.commit()
+            finally:
+                cur.close()
+                conn.close()
+
+            base_url = str(request.base_url).rstrip("/")
+            reset_link = f"{base_url}/static/reset_password.html?token={token}&tenant_id={data.tenant_id}"
+            _send_reset_email(data.email, reset_link)
+            log.info("action=forgot_password email=%s tenant=%s", data.email, data.tenant_id)
+
+        return ok_response("თუ ეს email რეგისტრირებულია, reset ლინკი გაიგზავნება", {})
+    except Exception as e:
+        log.error("action=forgot_password_error: %s", e)
+        return error_response("Error", "RESET_ERROR", str(e))
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+def auth_reset_password(data: ResetPasswordRequest, request: Request):
+    """Validate reset token and update password."""
+    try:
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT email, tenant_id, expires_at, used
+                   FROM password_reset_tokens
+                   WHERE token = %s""",
+                (data.token,)
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
+
+        if not row:
+            return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
+        email, tenant_id, expires_at, used = row
+        if used:
+            return error_response("Token used", "TOKEN_USED", "ეს ლინკი უკვე გამოყენებულია")
+        if datetime.utcnow() > expires_at:
+            return error_response("Token expired", "TOKEN_EXPIRED", "ლინკის ვადა გასულია — ახალი მოითხოვეთ")
+
+        new_hash = hash_password(data.new_password)
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s",
+                (new_hash, email, tenant_id)
+            )
+            cur.execute(
+                "UPDATE password_reset_tokens SET used=TRUE WHERE token=%s",
+                (data.token,)
+            )
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+        log.info("action=password_reset_success email=%s tenant=%s", email, tenant_id)
+        return ok_response("პაროლი წარმატებით შეიცვალა", {"email": email, "tenant_id": tenant_id})
+
+    except Exception as e:
+        log.error("action=reset_password_error: %s", e)
+        return error_response("Error", "RESET_ERROR", str(e))
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+def auth_change_password(data: ChangePasswordRequest, request: Request, authorization: Optional[str] = Header(None)):
+    """Change password for logged-in user."""
+    token = _extract_bearer_token(authorization)
+    if not token:
+        return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        return error_response("Unauthorized", "AUTH_ERROR", "Invalid token")
+
+    email = payload.get("email")
+    tenant_id = payload.get("tenant_id", "default")
+    user = get_user(email, tenant_id)
+    if not user:
+        return error_response("User not found", "NOT_FOUND", "მომხმარებელი ვერ მოიძებნა")
+    if not verify_password(data.current_password, user["password_hash"]):
+        return error_response("Wrong password", "AUTH_ERROR", "მიმდინარე პაროლი არასწორია")
+
+    new_hash = hash_password(data.new_password)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s", (new_hash, email, tenant_id))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    log.info("action=change_password_success email=%s tenant=%s", email, tenant_id)
+    return ok_response("პაროლი წარმატებით შეიცვალა", {})

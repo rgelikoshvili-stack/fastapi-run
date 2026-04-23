@@ -311,7 +311,6 @@ em.serif, .serif{font-family:var(--serif);font-style:italic;font-weight:400}
   margin-bottom:28px;
   display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;
 }
-input::-ms-reveal, input::-ms-clear { display: none; }
 .p-eye{
   display:inline-flex;align-items:center;gap:8px;padding:4px 11px;
   background:var(--accent-soft);border:1px solid rgba(140,60,45,.18);border-radius:999px;
@@ -2455,7 +2454,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
     <div id="login-form-container">
       <div class="form-grid c1">
         <div class="field"><label>ელ-ფოსტა</label><input id="li-email" type="email" class="inp" placeholder="admin@bridgehub.ge"/></div>
-        <div class="field"><label>პაროლი</label><div style="position:relative"><input id="li-pass" type="password" class="inp" placeholder="••••••••" style="padding-right:38px"/><span onclick="var i=document.getElementById('li-pass');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;line-height:1">👁</span></div></div>
+        <div class="field"><label>პაროლი</label><input id="li-pass" type="password" class="inp" placeholder="••••••••"/></div>
         <div class="field"><label>Tenant ID</label><input id="li-tenant" type="text" class="inp" value="default"/></div>
       </div>
       <div class="login-err" id="li-err"></div>

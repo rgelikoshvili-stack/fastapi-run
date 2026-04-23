@@ -467,7 +467,7 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
 
 <script>
 const TOKEN_KEY = 'access_token';
-function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+function getToken() { return localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'' || ''; }
 
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() } };

@@ -176,7 +176,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 </div>
 
 <script>
-const token = () => localStorage.getItem('access_token') || '';
+const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 

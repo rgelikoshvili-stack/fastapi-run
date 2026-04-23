@@ -370,7 +370,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 
 <script>
 const BASE = '';
-let TOKEN = localStorage.getItem('access_token') || '';
+let TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 let DRAFT_ID = null;
 let _draft = null;
 

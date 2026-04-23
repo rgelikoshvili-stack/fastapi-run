@@ -316,7 +316,7 @@ textarea.form-control{resize:vertical;min-height:80px}
 
 <script>
 const BASE = '';
-let TOKEN = localStorage.getItem('access_token') || '';
+let TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 let _type = 'goods'; // 'goods' | 'service'
 let _invoiceId = null;
 let _autosaveTimer = null;

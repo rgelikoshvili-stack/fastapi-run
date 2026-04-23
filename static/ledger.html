@@ -229,7 +229,7 @@ tbody td.bal-col{font-family:var(--mono);font-size:12.5px;text-align:right;font-
 
 <script>
 const API = '';
-const token = () => localStorage.getItem('access_token') || '';
+const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 
 function fmt(v){ return Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 

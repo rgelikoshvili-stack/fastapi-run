@@ -208,7 +208,7 @@ tbody td.net-num{text-align:right;font-family:var(--mono);font-size:12.5px;font-
 </div>
 
 <script>
-const token = () => localStorage.getItem('access_token') || '';
+const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 
 try {

@@ -2604,6 +2604,7 @@ async function doLogin(email, password, tenant) {
     TOKEN = token; window.TOKEN = TOKEN;
     TENANT = tenant || d.data?.tenant_id || d.data?.user?.tenant_id || 'default';
     localStorage.setItem('access_token', TOKEN);
+    localStorage.setItem('bh_token', TOKEN);
     localStorage.setItem('tenant_id', TENANT);
     hideLoginModal();
     updateUserChip(email);

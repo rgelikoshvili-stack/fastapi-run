@@ -53,6 +53,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
 from app.api.services.approval_service import autopilot_approve_service
 from app.api.services.learning_service import run_decay_service
+from app.api.services.email_collector import collect_tenant_inbox, get_all_active_tenants, _ensure_tables as _ensure_email_tables
 from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
 
@@ -177,6 +178,7 @@ from app.api import routes_client_portal
 from app.api.routes_dashboard_insights import router as dashboard_insights_router
 from app.api import routes_payroll
 from app.api import routes_email_invoice
+from app.api.routes_email_collector import router as routes_email_collector
 from app.api import routes_bank_sync
 from app.api import routes_ai_chat
 from app.api.routes_claude_chat import router as routes_claude_chat
@@ -248,6 +250,7 @@ app.include_router(dashboard_insights_router)
 app.include_router(routes_client_portal.router)
 app.include_router(routes_payroll.router)
 app.include_router(routes_email_invoice.router)
+app.include_router(routes_email_collector)
 app.include_router(routes_bank_sync.router)
 app.include_router(routes_ai_chat.router)
 app.include_router(routes_ai_recommend)
@@ -300,6 +303,24 @@ async def decay_loop():
         except Exception as e:
             print(f"❌ Decay error: {e}")
         await asyncio.sleep(3600)
+
+
+async def email_poller_loop():
+    """Poll all active tenants' inboxes every 5 minutes."""
+    await asyncio.sleep(30)  # warm-up: wait for app to be fully ready
+    while True:
+        try:
+            tenants = get_all_active_tenants()
+            for tid in tenants:
+                try:
+                    result = await collect_tenant_inbox(tid)
+                    if result.get("processed", 0) > 0:
+                        print(f"📧 Email poller [{tid}]: {result['processed']} drafts created")
+                except Exception as e:
+                    print(f"❌ Email poller [{tid}] error: {e}")
+        except Exception as e:
+            print(f"❌ Email poller loop error: {e}")
+        await asyncio.sleep(300)  # 5 minutes
 
 
 def _run_db_migrations():
@@ -493,9 +514,16 @@ async def start_background_tasks():
     print("🚀 Starting background scheduler...")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
+    asyncio.create_task(email_poller_loop())
     # DB column migrations
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _run_db_migrations)
+    # Email collector tables
+    try:
+        await loop.run_in_executor(None, _ensure_email_tables)
+        print("✅ Email collector tables OK")
+    except Exception as e:
+        print(f"⚠️ Email tables migration error (non-fatal): {e}")
     # JSON → DB one-time migration
     try:
         from bridge_hub_knowledge import migrate_json_to_db

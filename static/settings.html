@@ -466,7 +466,7 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
 <div id="toast"></div>
 
 <script>
-const TOKEN_KEY = 'bh_token';
+const TOKEN_KEY = 'access_token';
 function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
 
 async function api(path, method='GET', body=null) {

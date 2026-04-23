@@ -277,7 +277,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 
 <script>
 const BASE='';
-let TOKEN=localStorage.getItem('bh_token')||'';
+let TOKEN=localStorage.getItem('access_token')||'';
 const H=()=>TOKEN?{Authorization:'Bearer '+TOKEN}:{};
 
 async function loadMe(){

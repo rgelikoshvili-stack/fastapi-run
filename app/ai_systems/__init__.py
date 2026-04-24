@@ -6,6 +6,12 @@ from app.ai_systems.external_api_ai import (
     analyze_posting_error,
 )
 from app.ai_systems.document_ai import process_document_to_draft, enrich_draft_with_ai
+from app.ai_systems.learning_ai import (
+    learn_from_approval,
+    learn_from_rejection,
+    learn_from_correction,
+    get_learning_insights,
+)
 
 __all__ = [
     "generate_journal_entries",
@@ -14,4 +20,8 @@ __all__ = [
     "analyze_posting_error",
     "process_document_to_draft",
     "enrich_draft_with_ai",
+    "learn_from_approval",
+    "learn_from_rejection",
+    "learn_from_correction",
+    "get_learning_insights",
 ]

@@ -213,6 +213,27 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
             final["account_code"]
         )
 
+        # AI pattern suggestion — best-effort, never blocks the correction
+        ai_suggestion = None
+        try:
+            from app.ai_systems.learning_ai import _ai_suggest_pattern
+            ai_suggestion = _ai_suggest_pattern(
+                {
+                    "description": row[1],
+                    "partner": row[2],
+                    "amount": row[7],
+                    "debit_account": original["debit_account"],
+                    "credit_account": original["credit_account"],
+                },
+                {
+                    "debit_account": final["debit_account"],
+                    "credit_account": final["credit_account"],
+                },
+                tenant_id,
+            )
+        except Exception as _ae:
+            log.debug("ai_suggest_pattern skipped: %s", _ae)
+
         return {
             "ok": True,
             "message": "Draft corrected and learning updated",
@@ -224,6 +245,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
                 "delta_summary": delta_summary,
                 "learning_result": learning_result,
                 "memory_result": memory_result,
+                "ai_suggestion": ai_suggestion,
             },
             "error": None,
         }

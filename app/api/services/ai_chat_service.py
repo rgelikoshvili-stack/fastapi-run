@@ -428,7 +428,7 @@ async def handle_ai_chat(
 
     # Claude — main chat brain
     if CLAUDE_CHAT_AVAILABLE:
-        claude_answer = chat_with_claude(message, context=context, tenant_id=tenant_id, role=role)
+        claude_answer = chat_with_claude(message, context=context, tenant_id=tenant_id, role=role, session_id=session_id)
         if claude_answer:
             search_method = "claude_chat_with_memory" if memory_result.get("matched") else "claude_chat"
             confidence = max(0.92, float(memory_result.get("confidence", 0.0))) if memory_result.get("matched") else 0.92

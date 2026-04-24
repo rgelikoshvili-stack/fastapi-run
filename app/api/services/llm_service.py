@@ -207,16 +207,19 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
     return f"ტრანზაქცია: {desc} — თანხა: {amount:.2f} ₾"
 
 
+# In-memory conversation history per session (max 20 turns, cleared on restart)
+_chat_history: dict = {}
+_HISTORY_MAX_TURNS = 10
+
+
 def chat_with_claude(
     message: str,
     context: str = "",
     tenant_id: str = "default",
     role: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Optional[str]:
-    """
-    Claude as main Bridge Hub chat brain.
-    role: 'accountant' | 'consultant' | 'assistant' (default)
-    """
+    """Claude as main Bridge Hub chat brain with conversation history."""
     try:
         import anthropic
         from app.api.services.prompt_profiles import get_profile
@@ -229,18 +232,22 @@ def chat_with_claude(
 
         profile = get_profile(role)
         system = profile["system"]
-        max_tokens = profile.get("max_tokens", 1000)
+        max_tokens = profile.get("max_tokens", 4096)
 
         user_text = message
         if context:
-            user_text = f"კონტექსტი:\n{context}\n\nმომხმარებლის შეკითხვა:\n{message}"
+            user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
+
+        # Build messages with history
+        history = _chat_history.get(session_id, []) if session_id else []
+        messages = history + [{"role": "user", "content": user_text}]
 
         model_id = "claude-3-5-sonnet-20241022"
         resp = client.messages.create(
             model=model_id,
             max_tokens=max_tokens,
             system=system,
-            messages=[{"role": "user", "content": user_text}],
+            messages=messages,
         )
 
         input_tokens = getattr(resp.usage, "input_tokens", 0)
@@ -252,7 +259,17 @@ def chat_with_claude(
             return None
 
         text = getattr(content[0], "text", "") or ""
-        return text.strip() or None
+        answer = text.strip() or None
+
+        # Save to history
+        if answer and session_id:
+            history = history + [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": answer},
+            ]
+            _chat_history[session_id] = history[-(2 * _HISTORY_MAX_TURNS):]
+
+        return answer
 
     except Exception as e:
         logger.error(f"claude chat error: {e}")

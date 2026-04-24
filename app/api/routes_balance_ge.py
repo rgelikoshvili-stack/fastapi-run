@@ -5,6 +5,11 @@ import httpx
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_db
 import psycopg2.extras
+from app.ai_systems.external_api_ai import (
+    assess_human_gate,
+    validate_before_posting,
+    analyze_posting_error,
+)
 
 router = APIRouter(prefix="/balance-ge", tags=["balance-ge"])
 
@@ -55,6 +60,20 @@ async def post_journals(req: JournalPostRequest, request: Request):
     if not drafts:
         return error_response("No approved drafts found", "NOT_FOUND", "")
 
+    # AI human gate + pre-posting validation
+    gate_blocks = []
+    for d in drafts:
+        gate = assess_human_gate(d, "balance")
+        if gate["requires_human"]:
+            gate_blocks.append({"draft_id": d["id"], "reasons": gate["reasons"], "risk_level": gate["risk_level"]})
+
+    if gate_blocks:
+        return error_response(
+            "Human approval required before posting",
+            "HUMAN_GATE_REQUIRED",
+            gate_blocks,
+        )
+
     posted, failed = [], []
     async with httpx.AsyncClient(timeout=30) as client:
         for d in drafts:
@@ -78,7 +97,13 @@ async def post_journals(req: JournalPostRequest, request: Request):
                 if r.status_code in (200, 201):
                     posted.append({"id": d["id"], "status": "posted"})
                 else:
-                    failed.append({"id": d["id"], "error": r.text[:200]})
+                    analysis = analyze_posting_error(r.text[:500], d, "balance", tenant_id)
+                    failed.append({
+                        "id": d["id"],
+                        "error": r.text[:200],
+                        "ai_explanation": analysis["georgian_explanation"],
+                        "suggested_fix": analysis["suggested_fix"],
+                    })
             except Exception as e:
                 failed.append({"id": d["id"], "error": str(e)})
 

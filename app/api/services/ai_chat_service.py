@@ -293,6 +293,70 @@ def _append_memory_to_context(context: str, memory_result: Dict[str, Any]) -> st
     return (context or "") + memory_block
 
 
+def _build_live_db_context(tenant_id: str) -> str:
+    """Fetch real-time DB snapshot to inject into Claude context."""
+    try:
+        from app.api.db import get_db
+        conn = get_db()
+        cur = conn.cursor()
+
+        lines = ["[Live Bridge Hub Data]"]
+
+        # Pending drafts
+        try:
+            cur.execute(
+                "SELECT COUNT(*) as cnt FROM journal_drafts "
+                "WHERE status='pending' AND tenant_id::text = %s",
+                (tenant_id,)
+            )
+            row = cur.fetchone()
+            pending = row["cnt"] if row else 0
+            lines.append(f"Pending drafts: {pending}")
+        except Exception:
+            pass
+
+        # Last 5 drafts
+        try:
+            cur.execute(
+                "SELECT description, amount, status, created_at "
+                "FROM journal_drafts WHERE tenant_id::text = %s "
+                "ORDER BY created_at DESC LIMIT 5",
+                (tenant_id,)
+            )
+            rows = cur.fetchall()
+            if rows:
+                lines.append("Recent drafts:")
+                for r in rows:
+                    lines.append(
+                        f"  - {r['description']} | {r['amount']} GEL | {r['status']}"
+                    )
+        except Exception:
+            pass
+
+        # Bank accounts balance
+        try:
+            cur.execute(
+                "SELECT name, balance, currency FROM bank_accounts "
+                "WHERE tenant_id::text = %s ORDER BY balance DESC LIMIT 3",
+                (tenant_id,)
+            )
+            rows = cur.fetchall()
+            if rows:
+                lines.append("Bank accounts:")
+                for r in rows:
+                    lines.append(
+                        f"  - {r['name']}: {r['balance']} {r['currency']}"
+                    )
+        except Exception:
+            pass
+
+        cur.close()
+        return "\n".join(lines)
+    except Exception as e:
+        log.debug("live_db_context failed: %s", e)
+        return ""
+
+
 # ─────────────────────────────────────────────────────────────
 # MAIN CHAT HANDLER
 # ─────────────────────────────────────────────────────────────
@@ -425,6 +489,11 @@ async def handle_ai_chat(
 
     memory_result = _build_memory_context(message, tenant_id)
     context = _append_memory_to_context(context, memory_result)
+
+    # Inject live DB snapshot so Claude sees real-time system state
+    live_ctx = _build_live_db_context(tenant_id)
+    if live_ctx:
+        context = live_ctx + ("\n\n" + context if context else "")
 
     # Claude — main chat brain
     if CLAUDE_CHAT_AVAILABLE:

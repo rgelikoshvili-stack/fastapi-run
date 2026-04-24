@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Code vs AI Map</title>
+<style>
+:root{
+  --paper:#f3ecdc;--card:#faf3e3;--line:#dfd3b8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
+  --accent:#8c3c2d;--accent-d:#6a2e22;
+  --code:#3a5a8c;--code-soft:rgba(58,90,140,.12);--code-bg:#e8f0fb;
+  --ai:#5a3a8c;--ai-soft:rgba(90,58,140,.12);--ai-bg:#f0ebfb;
+  --green:#27500a;--green-bg:#eaf3de;
+  --font:'Inter',system-ui,sans-serif;
+  --serif:'Georgia',serif;
+  --mono:'Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);font-family:var(--font);color:var(--ink);font-size:14px;
+  background:radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),
+             radial-gradient(700px 500px at 90% 100%,rgba(140,60,45,.07),transparent 55%),
+             var(--paper);
+  min-height:100vh;padding:40px 20px;}
+.wrap{max-width:960px;margin:0 auto;}
+
+/* HEADER */
+.header{text-align:center;margin-bottom:40px;}
+.header h1{font-size:28px;font-weight:700;letter-spacing:-.03em;}
+.header h1 em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-dim);}
+.header p{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-dim);margin-top:6px;}
+.logo{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;
+  border-radius:50%;background:var(--ink);color:var(--paper);
+  font-family:var(--serif);font-style:italic;font-size:26px;margin-bottom:12px;}
+
+/* LEGEND */
+.legend{display:flex;justify-content:center;gap:24px;margin-bottom:32px;flex-wrap:wrap;}
+.leg{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;}
+.leg-dot{width:12px;height:12px;border-radius:3px;}
+.leg-code{background:var(--code);}
+.leg-ai{background:var(--ai);}
+
+/* SECTION TITLE */
+.sec-title{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-dim);margin:32px 0 14px;display:flex;align-items:center;gap:10px;}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--line);}
+
+/* SPLIT BAR */
+.split-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:20px 24px;margin-bottom:12px;}
+.split-label{font-size:13.5px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.split-sub{font-size:11.5px;color:var(--ink-dim);margin-bottom:12px;font-family:var(--serif);font-style:italic;}
+.split-bar{display:flex;height:28px;border-radius:8px;overflow:hidden;gap:2px;}
+.bar-code{background:var(--code);display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:11px;font-weight:600;font-family:var(--mono);transition:.8s;min-width:40px;}
+.bar-ai{background:var(--ai);display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:11px;font-weight:600;font-family:var(--mono);transition:.8s;min-width:40px;}
+.split-meta{display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--ink-dim);}
+
+/* FUNCTION GRID */
+.fn-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+@media(max-width:640px){.fn-grid{grid-template-columns:1fr;}}
+.fn-col{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+.fn-col-title{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.fn-col-title.code-t{color:var(--code);}
+.fn-col-title.ai-t{color:var(--ai);}
+.fn-dot{width:10px;height:10px;border-radius:50%;}
+.fn-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--line);font-size:13px;}
+.fn-item:last-child{border-bottom:none;}
+.fn-icon{font-size:16px;flex-shrink:0;margin-top:1px;}
+.fn-text{}
+.fn-name{font-weight:600;color:var(--ink-soft);}
+.fn-desc{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:2px;}
+
+/* STATUS CHIPS */
+.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;
+  font-size:10px;font-weight:600;letter-spacing:.04em;margin-left:6px;vertical-align:middle;}
+.chip-live{background:var(--green-bg);color:var(--green);}
+.chip-ai{background:var(--ai-bg);color:var(--ai);}
+.chip-code{background:var(--code-bg);color:var(--code);}
+
+/* WHY TABLE */
+.why-table{width:100%;border-collapse:collapse;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.why-table th{background:var(--ink);color:var(--paper);padding:10px 16px;
+  font-size:11px;letter-spacing:.08em;text-align:left;font-weight:600;}
+.why-table td{padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top;}
+.why-table tr:last-child td{border-bottom:none;}
+.why-table tr:hover td{background:rgba(0,0,0,.02);}
+.metric-val{font-family:var(--mono);font-weight:700;font-size:15px;}
+.metric-val.up{color:var(--green);}
+.metric-val.ai-c{color:var(--ai);}
+
+/* FOOTER */
+.footer{text-align:center;margin-top:48px;font-family:var(--serif);font-style:italic;
+  font-size:13px;color:var(--ink-ghost);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">B</div>
+  <h1>Bridge <em>Hub</em> — Code vs AI</h1>
+  <p>ინფრასტრუქტურა vs ინტელექტი — ვინ რას აკეთებს</p>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="leg"><div class="leg-dot leg-code"></div>კოდი (Infrastructure)</div>
+  <div class="leg"><div class="leg-dot leg-ai"></div>AI (Intelligence)</div>
+</div>
+
+<!-- DISTRIBUTION -->
+<div class="sec-title">განაწილება — ახლანდელი vs იდეალი</div>
+
+<div class="split-card">
+  <div class="split-label">📍 ახლანდელი მდგომარეობა</div>
+  <div class="split-sub">INFRASTRUCTURE-HEAVY · AI მხოლოდ რთულ CASES-ში</div>
+  <div class="split-bar">
+    <div class="bar-code" style="width:80%">კოდი 80%</div>
+    <div class="bar-ai" style="width:20%">AI 20%</div>
+  </div>
+  <div class="split-meta"><span>კოდი: routing, DB, auth, rules</span><span>AI: classification fallback</span></div>
+</div>
+
+<div class="split-card">
+  <div class="split-label">🎯 Phase 5-ის შემდეგ (ახლა)</div>
+  <div class="split-sub">BALANCED · AI PRIMARY, კოდი FALLBACK + INFRASTRUCTURE</div>
+  <div class="split-bar">
+    <div class="bar-code" style="width:60%">კოდი 60%</div>
+    <div class="bar-ai" style="width:40%">AI 40%</div>
+  </div>
+  <div class="split-meta"><span>კოდი: DB, auth, routing, validation</span><span>AI: classification, chat, email parse</span></div>
+</div>
+
+<div class="split-card">
+  <div class="split-label">🚀 Dream State (12 თვეში)</div>
+  <div class="split-sub">AGENT-BASED · AI კვეტებს მთელ ოპერაციებს, კოდი ანალიზს ასრულებს</div>
+  <div class="split-bar">
+    <div class="bar-code" style="width:50%">კოდი 50%</div>
+    <div class="bar-ai" style="width:50%">AI 50%</div>
+  </div>
+  <div class="split-meta"><span>კოდი: strict infrastructure layer</span><span>AI: autonomous accounting agent</span></div>
+</div>
+
+<!-- FUNCTION BREAKDOWN -->
+<div class="sec-title">ფუნქციების დეტალური განაწილება</div>
+
+<div class="fn-grid">
+  <!-- CODE COLUMN -->
+  <div class="fn-col">
+    <div class="fn-col-title code-t">
+      <div class="fn-dot" style="background:var(--code)"></div>
+      კოდი აკეთებს
+    </div>
+
+    <div class="fn-item">
+      <div class="fn-icon">🔐</div>
+      <div class="fn-text">
+        <div class="fn-name">Authentication & JWT<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">Login, register, token refresh, tenant isolation</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🗄️</div>
+      <div class="fn-text">
+        <div class="fn-name">Database Layer<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">PostgreSQL, tenant-scoped queries, migrations</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">✅</div>
+      <div class="fn-text">
+        <div class="fn-name">Approval Queue<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">SELECT FOR UPDATE, race condition protection, batch ops</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📤</div>
+      <div class="fn-text">
+        <div class="fn-name">ERP Posting<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">Balance.ge / 1C / ORIS — HTTP API calls, retry logic</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🏦</div>
+      <div class="fn-text">
+        <div class="fn-name">Bank CSV Upload<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">TBC/BOG CSV/XLSX parse, dedup SHA-256 hash</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📊</div>
+      <div class="fn-text">
+        <div class="fn-name">Reports & Ledger<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">Trial balance, P&L, journal, payroll ledger</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🧾</div>
+      <div class="fn-text">
+        <div class="fn-name">Tax Calculations<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">VAT 18%, PIT 20%, PAYG 2%, CIT 15%, withholding</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🔒</div>
+      <div class="fn-text">
+        <div class="fn-name">RBAC & Rate Limiting<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">Permission system, slowapi 5-30 req/min limits</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">✔️</div>
+      <div class="fn-text">
+        <div class="fn-name">INN / Data Validation<span class="chip chip-live">LIVE</span></div>
+        <div class="fn-desc">Georgian INN 9/11 digits, Dr/Cr balance, account codes</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI COLUMN -->
+  <div class="fn-col">
+    <div class="fn-col-title ai-t">
+      <div class="fn-dot" style="background:var(--ai)"></div>
+      AI აკეთებს
+    </div>
+
+    <div class="fn-item">
+      <div class="fn-icon">🏷️</div>
+      <div class="fn-text">
+        <div class="fn-name">Transaction Classification<span class="chip chip-ai">CLAUDE</span></div>
+        <div class="fn-desc">ტექსტიდან COA კოდი: TBC→7510, Amazon→7810, ხელფასი→7120</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📧</div>
+      <div class="fn-text">
+        <div class="fn-name">Email IMAP Collector<span class="chip chip-ai">CLAUDE</span></div>
+        <div class="fn-desc">Gmail scan → PDF extract → AI parse → draft creation</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🧠</div>
+      <div class="fn-text">
+        <div class="fn-name">AI Financial Chat<span class="chip chip-ai">CLAUDE</span></div>
+        <div class="fn-desc">ბუღალტრული კითხვები, VAT/payroll calc, journal preview</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📄</div>
+      <div class="fn-text">
+        <div class="fn-name">Document OCR / Extraction<span class="chip chip-ai">GPT-4o</span></div>
+        <div class="fn-desc">Invoice/waybill → seller INN, buyer INN, amounts, dates</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📈</div>
+      <div class="fn-text">
+        <div class="fn-name">Confidence Scoring<span class="chip chip-ai">AI</span></div>
+        <div class="fn-desc">Pattern match + LLM score → autopilot threshold decision</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🔮</div>
+      <div class="fn-text">
+        <div class="fn-name">Cashflow Forecast<span class="chip chip-ai">AI</span></div>
+        <div class="fn-desc">3-month average → annual forecast, seasonal patterns</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">📚</div>
+      <div class="fn-text">
+        <div class="fn-name">Learning Patterns<span class="chip chip-ai">ML</span></div>
+        <div class="fn-desc">Correction → DB → re-train → confidence decay system</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🤖</div>
+      <div class="fn-text">
+        <div class="fn-name">Autopilot<span class="chip chip-ai">AI</span></div>
+        <div class="fn-desc">confidence ≥ 85% → auto-approve + WebSocket notify</div>
+      </div>
+    </div>
+    <div class="fn-item">
+      <div class="fn-icon">🔁</div>
+      <div class="fn-text">
+        <div class="fn-name">Gemini Fallback<span class="chip chip-ai">GEMINI</span></div>
+        <div class="fn-desc">Claude fail → Gemini 2.5 Flash → validate → draft</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WHY AI WINS -->
+<div class="sec-title">რატომ უჯობს AI — მეტრიკები</div>
+
+<table class="why-table">
+  <thead>
+    <tr>
+      <th>ფუნქცია</th>
+      <th>კოდი (regex/rules)</th>
+      <th>AI (LLM)</th>
+      <th>გაუმჯობესება</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>OCR accuracy</strong></td>
+      <td>60% — regex misses edge cases</td>
+      <td class="metric-val ai-c">90%+</td>
+      <td><span class="metric-val up">+30%</span></td>
+    </tr>
+    <tr>
+      <td><strong>Classification</strong></td>
+      <td>60% — keyword match only</td>
+      <td class="metric-val ai-c">95%</td>
+      <td><span class="metric-val up">+35%</span></td>
+    </tr>
+    <tr>
+      <td><strong>Email parsing</strong></td>
+      <td>0% — კოდი ვერ კითხულობს</td>
+      <td class="metric-val ai-c">85%+</td>
+      <td><span class="metric-val up">+85%</span></td>
+    </tr>
+    <tr>
+      <td><strong>User interaction</strong></td>
+      <td>Menu navigation only</td>
+      <td class="metric-val ai-c">Conversational</td>
+      <td><span class="metric-val up">10× faster</span></td>
+    </tr>
+    <tr>
+      <td><strong>Anomaly detection</strong></td>
+      <td>Static thresholds</td>
+      <td class="metric-val ai-c">Pattern + context</td>
+      <td><span class="metric-val up">3× precise</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer" style="margin-top:32px;">
+  Bridge Hub · Financial OS · Phase 5 Complete · 2026
+</div>
+
+</div>
+</body>
+</html>

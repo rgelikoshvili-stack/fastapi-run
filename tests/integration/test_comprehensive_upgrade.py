@@ -121,10 +121,14 @@ def test_resolve_keeps_valid_code():
 
 # ── TASK 5.1 — /approval/stats ───────────────────────────────────────────────
 
+_MOCK_TOKEN_PAYLOAD = {"sub": "test-user", "role": "admin", "tenant_id": "default", "type": "access"}
+
+
 def test_approval_stats_endpoint_exists():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_approval.get_db") as mock_db:
+    with patch("app.api.routes_approval.get_db") as mock_db, \
+         patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
         mock_cur = MagicMock()
         mock_cur.fetchone.return_value = {
             "pending_count": 3, "auto_approved": 5,
@@ -133,7 +137,7 @@ def test_approval_stats_endpoint_exists():
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cur
         mock_db.return_value = mock_conn
-        r = client.get("/approval/stats")
+        r = client.get("/approval/stats", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
     assert "pending_count" in data
@@ -144,13 +148,16 @@ def test_approval_stats_endpoint_exists():
 def test_batch_action_approve():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_approval.get_db") as mock_db:
+    with patch("app.api.routes_approval.get_db") as mock_db, \
+         patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
         mock_cur = MagicMock()
         mock_cur.rowcount = 2
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cur
         mock_db.return_value = mock_conn
-        r = client.post("/approval/batch-action", json={"action": "approve", "draft_ids": [1, 2]})
+        r = client.post("/approval/batch-action",
+                        json={"action": "approve", "draft_ids": [1, 2]},
+                        headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
     assert data.get("ok") is True
@@ -159,7 +166,10 @@ def test_batch_action_approve():
 def test_batch_action_invalid():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    r = client.post("/approval/batch-action", json={"action": "delete", "draft_ids": [1]})
+    with patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
+        r = client.post("/approval/batch-action",
+                        json={"action": "delete", "draft_ids": [1]},
+                        headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
     assert data.get("ok") is False
@@ -168,7 +178,10 @@ def test_batch_action_invalid():
 def test_batch_action_empty_ids():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    r = client.post("/approval/batch-action", json={"action": "approve", "draft_ids": []})
+    with patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
+        r = client.post("/approval/batch-action",
+                        json={"action": "approve", "draft_ids": []},
+                        headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
     assert data.get("ok") is False

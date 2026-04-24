@@ -27,6 +27,7 @@ async def rbac_middleware(request: Request, call_next):
         "/dashboard/",
         "/coa/",
         "/debug/ai-routing",
+        "/hub-map",
     )
 
     # public endpoints

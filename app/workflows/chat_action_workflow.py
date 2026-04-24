@@ -24,7 +24,8 @@ def run_chat_action_workflow(payload: dict) -> dict:
                 "error": "MISSING_DRAFT_ID",
             }
 
-        return approve_draft_service(int(draft_id))
+        tenant_id = payload.get("tenant_id", "default")
+        return approve_draft_service(int(draft_id), tenant_id=tenant_id)
 
     if action_name == "approval.reject":
         draft_id = payload.get("draft_id")
@@ -38,7 +39,8 @@ def run_chat_action_workflow(payload: dict) -> dict:
                 "error": "MISSING_DRAFT_ID",
             }
 
-        return reject_draft_service(int(draft_id), reason)
+        tenant_id = payload.get("tenant_id", "default")
+        return reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
 
     if action_name == "posting.apply":
         return {

@@ -177,34 +177,23 @@ def _call_gpt(description: str, context: dict, model: str, tenant_id: str) -> di
 
 
 def generate_preview(draft: dict, tenant_id: str = "default") -> str:
-    """
-    მოკლე ტექსტური preview.
-    თუ Claude ვერ იმუშავებს, აბრუნებს უსაფრთხო fallback-ს.
-    """
-    desc = _safe_text(draft.get("description", ""))
+    """Clean deterministic preview — no LLM (prevents hallucination)."""
+    desc = _safe_text(draft.get("description", "")) or "ტრანზაქცია"
     amount = draft.get("amount", 0) or 0
     if not amount:
         amount = _extract_amount_from_text(desc)
-
     account = _safe_text(draft.get("account_dr", ""))
+    partner = _safe_text(draft.get("partner", ""))
 
-    try:
-        claude = chat_with_claude(
-            message=(
-                f"ტრანზაქცია: {desc}\n"
-                f"თანხა: {amount} GEL\n"
-                f"ანგარიში: {account}\n\n"
-                f"დაწერე ერთი მოკლე, ზუსტი ქართული წინადადება."
-            ),
-            context="ეს არის preview ტექსტი Bridge Hub-ისთვის.",
-            tenant_id=tenant_id,
-        )
-        if claude:
-            return claude.strip()
-    except Exception as e:
-        logger.error(f"preview error: {e}")
+    parts = [desc]
+    if partner and partner.lower() not in desc.lower():
+        parts.append(partner)
+    if account:
+        parts.append(f"ანგ. {account}")
+    if amount:
+        parts.append(f"{amount:,.2f} ₾")
 
-    return f"ტრანზაქცია: {desc} — თანხა: {amount:.2f} ₾"
+    return " | ".join(parts)
 
 
 # In-memory conversation history per session (max 20 turns, cleared on restart)

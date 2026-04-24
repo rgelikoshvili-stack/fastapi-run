@@ -91,6 +91,14 @@ def root():
         return HTMLResponse("<h1>Bridge Hub v1.0.0</h1><p><a href='/docs'>API Docs</a></p>")
 
 
+@app.get("/hub-map")
+def hub_map():
+    try:
+        return FileResponse("static/bridge_hub_map.html")
+    except Exception:
+        return HTMLResponse("<h1>404</h1>")
+
+
 # --- EXCEPTION HANDLERS ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

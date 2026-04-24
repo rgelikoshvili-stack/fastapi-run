@@ -190,52 +190,7 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft);white-
 <body>
 
 <!-- ── SIDEBAR ── -->
-<nav class="sidebar">
-  <div class="brand">
-    <div class="logo">B</div>
-    <div>
-      <div class="bname">Bridge <em>Hub</em></div>
-      <div class="brole">Financial OS</div>
-    </div>
-  </div>
-  <div class="nav">
-    <div class="sec">მთავარი</div>
-    <div class="item" onclick="go('/static/approval.html')">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      <span class="lbl">სამუშაო სივრცე</span>
-    </div>
-
-    <div class="sec">შემომავალი</div>
-    <div class="item active">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8l4 2v5h-4"/><path d="M7 13v4"/><path d="M5 13v4"/></svg>
-      <span class="lbl">ზედნადებები</span>
-      <span class="badge" id="sideWbCount">0</span>
-    </div>
-    <div class="item" onclick="go('/static/tax_invoices.html')">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-      <span class="lbl">საგ. ანგ-ფაქტურები</span>
-    </div>
-
-    <div class="sec">გამავალი</div>
-    <div class="item" onclick="go('/static/outgoing_form.html?type=goods')">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-      <span class="lbl">ჩემი ინვოისები</span>
-    </div>
-
-    <div class="sec">ჩანაწერები</div>
-    <div class="item" onclick="go('/static/approval.html')">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span class="lbl">სამ. ჟურნალი</span>
-    </div>
-  </div>
-  <div class="foot">
-    <div class="av" id="footAv">?</div>
-    <div>
-      <div class="uname" id="footName">—</div>
-      <div class="urole" id="footRole">—</div>
-    </div>
-  </div>
-</nav>
+<aside class="sidebar" id="sidebar-mount"></aside>
 
 <!-- ── MAIN ── -->
 <div class="main">
@@ -601,6 +556,13 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal() });
 
 loadMe();
 loadWaybills();
+</script>
+
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('waybills');
+});
 </script>
 </body>
 </html>

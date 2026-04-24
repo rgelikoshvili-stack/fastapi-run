@@ -4570,6 +4570,7 @@ async function init() {
   loadPage();
   setTimeout(() => loadNotifications(), 500);
   setTimeout(() => connectLiveWS(), 1500);
+  setInterval(() => { loadKPI(); }, 30000);
 }
 
 /* ═════════ LIVE WebSocket ═════════ */

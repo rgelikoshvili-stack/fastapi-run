@@ -76,7 +76,7 @@ def budget_vs_actual(year: int, request: Request):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute(
-                "SELECT * FROM budgets WHERE year=%s AND tenant_id=%s ORDER BY account_code",
+                "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code",
                 (year, tenant_id),
             )
             budgets = [dict(r) for r in cur.fetchall()]
@@ -87,7 +87,7 @@ def budget_vs_actual(year: int, request: Request):
                 FROM journal_drafts
                 WHERE (date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND EXTRACT(YEAR FROM date::date) = %s
                        OR date IS NULL AND EXTRACT(YEAR FROM created_at) = %s)
-                  AND tenant_id = %s
+                  AND tenant_id::text = %s
                 GROUP BY account_code, reason
             """, (year, year, tenant_id))
             actuals = {(r["account_code"], r["category"]): float(r["actual"]) for r in cur.fetchall()}
@@ -140,7 +140,7 @@ def forecast(year: int, request: Request):
                        SUM(amount) as monthly_total
                 FROM journal_drafts
                 WHERE created_at >= NOW() - INTERVAL '3 months'
-                  AND tenant_id=%s
+                  AND tenant_id::text = %s
                 GROUP BY account_code, reason, DATE_TRUNC('month', created_at)
             ) sub
             GROUP BY account_code, reason
@@ -176,7 +176,7 @@ def list_budgets(year: int, request: Request):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT * FROM budgets WHERE year=%s AND tenant_id=%s ORDER BY account_code",
+            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code",
             (year, tenant_id),
         )
         budgets = [dict(r) for r in cur.fetchall()]

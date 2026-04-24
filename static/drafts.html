@@ -185,58 +185,7 @@ td.dim{color:var(--ink-dim)}
 <body>
 
 <!-- SIDEBAR -->
-<aside class="sidebar">
-  <div class="brand">
-    <div class="logo">B</div>
-    <div>
-      <div class="bname">Bridge <em>Hub</em></div>
-      <div class="brole">Financial OS</div>
-    </div>
-  </div>
-
-  <nav class="nav">
-    <div class="sec">მთავარი</div>
-    <div class="item" onclick="location.href='/static/approval.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
-      <span class="lbl">Dashboard</span>
-    </div>
-
-    <div class="sec">ჩანაწერები</div>
-    <div class="item active">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
-      <span class="lbl">📋 დრაფტები</span>
-      <span class="badge" id="sbPendingBadge" style="display:none">0</span>
-    </div>
-
-    <div class="sec">AI</div>
-    <div class="item" onclick="location.href='/static/ai_control.html'">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
-      <span class="lbl">🧠 AI Control</span>
-    </div>
-
-    <div class="sec">დოკუმენტები</div>
-    <div class="item" onclick="location.href='/static/documents.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-      <span class="lbl">Documents Hub</span>
-    </div>
-    <div class="item" onclick="location.href='/static/waybills.html'">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-      <span class="lbl">ზედნადებები</span>
-    </div>
-    <div class="item" onclick="location.href='/static/tax_invoices.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <span class="lbl">საგ. ანგ-ფაქტურები</span>
-    </div>
-  </nav>
-
-  <div class="foot">
-    <div class="av">R</div>
-    <div>
-      <div class="uname" id="footUser">—</div>
-      <div class="urole" id="footTenant">—</div>
-    </div>
-  </div>
-</aside>
+<aside class="sidebar" id="sidebar-mount"></aside>
 
 <!-- MAIN -->
 <div class="main">
@@ -329,7 +278,8 @@ td.dim{color:var(--ink-dim)}
     <div class="tab-panel" id="panel-pending">
       <div class="bulk-bar" id="bulkBar">
         <div class="bulk-bar-info"><span id="bulkCount">0</span> არჩეული</div>
-        <button class="btn btn-success btn-sm" onclick="batchApprove()">✓ ჯგუფური დამტკ.</button>
+        <button class="btn btn-success btn-sm" onclick="batchAction('approve')">✓ დამტკ.</button>
+        <button class="btn btn-danger btn-sm" onclick="batchAction('reject')">✕ უარყ.</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--paper)" onclick="clearSelection()">გაუქმება</button>
       </div>
       <div class="toolbar">
@@ -739,18 +689,22 @@ async function approveAll() {
   setTimeout(() => { loadPending(); loadAll(); }, 600);
 }
 
-async function batchApprove() {
+async function batchAction(action) {
   if (!selectedIds.size) return;
-  if (!confirm(`${selectedIds.size} draft-ი დამტკიცდეს?`)) return;
-  let ok = 0, fail = 0;
-  for (const id of selectedIds) {
-    const d = await api('/approval/approve/' + id, 'POST');
-    if (d?.ok || d) ok++; else fail++;
+  const labels = { approve: 'დამტკიცება', reject: 'უარყოფა', correct: 'კორექცია' };
+  if (!confirm(`${selectedIds.size} draft-ზე: ${labels[action] || action}?`)) return;
+  const ids = Array.from(selectedIds).map(Number);
+  const d = await api('/approval/batch-action', 'POST', { action, draft_ids: ids });
+  if (d?.ok) {
+    toast(`✓ ${d.affected} draft — ${labels[action] || action}`, 'ok');
+  } else {
+    toast(`შეცდომა: ${d?.error?.message || 'unknown'}`, 'err');
   }
-  toast(`✓ ${ok} დამტკ.${fail ? ` · ${fail} შეცდ.` : ''}`, ok ? 'ok' : 'err');
   clearSelection();
   setTimeout(() => { loadPending(); loadAll(); }, 600);
 }
+
+async function batchApprove() { return batchAction('approve'); }
 
 // ── BOOT ──
 function boot() {
@@ -770,6 +724,13 @@ function boot() {
 document.addEventListener('DOMContentLoaded', boot);
 document.getElementById('rejectModal').addEventListener('click', e => {
   if (e.target === document.getElementById('rejectModal')) closeRejectModal();
+});
+</script>
+
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('queue');
 });
 </script>
 </body>

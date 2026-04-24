@@ -33,7 +33,7 @@ def list_accounts(request: Request):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT * FROM bank_accounts WHERE tenant_id=%s ORDER BY is_primary DESC, id",
+            "SELECT * FROM bank_accounts WHERE tenant_id::text = %s ORDER BY is_primary DESC, id",
             (tenant_id,),
         )
         accounts = [dict(r) for r in cur.fetchall()]
@@ -75,7 +75,7 @@ def update_balance(account_id: int, data: BalanceUpdate, request: Request):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id=%s",
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
             (account_id, tenant_id),
         )
         acc = cur.fetchone()
@@ -84,7 +84,7 @@ def update_balance(account_id: int, data: BalanceUpdate, request: Request):
         old_balance = float(acc["balance"])
         cur2 = conn.cursor()
         cur2.execute(
-            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id=%s",
+            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id::text = %s",
             (data.balance, account_id, tenant_id),
         )
         conn.commit()
@@ -104,12 +104,12 @@ def transfer(req: TransferRequest, request: Request):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id=%s",
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
             (req.from_account_id, tenant_id),
         )
         from_acc = cur.fetchone()
         cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id=%s",
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
             (req.to_account_id, tenant_id),
         )
         to_acc = cur.fetchone()
@@ -122,11 +122,11 @@ def transfer(req: TransferRequest, request: Request):
 
         cur2 = conn.cursor()
         cur2.execute(
-            "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id=%s",
+            "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id::text = %s",
             (req.amount, req.from_account_id, tenant_id),
         )
         cur2.execute(
-            "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id=%s",
+            "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id::text = %s",
             (req.amount, req.to_account_id, tenant_id),
         )
         conn.commit()
@@ -153,12 +153,12 @@ def account_summary(request: Request):
                    COUNT(*) as account_count,
                    COALESCE(SUM(balance),0) as total_balance
             FROM bank_accounts
-            WHERE tenant_id=%s
+            WHERE tenant_id::text = %s
             GROUP BY currency ORDER BY total_balance DESC
         """, (tenant_id,))
         by_currency = [dict(r) for r in cur.fetchall()]
         cur.execute(
-            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id=%s LIMIT 1",
+            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id::text = %s LIMIT 1",
             (tenant_id,),
         )
         primary = cur.fetchone()

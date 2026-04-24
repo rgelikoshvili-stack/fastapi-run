@@ -9,6 +9,43 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
+DEFAULT_ACCOUNT_MAPPING = {
+    "payg": "3380",
+    "bank fee": "7190",
+    "commission": "7190",
+    "საკომ": "7190",
+    "salary": "7120",
+    "ხელფასი": "7120",
+    "payroll": "7120",
+    "office": "7180",
+    "revenue": "6100",
+    "income": "6100",
+    "vat receivable": "1760",
+    "vat payable": "3310",
+    "rent": "7310",
+    "transport": "7730",
+    "advertising": "7710",
+    "entertainment": "7720",
+    "cit": "3340",
+    "pit": "3320",
+    "dividend": "3370",
+    "დივიდენდი": "3370",
+    "tax": "3380",
+}
+
+_INVALID_CODES = {"", "-", "ETC", "etc", "N/A", "n/a", "None", "null", "undefined"}
+
+
+def resolve_account_code(code: Optional[str], description: str = "") -> Optional[str]:
+    """Return a valid COA code, falling back to keyword mapping for invalid/missing codes."""
+    if code and code not in _INVALID_CODES:
+        return code
+    desc_lower = (description or "").lower()
+    for keyword, account in DEFAULT_ACCOUNT_MAPPING.items():
+        if keyword.lower() in desc_lower:
+            return account
+    return None
+
 
 class ExtractedParty(BaseModel):
     inn: Optional[str] = None
@@ -153,11 +190,15 @@ def _regex_extract(text: str) -> ExtractedDocument:
     elif any(kw in text_lower for kw in ["ამონაწერი", "statement", "ბანკი"]):
         doc_type = "bank_statement"
 
+    from app.api.services.journal_service import validate_georgian_inn
+    validated_seller = seller_inn if seller_inn and validate_georgian_inn(seller_inn) else None
+    validated_buyer = buyer_inn if buyer_inn and validate_georgian_inn(buyer_inn) else None
+
     return ExtractedDocument(
         document_type=doc_type,
         issue_date=issue_date,
-        seller=ExtractedParty(inn=seller_inn),
-        buyer=ExtractedParty(inn=buyer_inn),
+        seller=ExtractedParty(inn=validated_seller),
+        buyer=ExtractedParty(inn=validated_buyer),
         total_with_vat=total,
         notes=text[:500],  # classifier searches notes for keywords
     )

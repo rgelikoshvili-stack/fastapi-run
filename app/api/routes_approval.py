@@ -2,11 +2,13 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from app.api.response_utils import error_response
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
+from app.api.db import get_db
+import psycopg2.extras
 
 log = logging.getLogger(__name__)
 from app.api.services.approval_service import (
@@ -36,6 +38,12 @@ def _validate_pagination(limit: int, offset: int):
 
 
 class RejectRequest(BaseModel):
+    reason: Optional[str] = ""
+
+
+class BatchActionRequest(BaseModel):
+    action: str
+    draft_ids: List[int]
     reason: Optional[str] = ""
 
 
@@ -123,3 +131,76 @@ def preview_draft(payload: dict, request: Request):
         return build_preview_response(payload)
     except Exception as e:
         return error_response("Preview failed", "PREVIEW_ERROR", str(e))
+
+
+@router.get("/stats")
+def get_stats(request: Request):
+    """Real-time approval queue statistics."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status IN ('pending', 'pending_human_review')) AS pending_count,
+                    COUNT(*) FILTER (WHERE status = 'auto_approved') AS auto_approved,
+                    COUNT(*) FILTER (WHERE status = 'approved') AS manual_approved,
+                    COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
+                    COALESCE(AVG(CAST(confidence AS FLOAT)), 0) AS avg_confidence
+                FROM journal_drafts
+                WHERE tenant_id::text = %s
+            """, (tenant_id,))
+            row = dict(cur.fetchone())
+        finally:
+            cur.close()
+            conn.close()
+        return {
+            "ok": True,
+            "pending_count": int(row["pending_count"] or 0),
+            "auto_approved": int(row["auto_approved"] or 0),
+            "manual_approved": int(row["manual_approved"] or 0),
+            "rejected": int(row["rejected"] or 0),
+            "confidence": round(float(row["avg_confidence"] or 0), 4),
+            "tenant_id": tenant_id,
+        }
+    except Exception as e:
+        log.error("get_stats error: %s", e)
+        return error_response("Stats failed", "STATS_ERROR", str(e))
+
+
+@router.post("/batch-action")
+@limiter.limit("30/minute")
+def batch_action(body: BatchActionRequest, request: Request):
+    """Execute approve/reject/correct on multiple drafts at once."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    if not body.draft_ids:
+        return error_response("No drafts selected", "BATCH_ERROR", "draft_ids is empty")
+    valid_actions = {"approve", "reject", "correct"}
+    if body.action not in valid_actions:
+        return error_response("Invalid action", "BATCH_ERROR", f"action must be one of {valid_actions}")
+
+    status_map = {"approve": "approved", "reject": "rejected", "correct": "needs_correction"}
+    new_status = status_map[body.action]
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                UPDATE journal_drafts
+                SET status = %s, updated_at = NOW()
+                WHERE id = ANY(%s)
+                  AND tenant_id::text = %s
+                  AND status NOT IN ('approved', 'rejected', 'posted')
+            """, (new_status, body.draft_ids, tenant_id))
+            affected = cur.rowcount
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+        log.info("batch_action action=%s affected=%s tenant=%s", body.action, affected, tenant_id)
+        return {"ok": True, "action": body.action, "affected": affected, "tenant_id": tenant_id}
+    except Exception as e:
+        log.error("batch_action error: %s", e)
+        return error_response("Batch action failed", "BATCH_ERROR", str(e))

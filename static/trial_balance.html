@@ -96,57 +96,7 @@ tbody td.net-num{text-align:right;font-family:var(--mono);font-size:12.5px;font-
 </head>
 <body>
 
-<nav class="sidebar">
-  <div class="brand">
-    <div class="logo">B</div>
-    <div><div class="bname">Bridge <em>Hub</em></div><div class="brole">Financial OS</div></div>
-  </div>
-  <div class="nav">
-    <div class="sec">მთავარი</div>
-    <div class="item" onclick="location.href='/static/approval.html'">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      <span class="lbl">Dashboard</span>
-    </div>
-    <div class="item" onclick="location.href='/static/drafts.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span class="lbl">დრაფტები</span>
-    </div>
-    <div class="sec">ანალიტიკა</div>
-    <div class="item" onclick="location.href='/static/ledger.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-      <span class="lbl">Account Ledger</span>
-    </div>
-    <div class="item active" onclick="location.href='/static/trial_balance.html'">
-      <svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      <span class="lbl">Trial Balance</span>
-    </div>
-    <div class="item" onclick="location.href='/static/counterparty_ledger.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span class="lbl">Counterparty Ledger</span>
-    </div>
-    <div class="item" onclick="location.href='/static/payroll_ledger.html'">
-      <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-      <span class="lbl">Payroll Ledger</span>
-    </div>
-    <div class="item" onclick="location.href='/static/journal.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-      <span class="lbl">Journal</span>
-    </div>
-    <div class="sec">AI · სისტემა</div>
-    <div class="item" onclick="location.href='/static/ai_control.html'">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-      <span class="lbl">AI Control</span>
-    </div>
-    <div class="item" onclick="location.href='/static/settings.html'">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-      <span class="lbl">Settings</span>
-    </div>
-  </div>
-  <div class="foot">
-    <div class="av" id="avLetter">U</div>
-    <div><div class="uname" id="footName">—</div><div class="urole" id="footRole">—</div></div>
-  </div>
-</nav>
+<aside class="sidebar" id="sidebar-mount"></aside>
 
 <div class="main">
   <div class="topbar">
@@ -311,6 +261,13 @@ const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>
 
 // auto-run on load
 runReport();
+</script>
+
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('trial');
+});
 </script>
 </body>
 </html>

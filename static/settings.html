@@ -166,51 +166,7 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
 <body>
 
 <!-- SIDEBAR -->
-<aside class="sidebar">
-  <div class="brand">
-    <div class="logo">B</div>
-    <div>
-      <div class="bname">Bridge <em>Hub</em></div>
-      <div class="brole">Financial OS</div>
-    </div>
-  </div>
-
-  <nav class="nav">
-    <div class="sec">მთავარი</div>
-    <div class="item" onclick="location.href='/static/approval.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
-      <span class="lbl">Dashboard</span>
-    </div>
-
-    <div class="sec">სისტემა</div>
-    <div class="item active">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 0 4.93 19.07 10 10 0 0 0 19.07 4.93"/></svg>
-      <span class="lbl">⚙ Settings</span>
-    </div>
-    <div class="item" onclick="location.href='/static/drafts.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span class="lbl">📋 დრაფტები</span>
-    </div>
-    <div class="item" onclick="location.href='/static/ai_control.html'">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
-      <span class="lbl">🧠 AI Control</span>
-    </div>
-
-    <div class="sec">დოკუმენტები</div>
-    <div class="item" onclick="location.href='/static/documents.html'">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-      <span class="lbl">Documents Hub</span>
-    </div>
-  </nav>
-
-  <div class="foot">
-    <div class="av">R</div>
-    <div>
-      <div class="uname" id="footUser">—</div>
-      <div class="urole" id="footTenant">—</div>
-    </div>
-  </div>
-</aside>
+<aside class="sidebar" id="sidebar-mount"></aside>
 
 <!-- MAIN -->
 <div class="main">
@@ -985,6 +941,13 @@ async function triggerEmailPoll() {
 }
 
 document.addEventListener('DOMContentLoaded', boot);
+</script>
+
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('settings');
+});
 </script>
 </body>
 </html>

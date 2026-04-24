@@ -2474,9 +2474,9 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
    All API calls unchanged from original — UI-only redesign
    ════════════════════════════════════════════════════════════ */
 
-const BASE = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+const BASE = (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')
   ? 'http://127.0.0.1:8000'
-  : 'https://fastapi-run-226875230147.europe-west1.run.app';
+  : window.location.origin;
 window.BASE = BASE;
 
 let TENANT = localStorage.getItem('tenant_id') || 'default';

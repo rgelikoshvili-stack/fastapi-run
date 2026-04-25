@@ -2844,11 +2844,15 @@ function renderPendingRow(r, dashboard=false) {
     <td><span class="chip chip-draft">${esc(getCat(r))}</span></td>
     <td>${fmtConf(conf)}</td>
     <td>${fmtStatus(r.status)}</td>
-    <td><div class="act-wrap">
-      <button class="act act-ok" onclick="approve('${id}')" title="დამტკიცება">✓</button>
-      <button class="act act-no" onclick="reject('${id}')" title="უარყოფა">✕</button>
-      <button class="act act-view" onclick="showPostingPreview('${id}')" title="preview">👁</button>
-      <button class="act act-ghost" onclick='openModal(${JSON.stringify(r).replaceAll("'","&#39;")})' title="details">⋯</button>
+    <td><div class="act-wrap" style="gap:8px">
+      <button onclick="showPostingPreview('${id}')" title="ინვოისის ნახვა"
+        style="background:linear-gradient(135deg,#17a2b8,#138496);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(23,162,184,.35);transition:transform .2s,box-shadow .2s"
+        onmouseenter="this.style.transform='scale(1.2)';this.style.boxShadow='0 6px 20px rgba(23,162,184,.55)'"
+        onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 3px 10px rgba(23,162,184,.35)'">👁</button>
+      <button onclick="showRowMenu(event,'${id}','${esc(getDesc(r))}','${esc(String(r.amount||0))}','${esc(getCat(r))}')" title="მოქმედებები"
+        style="background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(111,66,193,.35);transition:transform .2s,box-shadow .2s"
+        onmouseenter="this.style.transform='scale(1.2) rotate(90deg)';this.style.boxShadow='0 6px 20px rgba(111,66,193,.55)'"
+        onmouseleave="this.style.transform='scale(1) rotate(0deg)';this.style.boxShadow='0 3px 10px rgba(111,66,193,.35)'">⋯</button>
     </div></td>
   </tr>`;
 }
@@ -4817,6 +4821,50 @@ async function showPostingPreview(id) {
   } catch (e) {
     body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r);font-size:13px">✕ Network error: ${esc(e.message)}</div>`;
   }
+}
+
+/* ═════════ ROW ACTIONS DROPDOWN ═════════ */
+function showRowMenu(event, id, desc, amount, accountCode) {
+  event.stopPropagation();
+  document.getElementById('_rowMenu')?.remove();
+
+  const menu = document.createElement('div');
+  menu.id = '_rowMenu';
+  menu.style.cssText = 'position:fixed;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.22);padding:8px;z-index:9999;min-width:220px;animation:fadeIn .15s ease';
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  let left = rect.left - 180;
+  if (left < 8) left = 8;
+  menu.style.left = left + 'px';
+  menu.style.top  = (rect.bottom + 6) + 'px';
+
+  const items = [
+    { icon:'👁', label:'სრული Preview',    color:'#17a2b8', fn: ()=> showPostingPreview(id) },
+    { icon:'✏️', label:'რედაქტირება',      color:'#fd7e14', fn: ()=> { showPostingPreview(id).then?.(()=>{}); setTimeout(()=>enableDraftEdit(parseInt(id)),600); } },
+    { sep: true },
+    { icon:'✅', label:'დამტკიცება',       color:'#28a745', fn: ()=> approve(id) },
+    { icon:'❌', label:'უარყოფა',          color:'#dc3545', fn: ()=> reject(id) },
+    { sep: true },
+    { icon:'📊', label:'Impact / ანალიტიკა', color:'#6f42c1', fn: ()=> showPostingPreview(id) },
+  ];
+
+  items.forEach(item => {
+    if (item.sep) {
+      const hr = document.createElement('div');
+      hr.style.cssText = 'height:1px;background:#f0f0f0;margin:4px 0';
+      menu.appendChild(hr); return;
+    }
+    const el = document.createElement('div');
+    el.style.cssText = 'padding:9px 14px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;transition:background .15s';
+    el.innerHTML = `<span style="font-size:16px">${item.icon}</span><span style="color:${item.color}">${item.label}</span>`;
+    el.onmouseenter = ()=> el.style.background = '#f8f9fa';
+    el.onmouseleave = ()=> el.style.background = '';
+    el.onclick = ()=> { menu.remove(); item.fn(); };
+    menu.appendChild(el);
+  });
+
+  document.body.appendChild(menu);
+  setTimeout(()=> document.addEventListener('click', function _c(){ menu.remove(); document.removeEventListener('click',_c); }, { once:true }), 50);
 }
 
 /* ═════════ DRAFT EDIT (⋮ menu) ═════════ */

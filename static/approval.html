@@ -2845,10 +2845,6 @@ function renderPendingRow(r, dashboard=false) {
     <td>${fmtConf(conf)}</td>
     <td>${fmtStatus(r.status)}</td>
     <td><div class="act-wrap" style="gap:8px">
-      <button onclick="event.stopPropagation();showDraftDocument('${id}')" title="ორიგინალი დოკუმენტის ნახვა"
-        style="background:linear-gradient(135deg,#17a2b8,#138496);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(23,162,184,.35);transition:transform .2s,box-shadow .2s"
-        onmouseenter="this.style.transform='scale(1.2)';this.style.boxShadow='0 6px 20px rgba(23,162,184,.55)'"
-        onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 3px 10px rgba(23,162,184,.35)'">👁</button>
       <button onclick="event.stopPropagation();showRowMenu(event,'${id}','${esc(getDesc(r))}','${esc(String(r.amount||0))}','${esc(getCat(r))}')" title="მოქმედებები"
         style="background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(111,66,193,.35);transition:transform .2s,box-shadow .2s"
         onmouseenter="this.style.transform='scale(1.2) rotate(90deg)';this.style.boxShadow='0 6px 20px rgba(111,66,193,.55)'"
@@ -4911,13 +4907,9 @@ function showRowMenu(event, id, desc, amount, accountCode) {
   menu.style.top  = (rect.bottom + 6) + 'px';
 
   const items = [
-    { icon:'👁', label:'სრული Preview',      color:'#17a2b8', fn: ()=> showPostingPreview(id) },
-    { icon:'✏️', label:'რედაქტირება',        color:'#fd7e14', fn: ()=> openEditModal(id) },
-    { sep: true },
-    { icon:'✅', label:'დამტკიცება',         color:'#28a745', fn: ()=> approve(id) },
-    { icon:'❌', label:'უარყოფა',            color:'#dc3545', fn: ()=> reject(id) },
-    { sep: true },
-    { icon:'📊', label:'Impact / ანალიტიკა', color:'#6f42c1', fn: ()=> showPostingPreview(id) },
+    { icon:'✏️', label:'რედაქტირება', color:'#fd7e14', fn: ()=> openEditModal(id) },
+    { icon:'✅', label:'დამტკიცება',  color:'#28a745', fn: ()=> approve(id) },
+    { icon:'❌', label:'უარყოფა',     color:'#dc3545', fn: ()=> reject(id) },
   ];
 
   items.forEach(item => {
@@ -4969,9 +4961,68 @@ async function openEditModal(draftId) {
   const invAmt   = ext.total_with_vat ?? ext.total ?? draft.amount ?? 0;
   const lineItems = ext.items || ext.lines || [];
 
-  const cur = draft.currency || 'GEL';
+  const cur    = draft.currency || 'GEL';
   const debit  = draft.debit_account  || '';
   const credit = draft.credit_account || '';
+  const amt    = draft.amount || 0;
+  const statusChip = draft.status ? fmtStatus(draft.status) : '';
+  const confPct = draft.confidence != null ? Math.round(draft.confidence*100) : null;
+  const confColor = confPct==null?'var(--ink-dim)':confPct>=85?'var(--green)':confPct>=60?'var(--amber)':'var(--red)';
+
+  // Impact
+  const catLabels = {expense:'ხარჯი',income:'შემოსავალი',asset:'აქტივი',liability:'ვალდებულება',vat:'დღგ',tax:'გადასახადი',other:'სხვა'};
+  const drCat = catLabels[impact.debit_category]  || impact.debit_category  || '';
+  const crCat = catLabels[impact.credit_category] || impact.credit_category || '';
+  const plSign = impact.pl_direction==='increase'?'+':impact.pl_direction==='decrease'?'−':'';
+  const plCls  = impact.pl_direction==='increase'?'a-green':impact.pl_direction==='decrease'?'a-red':'';
+  const plBadge  = impact.pl_impact!=null  ? `<span class="kpi-pill ${plCls}">P&L: <b>${plSign}${fmtMoney(Math.abs(impact.pl_impact))}</b></span>` : `<span class="kpi-pill">P&L: <b>—</b></span>`;
+  const vatBadge = impact.vat_change!=null ? `<span class="kpi-pill a-amber">VAT: <b>${impact.vat_change>0?'+':''}${fmtMoney(impact.vat_change)}</b></span>` : `<span class="kpi-pill">VAT: <b>—</b></span>`;
+  const taxBadge = impact.tax_impact!=null ? `<span class="kpi-pill a-purple">TAX: <b>${impact.tax_type?impact.tax_type+' ':''}${fmtMoney(impact.tax_impact)}</b></span>` : `<span class="kpi-pill">TAX: <b>—</b></span>`;
+  const notes = impact.notes?.length ? impact.notes : impact.summary ? [impact.summary] : [];
+
+  // Section 0: Draft Summary (read-only info from posting preview)
+  const sectionSummary = `
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Draft Summary</div>
+      <div style="background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:var(--r);padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:13px">
+        <div><div class="mf-k" style="margin-bottom:2px">Draft ID</div><div class="mono" style="font-weight:600">#${esc(String(draftId))}</div></div>
+        <div><div class="mf-k" style="margin-bottom:2px">Status</div><div>${statusChip}</div></div>
+        <div style="grid-column:1/-1"><div class="mf-k" style="margin-bottom:2px">Description</div><div style="font-weight:500">${esc(draft.description||'—')}</div></div>
+        <div style="grid-column:1/-1"><div class="mf-k" style="margin-bottom:2px">Partner</div><div>${esc(draft.partner||'—')}</div></div>
+        <div><div class="mf-k" style="margin-bottom:2px">Amount</div><div style="font-weight:600;font-size:15px">${fmtMoney(amt)} ${esc(cur)}</div></div>
+        <div><div class="mf-k" style="margin-bottom:2px">Confidence</div><div style="font-weight:600;color:${confColor}">${confPct!=null?confPct+'%':'—'}</div></div>
+        ${draft.date?`<div><div class="mf-k" style="margin-bottom:2px">Date</div><div class="mono">${esc(draft.date)}</div></div>`:''}
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Journal Lines (მიმდინარე)</div>
+      <div style="font-family:var(--mono);font-size:13px;border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--green-soft);border-left:3px solid var(--green)">
+          <span><span style="font-weight:800;color:var(--green);min-width:22px;display:inline-block">Dr</span>
+          <span style="font-weight:600">${esc(debit||'—')}</span>
+          ${drCat?`<span style="color:var(--ink-dim);font-size:11px;margin-left:8px">${esc(drCat)}</span>`:''}
+          </span><span style="font-weight:700">${fmtMoney(amt)}</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--red-soft);border-left:3px solid var(--red)">
+          <span><span style="font-weight:800;color:var(--red);min-width:22px;display:inline-block">Cr</span>
+          <span style="font-weight:600">${esc(credit||'—')}</span>
+          ${crCat?`<span style="color:var(--ink-dim);font-size:11px;margin-left:8px">${esc(crCat)}</span>`:''}
+          </span><span style="font-weight:700">${fmtMoney(amt)}</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">Impact</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${plBadge}${vatBadge}${taxBadge}</div>
+    </div>
+    ${notes.length?`<div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">Explanation</div>
+      <div style="background:var(--blue-soft);border-radius:var(--r);padding:10px 14px;border-left:3px solid var(--blue)">
+        <ul style="padding-left:18px;margin:0;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-soft);line-height:1.7">
+          ${notes.map(n=>`<li>${esc(n)}</li>`).join('')}
+        </ul>
+      </div></div>`:''}
+    <hr style="border:none;border-top:1px solid var(--line-soft);margin:0 0 16px">`;
 
   // Build modal HTML
   const invoiceSection = srcDocId ? `
@@ -5039,7 +5090,7 @@ async function openEditModal(draftId) {
       <button class="btn btn-ghost btn-sm" onclick="closeModal()" style="font-size:18px;padding:2px 8px">✕</button>
     </div>`;
 
-  document.getElementById('modal-body').innerHTML = invoiceSection + journalSection + commentSection;
+  document.getElementById('modal-body').innerHTML = sectionSummary + invoiceSection + journalSection + commentSection;
 
   document.getElementById('modal-footer').innerHTML = `
     <button class="btn btn-ghost btn-sm" onclick="closeModal()">გაუქმება</button>

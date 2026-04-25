@@ -4312,46 +4312,145 @@ function qp(text) {
   document.getElementById('chatInp').value = text;
   sendMsg();
 }
-let aiFiles = []; // multi-file array
+let aiFiles = [];        // File objects
+let aiFileBlobUrls = []; // blob URLs (kept alive for session preview)
 
-function setAIFile(input) {
-  aiFiles = input.files ? Array.from(input.files) : [];
-  // legacy single-file compat
-  aiFile = aiFiles[0] || null;
-  _renderFileBadges();
-  if (aiFiles.length) toast(`📎 ${aiFiles.length} ფაილი მომზადდა`, 'info');
+/* ── File lightbox overlay ───────────────────────────────── */
+function _ensureLightbox() {
+  if (document.getElementById('file-lightbox')) return;
+  const lb = document.createElement('div');
+  lb.id = 'file-lightbox';
+  lb.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:12px';
+  lb.innerHTML = `
+    <button onclick="closeLightbox()" style="position:absolute;top:18px;right:24px;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1">✕</button>
+    <div id="lb-content" style="max-width:90vw;max-height:82vh;overflow:auto;display:flex;align-items:center;justify-content:center"></div>
+    <div id="lb-name" style="color:#ddd;font-size:13px;margin-top:4px"></div>`;
+  lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+  document.body.appendChild(lb);
 }
 
+function openFileLightbox(blobUrl, name, mime) {
+  _ensureLightbox();
+  const lb = document.getElementById('file-lightbox');
+  const content = document.getElementById('lb-content');
+  document.getElementById('lb-name').textContent = name;
+  content.innerHTML = '';
+  if (mime && mime.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = blobUrl;
+    img.style.cssText = 'max-width:88vw;max-height:80vh;border-radius:8px;box-shadow:0 4px 32px #000a';
+    content.appendChild(img);
+  } else if (mime === 'application/pdf' || name.endsWith('.pdf')) {
+    const iframe = document.createElement('iframe');
+    iframe.src = blobUrl;
+    iframe.style.cssText = 'width:88vw;height:80vh;border:none;border-radius:8px;background:#fff';
+    content.appendChild(iframe);
+  } else {
+    // Non-previewable — open in new tab
+    window.open(blobUrl, '_blank');
+    return;
+  }
+  lb.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('file-lightbox');
+  if (lb) { lb.style.display = 'none'; document.body.style.overflow = ''; }
+}
+
+/* ── File type helpers ───────────────────────────────────── */
+function _fileIcon(f) {
+  if (f.type.startsWith('image/')) return '🖼️';
+  if (f.name.endsWith('.pdf') || f.type === 'application/pdf') return '📄';
+  if (f.name.match(/\.(xlsx?|csv)$/i)) return '📊';
+  if (f.name.match(/\.(docx?)$/i)) return '📝';
+  return '📎';
+}
+function _fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+/* ── Chat file card (user bubble) ────────────────────────── */
+function _buildFileCard(file, blobUrl) {
+  const isImage = file.type.startsWith('image/');
+  const icon = _fileIcon(file);
+  const card = document.createElement('div');
+  card.style.cssText = 'display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:8px 12px;cursor:pointer;max-width:260px;margin:2px 0;user-select:none';
+  card.title = 'გახსნა';
+
+  if (isImage) {
+    const thumb = document.createElement('img');
+    thumb.src = blobUrl;
+    thumb.style.cssText = 'width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0';
+    card.appendChild(thumb);
+  } else {
+    const ic = document.createElement('span');
+    ic.style.cssText = 'font-size:28px;flex-shrink:0;line-height:1';
+    ic.textContent = icon;
+    card.appendChild(ic);
+  }
+
+  const info = document.createElement('div');
+  info.style.cssText = 'display:flex;flex-direction:column;min-width:0';
+  const nameEl = document.createElement('span');
+  nameEl.style.cssText = 'font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px';
+  nameEl.textContent = file.name;
+  const sizeEl = document.createElement('span');
+  sizeEl.style.cssText = 'font-size:10px;opacity:.7;margin-top:2px';
+  sizeEl.textContent = _fmtSize(file.size);
+  info.appendChild(nameEl);
+  info.appendChild(sizeEl);
+  card.appendChild(info);
+
+  card.onclick = () => openFileLightbox(blobUrl, file.name, file.type);
+  return card;
+}
+
+/* ── Composer file badges ────────────────────────────────── */
 function _renderFileBadges() {
   const wrap = document.getElementById('ai-file-badges');
   if (!wrap) return;
   if (!aiFiles.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
   wrap.style.display = 'flex';
   wrap.innerHTML = aiFiles.map((f, i) => {
-    const icon = f.type.startsWith('image/') ? '🖼️' : f.name.endsWith('.pdf') ? '📄' : '📊';
-    return `<span style="background:var(--accent-soft,#e8f0fe);border-radius:12px;padding:2px 8px;font-size:11px;display:flex;align-items:center;gap:4px">
-      ${icon} ${esc(f.name)}
-      <span style="cursor:pointer;opacity:.6" onclick="removeAIFile(${i})">✕</span>
+    const icon = _fileIcon(f);
+    return `<span style="background:var(--accent-soft,#e8f0fe);border-radius:12px;padding:2px 8px;font-size:11px;display:flex;align-items:center;gap:4px;cursor:default">
+      ${icon} ${esc(f.name)} <span style="opacity:.5;margin-left:2px">${_fmtSize(f.size)}</span>
+      <span style="cursor:pointer;opacity:.55;margin-left:2px" onclick="removeAIFile(${i})">✕</span>
     </span>`;
   }).join('');
 }
 
+function setAIFile(input) {
+  // Revoke old blob URLs
+  aiFileBlobUrls.forEach(u => URL.revokeObjectURL(u));
+  aiFiles = input.files ? Array.from(input.files) : [];
+  aiFileBlobUrls = aiFiles.map(f => URL.createObjectURL(f));
+  aiFile = aiFiles[0] || null;
+  _renderFileBadges();
+  if (aiFiles.length) toast(`📎 ${aiFiles.length} ფაილი მომზადდა`, 'info');
+}
+
 function removeAIFile(idx) {
+  URL.revokeObjectURL(aiFileBlobUrls[idx]);
   aiFiles.splice(idx, 1);
+  aiFileBlobUrls.splice(idx, 1);
   aiFile = aiFiles[0] || null;
   if (!aiFiles.length) document.getElementById('ai-file').value = '';
   _renderFileBadges();
 }
 
+/* ── Bot message renderer ────────────────────────────────── */
 function _renderBotMessage(rawText) {
-  // Extract inline image preview if present
   let html = '';
   const previewMatch = rawText.match(/__PREVIEW_HTML__([\s\S]*?)__END_PREVIEW__\n?/);
   if (previewMatch) {
     html += previewMatch[1];
     rawText = rawText.replace(previewMatch[0], '');
   }
-  // Light markdown: **bold**, `code`, newline
   const md = esc(rawText)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="background:var(--accent-soft,#f0f4ff);padding:1px 4px;border-radius:3px">$1</code>')
@@ -4360,28 +4459,33 @@ function _renderBotMessage(rawText) {
   return html;
 }
 
+/* ── Main send function ──────────────────────────────────── */
 async function sendMsg() {
   const inp = document.getElementById('chatInp');
   const msg = inp.value.trim();
   if (!msg && !aiFiles.length) return;
   const box = document.getElementById('chatMsgs');
 
-  // Show user message
+  // User text bubble
   if (msg) {
     const u = document.createElement('div');
     u.className = 'chat-msg user';
     u.textContent = msg;
     box.appendChild(u);
   }
-  // Show file badges in user bubble
+
+  // User file cards bubble (one bubble per batch)
   if (aiFiles.length) {
-    const f = document.createElement('div');
-    f.className = 'chat-msg user';
-    f.innerHTML = aiFiles.map(fi => {
-      const icon = fi.type.startsWith('image/') ? '🖼️' : fi.name.endsWith('.pdf') ? '📄' : '📊';
-      return `${icon} <em>${esc(fi.name)}</em>`;
-    }).join('<br>');
-    box.appendChild(f);
+    const fileBubble = document.createElement('div');
+    fileBubble.className = 'chat-msg user';
+    fileBubble.style.cssText = 'display:flex;flex-direction:column;gap:4px;background:transparent;padding:0';
+    // Keep blob urls alive in a local copy before we clear
+    const snapshotFiles = [...aiFiles];
+    const snapshotUrls = [...aiFileBlobUrls];
+    snapshotFiles.forEach((f, i) => {
+      fileBubble.appendChild(_buildFileCard(f, snapshotUrls[i]));
+    });
+    box.appendChild(fileBubble);
   }
 
   inp.value = '';
@@ -4398,10 +4502,9 @@ async function sendMsg() {
   fd.append('tenant_id', TENANT);
   fd.append('use_vector_search', 'true');
   fd.append('role', aiRole);
-
   if (aiFiles.length === 1) {
     fd.append('file', aiFiles[0]);
-  } else if (aiFiles.length > 1) {
+  } else {
     aiFiles.forEach(f => fd.append('files', f));
   }
 
@@ -4414,7 +4517,7 @@ async function sendMsg() {
     const text = d.answer || d.response || d.message || d.data?.answer || d.data?.response || d.data?.message || 'პასუხი არ მოვიდა';
     b.innerHTML = _renderBotMessage(text);
 
-    // Suggested actions as clickable buttons
+    // Suggested action buttons
     const actions = d.suggested_actions || d.data?.suggested_actions || [];
     if (actions.length) {
       const actWrap = document.createElement('div');
@@ -4434,8 +4537,9 @@ async function sendMsg() {
   box.appendChild(b);
   box.scrollTop = box.scrollHeight;
 
-  // Reset files
+  // Reset (blob URLs stay alive for lightbox)
   aiFiles = []; aiFile = null;
+  aiFileBlobUrls = [];
   document.getElementById('ai-file').value = '';
   _renderFileBadges();
 }

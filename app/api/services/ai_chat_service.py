@@ -23,6 +23,7 @@ from typing import Optional, List, Dict, Any
 from app.api.services.accounting_engine import process_document
 from app.api.services.llm_service import classify as llm_classify
 from app.api.services.llm_service import generate_preview
+from app.api.services.chat_context_service import build_chat_context, format_context_for_prompt
 
 try:
     from app.api.services.llm_service import chat_with_claude
@@ -367,6 +368,7 @@ async def handle_ai_chat(
     use_vector_search: bool = True,
     file=None,
     role: Optional[str] = None,
+    draft_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     message = (message or "").strip()
 
@@ -461,7 +463,18 @@ async def handle_ai_chat(
                 "session_id": session_id,
             }
 
-    if KB_LOADED:
+    # _local_answer only for pure tax calculations (no draft_id, no DB-related question)
+    _db_question_keywords = [
+        "დრაფტ", "draft", "ინვოის", "invoice", "approval", "დამტკიც",
+        "პარტნიორ", "partner", "ანგარიშ", "account", "გადარიცხვ",
+        "ტრანზაქცი", "transaction", "status", "statusი",
+    ]
+    _is_db_question = (
+        draft_id is not None
+        or any(kw in message.lower() for kw in _db_question_keywords)
+    )
+
+    if KB_LOADED and not _is_db_question:
         local = _local_answer(message)
         if local:
             return {
@@ -490,10 +503,22 @@ async def handle_ai_chat(
     memory_result = _build_memory_context(message, tenant_id)
     context = _append_memory_to_context(context, memory_result)
 
-    # Inject live DB snapshot so Claude sees real-time system state
-    live_ctx = _build_live_db_context(tenant_id)
-    if live_ctx:
-        context = live_ctx + ("\n\n" + context if context else "")
+    # Build structured DB context via chat_context_service
+    db_ctx = build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
+
+    # If draft requested but not found → return "ვერ ვიპოვე" immediately
+    if draft_id is not None and db_ctx.get("not_found"):
+        return {
+            "answer": f"სისტემაში ვერ ვიპოვე draft #{draft_id}. შეიძლება სხვა tenant-ს ეკუთვნოდეს ან წაშლილი იყოს.",
+            "sources": ["db"],
+            "confidence": 1.0,
+            "search_method": "db_lookup",
+            "session_id": session_id,
+        }
+
+    db_prompt = format_context_for_prompt(db_ctx)
+    if db_prompt:
+        context = db_prompt + ("\n\n" + context if context else "")
 
     # Claude — main chat brain
     if CLAUDE_CHAT_AVAILABLE:

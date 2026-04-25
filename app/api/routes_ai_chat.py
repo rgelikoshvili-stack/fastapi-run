@@ -6,7 +6,7 @@ Thin routes only
 
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -105,13 +105,17 @@ async def ai_stats():
 
 @router.post("/chat", response_model=ChatResponse)
 async def ai_chat(
+    request: Request,
     message: str = Form(""),
     session_id: str = Form(None),
     tenant_id: str = Form("global"),
     use_vector_search: bool = Form(True),
     role: str = Form(None),
+    draft_id: Optional[int] = Form(None),
     file: UploadFile = File(None),
 ):
+    # Prefer tenant_id from auth middleware over form field
+    tenant_id = getattr(request.state, "tenant_id", None) or tenant_id or "global"
     message = (message or "").strip()
 
     if not message and not file:
@@ -124,6 +128,7 @@ async def ai_chat(
         use_vector_search=use_vector_search,
         file=file,
         role=role or None,
+        draft_id=draft_id,
     )
 
     payload = ChatResponse(**result)

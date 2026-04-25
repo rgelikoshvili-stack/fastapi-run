@@ -312,63 +312,144 @@ def _extract_draft_id_from_message(message: str) -> Optional[int]:
 # ─────────────────────────────────────────────────────────────
 # MAIN CHAT HANDLER
 # ─────────────────────────────────────────────────────────────
+async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) -> Dict[str, Any]:
+    """Process one uploaded file → extract data, create draft if lines found."""
+    import base64
+    suffix = os.path.splitext(file.filename or "")[1] or ".bin"
+    raw_bytes = await file.read()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(raw_bytes)
+        temp_path = tmp.name
+
+    # Inline preview for images
+    preview_html = None
+    img_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    if suffix.lower() in img_exts:
+        b64 = base64.b64encode(raw_bytes).decode()
+        mime = "image/jpeg" if suffix.lower() in (".jpg", ".jpeg") else f"image/{suffix[1:].lower()}"
+        preview_html = f'<img src="data:{mime};base64,{b64}" style="max-width:100%;max-height:260px;border-radius:8px;margin-top:8px"/>'
+
+    try:
+        result = process_document(temp_path)
+    except Exception as e:
+        return {
+            "filename": file.filename,
+            "answer": f"⚠️ {file.filename}: დამუშავების შეცდომა — {e}",
+            "preview_html": preview_html,
+            "draft_id": None,
+        }
+    finally:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+    if result.get("lines"):
+        try:
+            draft = _create_draft_from_result(result, tenant_id)
+            draft_id = draft.get("id")
+        except Exception:
+            draft_id = None
+    else:
+        draft_id = None
+
+    # Build human-readable summary from result
+    desc = result.get("description") or result.get("message") or file.filename
+    amount = result.get("amount") or result.get("total") or 0
+    partner = result.get("partner") or result.get("vendor") or ""
+    inv_number = result.get("invoice_number") or result.get("number") or ""
+    doc_type = result.get("document_type") or result.get("type") or "დოკუმენტი"
+    date = result.get("date") or ""
+    lines = result.get("lines") or []
+
+    parts = [f"📄 **{file.filename}** — {doc_type}"]
+    if inv_number:
+        parts.append(f"📋 ინვოისი: `{inv_number}`")
+    if partner:
+        parts.append(f"🏢 პარტნიორი: **{partner}**")
+    if amount:
+        parts.append(f"💰 თანხა: **{format_gel(float(amount))}**")
+    if date:
+        parts.append(f"📅 თარიღი: {date}")
+    if lines:
+        parts.append(f"\n**Dr/Cr გატარება:**")
+        for ln in lines[:4]:
+            parts.append(f"  Dr {ln.get('account_code','')} / Cr — {ln.get('label','')} {format_gel(float(ln.get('debit') or ln.get('amount') or 0))}")
+    if draft_id:
+        parts.append(f"\n✅ Draft შეიქმნა — **ID #{draft_id}**")
+
+    return {
+        "filename": file.filename,
+        "answer": "\n".join(parts),
+        "preview_html": preview_html,
+        "draft_id": draft_id,
+        "confidence": float(result.get("confidence", 0.90)),
+    }
+
+
 async def handle_ai_chat(
     message: str,
     session_id: Optional[str] = None,
     tenant_id: str = "global",
     use_vector_search: bool = True,
     file=None,
+    files: Optional[List] = None,
     role: Optional[str] = None,
     draft_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     message = (message or "").strip()
 
+    # ── Multi-file path ───────────────────────────────────────
+    if files and len(files) > 1:
+        results = []
+        for f in files:
+            r = await _process_single_file(f, tenant_id, session_id)
+            results.append(r)
+
+        # Build combined answer
+        combined_parts = [f"📁 **{len(files)} ფაილი დამუშავდა:**\n"]
+        for r in results:
+            combined_parts.append(r["answer"])
+            combined_parts.append("")  # blank line between files
+
+        # Collect any preview_html (first image only for now)
+        preview_html = next((r["preview_html"] for r in results if r.get("preview_html")), None)
+        draft_ids = [r["draft_id"] for r in results if r.get("draft_id")]
+
+        answer = "\n".join(combined_parts)
+        if preview_html:
+            answer = f"__PREVIEW_HTML__{preview_html}__END_PREVIEW__\n" + answer
+
+        return {
+            "answer": answer,
+            "sources": ["multi_document"],
+            "confidence": sum(r.get("confidence", 0.9) for r in results) / len(results),
+            "search_method": "multi_document_analysis",
+            "session_id": session_id,
+            "suggested_actions": [
+                {"action": "view_draft", "label": f"✅ Draft #{did}", "route": "/static/approval.html", "method": "GET", "params": {"draft_id": did}}
+                for did in draft_ids
+            ],
+        }
+
     if file:
-        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
-            temp_path = tmp.name
-
-        try:
-            result = process_document(temp_path)
-
-            if result.get("lines"):
-                draft = _create_draft_from_result(result, tenant_id)
-                return {
-                    "answer": (
-                        f"{result.get('message', 'დოკუმენტი დამუშავდა')}\n\n"
-                        f"🧾 Draft შეიქმნა ხიდში ✅\n"
-                        f"📌 Draft ID: {draft.get('id')}\n\n"
-                        f"➡️ გახსენი approval გვერდზე და გადაამოწმე"
-                    ),
-                    "sources": ["document"],
-                    "confidence": 0.95,
-                    "search_method": "document_analysis",
-                    "session_id": session_id,
-                }
-
-            return {
-                "answer": result.get("message", "დოკუმენტი დამუშავდა, მაგრამ draft ვერ შეიქმნა"),
-                "sources": ["document"],
-                "confidence": 0.70,
-                "search_method": "document_analysis",
-                "session_id": session_id,
-            }
-
-        except Exception as e:
-            return {
-                "answer": f"⚠️ დოკუმენტის დამუშავების შეცდომა: {str(e)}",
-                "sources": ["document"],
-                "confidence": 0.30,
-                "search_method": "document_analysis",
-                "session_id": session_id,
-            }
-        finally:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
+        r = await _process_single_file(file, tenant_id, session_id)
+        answer = r["answer"]
+        if r.get("preview_html"):
+            answer = f"__PREVIEW_HTML__{r['preview_html']}__END_PREVIEW__\n" + answer
+        return {
+            "answer": answer,
+            "sources": ["document"],
+            "confidence": r.get("confidence", 0.90),
+            "search_method": "document_analysis",
+            "session_id": session_id,
+            "suggested_actions": [
+                {"action": "view_draft", "label": f"✅ Draft #{r['draft_id']} გახსნა",
+                 "route": "/static/approval.html", "method": "GET",
+                 "params": {"draft_id": r["draft_id"]}}
+            ] if r.get("draft_id") else [],
+        }
 
     if message and ("გატარე" in message.lower() or "post" in message.lower()):
         try:

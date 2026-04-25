@@ -122,12 +122,20 @@ async def ai_chat(
     role: str = Form(None),
     draft_id: Optional[int] = Form(None),
     file: UploadFile = File(None),
+    files: Optional[List[UploadFile]] = File(None),
 ):
     # Prefer tenant_id from auth middleware over form field
     tenant_id = getattr(request.state, "tenant_id", None) or tenant_id or "global"
     message = (message or "").strip()
 
-    if not message and not file:
+    # Merge: multi-file field + legacy single file field
+    all_files: List[UploadFile] = []
+    if files:
+        all_files = [f for f in files if f and f.filename]
+    if file and file.filename and file not in all_files:
+        all_files.append(file)
+
+    if not message and not all_files:
         raise HTTPException(status_code=400, detail="შეტყობინება ან ფაილი აუცილებელია")
 
     result = await handle_ai_chat(
@@ -135,7 +143,8 @@ async def ai_chat(
         session_id=session_id,
         tenant_id=tenant_id,
         use_vector_search=use_vector_search,
-        file=file,
+        file=all_files[0] if len(all_files) == 1 else None,
+        files=all_files if len(all_files) > 1 else None,
         role=role or None,
         draft_id=draft_id,
     )

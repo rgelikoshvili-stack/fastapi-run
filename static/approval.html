@@ -2386,9 +2386,10 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
   </div>
 
   <div class="composer">
+    <div id="ai-file-badges" style="display:none;padding:4px 8px 0;display:flex;flex-wrap:wrap;gap:4px"></div>
     <div class="composer-wrap">
-      <input type="file" id="ai-file" style="display:none" onchange="setAIFile(this)"/>
-      <span class="attach-btn" onclick="document.getElementById('ai-file').click()">⎙</span>
+      <input type="file" id="ai-file" style="display:none" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv" onchange="setAIFile(this)"/>
+      <span class="attach-btn" title="ფაილების დამატება (მრავალი)" onclick="document.getElementById('ai-file').click()">⎙</span>
       <input class="composer-inp" id="chatInp" placeholder="მიწერე AI-ს…" onkeydown="if(event.key==='Enter')sendMsg()"/>
       <button class="send-btn" onclick="sendMsg()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -4311,29 +4312,81 @@ function qp(text) {
   document.getElementById('chatInp').value = text;
   sendMsg();
 }
+let aiFiles = []; // multi-file array
+
 function setAIFile(input) {
-  aiFile = input.files?.[0] || null;
-  if (aiFile) toast(`📎 ${aiFile.name}`, 'info');
+  aiFiles = input.files ? Array.from(input.files) : [];
+  // legacy single-file compat
+  aiFile = aiFiles[0] || null;
+  _renderFileBadges();
+  if (aiFiles.length) toast(`📎 ${aiFiles.length} ფაილი მომზადდა`, 'info');
 }
+
+function _renderFileBadges() {
+  const wrap = document.getElementById('ai-file-badges');
+  if (!wrap) return;
+  if (!aiFiles.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = aiFiles.map((f, i) => {
+    const icon = f.type.startsWith('image/') ? '🖼️' : f.name.endsWith('.pdf') ? '📄' : '📊';
+    return `<span style="background:var(--accent-soft,#e8f0fe);border-radius:12px;padding:2px 8px;font-size:11px;display:flex;align-items:center;gap:4px">
+      ${icon} ${esc(f.name)}
+      <span style="cursor:pointer;opacity:.6" onclick="removeAIFile(${i})">✕</span>
+    </span>`;
+  }).join('');
+}
+
+function removeAIFile(idx) {
+  aiFiles.splice(idx, 1);
+  aiFile = aiFiles[0] || null;
+  if (!aiFiles.length) document.getElementById('ai-file').value = '';
+  _renderFileBadges();
+}
+
+function _renderBotMessage(rawText) {
+  // Extract inline image preview if present
+  let html = '';
+  const previewMatch = rawText.match(/__PREVIEW_HTML__([\s\S]*?)__END_PREVIEW__\n?/);
+  if (previewMatch) {
+    html += previewMatch[1];
+    rawText = rawText.replace(previewMatch[0], '');
+  }
+  // Light markdown: **bold**, `code`, newline
+  const md = esc(rawText)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="background:var(--accent-soft,#f0f4ff);padding:1px 4px;border-radius:3px">$1</code>')
+    .replace(/\n/g, '<br>');
+  html += md;
+  return html;
+}
+
 async function sendMsg() {
   const inp = document.getElementById('chatInp');
   const msg = inp.value.trim();
-  if (!msg && !aiFile) return;
+  if (!msg && !aiFiles.length) return;
   const box = document.getElementById('chatMsgs');
+
+  // Show user message
   if (msg) {
     const u = document.createElement('div');
     u.className = 'chat-msg user';
     u.textContent = msg;
     box.appendChild(u);
   }
-  if (aiFile) {
+  // Show file badges in user bubble
+  if (aiFiles.length) {
     const f = document.createElement('div');
     f.className = 'chat-msg user';
-    f.innerHTML = `📎 <em>${esc(aiFile.name)}</em>`;
+    f.innerHTML = aiFiles.map(fi => {
+      const icon = fi.type.startsWith('image/') ? '🖼️' : fi.name.endsWith('.pdf') ? '📄' : '📊';
+      return `${icon} <em>${esc(fi.name)}</em>`;
+    }).join('<br>');
     box.appendChild(f);
   }
+
   inp.value = '';
   box.scrollTop = box.scrollHeight;
+
   const thinking = document.createElement('div');
   thinking.className = 'chat-msg bot';
   thinking.innerHTML = '<em>ვფიქრობ…</em>';
@@ -4345,21 +4398,46 @@ async function sendMsg() {
   fd.append('tenant_id', TENANT);
   fd.append('use_vector_search', 'true');
   fd.append('role', aiRole);
-  if (aiFile) fd.append('file', aiFile);
+
+  if (aiFiles.length === 1) {
+    fd.append('file', aiFiles[0]);
+  } else if (aiFiles.length > 1) {
+    aiFiles.forEach(f => fd.append('files', f));
+  }
+
   const d = await api('/api/ai/chat', 'POST', fd);
   thinking.remove();
+
   const b = document.createElement('div');
   b.className = 'chat-msg bot';
   if (d) {
     const text = d.answer || d.response || d.message || d.data?.answer || d.data?.response || d.data?.message || 'პასუხი არ მოვიდა';
-    b.innerHTML = esc(text).replace(/\n/g,'<br>');
+    b.innerHTML = _renderBotMessage(text);
+
+    // Suggested actions as clickable buttons
+    const actions = d.suggested_actions || d.data?.suggested_actions || [];
+    if (actions.length) {
+      const actWrap = document.createElement('div');
+      actWrap.style.cssText = 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px';
+      actions.forEach(a => {
+        const btn = document.createElement('button');
+        btn.style.cssText = 'font-size:11px;padding:4px 10px;border-radius:12px;border:1px solid var(--accent,#4f8ef7);background:var(--accent-soft,#e8f0fe);cursor:pointer';
+        btn.textContent = a.label || a.action;
+        btn.onclick = () => window.open(a.route, '_blank');
+        actWrap.appendChild(btn);
+      });
+      b.appendChild(actWrap);
+    }
   } else {
     b.innerHTML = '<em>პასუხი ვერ მივიღე</em>';
   }
   box.appendChild(b);
   box.scrollTop = box.scrollHeight;
-  aiFile = null;
+
+  // Reset files
+  aiFiles = []; aiFile = null;
   document.getElementById('ai-file').value = '';
+  _renderFileBadges();
 }
 
 /* ═════════ MODAL + POSTING PREVIEW ═════════ */

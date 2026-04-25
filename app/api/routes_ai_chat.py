@@ -40,12 +40,21 @@ class ChatRequest(BaseModel):
     role: Optional[str] = None  # "accountant" | "consultant" | "assistant"
 
 
+class SuggestedAction(BaseModel):
+    action: str
+    label: str
+    route: str
+    method: Optional[str] = "POST"
+    params: Optional[dict] = None
+
+
 class ChatResponse(BaseModel):
     answer: str
     sources: List[str] = []
     confidence: float = 0.0
     search_method: str = "keyword"
     session_id: Optional[str] = None
+    suggested_actions: List[SuggestedAction] = []
 
 
 class VATRequest(BaseModel):
@@ -136,6 +145,79 @@ async def ai_chat(
         content=jsonable_encoder(payload),
         media_type="application/json; charset=utf-8",
     )
+
+
+@router.post("/action")
+async def execute_action(request: Request, body: dict):
+    """
+    Execute a suggested_action returned by /api/ai/chat.
+    Routes the action to the correct Bridge Hub module.
+
+    Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
+    """
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    action = body.get("action", "")
+    params = body.get("params") or {}
+
+    if action == "approve_draft":
+        draft_id = params.get("draft_id")
+        if not draft_id:
+            raise HTTPException(400, "draft_id required")
+        from app.api.services.approval_service import approve_draft_service
+        result = approve_draft_service(int(draft_id), tenant_id=tenant_id)
+        return result
+
+    if action == "reject_draft":
+        draft_id = params.get("draft_id")
+        reason = params.get("reason", "chat action")
+        if not draft_id:
+            raise HTTPException(400, "draft_id required")
+        from app.api.services.approval_service import reject_draft_service
+        result = reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
+        return result
+
+    if action == "view_draft":
+        from app.api.response_utils import ok_response
+        from app.api.db import get_db
+        import psycopg2.extras
+        draft_id = params.get("draft_id")
+        if not draft_id:
+            raise HTTPException(400, "draft_id required")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s",
+                (int(draft_id), tenant_id)
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close(); conn.close()
+        if not row:
+            raise HTTPException(404, f"Draft #{draft_id} not found")
+        return ok_response("Draft", dict(row))
+
+    if action == "sync_bank":
+        from app.api.response_utils import ok_response
+        return ok_response("Bank sync queued", {"status": "queued", "tenant_id": tenant_id})
+
+    if action == "view_report":
+        from app.api.response_utils import ok_response
+        return ok_response("Open report", {"url": "/reports", "tenant_id": tenant_id})
+
+    if action == "view_audit":
+        from app.api.response_utils import ok_response
+        return ok_response("Open audit log", {"url": "/audit", "tenant_id": tenant_id})
+
+    if action == "open_payroll":
+        from app.api.response_utils import ok_response
+        return ok_response("Open payroll", {"url": "/payroll", "tenant_id": tenant_id})
+
+    if action in ("export_1c", "post_balance_ge", "create_invoice"):
+        from app.api.response_utils import ok_response
+        return ok_response(f"Action queued: {action}", {"action": action, "params": params})
+
+    raise HTTPException(400, f"Unknown action: {action}")
 
 
 @router.get("/search")

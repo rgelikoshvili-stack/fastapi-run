@@ -158,8 +158,11 @@ def test_local_answer_not_intercepting_draft_questions():
                 return_value="REAL SYSTEM CONTEXT:\nDraft #1130",
             ):
                 with patch(
-                    "app.api.services.ai_chat_service.chat_with_claude",
-                    return_value="ეს ინვოისი 7100 ანგარიშზე მიეკუთვნება რადგან...",
+                    "app.api.services.ai_chat_service.chat_with_claude_structured",
+                    return_value={
+                        "answer": "ეს ინვოისი 7100 ანგარიშზე მიეკუთვნება რადგან...",
+                        "suggested_actions": [],
+                    },
                 ):
                     result = asyncio.get_event_loop().run_until_complete(
                         handle_ai_chat(
@@ -196,7 +199,7 @@ def test_format_context_for_prompt_includes_all_fields():
         "pending_count": 5,
         "recent_drafts": [],
         "bank_accounts": [{"name": "BOG", "balance": 10000.0, "currency": "GEL"}],
-        "kpi": {"total_drafts": 20, "pending": 5, "approved": 15, "avg_confidence": 0.90},
+        "kpi": {"total_drafts": 20, "pending": 5, "approved": 15, "rejected": 0, "avg_confidence": 0.90},
         "not_found": False,
     }
 

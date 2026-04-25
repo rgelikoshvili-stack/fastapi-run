@@ -26,7 +26,7 @@ from app.api.services.llm_service import generate_preview
 from app.api.services.chat_context_service import build_chat_context, format_context_for_prompt
 
 try:
-    from app.api.services.llm_service import chat_with_claude
+    from app.api.services.llm_service import chat_with_claude, chat_with_claude_structured
     CLAUDE_CHAT_AVAILABLE = True
 except ImportError:
     CLAUDE_CHAT_AVAILABLE = False
@@ -520,15 +520,19 @@ async def handle_ai_chat(
     if db_prompt:
         context = db_prompt + ("\n\n" + context if context else "")
 
-    # Claude — main chat brain
+    # Claude — main chat brain (structured: answer + suggested_actions)
     if CLAUDE_CHAT_AVAILABLE:
-        claude_answer = chat_with_claude(message, context=context, tenant_id=tenant_id, role=role, session_id=session_id)
+        claude_result = chat_with_claude_structured(
+            message, context=context, tenant_id=tenant_id, role=role, session_id=session_id
+        )
+        claude_answer = claude_result.get("answer")
         if claude_answer:
             search_method = "claude_chat_with_memory" if memory_result.get("matched") else "claude_chat"
             confidence = max(0.92, float(memory_result.get("confidence", 0.0))) if memory_result.get("matched") else 0.92
 
             return {
                 "answer": claude_answer,
+                "suggested_actions": claude_result.get("suggested_actions", []),
                 "sources": sources + ([f"memory:{memory_result.get('source', 'local')}"] if memory_result.get("matched") else []) + ["claude:sonnet"],
                 "confidence": confidence,
                 "search_method": search_method,

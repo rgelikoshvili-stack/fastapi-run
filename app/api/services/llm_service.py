@@ -265,6 +265,115 @@ def chat_with_claude(
         return None
 
 
+_ACTIONS_SUFFIX = """
+
+RESPONSE FORMAT (always):
+Return a JSON object:
+{
+  "answer": "..ქართული პასუხი..",
+  "suggested_actions": [
+    {
+      "action": "approve_draft",
+      "label": "✅ დაამტკიცე draft #1130",
+      "route": "/api/approval/approve/1130",
+      "method": "POST",
+      "params": {"draft_id": 1130}
+    }
+  ]
+}
+
+suggested_actions rules:
+- Include 0–3 relevant actions based on context
+- Use ONLY these action types: approve_draft, reject_draft, view_draft,
+  create_invoice, view_report, sync_bank, export_1c, post_balance_ge,
+  view_audit, open_payroll
+- If no action is relevant, return empty array []
+- Never invent draft IDs or amounts not present in REAL SYSTEM CONTEXT
+"""
+
+
+def chat_with_claude_structured(
+    message: str,
+    context: str = "",
+    tenant_id: str = "default",
+    role: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> dict:
+    """
+    Claude returns structured {answer, suggested_actions}.
+    Falls back to plain text answer with empty actions on parse error.
+    """
+    try:
+        import anthropic
+        from app.api.services.prompt_profiles import get_profile
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY is not configured")
+
+        client = anthropic.Anthropic(api_key=api_key)
+        profile = get_profile(role)
+        system = profile["system"] + _ACTIONS_SUFFIX
+        max_tokens = profile.get("max_tokens", 4096)
+
+        user_text = message
+        if context:
+            user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
+
+        history = _chat_history.get(session_id, []) if session_id else []
+        messages = history + [{"role": "user", "content": user_text}]
+
+        model_id = "claude-sonnet-4-6"
+        resp = client.messages.create(
+            model=model_id,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+
+        _log_cost(
+            tenant_id, model_id,
+            getattr(resp.usage, "input_tokens", 0),
+            getattr(resp.usage, "output_tokens", 0),
+        )
+
+        raw = (getattr(resp.content[0], "text", "") or "").strip()
+
+        # Strip markdown fences
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+
+        data = json.loads(raw)
+        answer = str(data.get("answer", "")).strip()
+        actions = data.get("suggested_actions", [])
+        if not isinstance(actions, list):
+            actions = []
+
+        # Save to history (answer text only)
+        if answer and session_id:
+            history = history + [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": answer},
+            ]
+            _chat_history[session_id] = history[-(2 * _HISTORY_MAX_TURNS):]
+
+        return {"answer": answer, "suggested_actions": actions}
+
+    except (json.JSONDecodeError, KeyError, IndexError):
+        # JSON parse failed — fall back to plain chat
+        plain = chat_with_claude(message, context=context, tenant_id=tenant_id,
+                                 role=role, session_id=session_id)
+        return {"answer": plain or "", "suggested_actions": []}
+    except Exception as e:
+        logger.error("chat_with_claude_structured error: %s", e)
+        return {"answer": "", "suggested_actions": []}
+
+
 def analyze_error(error_text: str, context: dict, tenant_id: str = "default") -> str:
     try:
         from google import genai

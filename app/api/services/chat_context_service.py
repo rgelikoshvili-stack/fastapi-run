@@ -26,11 +26,14 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 
 _INTENT_MAP = {
-    "approval":  ["approve", "approval", "დამტკიც", "draft", "დრაფტ", "pending", "queue", "reject", "უარყოფ"],
-    "bank":      ["bank", "ბანკ", "transaction", "ტრანზაქცი", "balance", "ბალანს", "tbc", "bog", "cash", "ნაშთ"],
-    "invoices":  ["invoice", "ინვოის", "outgoing", "გამავალ", "receivable", "მისაღებ", "customer", "კლიენტ"],
-    "documents": ["document", "დოკუმენტ", "waybill", "სასაქონლო", "tax invoice", "ატვირთ", "upload", "ocr"],
-    "payroll":   ["payroll", "ხელფას", "salary", "employee", "თანამშრომ", "pit", "payg", "gross", "net"],
+    "approval":      ["approve", "approval", "დამტკიც", "draft", "დრაფტ", "pending", "queue", "reject", "უარყოფ"],
+    "bank":          ["bank", "ბანკ", "transaction", "ტრანზაქცი", "balance", "ბალანს", "tbc", "bog", "cash", "ნაშთ"],
+    "invoices":      ["invoice", "ინვოის", "outgoing", "გამავალ", "receivable", "მისაღებ", "customer", "კლიენტ"],
+    "documents":     ["document", "დოკუმენტ", "upload", "ocr", "ატვირთ", "ფაილ"],
+    "waybills":      ["waybill", "სასაქონლო", "ზედნადებ", "cmr", "delivery"],
+    "tax_invoices":  ["tax invoice", "სგ-ი", "rs.ge", "საგადასახადო ანგარიშ", "ელ-ფაქტურ"],
+    "notifications": ["notification", "შეტყობინებ", "alert", "warning", "გაფრთხილ"],
+    "payroll":       ["payroll", "ხელფას", "salary", "employee", "თანამშრომ", "pit", "payg", "gross", "net"],
     "tax":       ["vat", "დღგ", "cit", "მოგება", "withholding", "rs.ge", "revenue service", "tax", "გადასახად"],
     "reports":   ["report", "ანგარიშ", "p&l", "profit", "loss", "trial balance", "cash flow", "statement"],
     "audit":     ["audit", "history", "ისტორი", "log", "ლოგ", "who", "ვინ", "when", "როდის", "changed", "შეცვლა"],
@@ -73,6 +76,9 @@ def build_chat_context(
           "invoices": [...],
           "outgoing_invoices": [...],
           "documents": [...],
+          "waybills": [...],
+          "tax_invoices": [...],
+          "notifications": [...],
           "payroll_drafts": [...],
           "tax_summary": dict | None,
           "reports_summary": dict | None,
@@ -94,6 +100,9 @@ def build_chat_context(
         "outgoing_invoices": [],
         "documents": [],
         "payroll_drafts": [],
+        "waybills": [],
+        "tax_invoices": [],
+        "notifications": [],
         "tax_summary": None,
         "reports_summary": None,
         "audit_recent": [],
@@ -259,6 +268,56 @@ def build_chat_context(
                 ctx["documents"] = [_safe_dict(r) for r in cur.fetchall()]
             except Exception as e:
                 log.warning("documents: %s", e)
+
+        # ── Waybills ────────────────────────────────────────
+        if "waybills" in intents:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, waybill_number, seller_name, buyer_name,
+                           total_amount, status, created_at
+                    FROM waybills
+                    WHERE tenant_id = %s
+                    ORDER BY created_at DESC LIMIT 5
+                    """,
+                    (tenant_id,),
+                )
+                ctx["waybills"] = [_safe_dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                log.warning("waybills: %s", e)
+
+        # ── Tax Invoices ─────────────────────────────────────
+        if "tax_invoices" in intents:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, invoice_number, seller_name, buyer_name,
+                           total_amount, vat_amount, status, created_at
+                    FROM tax_invoices
+                    WHERE tenant_id = %s
+                    ORDER BY created_at DESC LIMIT 5
+                    """,
+                    (tenant_id,),
+                )
+                ctx["tax_invoices"] = [_safe_dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                log.warning("tax_invoices: %s", e)
+
+        # ── Notifications ─────────────────────────────────────
+        if "notifications" in intents:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, type, title, message, is_read, created_at
+                    FROM notifications
+                    WHERE tenant_id = %s
+                    ORDER BY created_at DESC LIMIT 10
+                    """,
+                    (tenant_id,),
+                )
+                ctx["notifications"] = [_safe_dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                log.warning("notifications: %s", e)
 
         # ── Payroll ─────────────────────────────────────────
         if "payroll" in intents:
@@ -494,6 +553,35 @@ def format_context_for_prompt(ctx: dict) -> str:
                 f"  {doc.get('original_filename')} | {doc.get('document_type')} | "
                 f"{doc.get('status')} | {_fmt_amount(doc.get('amount'))} GEL"
             )
+
+    # Waybills
+    if ctx.get("waybills"):
+        has_data = True
+        lines.append("\n[Waybills]")
+        for w in ctx["waybills"]:
+            lines.append(
+                f"  #{w.get('waybill_number')} | {w.get('seller_name')} → {w.get('buyer_name')} | "
+                f"{_fmt_amount(w.get('total_amount'))} GEL | {w.get('status')}"
+            )
+
+    # Tax invoices
+    if ctx.get("tax_invoices"):
+        has_data = True
+        lines.append("\n[Tax Invoices (ელ-ფაქტურა)]")
+        for ti in ctx["tax_invoices"]:
+            lines.append(
+                f"  #{ti.get('invoice_number')} | {ti.get('seller_name')} → {ti.get('buyer_name')} | "
+                f"total:{_fmt_amount(ti.get('total_amount'))} VAT:{_fmt_amount(ti.get('vat_amount'))} GEL | {ti.get('status')}"
+            )
+
+    # Notifications
+    if ctx.get("notifications"):
+        unread = [n for n in ctx["notifications"] if not n.get("is_read")]
+        has_data = True
+        lines.append(f"\n[Notifications] {len(ctx['notifications'])} total, {len(unread)} unread")
+        for n in ctx["notifications"][:5]:
+            read_mark = "" if n.get("is_read") else "🔴 "
+            lines.append(f"  {read_mark}{n.get('type')} | {n.get('title')} | {n.get('message', '')[:80]}")
 
     # Payroll
     if ctx.get("payroll_drafts"):

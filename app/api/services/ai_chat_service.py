@@ -33,6 +33,12 @@ except ImportError:
 
 from app.api.services.posting_service import create_journal_draft
 
+try:
+    from app.api.services.ai_orchestrator_service import orchestrate as _orchestrate
+    _ORCHESTRATOR_AVAILABLE = True
+except ImportError:
+    _ORCHESTRATOR_AVAILABLE = False
+
 
 # ─────────────────────────────────────────────────────────────
 # Knowledge Base
@@ -485,28 +491,41 @@ async def handle_ai_chat(
                 "session_id": session_id,
             }
 
-    context = ""
+    # ── KB / vector context (lightweight, no DB) ──────────────
+    kb_context = ""
     sources: List[str] = []
 
     if use_vector_search and _vector_db_available:
         try:
-            context = get_context_for_llm_hybrid(message, max_chars=4000)
+            kb_context = get_context_for_llm_hybrid(message, max_chars=4000)
             sources = ["ChromaDB + KB"]
         except Exception:
             pass
 
-    if not context and KB_LOADED:
-        context = get_context_for_llm(message, max_chars=3000)
+    if not kb_context and KB_LOADED:
+        kb_context = get_context_for_llm(message, max_chars=3000)
         results = search_knowledge(message, top_k=5)
         sources = _format_sources(results)
 
     memory_result = _build_memory_context(message, tenant_id)
-    context = _append_memory_to_context(context, memory_result)
+    kb_context = _append_memory_to_context(kb_context, memory_result)
 
-    # Build structured DB context via chat_context_service
+    # ── Orchestrator path (Claude + tools + DB context) ───────
+    if _ORCHESTRATOR_AVAILABLE:
+        return await _orchestrate(
+            message=message,
+            session_id=session_id,
+            tenant_id=tenant_id,
+            role=role,
+            draft_id=draft_id,
+            kb_context=kb_context,
+            sources=sources,
+            memory_result=memory_result,
+        )
+
+    # ── Fallback: direct Claude (no orchestrator) ─────────────
     db_ctx = build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
 
-    # If draft requested but not found → return "ვერ ვიპოვე" immediately
     if draft_id is not None and db_ctx.get("not_found"):
         return {
             "answer": f"სისტემაში ვერ ვიპოვე draft #{draft_id}. შეიძლება სხვა tenant-ს ეკუთვნოდეს ან წაშლილი იყოს.",
@@ -517,50 +536,32 @@ async def handle_ai_chat(
         }
 
     db_prompt = format_context_for_prompt(db_ctx)
-    if db_prompt:
-        context = db_prompt + ("\n\n" + context if context else "")
+    context = (db_prompt + ("\n\n" + kb_context if kb_context else "")) if db_prompt else kb_context
 
-    # Claude — main chat brain (structured: answer + suggested_actions)
     if CLAUDE_CHAT_AVAILABLE:
         claude_result = chat_with_claude_structured(
             message, context=context, tenant_id=tenant_id, role=role, session_id=session_id
         )
         claude_answer = claude_result.get("answer")
         if claude_answer:
-            search_method = "claude_chat_with_memory" if memory_result.get("matched") else "claude_chat"
-            confidence = max(0.92, float(memory_result.get("confidence", 0.0))) if memory_result.get("matched") else 0.92
-
             return {
                 "answer": claude_answer,
                 "suggested_actions": claude_result.get("suggested_actions", []),
-                "sources": sources + ([f"memory:{memory_result.get('source', 'local')}"] if memory_result.get("matched") else []) + ["claude:sonnet"],
-                "confidence": confidence,
-                "search_method": search_method,
+                "sources": sources + ["claude:sonnet"],
+                "confidence": 0.92,
+                "search_method": "claude_chat",
                 "session_id": session_id,
             }
 
     # GPT fallback
     llm_result = llm_classify(
         description=message,
-        context={
-            "context": context,
-            "memory_account_code": memory_result.get("account_code"),
-            "memory_confidence": memory_result.get("confidence"),
-            "memory_reasoning": memory_result.get("reasoning"),
-            "sources": sources,
-        },
+        context={"context": context, **{k: memory_result.get(k) for k in ("account_code", "confidence", "reasoning")}},
         tenant_id=tenant_id,
     )
 
-    _amount = _extract_amount(message) or 0.0
-
     preview = generate_preview(
-        {
-            "account_dr": llm_result.get("account_code"),
-            "account_cr": "",
-            "amount": _amount,
-            "description": llm_result.get("reasoning") or message,
-        },
+        {"account_dr": llm_result.get("account_code"), "account_cr": "", "amount": _extract_amount(message) or 0.0, "description": llm_result.get("reasoning") or message},
         tenant_id=tenant_id,
     )
 

@@ -371,3 +371,56 @@ async def index_files_ep(request: IndexRequest):
 @router.get("/vector-stats")
 async def vector_stats():
     return run_vector_stats()
+
+
+# ─── Export endpoints ────────────────────────────────────────────────────────
+
+@router.get("/export/txt")
+async def export_chat_txt(session_id: str, request: Request):
+    """Export full conversation history as plain text."""
+    from fastapi.responses import PlainTextResponse
+    from app.api.services.chat_session_service import load_history
+
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    messages = load_history(session_id, tenant_id)
+
+    if not messages:
+        raise HTTPException(status_code=404, detail="Session not found or empty")
+
+    lines = [f"Bridge Hub Chat Export — session: {session_id}\n"]
+    for msg in messages:
+        role = msg.get("role", "?").upper()
+        content = msg.get("content", "")
+        lines.append(f"[{role}]\n{content}\n")
+
+    return PlainTextResponse(
+        content="\n".join(lines),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="chat_{session_id}.txt"'},
+    )
+
+
+@router.get("/export/md")
+async def export_chat_md(session_id: str, request: Request):
+    """Export full conversation history as Markdown."""
+    from fastapi.responses import PlainTextResponse
+    from app.api.services.chat_session_service import load_history
+
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    messages = load_history(session_id, tenant_id)
+
+    if not messages:
+        raise HTTPException(status_code=404, detail="Session not found or empty")
+
+    lines = [f"# Bridge Hub Chat — `{session_id}`\n"]
+    for msg in messages:
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        icon = "🧑" if role == "user" else "🤖"
+        lines.append(f"## {icon} {role.capitalize()}\n\n{content}\n")
+
+    return PlainTextResponse(
+        content="\n".join(lines),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="chat_{session_id}.md"'},
+    )

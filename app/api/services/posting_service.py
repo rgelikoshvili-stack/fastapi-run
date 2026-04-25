@@ -307,6 +307,7 @@ def create_journal_draft(
     partner: str = "",
     date: Optional[str] = None,
     currency: str = "GEL",
+    source_document_id: Optional[int] = None,
 ) -> dict:
     lines = _normalize_lines(lines)
     line_error = _validate_lines(lines)
@@ -322,7 +323,7 @@ def create_journal_draft(
                 cur.execute(
                     """
                     INSERT INTO journal_drafts
-                    (tenant_id, date, description, partner, amount, currency, status, lines_json)
+                    (tenant_id, date, description, partner, amount, currency, status, lines_json, source_document_id)
                     VALUES (
                         %s,
                         COALESCE(%s::date, CURRENT_DATE),
@@ -331,7 +332,8 @@ def create_journal_draft(
                         %s,
                         %s,
                         'pending_approval',
-                        %s::jsonb
+                        %s::jsonb,
+                        %s
                     )
                     RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json
                     """,
@@ -343,6 +345,7 @@ def create_journal_draft(
                         amount,
                         currency,
                         json.dumps(lines, ensure_ascii=False),
+                        source_document_id,
                     ),
                 )
                 row = cur.fetchone()

@@ -119,7 +119,7 @@ def _format_sources(results) -> List[str]:
     return [f"{r.get('category', 'kb')}: {r.get('source', 'unknown')}" for r in results]
 
 
-def _create_draft_from_result(result: dict, tenant_id: str) -> dict:
+def _create_draft_from_result(result: dict, tenant_id: str, source_document_id: Optional[int] = None) -> dict:
     lines = result.get("lines", []) or []
     if not isinstance(lines, list) or not lines:
         raise ValueError("draft lines are missing")
@@ -136,6 +136,7 @@ def _create_draft_from_result(result: dict, tenant_id: str) -> dict:
         partner=partner,
         date=draft_date,
         currency=currency,
+        source_document_id=source_document_id,
     )
 
 
@@ -345,9 +346,47 @@ async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) 
         except Exception:
             pass
 
+    # Save file to processed_documents so eye-button can retrieve it later
+    doc_id: Optional[int] = None
+    try:
+        import hashlib, json as _json
+        from app.api.db import get_db as _get_db
+        _mime = (
+            "application/pdf" if suffix.lower() == ".pdf"
+            else f"image/{suffix[1:].lower()}" if suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            else "application/octet-stream"
+        )
+        _hash = hashlib.sha256(raw_bytes).hexdigest()
+        _conn = _get_db()
+        _cur = _conn.cursor()
+        try:
+            _cur.execute(
+                "SELECT id FROM processed_documents WHERE tenant_id = %s AND file_hash = %s LIMIT 1",
+                (tenant_id, _hash),
+            )
+            _existing = _cur.fetchone()
+            if _existing:
+                doc_id = _existing[0]
+            else:
+                _cur.execute(
+                    """INSERT INTO processed_documents
+                       (tenant_id, file_hash, file_name, file_size_bytes, mime_type,
+                        extraction_method, raw_text, extracted_data, file_content)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (tenant_id, _hash, file.filename, len(raw_bytes), _mime,
+                     "ai_chat", (result.get("text") or "")[:10000],
+                     _json.dumps(result), raw_bytes),
+                )
+                doc_id = _cur.fetchone()[0]
+            _conn.commit()
+        finally:
+            _cur.close(); _conn.close()
+    except Exception as _de:
+        log.warning("processed_documents save failed (non-fatal): %s", _de)
+
     if result.get("lines"):
         try:
-            draft = _create_draft_from_result(result, tenant_id)
+            draft = _create_draft_from_result(result, tenant_id, source_document_id=doc_id)
             draft_id = draft.get("id")
         except Exception:
             draft_id = None

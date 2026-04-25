@@ -2845,6 +2845,10 @@ function renderPendingRow(r, dashboard=false) {
     <td>${fmtConf(conf)}</td>
     <td>${fmtStatus(r.status)}</td>
     <td><div class="act-wrap" style="gap:8px">
+      <button onclick="event.stopPropagation();showDraftDocument('${id}')" title="ორიგინალი დოკუმენტის ნახვა"
+        style="background:linear-gradient(135deg,#17a2b8,#138496);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(23,162,184,.35);transition:transform .2s,box-shadow .2s"
+        onmouseenter="this.style.transform='scale(1.2)';this.style.boxShadow='0 6px 20px rgba(23,162,184,.55)'"
+        onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 3px 10px rgba(23,162,184,.35)'">👁</button>
       <button onclick="event.stopPropagation();showRowMenu(event,'${id}','${esc(getDesc(r))}','${esc(String(r.amount||0))}','${esc(getCat(r))}')" title="მოქმედებები"
         style="background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(111,66,193,.35);transition:transform .2s,box-shadow .2s"
         onmouseenter="this.style.transform='scale(1.2) rotate(90deg)';this.style.boxShadow='0 6px 20px rgba(111,66,193,.55)'"

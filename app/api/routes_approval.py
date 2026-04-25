@@ -55,6 +55,16 @@ class CorrectRequest(BaseModel):
     user: Optional[str] = "human"
 
 
+class DraftUpdateRequest(BaseModel):
+    description: Optional[str] = None
+    partner: Optional[str] = None
+    amount: Optional[float] = None
+    debit_account: Optional[str] = None
+    credit_account: Optional[str] = None
+    account_code: Optional[str] = None
+    reason: Optional[str] = None
+
+
 @router.get("/queue")
 def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0):
     _validate_pagination(limit, offset)
@@ -103,6 +113,41 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
     }
     result = correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
     return _check_locked(result) or result
+
+
+@router.patch("/draft/{draft_id}")
+def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
+    """Save draft edits without changing status (no auto-approve)."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    from app.api.db import get_db
+    import psycopg2.extras, logging as _log
+    _log.getLogger(__name__).info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        fields, vals = [], []
+        if req.description  is not None: fields.append("description = %s");  vals.append(req.description)
+        if req.partner       is not None: fields.append("partner = %s");       vals.append(req.partner)
+        if req.amount        is not None: fields.append("amount = %s");        vals.append(req.amount)
+        if req.debit_account is not None: fields.append("debit_account = %s"); vals.append(req.debit_account)
+        if req.credit_account is not None: fields.append("credit_account = %s"); vals.append(req.credit_account)
+        if req.account_code  is not None: fields.append("account_code = %s"); vals.append(req.account_code)
+        if req.reason        is not None: fields.append("reason = %s");        vals.append(req.reason)
+        if not fields:
+            return {"ok": True, "message": "no_changes"}
+        fields.append("updated_at = NOW()")
+        vals += [draft_id, tenant_id]
+        cur.execute(
+            f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s",
+            vals,
+        )
+        conn.commit()
+        return {"ok": True, "draft_id": draft_id}
+    except Exception as e:
+        conn.rollback()
+        return {"ok": False, "error": str(e)}
+    finally:
+        cur.close(); conn.close()
 
 
 @router.get("/audit")

@@ -160,8 +160,8 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
             """
             INSERT INTO processed_documents
                 (tenant_id, file_hash, file_name, file_size_bytes, mime_type,
-                 extraction_method, raw_text, extracted_data)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 extraction_method, raw_text, extracted_data, file_content)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -169,6 +169,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
                 mime_type, parsed.get("method"),
                 (parsed.get("text") or "")[:10000],
                 json.dumps(extracted.dict()),
+                file_bytes,
             ),
         )
         doc_id = cur.fetchone()[0]
@@ -781,3 +782,39 @@ def list_tax_invoices(
         conn.close()
 
     return ok_response("Tax invoices", {"total": total, "limit": limit, "offset": offset, "items": rows})
+
+
+# ─────────────────────────────────────────────────────────────
+# Original file preview endpoint
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/{doc_id}/file")
+async def get_document_file(doc_id: int, request: Request = None):
+    """Serve the original uploaded file bytes for invoice/document preview."""
+    from fastapi.responses import Response
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT file_name, mime_type, file_content FROM processed_documents "
+            "WHERE id = %s AND tenant_id = %s",
+            (doc_id, tenant_id),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Document not found"})
+
+    file_name, mime_type, file_content = row
+    if not file_content:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "File content not stored"})
+
+    return Response(
+        content=bytes(file_content),
+        media_type=mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{file_name or "document"}"'},
+    )

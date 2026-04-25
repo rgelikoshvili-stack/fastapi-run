@@ -511,6 +511,12 @@ def _run_db_migrations():
                 ADD COLUMN IF NOT EXISTS priority      TEXT DEFAULT 'normal';
         """)
 
+        # processed_documents: store original file bytes for invoice preview
+        cur.execute("""
+            ALTER TABLE processed_documents
+                ADD COLUMN IF NOT EXISTS file_content BYTEA;
+        """)
+
         # Chat session persistence
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chat_sessions (

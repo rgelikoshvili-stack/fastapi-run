@@ -147,7 +147,7 @@ def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
             """
             SELECT id, description, partner, amount, currency,
                    account_code, debit_account, credit_account,
-                   reason, status, date, confidence
+                   reason, status, date, confidence, source_document_id
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
             """,
@@ -177,6 +177,7 @@ def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
                 "date": str(draft["date"]) if draft["date"] else None,
                 "status": draft["status"],
                 "confidence": float(draft["confidence"] or 0),
+                "source_document_id": draft.get("source_document_id"),
             },
             "impact": impact,
             "warning": "ეს არის preview — DB-ში ჩანაწერი არ შეიქმნება",

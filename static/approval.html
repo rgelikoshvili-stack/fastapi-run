@@ -4672,13 +4672,62 @@ async function showPostingPreview(id) {
       ? `<div style="font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--ink-dim);text-align:center;padding:10px 0 2px;border-top:1px solid var(--line-soft)">🔒 ${esc(j.warning)}</div>`
       : '';
 
-    body.innerHTML = sectionA + sectionB + sectionC + sectionD + warnHtml;
+    // E: Original document section
+    const srcDocId = dr.source_document_id;
+    const sectionE = srcDocId ? `
+      <div style="margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">ორიგინალი დოკუმენტი</div>
+        <div id="doc-preview-wrap-${id}" style="border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden;background:var(--paper-soft)">
+          <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:13px;color:var(--ink-soft)">📄 ატვირთული ინვოისი / დოკუმენტი</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="toggleDocPreview(${id},${srcDocId})">👁 ნახვა</button>
+              <a class="btn btn-ghost btn-sm" style="font-size:11px;text-decoration:none" href="${BASE}/documents/${srcDocId}/file" target="_blank">⬇ გახსნა</a>
+            </div>
+          </div>
+          <div id="doc-preview-content-${id}" style="display:none;border-top:1px solid var(--line-soft)"></div>
+        </div>
+      </div>` : '';
+
+    body.innerHTML = sectionA + sectionB + sectionC + sectionD + sectionE + warnHtml;
     document.getElementById('modal-footer').innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
       <button class="btn btn-success btn-sm" onclick="approve('${esc(id)}');closeModal()">✓ დამტკიცება</button>
     `;
   } catch (e) {
     body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r);font-size:13px">✕ Network error: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ═════════ DOCUMENT INLINE PREVIEW ═════════ */
+async function toggleDocPreview(draftId, docId) {
+  const wrap = document.getElementById(`doc-preview-content-${draftId}`);
+  if (!wrap) return;
+  if (wrap.style.display !== 'none') {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  if (wrap.innerHTML.trim()) return; // already loaded
+
+  wrap.innerHTML = `<div style="text-align:center;padding:20px"><span class="spinner"></span></div>`;
+
+  const fileUrl = BASE + '/documents/' + docId + '/file';
+  // HEAD request to get Content-Type
+  try {
+    const head = await fetch(fileUrl, { method: 'HEAD', headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    if (!head.ok) { wrap.innerHTML = `<div style="padding:14px;color:var(--red);font-size:13px">ფაილი ვერ მოიძებნა</div>`; return; }
+    const ct = head.headers.get('content-type') || '';
+
+    if (ct.startsWith('image/')) {
+      wrap.innerHTML = `<img src="${fileUrl}" style="max-width:100%;max-height:480px;object-fit:contain;display:block;margin:0 auto" onerror="this.parentElement.innerHTML='<div style=padding:14px>ვერ ჩაიტვირთა</div>'">`;
+    } else if (ct.includes('pdf')) {
+      wrap.innerHTML = `<iframe src="${fileUrl}" style="width:100%;height:520px;border:none" title="Invoice Preview"></iframe>`;
+    } else {
+      wrap.innerHTML = `<div style="padding:14px;font-size:13px;color:var(--ink-soft)">📎 ეს ფაილი browser-ში preview-ს ვერ აჩვენებს. <a href="${fileUrl}" target="_blank" style="color:var(--accent)">გახსნა ახალ ჩანართში ↗</a></div>`;
+    }
+  } catch (e) {
+    wrap.innerHTML = `<div style="padding:14px;color:var(--red);font-size:13px">ჩატვირთვის შეცდომა: ${esc(e.message)}</div>`;
   }
 }
 

@@ -5069,11 +5069,7 @@ async function openEditModal(draftId) {
         style="width:100%;border:1px solid var(--line-soft);border-radius:var(--r);padding:8px 12px;font-size:13px;font-family:var(--serif);resize:vertical;box-sizing:border-box"></textarea>
     </div>`;
 
-  document.getElementById('modal-title').innerHTML = `
-    <span>კორექტირება <em>#${esc(String(draftId))}</em></span>
-    <div style="margin-left:auto">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal()" style="font-size:18px;padding:2px 8px">✕</button>
-    </div>`;
+  document.getElementById('modal-title').innerHTML = `კორექტირება <em>#${esc(String(draftId))}</em>`;
 
   document.getElementById('modal-body').innerHTML = sectionDoc + journalSection + commentSection;
 

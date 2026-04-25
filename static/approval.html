@@ -2356,6 +2356,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         </div>
       </div>
     </div>
+    <button onclick="clearChat()" title="ჩათის გასუფთავება" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:.45;padding:4px 6px;border-radius:6px;color:var(--ink)" onmouseenter="this.style.opacity='.8'" onmouseleave="this.style.opacity='.45'">🗑</button>
     <button class="panel-close" onclick="toggleAIChat()" style="display:flex;align-items:center;justify-content:center">✕</button>
   </div>
 
@@ -2732,12 +2733,16 @@ function changeTenant(v) {
 
 /* ═════════ PANELS ═════════ */
 let aiOpen = false;
+let _chatLoaded = false;
 function toggleAIChat() {
   aiOpen = !aiOpen;
   document.getElementById('aiPanel').classList.toggle('open', aiOpen);
   const fab = document.getElementById('aiFab');
   if (fab) fab.style.display = aiOpen ? 'none' : 'flex';
-  if (aiOpen) setTimeout(()=>document.getElementById('chatInp')?.focus(), 250);
+  if (aiOpen) {
+    if (!_chatLoaded) { _chatLoaded = true; _loadChat(); }
+    setTimeout(()=>document.getElementById('chatInp')?.focus(), 250);
+  }
 }
 let notifOpen = false;
 function toggleNotif() {
@@ -4373,6 +4378,54 @@ function _fmtSize(bytes) {
   return (bytes/1048576).toFixed(1) + ' MB';
 }
 
+/* ── Chat persistence (localStorage) ────────────────────── */
+function _chatKey() { return `bh_chat_v3_${(typeof TENANT!=='undefined'?TENANT:'x')}`; }
+
+function _saveChat() {
+  const msgs = [];
+  const nodes = document.querySelectorAll('#chatMsgs .chat-msg');
+  nodes.forEach((el, i) => {
+    if (i === 0) return; // skip static welcome message
+    const role = el.classList.contains('bot') ? 'bot' : 'user';
+    // Clone and strip blob URLs (file previews) → replace with placeholder
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('[data-bh-file]').forEach(fc => {
+      const ph = document.createElement('div');
+      ph.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font-size:12px;margin:2px 0';
+      ph.innerHTML = `📄 <span>${fc.dataset.bhFile || 'ფაილი'}</span>`;
+      fc.parentNode.replaceChild(ph, fc);
+    });
+    // Strip any remaining embed/object src (blob URLs)
+    clone.querySelectorAll('embed,object').forEach(e => e.remove());
+    msgs.push({ role, html: clone.innerHTML, st: el.getAttribute('style') || '' });
+  });
+  try { localStorage.setItem(_chatKey(), JSON.stringify(msgs.slice(-120))); } catch(e) {}
+}
+
+function _loadChat() {
+  try {
+    const raw = localStorage.getItem(_chatKey());
+    if (!raw) return;
+    const msgs = JSON.parse(raw);
+    if (!msgs.length) return;
+    const box = document.getElementById('chatMsgs');
+    msgs.forEach(m => {
+      const el = document.createElement('div');
+      el.className = `chat-msg ${m.role}`;
+      if (m.st) el.setAttribute('style', m.st);
+      el.innerHTML = m.html;
+      box.appendChild(el);
+    });
+    box.scrollTop = box.scrollHeight;
+  } catch(e) {}
+}
+
+function clearChat() {
+  try { localStorage.removeItem(_chatKey()); } catch(e) {}
+  const box = document.getElementById('chatMsgs');
+  while (box.children.length > 1) box.removeChild(box.lastChild);
+}
+
 /* ── Chat file card — Claude.ai style ───────────────────── */
 function _buildFileCard(file, blobUrl) {
   const isImage = file.type.startsWith('image/');
@@ -4381,6 +4434,7 @@ function _buildFileCard(file, blobUrl) {
   /* ── PDF: compact card with small thumbnail + download ── */
   if (isPDF) {
     const card = document.createElement('div');
+    card.setAttribute('data-bh-file', file.name);
     card.style.cssText = 'display:flex;flex-direction:column;width:260px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.18);margin:4px 0;flex-shrink:0';
 
     // Thumbnail area (clickable → new tab)
@@ -4424,6 +4478,7 @@ function _buildFileCard(file, blobUrl) {
   /* ── Image: compact thumbnail ── */
   if (isImage) {
     const card = document.createElement('div');
+    card.setAttribute('data-bh-file', file.name);
     card.style.cssText = 'position:relative;width:200px;border-radius:12px;overflow:hidden;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.2);margin:4px 0;flex-shrink:0';
     const img = document.createElement('img');
     img.src = blobUrl;
@@ -4582,6 +4637,7 @@ async function sendMsg() {
   }
   box.appendChild(b);
   box.scrollTop = box.scrollHeight;
+  _saveChat();
 
   // Reset (blob URLs stay alive for lightbox)
   aiFiles = []; aiFile = null;

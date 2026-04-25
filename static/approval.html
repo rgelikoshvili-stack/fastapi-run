@@ -4808,8 +4808,6 @@ async function showPostingPreview(id) {
             <div onclick="enableDraftEdit(${id})" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✏️ რედაქტირება</div>
             <div onclick="approve('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--green)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✓ დამტკიცება</div>
             <div onclick="reject('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--red)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✕ უარყოფა</div>
-            <div style="border-top:1px solid var(--line-soft)"></div>
-            <div onclick="deleteDraft(${id})" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--red)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">🗑 წაშლა</div>
           </div>
         </div>
       </div>`;

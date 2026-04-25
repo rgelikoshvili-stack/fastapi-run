@@ -4909,13 +4909,9 @@ function showRowMenu(event, id, desc, amount, accountCode) {
   menu.style.top  = (rect.bottom + 6) + 'px';
 
   const items = [
-    { icon:'👁', label:'სრული Preview',    color:'#17a2b8', fn: ()=> showPostingPreview(id) },
-    { icon:'✏️', label:'რედაქტირება',      color:'#fd7e14', fn: ()=> { showPostingPreview(id).then?.(()=>{}); setTimeout(()=>enableDraftEdit(parseInt(id)),600); } },
-    { sep: true },
-    { icon:'✅', label:'დამტკიცება',       color:'#28a745', fn: ()=> approve(id) },
-    { icon:'❌', label:'უარყოფა',          color:'#dc3545', fn: ()=> reject(id) },
-    { sep: true },
-    { icon:'📊', label:'Impact / ანალიტიკა', color:'#6f42c1', fn: ()=> showPostingPreview(id) },
+    { icon:'✏️', label:'რედაქტირება',  color:'#fd7e14', fn: ()=> showDraftModal(id) },
+    { icon:'✅', label:'დამტკიცება',   color:'#28a745', fn: ()=> approve(id) },
+    { icon:'❌', label:'უარყოფა',      color:'#dc3545', fn: ()=> reject(id) },
   ];
 
   items.forEach(item => {

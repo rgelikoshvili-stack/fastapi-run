@@ -511,10 +511,25 @@ def _run_db_migrations():
                 ADD COLUMN IF NOT EXISTS priority      TEXT DEFAULT 'normal';
         """)
 
+        # Chat session persistence
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id            SERIAL PRIMARY KEY,
+                session_id    TEXT NOT NULL,
+                tenant_id     TEXT NOT NULL DEFAULT 'default',
+                role          TEXT,
+                messages      JSONB NOT NULL DEFAULT '[]',
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS chat_sessions_session_tenant
+                ON chat_sessions(session_id, tenant_id);
+        """)
+
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration)")
+        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration + chat_sessions)")
     except Exception as e:
         print(f"⚠️ DB migration skipped (non-fatal): {e}")
 

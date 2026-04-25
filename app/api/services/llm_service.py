@@ -196,9 +196,39 @@ def generate_preview(draft: dict, tenant_id: str = "default") -> str:
     return " | ".join(parts)
 
 
-# In-memory conversation history per session (max 20 turns, cleared on restart)
+# In-memory cache — primary storage is DB (chat_session_service)
+# This dict acts as a write-through cache to avoid DB round-trips per turn
 _chat_history: dict = {}
 _HISTORY_MAX_TURNS = 10
+
+
+def _load_history(session_id: str, tenant_id: str) -> list:
+    """Load from DB, fall back to in-memory cache."""
+    if not session_id:
+        return []
+    if session_id in _chat_history:
+        return _chat_history[session_id]
+    try:
+        from app.api.services.chat_session_service import load_history
+        msgs = load_history(session_id, tenant_id)
+        if msgs:
+            _chat_history[session_id] = msgs
+        return msgs
+    except Exception:
+        return []
+
+
+def _save_history(session_id: str, tenant_id: str, messages: list, role: str = None) -> None:
+    """Write-through: update cache + persist to DB."""
+    if not session_id:
+        return
+    trimmed = messages[-(2 * _HISTORY_MAX_TURNS):]
+    _chat_history[session_id] = trimmed
+    try:
+        from app.api.services.chat_session_service import save_history
+        save_history(session_id, tenant_id, trimmed, role=role)
+    except Exception:
+        pass
 
 
 def chat_with_claude(
@@ -227,8 +257,8 @@ def chat_with_claude(
         if context:
             user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
 
-        # Build messages with history
-        history = _chat_history.get(session_id, []) if session_id else []
+        # Build messages with DB-persisted history
+        history = _load_history(session_id, tenant_id) if session_id else []
         messages = history + [{"role": "user", "content": user_text}]
 
         model_id = "claude-3-5-sonnet-20241022"
@@ -250,13 +280,11 @@ def chat_with_claude(
         text = getattr(content[0], "text", "") or ""
         answer = text.strip() or None
 
-        # Save to history
         if answer and session_id:
-            history = history + [
+            _save_history(session_id, tenant_id, history + [
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
-            ]
-            _chat_history[session_id] = history[-(2 * _HISTORY_MAX_TURNS):]
+            ], role=role)
 
         return answer
 
@@ -320,7 +348,7 @@ def chat_with_claude_structured(
         if context:
             user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
 
-        history = _chat_history.get(session_id, []) if session_id else []
+        history = _load_history(session_id, tenant_id) if session_id else []
         messages = history + [{"role": "user", "content": user_text}]
 
         model_id = "claude-sonnet-4-6"
@@ -354,13 +382,11 @@ def chat_with_claude_structured(
         if not isinstance(actions, list):
             actions = []
 
-        # Save to history (answer text only)
         if answer and session_id:
-            history = history + [
+            _save_history(session_id, tenant_id, history + [
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
-            ]
-            _chat_history[session_id] = history[-(2 * _HISTORY_MAX_TURNS):]
+            ], role=role)
 
         return {"answer": answer, "suggested_actions": actions}
 

@@ -147,11 +147,134 @@ async def ai_chat(
     )
 
 
-@router.post("/action")
-async def execute_action(request: Request, body: dict):
+@router.post("/action/preview")
+async def preview_action(request: Request, body: dict):
     """
-    Execute a suggested_action returned by /api/ai/chat.
-    Routes the action to the correct Bridge Hub module.
+    PREVIEW a suggested_action — returns what WOULD happen, never executes.
+    This is the primary endpoint for suggested_actions from /api/ai/chat.
+
+    Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
+    Response: { "preview": {...}, "requires_human_approval": true, "action": "..." }
+    """
+    from app.api.response_utils import ok_response
+    from app.api.db import get_db
+    import psycopg2.extras
+
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    action = body.get("action", "")
+    params = body.get("params") or {}
+
+    _NAVIGATION_ACTIONS = {
+        "view_report":  {"url": "/reports",  "label": "Reports გვერდი"},
+        "view_audit":   {"url": "/audit",    "label": "Audit Log გვერდი"},
+        "open_payroll": {"url": "/payroll",  "label": "Payroll გვერდი"},
+        "view_draft":   {"url": "/static/approval.html", "label": "Approval გვერდი"},
+    }
+
+    if action in _NAVIGATION_ACTIONS:
+        nav = _NAVIGATION_ACTIONS[action]
+        return ok_response("Navigation preview", {
+            "action": action,
+            "url": nav["url"],
+            "label": nav["label"],
+            "requires_human_approval": False,
+            "preview": f"გახსნის: {nav['label']}",
+        })
+
+    if action == "approve_draft":
+        draft_id = params.get("draft_id")
+        if not draft_id:
+            raise HTTPException(400, "draft_id required")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT id, description, amount, partner, status, confidence "
+                "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
+                (int(draft_id), tenant_id)
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close(); conn.close()
+        if not row:
+            raise HTTPException(404, f"Draft #{draft_id} not found")
+        d = dict(row)
+        return ok_response("Approve preview", {
+            "action": "approve_draft",
+            "draft_id": draft_id,
+            "requires_human_approval": True,
+            "confirm_url": f"/api/approval/approve/{draft_id}",
+            "confirm_method": "POST",
+            "preview": {
+                "description": d["description"],
+                "amount": float(d["amount"] or 0),
+                "partner": d["partner"],
+                "current_status": d["status"],
+                "new_status": "approved",
+                "confidence": float(d["confidence"] or 0),
+            },
+            "warning": "ეს მოქმედება draft-ს დაამტკიცებს. დასადასტურებლად გამოიძახეთ confirm_url.",
+        })
+
+    if action == "reject_draft":
+        draft_id = params.get("draft_id")
+        reason = params.get("reason", "")
+        if not draft_id:
+            raise HTTPException(400, "draft_id required")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT id, description, amount, partner, status "
+                "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
+                (int(draft_id), tenant_id)
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close(); conn.close()
+        if not row:
+            raise HTTPException(404, f"Draft #{draft_id} not found")
+        d = dict(row)
+        return ok_response("Reject preview", {
+            "action": "reject_draft",
+            "draft_id": draft_id,
+            "requires_human_approval": True,
+            "confirm_url": f"/api/approval/reject/{draft_id}",
+            "confirm_method": "POST",
+            "preview": {
+                "description": d["description"],
+                "amount": float(d["amount"] or 0),
+                "partner": d["partner"],
+                "current_status": d["status"],
+                "new_status": "rejected",
+                "reason": reason,
+            },
+            "warning": "ეს მოქმედება draft-ს უარყოფს. დასადასტურებლად გამოიძახეთ confirm_url.",
+        })
+
+    if action in ("export_1c", "post_balance_ge", "create_invoice", "sync_bank"):
+        _labels = {
+            "export_1c":       "1C Export",
+            "post_balance_ge": "Balance.ge Posting",
+            "create_invoice":  "Invoice შექმნა",
+            "sync_bank":       "Bank Sync",
+        }
+        return ok_response(f"{action} preview", {
+            "action": action,
+            "requires_human_approval": True,
+            "params": params,
+            "preview": f"{_labels.get(action, action)} — ადამიანის დადასტურება საჭიროა",
+            "warning": "ეს მოქმედება გარე სისტემაზე მოქმედებს. AI ვერ შეასრულებს — ადამიანი უნდა დაადასტუროს.",
+        })
+
+    raise HTTPException(400, f"Unknown action: {action}")
+
+
+@router.post("/action/confirm")
+async def confirm_action(request: Request, body: dict):
+    """
+    CONFIRM and EXECUTE a previously previewed action.
+    Human explicitly calls this after reviewing the preview.
 
     Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
     """
@@ -164,60 +287,40 @@ async def execute_action(request: Request, body: dict):
         if not draft_id:
             raise HTTPException(400, "draft_id required")
         from app.api.services.approval_service import approve_draft_service
-        result = approve_draft_service(int(draft_id), tenant_id=tenant_id)
-        return result
+        return approve_draft_service(int(draft_id), tenant_id=tenant_id)
 
     if action == "reject_draft":
         draft_id = params.get("draft_id")
-        reason = params.get("reason", "chat action")
+        reason = params.get("reason", "human confirmed via chat")
         if not draft_id:
             raise HTTPException(400, "draft_id required")
         from app.api.services.approval_service import reject_draft_service
-        result = reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
-        return result
+        return reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
 
-    if action == "view_draft":
-        from app.api.response_utils import ok_response
-        from app.api.db import get_db
-        import psycopg2.extras
-        draft_id = params.get("draft_id")
-        if not draft_id:
-            raise HTTPException(400, "draft_id required")
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-                (int(draft_id), tenant_id)
-            )
-            row = cur.fetchone()
-        finally:
-            cur.close(); conn.close()
-        if not row:
-            raise HTTPException(404, f"Draft #{draft_id} not found")
-        return ok_response("Draft", dict(row))
+    raise HTTPException(400, f"Action '{action}' cannot be confirmed via chat. Use the dedicated module.")
 
-    if action == "sync_bank":
-        from app.api.response_utils import ok_response
-        return ok_response("Bank sync queued", {"status": "queued", "tenant_id": tenant_id})
 
-    if action == "view_report":
-        from app.api.response_utils import ok_response
-        return ok_response("Open report", {"url": "/reports", "tenant_id": tenant_id})
+# ─── Session management ──────────────────────────────────────────────────────
 
-    if action == "view_audit":
-        from app.api.response_utils import ok_response
-        return ok_response("Open audit log", {"url": "/audit", "tenant_id": tenant_id})
+@router.get("/session/{session_id}")
+async def get_session(session_id: str, request: Request):
+    """Return metadata about a chat session."""
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    from app.api.services.chat_session_service import get_session_summary
+    from app.api.response_utils import ok_response
+    return ok_response("Session", get_session_summary(session_id, tenant_id))
 
-    if action == "open_payroll":
-        from app.api.response_utils import ok_response
-        return ok_response("Open payroll", {"url": "/payroll", "tenant_id": tenant_id})
 
-    if action in ("export_1c", "post_balance_ge", "create_invoice"):
-        from app.api.response_utils import ok_response
-        return ok_response(f"Action queued: {action}", {"action": action, "params": params})
-
-    raise HTTPException(400, f"Unknown action: {action}")
+@router.delete("/session/{session_id}")
+async def clear_session(session_id: str, request: Request):
+    """Clear conversation history for a session (fresh start)."""
+    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    from app.api.services.chat_session_service import clear_history
+    from app.api.services.llm_service import _chat_history
+    from app.api.response_utils import ok_response
+    clear_history(session_id, tenant_id)
+    _chat_history.pop(session_id, None)
+    return ok_response("Session cleared", {"session_id": session_id})
 
 
 @router.get("/search")

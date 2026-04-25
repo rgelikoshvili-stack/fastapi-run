@@ -4825,7 +4825,7 @@ async function showPostingPreview(id) {
 
 /* ═════════ SOURCE DOCUMENT VIEWER (👁 button) ═════════ */
 async function showDraftDocument(draftId) {
-  // 1. Fetch draft to get source_document_id
+  // 1. Get source_document_id from draft preview
   let srcDocId = null;
   try {
     const r = await fetch(BASE + '/posting/preview/' + draftId, {
@@ -4840,46 +4840,59 @@ async function showDraftDocument(draftId) {
     return;
   }
 
-  // 2. Show document in lightbox
+  // 2. Fetch the actual file as blob (same as chat upload)
   const fileUrl = BASE + '/documents/' + srcDocId + '/file';
-  _ensureLightbox();
-  const lb      = document.getElementById('file-lightbox');
-  const content = document.getElementById('lb-content');
-  const nameEl  = document.getElementById('lb-name');
-  nameEl.textContent = 'ორიგინალი დოკუმენტი — Draft #' + draftId;
-  content.innerHTML  = '<div style="color:#fff;padding:20px"><span class="spinner"></span> იტვირთება…</div>';
-  lb.style.display   = 'flex';
-  document.body.style.overflow = 'hidden';
-
+  let blobUrl, fileName, fileType, fileSize;
   try {
-    const head = await fetch(fileUrl, { method: 'HEAD', headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
-    if (!head.ok) { content.innerHTML = '<div style="color:#f87;padding:20px">დოკუმენტი ვერ მოიძებნა</div>'; return; }
-    const ct = head.headers.get('content-type') || '';
-    content.innerHTML = '';
-
-    if (ct.startsWith('image/')) {
-      const img = document.createElement('img');
-      img.src = fileUrl;
-      img.style.cssText = 'max-width:88vw;max-height:80vh;border-radius:8px;box-shadow:0 4px 32px #000a';
-      content.appendChild(img);
-    } else if (ct.includes('pdf')) {
-      const iframe = document.createElement('iframe');
-      iframe.src = fileUrl;
-      iframe.style.cssText = 'width:88vw;height:82vh;border:none;border-radius:8px;background:#fff';
-      content.appendChild(iframe);
-    } else {
-      content.innerHTML = `<div style="background:#fff;border-radius:12px;padding:30px;text-align:center">
-        <div style="font-size:48px;margin-bottom:12px">📄</div>
-        <div style="font-size:14px;color:#374151;margin-bottom:16px">Draft #${draftId}-ის დოკუმენტი</div>
-        <a href="${fileUrl}" target="_blank" style="background:#4f8ef7;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">⬇ ჩამოტვირთვა</a>
-      </div>`;
-    }
-
-    // Download button in lightbox name bar
-    nameEl.innerHTML = `ორიგინალი დოკუმენტი — Draft #${draftId} &nbsp;<a href="${fileUrl}" download style="color:#94a3b8;font-size:18px;text-decoration:none" title="ჩამოტვირთვა">⬇</a>`;
+    const resp = await fetch(fileUrl, { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    if (!resp.ok) { toast('დოკუმენტი ვერ მოიძებნა', 'error'); return; }
+    const ct = resp.headers.get('content-type') || 'application/octet-stream';
+    const cd = resp.headers.get('content-disposition') || '';
+    const nameMatch = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    fileName = nameMatch ? nameMatch[1].replace(/['"]/g,'') : ('document_' + srcDocId + (ct.includes('pdf') ? '.pdf' : ct.startsWith('image/') ? '.png' : ''));
+    fileType = ct.split(';')[0].trim();
+    const blob = await resp.blob();
+    fileSize = blob.size;
+    blobUrl  = URL.createObjectURL(blob);
   } catch(e) {
-    content.innerHTML = `<div style="color:#f87;padding:20px">შეცდომა: ${e.message}</div>`;
+    toast('ჩამოტვირთვის შეცდომა: ' + e.message, 'error');
+    return;
   }
+
+  // 3. Build the same card as _buildFileCard (chat style)
+  const fakeFile = { name: fileName, type: fileType, size: fileSize };
+  const card = _buildFileCard(fakeFile, blobUrl);
+
+  // 4. Show in a small centred overlay (same feel as chat)
+  let overlay = document.getElementById('doc-card-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'doc-card-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(4px)';
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); URL.revokeObjectURL(blobUrl); } });
+    document.body.appendChild(overlay);
+  } else {
+    overlay.innerHTML = '';
+    overlay.style.display = 'flex';
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:center;gap:12px';
+
+  // Close ✕ button
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'position:absolute;top:-36px;right:0;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:18px;width:32px;height:32px;border-radius:50%;cursor:pointer;line-height:1';
+  closeBtn.onclick = () => { overlay.remove(); URL.revokeObjectURL(blobUrl); };
+
+  const label = document.createElement('div');
+  label.style.cssText = 'color:#e2e8f0;font-size:12px;opacity:.75;align-self:flex-start';
+  label.textContent = 'Draft #' + draftId + ' — ორიგინალი დოკუმენტი';
+
+  wrap.appendChild(closeBtn);
+  wrap.appendChild(label);
+  wrap.appendChild(card);
+  overlay.appendChild(wrap);
 }
 
 /* ═════════ ROW ACTIONS DROPDOWN ═════════ */

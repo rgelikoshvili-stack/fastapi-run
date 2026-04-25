@@ -4807,7 +4807,7 @@ async function showPostingPreview(id) {
         <div style="position:relative;display:inline-block">
           <button id="draft-menu-btn" onclick="toggleDraftMenu()" style="background:rgba(0,0,0,.06);border:none;border-radius:8px;padding:5px 10px;font-size:16px;cursor:pointer;line-height:1" title="მოქმედებები">⋮</button>
           <div id="draft-menu-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line-soft);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.14);min-width:160px;z-index:9999;overflow:hidden">
-            <div onclick="enableDraftEdit(${id})" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✏️ რედაქტირება</div>
+            <div onclick="openEditModal(${id})" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✏️ რედაქტირება</div>
             <div onclick="approve('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--green)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✓ დამტკიცება</div>
             <div onclick="reject('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--red)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✕ უარყოფა</div>
           </div>
@@ -4912,7 +4912,7 @@ function showRowMenu(event, id, desc, amount, accountCode) {
 
   const items = [
     { icon:'👁', label:'სრული Preview',      color:'#17a2b8', fn: ()=> showPostingPreview(id) },
-    { icon:'✏️', label:'რედაქტირება',        color:'#fd7e14', fn: ()=> showDraftModal(id) },
+    { icon:'✏️', label:'რედაქტირება',        color:'#fd7e14', fn: ()=> openEditModal(id) },
     { sep: true },
     { icon:'✅', label:'დამტკიცება',         color:'#28a745', fn: ()=> approve(id) },
     { icon:'❌', label:'უარყოფა',            color:'#dc3545', fn: ()=> reject(id) },
@@ -4937,6 +4937,156 @@ function showRowMenu(event, id, desc, amount, accountCode) {
 
   document.body.appendChild(menu);
   setTimeout(()=> document.addEventListener('click', function _c(){ menu.remove(); document.removeEventListener('click',_c); }, { once:true }), 50);
+}
+
+/* ═════════ CORRECTION MODAL (რედაქტირება) ═════════ */
+async function openEditModal(draftId) {
+  // Fetch draft data + source document metadata in parallel
+  const headers = TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
+  let draft = {}, impact = {}, docMeta = null, srcDocId = null;
+
+  try {
+    const prev = await fetch(BASE + '/posting/preview/' + draftId, { headers });
+    const pj = await prev.json();
+    draft = pj?.draft || {};
+    impact = pj?.impact || {};
+    srcDocId = draft.source_document_id;
+  } catch(e) {}
+
+  if (srcDocId) {
+    try {
+      const dm = await fetch(BASE + '/documents/' + srcDocId, { headers });
+      const dj = await dm.json();
+      if (dj?.ok) docMeta = dj;
+    } catch(e) {}
+  }
+
+  const ext = docMeta?.extracted || {};
+  // Extract invoice info from processed_documents.extracted_data
+  const invNum   = ext.document_number || ext.invoice_number || ext.number || '—';
+  const supplier = ext.seller?.name || draft.partner || '—';
+  const invDate  = ext.issue_date || draft.date || '—';
+  const invAmt   = ext.total_with_vat ?? ext.total ?? draft.amount ?? 0;
+  const lineItems = ext.items || ext.lines || [];
+
+  const cur = draft.currency || 'GEL';
+  const debit  = draft.debit_account  || '';
+  const credit = draft.credit_account || '';
+
+  // Build modal HTML
+  const invoiceSection = srcDocId ? `
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">ინვოისის ინფო</div>
+      <div style="background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:var(--r);padding:12px 16px;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:6px 20px">
+        <div><span class="mf-k">ინვოისი #</span><span class="mf-v mono">${esc(invNum)}</span></div>
+        <div><span class="mf-k">მომწოდებელი</span><span class="mf-v">${esc(supplier)}</span></div>
+        <div><span class="mf-k">თარიღი</span><span class="mf-v mono">${esc(String(invDate))}</span></div>
+        <div><span class="mf-k">თანხა</span><span class="mf-v" style="font-weight:600">${fmtMoney(parseFloat(invAmt)||0)} ${esc(cur)}</span></div>
+        ${lineItems.length ? `<div style="grid-column:1/-1;margin-top:6px"><span class="mf-k">საქონელი / მომსახურება</span>
+          <div style="margin-top:4px;font-size:12px;border:1px solid var(--line-soft);border-radius:6px;overflow:hidden">
+            ${lineItems.slice(0,6).map((li,i) => `
+              <div style="padding:5px 10px;${i%2?'background:var(--paper-soft)':''}">
+                <span style="font-weight:500">${esc(li.description||li.name||li.label||'—')}</span>
+                ${li.quantity ? `<span style="color:var(--ink-dim);margin-left:8px">x${li.quantity}</span>` : ''}
+                ${li.unit_price||li.price ? `<span style="color:var(--ink-dim);margin-left:8px">${fmtMoney(parseFloat(li.unit_price||li.price||0))}</span>` : ''}
+                ${li.total||li.amount ? `<span style="float:right;font-weight:600">${fmtMoney(parseFloat(li.total||li.amount||0))}</span>` : ''}
+              </div>`).join('')}
+          </div></div>` : ''}
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showDraftDocument(${draftId})">👁 ორიგინალი დოკუმენტი</button>
+      </div>
+    </div>` : `
+    <div style="margin-bottom:16px;padding:10px 14px;background:var(--paper-soft);border-radius:var(--r);border:1px dashed var(--line-strong);font-size:12px;color:var(--ink-dim);text-align:center">
+      📎 ამ გატარებას ორიგინალი დოკუმენტი არ აქვს მიბმული
+    </div>`;
+
+  const journalSection = `
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Dr / Cr კორექტირება</div>
+      <div id="edit-journal-lines" style="border:1px solid var(--line-soft);border-radius:var(--r);overflow:visible">
+        <div style="display:grid;grid-template-columns:44px 1fr 1fr;align-items:center;gap:8px;padding:10px 12px;background:var(--green-soft);border-left:3px solid var(--green)">
+          <span style="font-weight:800;color:var(--green);font-family:var(--mono)">Dr</span>
+          <input id="edit-debit" value="${esc(debit)}" placeholder="ანგარიშის კოდი (მაგ. 7910)"
+            style="border:1px solid var(--accent);border-radius:6px;padding:5px 9px;font-size:13px;font-family:var(--mono);background:#fffef8">
+          <input id="edit-debit-label" value="" placeholder="სახელი (სურ.)"
+            style="border:1px solid var(--line-soft);border-radius:6px;padding:5px 9px;font-size:12px;color:var(--ink-dim)">
+        </div>
+        <div style="display:grid;grid-template-columns:44px 1fr 1fr;align-items:center;gap:8px;padding:10px 12px;background:var(--red-soft);border-left:3px solid var(--red)">
+          <span style="font-weight:800;color:var(--red);font-family:var(--mono)">Cr</span>
+          <input id="edit-credit" value="${esc(credit)}" placeholder="ანგარიშის კოდი (მაგ. 1120)"
+            style="border:1px solid var(--accent);border-radius:6px;padding:5px 9px;font-size:13px;font-family:var(--mono);background:#fffef8">
+          <input id="edit-credit-label" value="" placeholder="სახელი (სურ.)"
+            style="border:1px solid var(--line-soft);border-radius:6px;padding:5px 9px;font-size:12px;color:var(--ink-dim)">
+        </div>
+        <div id="edit-extra-lines"></div>
+        <div style="padding:8px 12px">
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="_addEditLine()">+ მუხლის დამატება</button>
+        </div>
+      </div>
+    </div>`;
+
+  const commentSection = `
+    <div style="margin-bottom:4px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">კომენტარი / მიზეზი</div>
+      <textarea id="edit-reason" rows="3" placeholder="კორექტირების მიზეზი…"
+        style="width:100%;border:1px solid var(--line-soft);border-radius:var(--r);padding:8px 12px;font-size:13px;font-family:var(--serif);resize:vertical;box-sizing:border-box"></textarea>
+    </div>`;
+
+  document.getElementById('modal-title').innerHTML = `
+    <span>კორექტირება <em>#${esc(String(draftId))}</em></span>
+    <div style="margin-left:auto">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()" style="font-size:18px;padding:2px 8px">✕</button>
+    </div>`;
+
+  document.getElementById('modal-body').innerHTML = invoiceSection + journalSection + commentSection;
+
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="closeModal()">გაუქმება</button>
+    <button class="btn btn-success btn-sm" onclick="_submitCorrection(${draftId})">💾 შენახვა და დამტკიცება</button>`;
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+function _addEditLine() {
+  const wrap = document.getElementById('edit-extra-lines');
+  const idx = wrap.children.length;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:44px 1fr 1fr 28px;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line-soft)';
+  row.innerHTML = `
+    <select style="border:1px solid var(--line-soft);border-radius:5px;padding:4px 6px;font-size:12px;font-family:var(--mono)">
+      <option>Dr</option><option>Cr</option></select>
+    <input placeholder="ანგარიშის კოდი" data-extra-acc style="border:1px solid var(--line-soft);border-radius:5px;padding:4px 7px;font-size:13px;font-family:var(--mono)">
+    <input placeholder="თანხა (${idx>0?'სურ.':''})" type="number" data-extra-amt style="border:1px solid var(--line-soft);border-radius:5px;padding:4px 7px;font-size:12px;font-family:var(--mono)">
+    <span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--red);font-size:16px;text-align:center;line-height:1">✕</span>`;
+  wrap.appendChild(row);
+}
+
+async function _submitCorrection(draftId) {
+  const debit  = document.getElementById('edit-debit')?.value?.trim();
+  const credit = document.getElementById('edit-credit')?.value?.trim();
+  const reason = document.getElementById('edit-reason')?.value?.trim();
+
+  if (!debit || !credit) { toast('Dr და Cr ანგარიშები სავალდებულოა', 'warn'); return; }
+
+  try {
+    const r = await fetch(BASE + '/approval/correct/' + draftId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}) },
+      body: JSON.stringify({ debit_account: debit, credit_account: credit, reason: reason || null, user: 'human' }),
+    });
+    const j = await r.json();
+    if (j?.ok) {
+      toast('✓ კორექტირება შენახდა #' + draftId, 'ok');
+      closeModal();
+      loadKPI();
+      loadPending();
+    } else {
+      toast('შეცდომა: ' + (j?.error?.details || j?.message || 'unknown'), 'err');
+    }
+  } catch(e) {
+    toast('Network error: ' + e.message, 'err');
+  }
 }
 
 /* ═════════ DRAFT EDIT (⋮ menu) ═════════ */

@@ -788,6 +788,48 @@ def list_tax_invoices(
 # Original file preview endpoint
 # ─────────────────────────────────────────────────────────────
 
+@router.get("/{doc_id}")
+async def get_document_meta(doc_id: int, request: Request = None):
+    """Return extracted metadata for a processed document (no file bytes)."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT id, file_name, mime_type, file_size_bytes, extraction_method,
+                      raw_text, extracted_data, created_at
+               FROM processed_documents WHERE id = %s AND tenant_id = %s""",
+            (doc_id, tenant_id),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Document not found"})
+
+    import json as _json
+    doc_id_val, file_name, mime_type, file_size, method, raw_text, extracted_data, created_at = row
+    extracted = {}
+    if extracted_data:
+        try:
+            extracted = _json.loads(extracted_data) if isinstance(extracted_data, str) else extracted_data
+        except Exception:
+            extracted = {}
+
+    return {
+        "ok": True,
+        "id": doc_id_val,
+        "file_name": file_name,
+        "mime_type": mime_type,
+        "file_size_bytes": file_size,
+        "extraction_method": method,
+        "extracted": extracted,
+        "created_at": str(created_at) if created_at else None,
+    }
+
+
 @router.get("/{doc_id}/file")
 async def get_document_file(doc_id: int, request: Request = None):
     """Serve the original uploaded file bytes for invoice/document preview."""

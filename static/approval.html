@@ -4398,8 +4398,7 @@ function _buildFileCard(file, blobUrl) {
     // Overlay (invisible, catches clicks)
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:absolute;inset:0;cursor:pointer';
-    overlay.onclick = () => openFileLightbox(blobUrl, file.name, 'application/pdf');
-
+    overlay.onclick = (e) => { e.stopPropagation(); window.open(blobUrl, '_blank'); };
     wrapper.appendChild(header);
     wrapper.appendChild(embed);
     wrapper.appendChild(overlay);

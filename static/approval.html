@@ -4378,24 +4378,31 @@ function _buildFileCard(file, blobUrl) {
   const isImage = file.type.startsWith('image/');
   const isPDF   = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-  /* ── PDF: inline embedded preview ── */
+  /* ── PDF: styled card + embedded viewer ── */
   if (isPDF) {
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position:relative;width:240px;border-radius:12px;overflow:hidden;cursor:pointer;box-shadow:0 2px 16px rgba(0,0,0,.4);margin:2px 0;flex-shrink:0';
-    wrapper.title = 'სრულად გახსნა';
+    wrapper.style.cssText = 'position:relative;width:240px;border-radius:14px;overflow:hidden;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,.45);margin:4px 0;flex-shrink:0;background:#1e1e2e';
+    wrapper.title = 'დააჭირე სრულად სანახავად';
 
-    const frame = document.createElement('iframe');
-    frame.src = blobUrl + '#toolbar=0&navpanes=0&scrollbar=0&view=FitH';
-    frame.style.cssText = 'width:240px;height:320px;border:none;pointer-events:none;display:block;background:#fff';
-    frame.setAttribute('loading', 'lazy');
+    // Header bar
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.08)';
+    header.innerHTML = `<span style="font-size:18px">📄</span><div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${file.name}</div><div style="font-size:10px;color:#94a3b8;margin-top:1px">${_fmtSize(file.size)} · PDF</div></div><span style="font-size:11px;color:#64748b;flex-shrink:0">🔍</span>`;
 
-    const caption = document.createElement('div');
-    caption.style.cssText = 'position:absolute;bottom:0;left:0;right:0;padding:6px 10px;background:linear-gradient(transparent,rgba(0,0,0,.65));display:flex;align-items:center;gap:6px';
-    caption.innerHTML = `<span style="font-size:14px">📄</span><span style="color:#fff;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${file.name}</span><span style="color:rgba(255,255,255,.6);font-size:10px;flex-shrink:0">${_fmtSize(file.size)}</span>`;
+    // Embedded PDF via <embed>
+    const embed = document.createElement('embed');
+    embed.src = blobUrl;
+    embed.type = 'application/pdf';
+    embed.style.cssText = 'width:240px;height:300px;display:block;pointer-events:none;background:#fff';
 
-    wrapper.appendChild(frame);
-    wrapper.appendChild(caption);
-    wrapper.onclick = () => openFileLightbox(blobUrl, file.name, file.type);
+    // Overlay (invisible, catches clicks)
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;inset:0;cursor:pointer';
+    overlay.onclick = () => openFileLightbox(blobUrl, file.name, 'application/pdf');
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(embed);
+    wrapper.appendChild(overlay);
     return wrapper;
   }
 

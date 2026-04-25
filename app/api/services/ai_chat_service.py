@@ -359,7 +359,8 @@ async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) 
     amount = result.get("amount") or result.get("total") or 0
     partner = result.get("partner") or result.get("vendor") or ""
     inv_number = result.get("invoice_number") or result.get("number") or ""
-    doc_type = result.get("document_type") or result.get("type") or "დოკუმენტი"
+    _dt = result.get("document_type") or result.get("type") or ""
+    doc_type = _dt if _dt and _dt.lower() not in ("unknown", "none", "") else "დოკუმენტი"
     date = result.get("date") or ""
     lines = result.get("lines") or []
 

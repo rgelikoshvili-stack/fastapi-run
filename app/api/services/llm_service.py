@@ -255,7 +255,10 @@ def chat_with_claude(
 
         user_text = message
         if context:
-            user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
+            user_text = (
+                f"REAL SYSTEM DATA (DO NOT INVENT):\n{context}\n\n"
+                f"---\nUSER QUESTION:\n{message}"
+            )
 
         # Build messages with DB-persisted history
         history = _load_history(session_id, tenant_id) if session_id else []
@@ -346,7 +349,10 @@ def chat_with_claude_structured(
 
         user_text = message
         if context:
-            user_text = f"[სისტემური კონტექსტი]\n{context}\n\n[შეკითხვა]\n{message}"
+            user_text = (
+                f"REAL SYSTEM DATA (DO NOT INVENT):\n{context}\n\n"
+                f"---\nUSER QUESTION:\n{message}"
+            )
 
         history = _load_history(session_id, tenant_id) if session_id else []
         messages = history + [{"role": "user", "content": user_text}]

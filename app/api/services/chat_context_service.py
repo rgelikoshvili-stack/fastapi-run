@@ -94,8 +94,11 @@ def build_chat_context(
         "not_found": False,
         "pending_count": 0,
         "recent_drafts": [],
+        "queue": [],               # alias: pending approval drafts ordered by priority
         "bank_accounts": [],
         "bank_transactions": [],
+        "recent_transactions": [], # alias: same as bank_transactions
+        "bank_summary": None,      # total cash position
         "invoices": [],
         "outgoing_invoices": [],
         "documents": [],
@@ -171,6 +174,21 @@ def build_chat_context(
             except Exception as e:
                 log.warning("recent_drafts: %s", e)
 
+            # Approval queue — pending drafts ordered by confidence ASC (riskiest first)
+            try:
+                cur.execute(
+                    """
+                    SELECT id, description, amount, partner, status, confidence, created_at
+                    FROM journal_drafts
+                    WHERE tenant_id = %s AND status IN ('pending_approval','drafted','pending_human_review')
+                    ORDER BY confidence ASC, created_at ASC LIMIT 10
+                    """,
+                    (tenant_id,),
+                )
+                ctx["queue"] = [_safe_dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                log.warning("queue: %s", e)
+
             try:
                 cur.execute(
                     """
@@ -203,7 +221,17 @@ def build_chat_context(
                     "FROM bank_accounts WHERE tenant_id = %s ORDER BY balance DESC LIMIT 5",
                     (tenant_id,),
                 )
-                ctx["bank_accounts"] = [_safe_dict(r) for r in cur.fetchall()]
+                rows = [_safe_dict(r) for r in cur.fetchall()]
+                ctx["bank_accounts"] = rows
+                # bank_summary: total cash position per currency
+                totals: dict = {}
+                for r in rows:
+                    cur_key = r.get("currency", "GEL")
+                    totals[cur_key] = totals.get(cur_key, 0.0) + float(r.get("balance") or 0)
+                ctx["bank_summary"] = {
+                    "accounts_count": len(rows),
+                    "totals": totals,
+                }
             except Exception as e:
                 log.warning("bank_accounts: %s", e)
 
@@ -217,7 +245,9 @@ def build_chat_context(
                     """,
                     (tenant_id,),
                 )
-                ctx["bank_transactions"] = [_safe_dict(r) for r in cur.fetchall()]
+                txns = [_safe_dict(r) for r in cur.fetchall()]
+                ctx["bank_transactions"] = txns
+                ctx["recent_transactions"] = txns  # alias
             except Exception as e:
                 log.warning("bank_transactions: %s", e)
 
@@ -503,6 +533,17 @@ def format_context_for_prompt(ctx: dict) -> str:
         has_data = True
         lines.append(f"\n[Approval Queue] {ctx['pending_count']} drafts waiting")
 
+    # Queue (priority-ordered pending drafts)
+    if ctx.get("queue"):
+        has_data = True
+        lines.append("\n[Queue — Priority Order (lowest confidence first)]")
+        for d in ctx["queue"]:
+            lines.append(
+                f"  #{d.get('id')} | {d.get('description')} | "
+                f"{_fmt_amount(d.get('amount'))} GEL | {d.get('status')} | "
+                f"conf:{_fmt_pct(d.get('confidence'))} | partner:{d.get('partner') or 'N/A'}"
+            )
+
     # Recent drafts
     if ctx.get("recent_drafts"):
         has_data = True
@@ -514,7 +555,14 @@ def format_context_for_prompt(ctx: dict) -> str:
                 f"conf:{_fmt_pct(d.get('confidence'))}"
             )
 
-    # Bank
+    # Bank summary
+    if ctx.get("bank_summary"):
+        bs = ctx["bank_summary"]
+        has_data = True
+        totals_str = " | ".join(f"{cur}:{_fmt_amount(amt)}" for cur, amt in bs.get("totals", {}).items())
+        lines.append(f"\n[Bank Summary] {bs.get('accounts_count')} accounts | {totals_str}")
+
+    # Bank accounts detail
     if ctx.get("bank_accounts"):
         has_data = True
         lines.append("\n[Bank Accounts]")
@@ -632,7 +680,17 @@ def format_context_for_prompt(ctx: dict) -> str:
         for d in ctx["decisions_pending"]:
             lines.append(f"  #{d.get('id')} | {d.get('description')} | conf:{_fmt_pct(d.get('confidence'))}")
 
-    return "\n".join(lines) if has_data else ""
+    if not has_data:
+        # Fallback safety — Claude must know there is no DB data
+        return (
+            "REAL SYSTEM CONTEXT:\n"
+            "[სისტემაში ამ მომენტისთვის მონაცემები ვერ ჩაიტვირთა ან შეკითხვა "
+            "არ ეხება კონკრეტულ ჩანაწერს. "
+            "ნებისმიერი თანხა, სახელი ან სტატუსი, რომელიც ზემოთ არ ჩანს, "
+            "გამოიგონო ნუ — თქვი: 'ამ ინფორმაციას სისტემაში ვერ ვპოულობ.']"
+        )
+
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────

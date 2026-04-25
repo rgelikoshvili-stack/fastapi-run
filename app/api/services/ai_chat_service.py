@@ -300,68 +300,13 @@ def _append_memory_to_context(context: str, memory_result: Dict[str, Any]) -> st
     return (context or "") + memory_block
 
 
-def _build_live_db_context(tenant_id: str) -> str:
-    """Fetch real-time DB snapshot to inject into Claude context."""
-    try:
-        from app.api.db import get_db
-        conn = get_db()
-        cur = conn.cursor()
-
-        lines = ["[Live Bridge Hub Data]"]
-
-        # Pending drafts
-        try:
-            cur.execute(
-                "SELECT COUNT(*) as cnt FROM journal_drafts "
-                "WHERE status='pending' AND tenant_id::text = %s",
-                (tenant_id,)
-            )
-            row = cur.fetchone()
-            pending = row["cnt"] if row else 0
-            lines.append(f"Pending drafts: {pending}")
-        except Exception:
-            pass
-
-        # Last 5 drafts
-        try:
-            cur.execute(
-                "SELECT description, amount, status, created_at "
-                "FROM journal_drafts WHERE tenant_id::text = %s "
-                "ORDER BY created_at DESC LIMIT 5",
-                (tenant_id,)
-            )
-            rows = cur.fetchall()
-            if rows:
-                lines.append("Recent drafts:")
-                for r in rows:
-                    lines.append(
-                        f"  - {r['description']} | {r['amount']} GEL | {r['status']}"
-                    )
-        except Exception:
-            pass
-
-        # Bank accounts balance
-        try:
-            cur.execute(
-                "SELECT name, balance, currency FROM bank_accounts "
-                "WHERE tenant_id::text = %s ORDER BY balance DESC LIMIT 3",
-                (tenant_id,)
-            )
-            rows = cur.fetchall()
-            if rows:
-                lines.append("Bank accounts:")
-                for r in rows:
-                    lines.append(
-                        f"  - {r['name']}: {r['balance']} {r['currency']}"
-                    )
-        except Exception:
-            pass
-
-        cur.close()
-        return "\n".join(lines)
-    except Exception as e:
-        log.debug("live_db_context failed: %s", e)
-        return ""
+def _extract_draft_id_from_message(message: str) -> Optional[int]:
+    """Extract draft/invoice ID mentioned in natural language. e.g. '#1130', 'draft 1130'."""
+    import re
+    m = re.search(r"(?:draft|invoice|დრაფტ|ინვოის|#)\s*#?(\d+)", message, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -469,11 +414,17 @@ async def handle_ai_chat(
                 "session_id": session_id,
             }
 
+    # If draft_id not provided via Form, try to extract from message text
+    if draft_id is None:
+        draft_id = _extract_draft_id_from_message(message)
+
     # _local_answer only for pure tax calculations (no draft_id, no DB-related question)
     _db_question_keywords = [
         "დრაფტ", "draft", "ინვოის", "invoice", "approval", "დამტკიც",
         "პარტნიორ", "partner", "ანგარიშ", "account", "გადარიცხვ",
-        "ტრანზაქცი", "transaction", "status", "statusი",
+        "ტრანზაქცი", "transaction", "status", "pending", "queue",
+        "bank", "ბანკ", "balance", "ბალანს", "report", "ანგარიშგებ",
+        "audit", "history", "ისტორი", "#",
     ]
     _is_db_question = (
         draft_id is not None

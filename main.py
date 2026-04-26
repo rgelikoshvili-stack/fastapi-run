@@ -24,6 +24,10 @@ class _CloudRunJsonFormatter(logging.Formatter):
             "logger": record.name,
             "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
         }
+        if getattr(record, "correlation_id", None):
+            payload["correlation_id"] = record.correlation_id
+        if getattr(record, "tenant_id", None):
+            payload["tenant_id"] = record.tenant_id
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)
@@ -163,6 +167,8 @@ from app.api import routes_pdf_report
 from app.api import routes_rbac
 from app.api import routes_reconciliation
 from app.api import routes_reports
+from app.api.routes_financial_statements import router as financial_statements_router
+from app.api.routes_fixed_assets import router as fixed_assets_router
 from app.api import routes_security
 from app.api import routes_webhooks_v2
 from app.api import routes_api_docs
@@ -196,6 +202,7 @@ from app.api import routes_audit
 from app.api.routes_decision_engine import router as decision_engine_router
 from app.api.middleware.auth_middleware import auth_middleware
 from app.api.middleware.audit_log_middleware import audit_log_middleware
+from app.api.middleware.correlation_middleware import correlation_middleware
 
 
 # --- INCLUDE ROUTERS ---
@@ -239,6 +246,8 @@ app.include_router(routes_pdf_report.router)
 app.include_router(routes_rbac.router)
 app.include_router(routes_reconciliation.router)
 app.include_router(routes_reports.router)
+app.include_router(financial_statements_router)
+app.include_router(fixed_assets_router)
 app.include_router(routes_security.router)
 app.include_router(routes_webhooks_v2.router)
 app.include_router(routes_api_docs.router)
@@ -275,6 +284,7 @@ app.add_middleware(SlowAPIMiddleware)
 
 
 # --- MIDDLEWARE ---
+app.middleware("http")(correlation_middleware)  # outermost: attach X-Correlation-ID first
 app.middleware("http")(audit_log_middleware)
 app.middleware("http")(rbac_middleware)
 app.middleware("http")(auth_middleware)
@@ -516,6 +526,10 @@ def _run_db_migrations():
             ALTER TABLE processed_documents
                 ADD COLUMN IF NOT EXISTS file_content BYTEA;
         """)
+        cur.execute("""
+            ALTER TABLE processed_documents
+                ADD COLUMN IF NOT EXISTS gcs_path TEXT;
+        """)
 
         # Chat session persistence
         cur.execute("""
@@ -532,10 +546,76 @@ def _run_db_migrations():
                 ON chat_sessions(session_id, tenant_id);
         """)
 
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_learning_patterns_tenant
+                ON learning_patterns(tenant_id, confidence_score DESC)
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                id SERIAL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                idempotent_key TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                response_json JSONB NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (tenant_id, idempotent_key, endpoint)
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_idempotency_keys_lookup
+                ON idempotency_keys(tenant_id, idempotent_key, endpoint)
+        """)
+        # ── journal_entries entry_hash dedup ──────────────────────────────
+        cur.execute("""
+            ALTER TABLE journal_entries
+                ADD COLUMN IF NOT EXISTS entry_hash TEXT
+        """)
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_entries_hash
+                ON journal_entries(entry_hash)
+                WHERE entry_hash IS NOT NULL
+        """)
+        # ── Data quality constraints ──────────────────────────────────────
+        for constraint_sql in [
+            # journal_drafts: amount must be non-negative
+            """ALTER TABLE journal_drafts ADD CONSTRAINT IF NOT EXISTS chk_jd_amount_positive
+               CHECK (amount IS NULL OR amount >= 0)""",
+            # expenses: amount positive
+            """ALTER TABLE expenses ADD CONSTRAINT IF NOT EXISTS chk_exp_amount_positive
+               CHECK (amount IS NULL OR amount >= 0)""",
+            # invoices: totals non-negative
+            """ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS chk_inv_total_positive
+               CHECK (total IS NULL OR total >= 0)""",
+            # learning_patterns: confidence_score 0-1
+            """ALTER TABLE learning_patterns ADD CONSTRAINT IF NOT EXISTS chk_lp_confidence
+               CHECK (confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1))""",
+            # unique invoice_number per tenant
+            """ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS uq_invoice_number_tenant
+               UNIQUE (tenant_id, invoice_number)""",
+        ]:
+            try:
+                cur.execute(constraint_sql)
+            except Exception:
+                pass  # constraint may already exist under different name
+
+        # Normalize tenant_id: replace company_inn with actual tenant_id across all tables
+        # (handles the case where JWT carries company_inn instead of tenant_id slug)
+        for tbl in ("journal_drafts", "processed_documents", "learning_patterns",
+                    "audit_log", "bank_transactions", "chart_of_accounts"):
+            cur.execute(f"""
+                UPDATE {tbl} d
+                SET tenant_id = t.tenant_id
+                FROM tenants t
+                WHERE d.tenant_id = t.company_inn
+                  AND d.tenant_id != t.tenant_id
+                  AND t.company_inn IS NOT NULL
+                  AND t.company_inn != ''
+            """)
+
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration + chat_sessions)")
+        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration + chat_sessions + tenant_id normalization)")
     except Exception as e:
         print(f"⚠️ DB migration skipped (non-fatal): {e}")
 

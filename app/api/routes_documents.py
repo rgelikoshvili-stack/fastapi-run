@@ -224,7 +224,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
                      counterparty_inn, counterparty_name,
                      document_series, document_number, date,
                      amount, raw_extraction, source_document_id, journal_entries)
-                VALUES (%s,'rejected_foreign',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,'pending_human_review',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (

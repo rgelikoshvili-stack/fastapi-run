@@ -212,8 +212,15 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     # ── 6. Resolve party ───────────────────────────────────────────────────
     party = resolve_party(extracted, tenant_id)
 
-    # ── 7. Foreign document — save + return early ──────────────────────────
+    # ── 7. Foreign document — save with basic info for human review ──────────
     if party.our_role == OurRole.FOREIGN:
+        # Build description from extracted data
+        seller_name = extracted.seller.name or extracted.seller.inn or "უცნობი გამყიდველი"
+        buyer_name  = extracted.buyer.name  or extracted.buyer.inn  or "უცნობი მყიდველი"
+        doc_num     = extracted.document_number or extracted.document_series or ""
+        description = f"ინვოისი {doc_num} | {seller_name} → {buyer_name}".strip(" |")
+        warning_note = " | ".join(party.warnings) if party.warnings else "გადაამოწმე: შეიძლება სხვა კომპანიის დოკუმენტია"
+
         conn = get_db(tenant_id)
         cur = conn.cursor()
         try:
@@ -223,8 +230,10 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
                     (tenant_id, status, is_foreign_doc, our_role,
                      counterparty_inn, counterparty_name,
                      document_series, document_number, date,
-                     amount, raw_extraction, source_document_id, journal_entries)
-                VALUES (%s,'pending_human_review',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     amount, description, partner, reason,
+                     debit_account, credit_account,
+                     raw_extraction, source_document_id, journal_entries)
+                VALUES (%s,'pending_human_review',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (
@@ -233,6 +242,11 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
                     extracted.document_series, extracted.document_number,
                     extracted.issue_date,
                     extracted.total_with_vat,
+                    description,
+                    seller_name,
+                    warning_note,
+                    "????",  # human must fill in debit
+                    "????",  # human must fill in credit
                     json.dumps(extracted.dict()), doc_id,
                     json.dumps([]),
                 ),

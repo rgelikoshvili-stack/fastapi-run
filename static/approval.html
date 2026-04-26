@@ -4676,7 +4676,9 @@ function closeModal() {
 
 function showDraftModal(id) { showPostingPreview(id); }
 
+let _modalToken = 0;  // incremented each time modal ownership changes
 async function showPostingPreview(id) {
+  const myToken = ++_modalToken;
   document.getElementById('modal-title').innerHTML = `Posting Preview <em>#${esc(id)}</em>`;
   const body = document.getElementById('modal-body');
   body.innerHTML = `<div style="text-align:center;padding:28px"><span class="spinner"></span><div style="margin-top:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim)">Loading preview…</div></div>`;
@@ -4688,6 +4690,7 @@ async function showPostingPreview(id) {
       headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {}
     });
     const j = await r.json();
+    if (_modalToken !== myToken) return;  // another modal took over while we were loading
     if (!r.ok || !j.ok) {
       const msg = j.error?.details || j.message || 'Preview ვერ მოიძებნა';
       body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r);border-left:3px solid var(--red);font-size:13px">✕ ${esc(msg)}</div>`;
@@ -4937,6 +4940,7 @@ function showRowMenu(event, id, desc, amount, accountCode) {
 
 /* ═════════ CORRECTION MODAL (რედაქტირება) ═════════ */
 async function openEditModal(draftId) {
+  ++_modalToken;  // invalidate any in-flight showPostingPreview
   // Fetch draft data + source document metadata in parallel
   const headers = TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
   let draft = {}, impact = {}, docMeta = null, srcDocId = null;

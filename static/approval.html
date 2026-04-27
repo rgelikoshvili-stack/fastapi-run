@@ -1496,7 +1496,8 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         </div>
         <div class="p-actions">
           <button class="btn btn-success btn-sm" onclick="approveAll()">ყველა</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadPending()">↻</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadPending(1)">↻</button>
+          <span id="loadTimeIndicator" style="font-size:11px;color:var(--ink-dim);margin-left:4px"></span>
         </div>
       </div>
       <div class="card">
@@ -1520,6 +1521,13 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
             </tr></thead>
             <tbody id="pending-rows"><tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
           </table>
+        </div>
+        <div id="pending-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border,#e2e8f0);font-size:12px;color:var(--ink-dim)">
+          <span id="pending-page-info"></span>
+          <div style="display:flex;gap:6px">
+            <button id="pending-prev" class="btn btn-ghost btn-sm" onclick="loadPending(pendingPage-1)" disabled>← წინა</button>
+            <button id="pending-next" class="btn btn-ghost btn-sm" onclick="loadPending(pendingPage+1)" disabled>შემდ. →</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2857,13 +2865,39 @@ function renderPendingRow(r, dashboard=false) {
   </tr>`;
 }
 
-async function loadPending() {
-  const d = await api('/approval/queue');
+let pendingPage = 1;
+const PENDING_LIMIT = 50;
+
+async function loadPending(page = 1) {
+  pendingPage = page;
+  const t0 = performance.now();
+  const offset = (page - 1) * PENDING_LIMIT;
+  const d = await api(`/approval/queue?limit=${PENDING_LIMIT}&offset=${offset}`);
+  const loadMs = Math.round(performance.now() - t0);
+
+  // load time indicator
+  const lti = document.getElementById('loadTimeIndicator');
+  if (lti) {
+    lti.textContent = `${loadMs}ms`;
+    lti.style.color = loadMs < 500 ? '#10b981' : '#ef4444';
+  }
+
   const rows = d?.data?.queue || d?.data?.items || d?.items || d?.transactions || [];
+  const total = d?.data?.count ?? d?.data?.total ?? rows.length;
   allPending = rows;
-  // sidebar badge
+
+  // sidebar badge — show total
   const sb = document.getElementById('sb-pending');
-  if (sb) { sb.textContent = rows.length; sb.classList.toggle('hidden', !rows.length); }
+  if (sb) { sb.textContent = total || rows.length; sb.classList.toggle('hidden', !total && !rows.length); }
+
+  // pagination controls
+  const totalPages = Math.max(1, Math.ceil(total / PENDING_LIMIT));
+  const info = document.getElementById('pending-page-info');
+  const prev = document.getElementById('pending-prev');
+  const next = document.getElementById('pending-next');
+  if (info) info.textContent = total > PENDING_LIMIT ? `გვ. ${page} / ${totalPages}  (სულ: ${total})` : `სულ: ${total}`;
+  if (prev) prev.disabled = page <= 1;
+  if (next) next.disabled = page >= totalPages;
 
   const renderInto = (target, isDash) => {
     const tbody = document.getElementById(target);

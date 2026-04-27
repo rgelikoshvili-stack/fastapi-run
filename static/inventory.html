@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hub — საწყობი</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}
+.topbar a:hover{color:#fff}
+.topbar .sep{color:#495057}
+h1{font-size:1.1rem;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:1.5rem}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem}
+.kpi{background:#fff;border-radius:10px;padding:1.25rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #4361ee}
+.kpi.warn{border-left-color:#f72585}
+.kpi-label{font-size:.75rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
+.kpi-val{font-size:1.8rem;font-weight:700;color:#1a1a2e;margin:.25rem 0}
+.kpi.warn .kpi-val{color:#f72585}
+.kpi-sub{font-size:.75rem;color:#6c757d}
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
+.card-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+.card-title{font-weight:600;font-size:.95rem}
+.card-body{padding:1rem 1.25rem}
+.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+input[type=text],input[type=number],input[type=date],select,textarea{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.9rem;width:100%;background:#fff;color:#1a1a2e;transition:border-color .2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#4361ee;box-shadow:0 0 0 3px rgba(67,97,238,.1)}
+.search{width:220px}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .9rem;border:none;border-radius:6px;cursor:pointer;font-size:.85rem;font-weight:500;transition:all .15s}
+.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
+.btn-outline{background:transparent;border:1px solid #4361ee;color:#4361ee}.btn-outline:hover{background:#f0f3ff}
+.btn-danger{background:#f72585;color:#fff}.btn-danger:hover{background:#d91d73}
+.btn-sm{padding:.3rem .65rem;font-size:.8rem}
+.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
+table{width:100%;border-collapse:collapse;font-size:.875rem}
+thead th{background:#f8f9fa;padding:.7rem 1rem;text-align:left;font-weight:600;color:#495057;border-bottom:2px solid #dee2e6;white-space:nowrap}
+tbody td{padding:.65rem 1rem;border-bottom:1px solid #f0f2f5;vertical-align:middle}
+tbody tr:hover{background:#f8f9fa}
+tbody tr.low-stock{background:#fff3f5}
+.badge{display:inline-block;padding:.25rem .6rem;border-radius:20px;font-size:.75rem;font-weight:600}
+.badge-blue{background:#e7edff;color:#4361ee}
+.badge-green{background:#d1f2e1;color:#198754}
+.badge-red{background:#fde8ef;color:#f72585}
+.badge-yellow{background:#fff3cd;color:#856404}
+.badge-gray{background:#f0f2f5;color:#6c757d}
+.progress{height:6px;background:#e9ecef;border-radius:3px;overflow:hidden}
+.progress-bar{height:100%;background:#4361ee;border-radius:3px;transition:width .3s}
+.progress-bar.warn{background:#f72585}
+.mono{font-family:'Courier New',monospace;font-weight:600}
+.text-right{text-align:right}
+.text-center{text-align:center}
+.actions{display:flex;gap:.25rem;justify-content:center}
+.empty{padding:3rem 1rem;text-align:center;color:#adb5bd}
+.empty-icon{font-size:2.5rem;margin-bottom:.5rem}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:12px;width:90%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between}
+.modal-head h3{font-size:1rem;font-weight:600}
+.modal-body{padding:1.5rem}
+.modal-foot{padding:1rem 1.5rem;border-top:1px solid #f0f2f5;display:flex;justify-content:flex-end;gap:.5rem}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:.75rem}
+.form-group{margin-bottom:.75rem}
+.form-group label{display:block;font-size:.82rem;font-weight:600;color:#495057;margin-bottom:.3rem}
+.form-hint{font-size:.75rem;color:#adb5bd;margin-top:.2rem}
+.tabs{display:flex;gap:0;border-bottom:2px solid #f0f2f5;margin-bottom:1rem}
+.tab{padding:.65rem 1.25rem;cursor:pointer;font-size:.88rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
+.tab.active{color:#4361ee;border-bottom-color:#4361ee}
+.tab-pane{display:none}.tab-pane.active{display:block}
+@media(max-width:600px){.form-row{grid-template-columns:1fr}.toolbar{flex-direction:column;align-items:stretch}.search{width:100%}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span class="sep">›</span>
+  <h1>📦 საწყობი / Inventory</h1>
+  <div style="margin-left:auto;display:flex;gap:.5rem">
+    <button class="btn btn-primary btn-sm" onclick="openModal('itemModal','add')">+ ნივთი</button>
+    <button class="btn btn-outline btn-sm" onclick="openModal('movModal','in')" style="border-color:#fff;color:#fff">↕ მოძრაობა</button>
+    <button class="btn btn-outline btn-sm" onclick="openTab('po')" style="border-color:#fff;color:#fff">📋 PO</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-label">სულ ნივთი</div><div class="kpi-val" id="kTotalItems">—</div><div class="kpi-sub">active items</div></div>
+    <div class="kpi"><div class="kpi-label">საწყობის ღირებულება</div><div class="kpi-val" id="kTotalValue">—</div><div class="kpi-sub">GEL (selling price)</div></div>
+    <div class="kpi warn"><div class="kpi-label">დაბალი მარაგი</div><div class="kpi-val" id="kLowStock">—</div><div class="kpi-sub">reorder required</div></div>
+    <div class="kpi"><div class="kpi-label">შეკვეთები (PO)</div><div class="kpi-val" id="kPendingPO">—</div><div class="kpi-sub">draft / sent</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="openTab('items')" id="tab-items">📦 ნივთები</div>
+    <div class="tab" onclick="openTab('movements')" id="tab-movements">↕ მოძრაობები</div>
+    <div class="tab" onclick="openTab('valuation')" id="tab-valuation">💰 შეფასება</div>
+    <div class="tab" onclick="openTab('po')" id="tab-po">📋 შეკვეთები</div>
+  </div>
+
+  <!-- ITEMS tab -->
+  <div id="pane-items" class="tab-pane active">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">ნივთების სია</span>
+        <div class="toolbar">
+          <input class="search" type="text" id="searchInput" placeholder="🔍 ძებნა..." oninput="loadItems()">
+          <select id="catFilter" onchange="loadItems()" style="width:140px">
+            <option value="">ყველა კატეგ.</option>
+          </select>
+          <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem">
+            <input type="checkbox" id="lowStockChk" onchange="loadItems()"> დაბალი მარაგი
+          </label>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>კოდი</th><th>სახელი</th><th>კატეგ.</th>
+            <th class="text-right">მარაგი</th><th>ერთ.</th>
+            <th class="text-right">ყიდვის ფასი</th><th class="text-right">გაყიდვის ფასი</th>
+            <th class="text-right">ღირებ.</th><th>მეთოდი</th><th></th>
+          </tr></thead>
+          <tbody id="itemsBody">
+            <tr><td colspan="10"><div class="empty"><div class="empty-icon">⏳</div>იტვირთება...</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:.75rem 1.25rem;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #f0f2f5">
+        <span id="itemsPager" style="font-size:.82rem;color:#6c757d"></span>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-ghost btn-sm" id="btnPrev" onclick="changePage(-1)">‹ წინა</button>
+          <button class="btn btn-ghost btn-sm" id="btnNext" onclick="changePage(1)">შემდეგი ›</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOVEMENTS tab -->
+  <div id="pane-movements" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">მოძრაობების ისტორია</span>
+        <div class="toolbar">
+          <select id="mvTypeFilter" onchange="loadMovements()" style="width:140px">
+            <option value="">ყველა ტიპი</option>
+            <option value="in">შემოსვლა (in)</option>
+            <option value="out">გასვლა (out)</option>
+            <option value="transfer">გადატანა</option>
+            <option value="adjustment">კორექტირება</option>
+          </select>
+          <input type="date" id="mvFrom" onchange="loadMovements()" style="width:140px">
+          <input type="date" id="mvTo" onchange="loadMovements()" style="width:140px">
+          <button class="btn btn-primary btn-sm" onclick="openModal('movModal','in')">+ მოძრაობა</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>თარიღი</th><th>ნივთი</th><th>ტიპი</th>
+            <th class="text-right">რაოდ.</th><th class="text-right">ღირ./ერთ.</th>
+            <th class="text-right">სულ</th><th>საბუთი</th><th>შენიშვნა</th>
+          </tr></thead>
+          <tbody id="movBody">
+            <tr><td colspan="8"><div class="empty"><div class="empty-icon">↕</div>აირჩიე ფილტრი</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- VALUATION tab -->
+  <div id="pane-valuation" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">საწყობის შეფასება</span>
+        <div class="toolbar">
+          <select id="valMethod" style="width:140px">
+            <option value="fifo">FIFO</option>
+            <option value="lifo">LIFO</option>
+            <option value="average">Weighted Avg</option>
+          </select>
+          <input type="date" id="valAsOf" style="width:140px">
+          <button class="btn btn-primary btn-sm" onclick="loadValuation()">📊 გამოთვლა</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="valSummary" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem"></div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>კოდი</th><th>სახელი</th><th>ერთ.</th>
+              <th class="text-right">რაოდ.</th><th class="text-right">საშ. ღირ.</th>
+              <th class="text-right">სულ ღირ.</th>
+            </tr></thead>
+            <tbody id="valBody">
+              <tr><td colspan="6"><div class="empty"><div class="empty-icon">💰</div>აირჩიე მეთოდი და დააჭირე გამოთვლა</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PO tab -->
+  <div id="pane-po" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">შეძენის შეკვეთები (Purchase Orders)</span>
+        <div class="toolbar">
+          <select id="poStatusFilter" onchange="loadPOs()" style="width:140px">
+            <option value="">ყველა</option>
+            <option value="draft">Draft</option>
+            <option value="sent">გაგზავნილი</option>
+            <option value="partial">ნაწილობრივ</option>
+            <option value="received">მიღებული</option>
+            <option value="cancelled">გაუქმებული</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="openModal('poModal','new')">+ შეკვეთა</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>PO #</th><th>მომწოდებელი</th><th>თარიღი</th>
+            <th>მოსალოდნელი</th><th>სტატუსი</th>
+            <th class="text-right">სულ</th><th></th>
+          </tr></thead>
+          <tbody id="poBody">
+            <tr><td colspan="7"><div class="empty"><div class="empty-icon">📋</div>შეკვეთები არ მოიძებნა</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Item Modal ─────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="itemModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="itemModalTitle">ნივთის დამატება</h3>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('itemModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>კოდი *</label><input id="fItemCode" type="text" maxlength="50" placeholder="IT-001"></div>
+        <div class="form-group"><label>სახელი *</label><input id="fItemName" type="text" maxlength="200"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>კატეგორია</label><select id="fCatId"><option value="">— აირჩიე —</option></select></div>
+        <div class="form-group"><label>ზომის ერთეული</label>
+          <select id="fUnit">
+            <option value="piece">ცალი (piece)</option>
+            <option value="kg">კგ (kg)</option>
+            <option value="liter">ლიტრი</option>
+            <option value="meter">მეტრი</option>
+            <option value="box">ყუთი (box)</option>
+            <option value="set">კომპლექტი (set)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>ყიდვის ფასი (GEL)</label><input id="fBuyPrice" type="number" step="0.01" min="0" value="0"></div>
+        <div class="form-group"><label>გაყიდვის ფასი (GEL)</label><input id="fSellPrice" type="number" step="0.01" min="0" value="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>მინ. მარაგი (reorder)</label><input id="fReorder" type="number" min="0" value="0"></div>
+        <div class="form-group"><label>შეფასების მეთოდი</label>
+          <select id="fMethod">
+            <option value="fifo">FIFO</option>
+            <option value="lifo">LIFO</option>
+            <option value="average">Weighted Average</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>აღწერა</label><textarea id="fDesc" rows="2"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('itemModal')">გაუქმება</button>
+      <button class="btn btn-primary" onclick="saveItem()">შენახვა</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Movement Modal ─────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="movModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>მარაგის მოძრაობა</h3>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('movModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>ტიპი *</label>
+          <select id="mType">
+            <option value="in">შემოსვლა (in)</option>
+            <option value="out">გასვლა (out)</option>
+            <option value="adjustment">კორექტირება</option>
+          </select>
+        </div>
+        <div class="form-group"><label>ნივთი *</label>
+          <select id="mItem"><option value="">— აირჩიე —</option></select>
+        </div>
+      </div>
+      <div id="mStockHint" style="font-size:.82rem;color:#6c757d;margin-bottom:.75rem;display:none"></div>
+      <div class="form-row">
+        <div class="form-group"><label>რაოდენობა *</label><input id="mQty" type="number" min="0.001" step="0.001" value="1"></div>
+        <div class="form-group"><label>ღირებულება / ერთეული</label><input id="mCost" type="number" min="0" step="0.01" value="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>საბუთი</label><input id="mRef" type="text" placeholder="Invoice #, etc."></div>
+        <div class="form-group"><label>თარიღი</label><input id="mDate" type="date"></div>
+      </div>
+      <div class="form-group"><label>შენიშვნა</label><textarea id="mNotes" rows="2"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('movModal')">გაუქმება</button>
+      <button class="btn btn-primary" onclick="saveMovement()">ჩაწერა</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PO Modal ───────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="poModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>შეძენის შეკვეთა (PO)</h3>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('poModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>PO # (სურვილისამებრ)</label><input id="poPO" type="text" placeholder="auto"></div>
+        <div class="form-group"><label>მომწოდებელი</label><input id="poSupplier" type="text"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>მომწოდ. INN</label><input id="poINN" type="text"></div>
+        <div class="form-group"><label>მოსალოდნელი თარიღი</label><input id="poExpected" type="date"></div>
+      </div>
+      <div class="form-group"><label>შენიშვნა</label><textarea id="poNotes" rows="2"></textarea></div>
+      <div style="margin-top:.75rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+          <strong style="font-size:.88rem">ხაზები (Lines)</strong>
+          <button class="btn btn-ghost btn-sm" onclick="addPOLine()">+ ხაზი</button>
+        </div>
+        <div id="poLines"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('poModal')">გაუქმება</button>
+      <button class="btn btn-primary" onclick="savePO()">შენახვა</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
+const TENANT = localStorage.getItem('tenant_id') || '';
+
+function headers(){ return {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT}; }
+
+async function api(path, method='GET', body=null){
+  try{
+    const r = await fetch(BASE+path,{method,headers:headers(),body:body?JSON.stringify(body):undefined});
+    if(r.status===401){localStorage.clear();location.href='/static/login.html';return null;}
+    return await r.json();
+  }catch(e){console.error(e);return null;}
+}
+
+function fmt(n){return Number(n||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('ka-GE');}catch{return d;}}
+function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Tabs
+function openTab(name){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('pane-'+name).classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='movements') loadMovements();
+  if(name==='po') loadPOs();
+}
+
+// Modal
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',function(e){if(e.target===this)closeModal(this.id);}));
+
+// ── ITEMS ──────────────────────────────────────────────────────────────────
+let itemPage=1, itemTotal=0;
+const PAGE_SIZE=50;
+
+async function loadItems(){
+  itemPage=1;
+  await fetchItems();
+}
+
+async function fetchItems(){
+  const search=document.getElementById('searchInput').value;
+  const cat=document.getElementById('catFilter').value;
+  const low=document.getElementById('lowStockChk').checked?'true':'false';
+  const offset=(itemPage-1)*PAGE_SIZE;
+  const d=await api(`/inventory/items?search=${encodeURIComponent(search)}&low_stock=${low}${cat?'&category_id='+cat:''}&limit=${PAGE_SIZE}&offset=${offset}`);
+  if(!d||!d.ok){renderEmptyItems();return;}
+  const {items,total,total_value,low_stock_count}=d.data;
+  itemTotal=total;
+  document.getElementById('kTotalItems').textContent=total;
+  document.getElementById('kTotalValue').textContent='₾'+fmt(total_value);
+  document.getElementById('kLowStock').textContent=low_stock_count;
+  renderItems(items);
+  document.getElementById('itemsPager').textContent=`${offset+1}–${Math.min(offset+PAGE_SIZE,total)} / ${total}`;
+  document.getElementById('btnPrev').disabled=itemPage<=1;
+  document.getElementById('btnNext').disabled=offset+PAGE_SIZE>=total;
+}
+
+function changePage(dir){
+  itemPage+=dir;
+  if(itemPage<1)itemPage=1;
+  fetchItems();
+}
+
+function renderItems(items){
+  const tb=document.getElementById('itemsBody');
+  if(!items||!items.length){renderEmptyItems();return;}
+  tb.innerHTML=items.map(it=>{
+    const low=it.current_stock<=it.reorder_level;
+    const val=Number(it.current_stock||0)*Number(it.selling_price||0);
+    const pct=it.reorder_level>0?Math.min(100,Math.round(it.current_stock/it.reorder_level*100)):100;
+    return`<tr class="${low?'low-stock':''}">
+      <td class="mono">${esc(it.item_code)}</td>
+      <td><strong>${esc(it.item_name)}</strong></td>
+      <td>${esc(it.category_name||'—')}</td>
+      <td class="text-right">
+        <strong class="${low?'':'text-ok'}" style="${low?'color:#f72585':''}">${fmt(it.current_stock)}</strong>
+        <div class="progress" style="width:60px;margin-top:3px"><div class="progress-bar ${low?'warn':''}" style="width:${pct}%"></div></div>
+      </td>
+      <td><span class="badge badge-gray">${esc(it.unit_of_measure)}</span></td>
+      <td class="text-right">₾${fmt(it.purchase_price)}</td>
+      <td class="text-right">₾${fmt(it.selling_price)}</td>
+      <td class="text-right"><strong>₾${fmt(val)}</strong></td>
+      <td><span class="badge badge-blue">${it.costing_method||'fifo'}</span></td>
+      <td><div class="actions">
+        <button class="btn btn-ghost btn-sm" onclick="editItem(${it.id})" title="რედაქტირება">✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="quickMov(${it.id},'${esc(it.item_name)}')" title="მოძრაობა">↕</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderEmptyItems(){
+  document.getElementById('itemsBody').innerHTML=`<tr><td colspan="10"><div class="empty"><div class="empty-icon">📦</div>ნივთები არ მოიძებნა</div></td></tr>`;
+}
+
+// ── ITEM SAVE ──────────────────────────────────────────────────────────────
+let editingItemId=null;
+
+function openModal(id,mode){
+  document.getElementById(id).classList.add('open');
+  if(id==='itemModal'){
+    editingItemId=null;
+    document.getElementById('itemModalTitle').textContent='ნივთის დამატება';
+    ['fItemCode','fItemName','fDesc'].forEach(i=>document.getElementById(i).value='');
+    ['fBuyPrice','fSellPrice','fReorder'].forEach(i=>document.getElementById(i).value=0);
+    document.getElementById('fUnit').value='piece';
+    document.getElementById('fMethod').value='fifo';
+    document.getElementById('fCatId').value='';
+  }
+  if(id==='movModal'){
+    document.getElementById('mDate').value=new Date().toISOString().split('T')[0];
+    populateItemSelect();
+  }
+  if(id==='poModal'){
+    document.getElementById('poLines').innerHTML='';
+    addPOLine();
+  }
+}
+
+async function editItem(id){
+  const d=await api('/inventory/items/'+id);
+  if(!d||!d.ok)return;
+  const it=d.data;
+  editingItemId=id;
+  document.getElementById('itemModalTitle').textContent='ნივთის რედაქტირება';
+  document.getElementById('fItemCode').value=it.item_code||'';
+  document.getElementById('fItemName').value=it.item_name||'';
+  document.getElementById('fDesc').value=it.description||'';
+  document.getElementById('fBuyPrice').value=it.purchase_price||0;
+  document.getElementById('fSellPrice').value=it.selling_price||0;
+  document.getElementById('fReorder').value=it.reorder_level||0;
+  document.getElementById('fUnit').value=it.unit_of_measure||'piece';
+  document.getElementById('fMethod').value=it.costing_method||'fifo';
+  document.getElementById('fCatId').value=it.category_id||'';
+  document.getElementById('itemModal').classList.add('open');
+}
+
+async function saveItem(){
+  const code=document.getElementById('fItemCode').value.trim();
+  const name=document.getElementById('fItemName').value.trim();
+  if(!code||!name){alert('კოდი და სახელი სავალდებულოა');return;}
+  const body={
+    item_code:code,item_name:name,
+    description:document.getElementById('fDesc').value,
+    category_id:document.getElementById('fCatId').value||null,
+    purchase_price:parseFloat(document.getElementById('fBuyPrice').value)||0,
+    selling_price:parseFloat(document.getElementById('fSellPrice').value)||0,
+    unit_of_measure:document.getElementById('fUnit').value,
+    reorder_level:parseInt(document.getElementById('fReorder').value)||0,
+    costing_method:document.getElementById('fMethod').value,
+  };
+  const path=editingItemId?`/inventory/items/${editingItemId}`:'/inventory/items/create';
+  const method=editingItemId?'PUT':'POST';
+  const d=await api(path,method,body);
+  if(d&&d.ok){toast('✅ შენახულია');closeModal('itemModal');loadItems();}
+  else alert((d&&d.error&&d.error.details)||'შეცდომა');
+}
+
+// ── MOVEMENTS ─────────────────────────────────────────────────────────────
+async function loadMovements(){
+  const type=document.getElementById('mvTypeFilter').value;
+  const from=document.getElementById('mvFrom').value;
+  const to=document.getElementById('mvTo').value;
+  let url='/inventory/movements?limit=100&offset=0';
+  if(type) url+=`&movement_type=${type}`;
+  if(from) url+=`&date_from=${from}`;
+  if(to)   url+=`&date_to=${to}`;
+  const d=await api(url);
+  if(!d||!d.ok){document.getElementById('movBody').innerHTML=`<tr><td colspan="8"><div class="empty">შეცდომა</div></td></tr>`;return;}
+  const mvs=d.data.movements;
+  const tb=document.getElementById('movBody');
+  if(!mvs||!mvs.length){
+    tb.innerHTML=`<tr><td colspan="8"><div class="empty"><div class="empty-icon">↕</div>მოძრაობა არ მოიძებნა</div></td></tr>`;
+    return;
+  }
+  const typeClr={in:'badge-green',out:'badge-red',transfer:'badge-blue',adjustment:'badge-yellow'};
+  tb.innerHTML=mvs.map(m=>`<tr>
+    <td class="mono">${fmtDate(m.movement_date)}</td>
+    <td>${esc(m.item_name)} <small class="mono">${esc(m.item_code)}</small></td>
+    <td><span class="badge ${typeClr[m.movement_type]||'badge-gray'}">${m.movement_type}</span></td>
+    <td class="text-right">${fmt(m.quantity)}</td>
+    <td class="text-right">₾${fmt(m.unit_cost)}</td>
+    <td class="text-right"><strong>₾${fmt(m.total_value)}</strong></td>
+    <td>${esc(m.reference_doc||'—')}</td>
+    <td>${esc(m.notes||'—')}</td>
+  </tr>`).join('');
+}
+
+async function populateItemSelect(){
+  const d=await api('/inventory/items?limit=200&offset=0');
+  const sel=document.getElementById('mItem');
+  sel.innerHTML='<option value="">— ნივთი —</option>';
+  if(d&&d.ok) d.data.items.forEach(it=>{
+    sel.innerHTML+=`<option value="${it.id}">${esc(it.item_code)} — ${esc(it.item_name)}</option>`;
+  });
+  sel.onchange=async()=>{
+    const id=sel.value;
+    if(!id){document.getElementById('mStockHint').style.display='none';return;}
+    const s=await api('/inventory/items/'+id);
+    if(s&&s.ok){
+      const h=document.getElementById('mStockHint');
+      h.style.display='block';
+      h.textContent=`მიმდინარე მარაგი: ${fmt(s.data.current_stock)} ${s.data.unit_of_measure}`;
+    }
+  };
+}
+
+async function quickMov(itemId,itemName){
+  await openModalAsync('movModal','in');
+  await populateItemSelect();
+  document.getElementById('mItem').value=itemId;
+  document.getElementById('mItem').dispatchEvent(new Event('change'));
+}
+
+async function openModalAsync(id,mode){
+  document.getElementById('mDate').value=new Date().toISOString().split('T')[0];
+  document.getElementById(id).classList.add('open');
+}
+
+async function saveMovement(){
+  const item_id=document.getElementById('mItem').value;
+  const qty=parseFloat(document.getElementById('mQty').value);
+  const movement_type=document.getElementById('mType').value;
+  if(!item_id||!qty){alert('ნივთი და რაოდენობა სავალდებულოა');return;}
+  const body={
+    item_id:parseInt(item_id),movement_type,quantity:qty,
+    unit_cost:parseFloat(document.getElementById('mCost').value)||0,
+    reference_doc:document.getElementById('mRef').value||null,
+    movement_date:document.getElementById('mDate').value||null,
+    notes:document.getElementById('mNotes').value||null,
+  };
+  const d=await api('/inventory/movements','POST',body);
+  if(d&&d.ok){toast('✅ მოძრაობა ჩაიწერა');closeModal('movModal');loadItems();}
+  else alert((d&&d.error&&d.error.details)||(d&&d.message)||'შეცდომა');
+}
+
+// ── VALUATION ─────────────────────────────────────────────────────────────
+async function loadValuation(){
+  const method=document.getElementById('valMethod').value;
+  const asOf=document.getElementById('valAsOf').value;
+  const url=`/inventory/valuation?method=${method}${asOf?'&as_of='+asOf:''}`;
+  const d=await api(url);
+  if(!d||!d.ok){document.getElementById('valBody').innerHTML=`<tr><td colspan="6"><div class="empty">შეცდომა</div></td></tr>`;return;}
+  const {total_value,total_qty,items,as_of}=d.data;
+  document.getElementById('valSummary').innerHTML=`
+    <div class="kpi" style="margin:0"><div class="kpi-label">მეთოდი</div><div class="kpi-val" style="font-size:1.2rem">${method.toUpperCase()}</div><div class="kpi-sub">${as_of}</div></div>
+    <div class="kpi" style="margin:0"><div class="kpi-label">სულ ღირებ.</div><div class="kpi-val" style="font-size:1.2rem">₾${fmt(total_value)}</div><div class="kpi-sub">GEL</div></div>
+    <div class="kpi" style="margin:0"><div class="kpi-label">სულ ნივთი</div><div class="kpi-val" style="font-size:1.2rem">${items.length}</div><div class="kpi-sub">active lines</div></div>
+  `;
+  if(!items.length){document.getElementById('valBody').innerHTML=`<tr><td colspan="6"><div class="empty">ნივთი არ მოიძებნა</div></td></tr>`;return;}
+  document.getElementById('valBody').innerHTML=items.map(it=>`<tr>
+    <td class="mono">${esc(it.item_code||'—')}</td>
+    <td>${esc(it.item_name||'—')}</td>
+    <td>${esc(it.unit_of_measure||'—')}</td>
+    <td class="text-right">${fmt(it.quantity)}</td>
+    <td class="text-right">₾${fmt(it.avg_cost)}</td>
+    <td class="text-right"><strong>₾${fmt(it.total_value)}</strong></td>
+  </tr>`).join('');
+}
+
+// ── PURCHASE ORDERS ────────────────────────────────────────────────────────
+async function loadPOs(){
+  const status=document.getElementById('poStatusFilter').value;
+  const d=await api('/inventory/purchase-orders?limit=100&offset=0'+(status?'&status='+status:''));
+  const tb=document.getElementById('poBody');
+  if(!d||!d.ok){tb.innerHTML=`<tr><td colspan="7"><div class="empty">შეცდომა</div></td></tr>`;return;}
+  const orders=d.data.orders;
+  const pending=(orders||[]).filter(o=>['draft','sent'].includes(o.status)).length;
+  document.getElementById('kPendingPO').textContent=pending;
+  if(!orders||!orders.length){tb.innerHTML=`<tr><td colspan="7"><div class="empty"><div class="empty-icon">📋</div>შეკვეთა არ მოიძებნა</div></td></tr>`;return;}
+  const stClr={draft:'badge-gray',sent:'badge-blue',partial:'badge-yellow',received:'badge-green',cancelled:'badge-red'};
+  tb.innerHTML=orders.map(po=>`<tr>
+    <td class="mono">${esc(po.po_number)}</td>
+    <td>${esc(po.supplier_name||'—')}</td>
+    <td>${fmtDate(po.po_date)}</td>
+    <td>${fmtDate(po.expected_date)}</td>
+    <td><span class="badge ${stClr[po.status]||'badge-gray'}">${po.status}</span></td>
+    <td class="text-right"><strong>₾${fmt(po.total_amount)}</strong></td>
+    <td><div class="actions">
+      <button class="btn btn-ghost btn-sm" title="მიღება" onclick="alert('PO receiving — detail view')">📥</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+function addPOLine(){
+  const container=document.getElementById('poLines');
+  const idx=container.children.length;
+  const div=document.createElement('div');
+  div.className='form-row';
+  div.style.alignItems='center';
+  div.innerHTML=`
+    <div class="form-group"><label>ნივთი</label><select class="po-line-item" style="width:100%"><option value="">—</option></select></div>
+    <div class="form-group"><label>რაოდ.</label><input class="po-line-qty" type="number" min="1" value="1"></div>
+    <div class="form-group"><label>ფასი</label><input class="po-line-price" type="number" min="0" step="0.01" value="0"></div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:1.5rem" onclick="this.parentNode.remove()">✕</button>
+  `;
+  container.appendChild(div);
+  // populate item selects
+  api('/inventory/items?limit=200').then(d=>{
+    if(!d||!d.ok)return;
+    div.querySelector('.po-line-item').innerHTML='<option value="">—</option>'+d.data.items.map(it=>`<option value="${it.id}">${esc(it.item_code)} — ${esc(it.item_name)}</option>`).join('');
+  });
+}
+
+async function savePO(){
+  const lines=[...document.querySelectorAll('#poLines .form-row')].map(row=>({
+    item_id:parseInt(row.querySelector('.po-line-item').value)||null,
+    quantity:parseFloat(row.querySelector('.po-line-qty').value)||1,
+    unit_price:parseFloat(row.querySelector('.po-line-price').value)||0,
+  })).filter(l=>l.item_id);
+  const body={
+    po_number:document.getElementById('poPO').value||null,
+    supplier_name:document.getElementById('poSupplier').value||null,
+    supplier_inn:document.getElementById('poINN').value||null,
+    expected_date:document.getElementById('poExpected').value||null,
+    notes:document.getElementById('poNotes').value||null,
+    total_amount:lines.reduce((s,l)=>s+l.quantity*l.unit_price,0),
+    lines,
+  };
+  const d=await api('/inventory/purchase-orders','POST',body);
+  if(d&&d.ok){toast('✅ შეკვეთა შეიქმნა');closeModal('poModal');loadPOs();}
+  else alert((d&&d.error&&d.error.details)||'შეცდომა');
+}
+
+// ── CATEGORIES & TOAST ─────────────────────────────────────────────────────
+async function loadCategories(){
+  const d=await api('/inventory/categories');
+  if(!d||!d.ok)return;
+  const opts=d.data.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  document.getElementById('catFilter').innerHTML='<option value="">ყველა კატეგ.</option>'+opts;
+  document.getElementById('fCatId').innerHTML='<option value="">— აირჩიე —</option>'+opts;
+}
+
+function toast(msg,type='ok'){
+  const t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:1.5rem;right:1.5rem;background:'+(type==='ok'?'#198754':'#f72585')+';color:#fff;padding:.75rem 1.25rem;border-radius:8px;font-size:.88rem;font-weight:500;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15)';
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3500);
+}
+
+// Init
+(async()=>{
+  await loadCategories();
+  await loadItems();
+  document.getElementById('valAsOf').value=new Date().toISOString().split('T')[0];
+})();
+</script>
+</body>
+</html>

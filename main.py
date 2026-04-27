@@ -203,11 +203,13 @@ from app.api.routes_decision_engine import router as decision_engine_router
 from app.api.middleware.auth_middleware import auth_middleware
 from app.api.middleware.audit_log_middleware import audit_log_middleware
 from app.api.middleware.correlation_middleware import correlation_middleware
+from app.api.routes_inventory import router as inventory_router
 
 
 # --- INCLUDE ROUTERS ---
 app.include_router(routes_health.router)
 app.include_router(version_router)
+app.include_router(inventory_router)
 app.include_router(routes_debug.router)
 app.include_router(routes_bank_csv.router)
 app.include_router(routes_bank_process.router)

@@ -7,6 +7,7 @@ Triangle document endpoints:
   POST /documents/upload-tax-invoice
   POST /documents/upload-commercial-invoice
 """
+import asyncio
 import hashlib
 import json
 import logging
@@ -27,6 +28,7 @@ from app.api.services.operation_classifier import classify_operation_async
 from app.api.services.doc_journal_builder import build_journal
 from app.api.services.triangle_matcher import compute_match_score, find_candidates, upsert_triangle_match
 from app.api.services.correction_detector import detect_corrections, save_corrections
+from app.api.services.storage_service import upload_file as gcs_upload, download_file as gcs_download
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 log = logging.getLogger(__name__)
@@ -116,14 +118,15 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     conn = get_db(tenant_id)
     cur = conn.cursor()
     cur.execute(
-        "SELECT id FROM processed_documents WHERE tenant_id = %s AND file_hash = %s",
+        "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content FROM processed_documents WHERE tenant_id = %s AND file_hash = %s",
         (tenant_id, file_hash),
     )
     existing_file = cur.fetchone()
     cur.close()
     conn.close()
 
-    if existing_file:
+    if existing_file and existing_file[1]:
+        # True duplicate — file already stored with content
         conn2 = get_db(tenant_id)
         cur2 = conn2.cursor()
         cur2.execute(
@@ -139,38 +142,52 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
             "existing_draft_id": existing_draft[0] if existing_draft else None,
         })
 
-    # ── 2. Parse text ──────────────────────────────────────────────────────
-    llm_service = None
-    try:
-        from app.api.services.llm_service import llm_service as _llm
-        llm_service = _llm
-    except Exception:
-        pass
+    if existing_file and not existing_file[1]:
+        # Record exists but content was never stored — upload to GCS and patch gcs_path
+        doc_id = existing_file[0]
+        gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
+        conn_patch = get_db(tenant_id)
+        cur_patch = conn_patch.cursor()
+        try:
+            cur_patch.execute(
+                "UPDATE processed_documents SET gcs_path = %s WHERE id = %s AND tenant_id = %s",
+                (gcs_path, doc_id, tenant_id),
+            )
+            conn_patch.commit()
+        finally:
+            cur_patch.close()
+            conn_patch.close()
+        log.info("action=doc_content_patched doc_id=%s tenant=%s", doc_id, tenant_id)
+        conn2 = get_db(tenant_id)
+        cur2 = conn2.cursor()
+        cur2.execute(
+            "SELECT id, status FROM journal_drafts WHERE source_document_id = %s LIMIT 1",
+            (doc_id,),
+        )
+        existing_draft = cur2.fetchone()
+        cur2.close()
+        conn2.close()
+        return ok_response("File content restored", {
+            "status": "content_restored",
+            "message": "ფაილის შინაარსი განახლდა — 👁 ღილაკი ახლა მუშაობს",
+            "doc_id": doc_id,
+            "existing_draft_id": existing_draft[0] if existing_draft else None,
+        })
 
-    parsed = await parse_document(file_bytes, mime_type, llm_service)
+    # ── 2. Upload to GCS, save processed document record (status=processing) ─
+    gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
 
-    # ── 3. Extract structured data ─────────────────────────────────────────
-    extracted = await extract_document(parsed.get("text", ""), llm_service)
-
-    # ── 4. Save processed document record ─────────────────────────────────
     conn = get_db(tenant_id)
     cur = conn.cursor()
     try:
         cur.execute(
             """
             INSERT INTO processed_documents
-                (tenant_id, file_hash, file_name, file_size_bytes, mime_type,
-                 extraction_method, raw_text, extracted_data, file_content)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (tenant_id, file_hash, file_name, file_size_bytes, mime_type, gcs_path, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'processing')
             RETURNING id
             """,
-            (
-                tenant_id, file_hash, file.filename, len(file_bytes),
-                mime_type, parsed.get("method"),
-                (parsed.get("text") or "")[:10000],
-                json.dumps(extracted.dict()),
-                file_bytes,
-            ),
+            (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, gcs_path),
         )
         doc_id = cur.fetchone()[0]
         conn.commit()
@@ -184,42 +201,111 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
         cur.close()
         conn.close()
 
-    # ── 5. Dedup by document series+number ────────────────────────────────
-    if extracted.document_series and extracted.document_number:
+    # ── 3. Fire background processing — return immediately ─────────────────
+    asyncio.create_task(
+        _process_document_background(doc_id, tenant_id, file_bytes, mime_type, file.filename or "document")
+    )
+
+    log.info("action=document_queued tenant=%s doc_id=%s", tenant_id, doc_id)
+
+    return ok_response("Document queued for processing", {
+        "status": "processing",
+        "doc_id": doc_id,
+        "message": "დოკუმენტი მუშავდება ფონზე — approval queue-ში გამოჩნდება რამდენიმე წამში",
+    })
+
+
+async def _process_document_background(
+    doc_id: int, tenant_id: str, file_bytes: bytes, mime_type: str, filename: str
+):
+    """
+    Background task: OCR → AI extract → party resolve → classify → draft.
+    Runs after upload_document returns. Updates processed_documents.status on finish.
+    """
+    try:
+        llm_service = None
+        try:
+            from app.api.services.llm_service import llm_service as _llm
+            llm_service = _llm
+        except Exception:
+            pass
+
+        parsed = await parse_document(file_bytes, mime_type, llm_service)
+        extracted = await extract_document(parsed.get("text", ""), llm_service)
+
+        # update raw_text + extraction_method
         conn = get_db(tenant_id)
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT id, status FROM journal_drafts
-            WHERE tenant_id = %s AND document_series = %s
-              AND document_number = %s AND status != 'rejected'
-            LIMIT 1
-            """,
-            (tenant_id, extracted.document_series, extracted.document_number),
-        )
-        dup = cur.fetchone()
-        cur.close()
-        conn.close()
-        if dup:
-            return ok_response("Duplicate document", {
-                "status": "duplicate_document",
-                "message": f"ეს სასაქონლო-ზედნადები უკვე არსებობს (draft #{dup[0]})",
-                "existing_draft_id": dup[0],
-                "existing_status": dup[1],
-                "extracted": extracted.dict(),
-            })
+        try:
+            cur.execute(
+                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s",
+                ((parsed.get("text") or "")[:10000], parsed.get("method"), doc_id),
+            )
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
 
-    # ── 6. Resolve party ───────────────────────────────────────────────────
-    party = resolve_party(extracted, tenant_id)
+        # Dedup by doc series+number
+        if extracted.document_series and extracted.document_number:
+            conn = get_db(tenant_id)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM journal_drafts WHERE tenant_id=%s AND document_series=%s "
+                "AND document_number=%s AND status!='rejected' LIMIT 1",
+                (tenant_id, extracted.document_series, extracted.document_number),
+            )
+            dup = cur.fetchone()
+            cur.close()
+            conn.close()
+            if dup:
+                _mark_doc_status(doc_id, "duplicate", tenant_id)
+                return
 
-    # ── 7. Foreign document — save with basic info for human review ──────────
-    if party.our_role == OurRole.FOREIGN:
-        # Build description from extracted data
-        seller_name = extracted.seller.name or extracted.seller.inn or "უცნობი გამყიდველი"
-        buyer_name  = extracted.buyer.name  or extracted.buyer.inn  or "უცნობი მყიდველი"
-        doc_num     = extracted.document_number or extracted.document_series or ""
-        description = f"ინვოისი {doc_num} | {seller_name} → {buyer_name}".strip(" |")
-        warning_note = " | ".join(party.warnings) if party.warnings else "გადაამოწმე: შეიძლება სხვა კომპანიის დოკუმენტია"
+        party = resolve_party(extracted, tenant_id)
+
+        if party.our_role == OurRole.FOREIGN:
+            seller_name = extracted.seller.name or extracted.seller.inn or "უცნობი გამყიდველი"
+            buyer_name  = extracted.buyer.name  or extracted.buyer.inn  or "უცნობი მყიდველი"
+            doc_num     = extracted.document_number or extracted.document_series or ""
+            description = f"ინვოისი {doc_num} | {seller_name} → {buyer_name}".strip(" |")
+            warning_note = " | ".join(party.warnings) if party.warnings else "გადაამოწმე: შეიძლება სხვა კომპანიის დოკუმენტია"
+
+            conn = get_db(tenant_id)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO journal_drafts
+                        (tenant_id, status, is_foreign_doc, our_role,
+                         counterparty_inn, counterparty_name,
+                         document_series, document_number, date,
+                         amount, description, partner, reason,
+                         debit_account, credit_account,
+                         raw_extraction, source_document_id, journal_entries)
+                    VALUES (%s,'pending_human_review',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        tenant_id, party.our_role.value,
+                        extracted.seller.inn, extracted.seller.name,
+                        extracted.document_series, extracted.document_number,
+                        extracted.issue_date, extracted.total_with_vat,
+                        description, seller_name, warning_note,
+                        "????", "????",
+                        json.dumps(extracted.dict()), doc_id, json.dumps([]),
+                    ),
+                )
+                conn.commit()
+            finally:
+                cur.close()
+                conn.close()
+            _mark_doc_status(doc_id, "completed", tenant_id)
+            return
+
+        category, cat_confidence = await classify_operation_async(extracted, llm_service)
+        is_vat_payer = _get_tenant_vat(tenant_id)
+        journal = build_journal(extracted, party, category, is_vat_payer)
+        confidence = _confidence_score(parsed, extracted, party, cat_confidence)
 
         conn = get_db(tenant_id)
         cur = conn.cursor()
@@ -227,114 +313,57 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
             cur.execute(
                 """
                 INSERT INTO journal_drafts
-                    (tenant_id, status, is_foreign_doc, our_role,
+                    (tenant_id, status, our_role, operation_type, operation_category,
                      counterparty_inn, counterparty_name,
                      document_series, document_number, date,
-                     amount, description, partner, reason,
-                     debit_account, credit_account,
-                     raw_extraction, source_document_id, journal_entries)
-                VALUES (%s,'pending_human_review',TRUE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                RETURNING id
+                     amount, journal_entries, raw_extraction,
+                     source_document_id, description, confidence)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
-                    tenant_id, party.our_role.value,
-                    extracted.seller.inn, extracted.seller.name,
+                    tenant_id, "pending",
+                    party.our_role.value, extracted.document_type, category.value,
+                    party.counterparty_inn, party.counterparty_name,
                     extracted.document_series, extracted.document_number,
-                    extracted.issue_date,
-                    extracted.total_with_vat,
-                    description,
-                    seller_name,
-                    warning_note,
-                    "????",  # human must fill in debit
-                    "????",  # human must fill in credit
-                    json.dumps(extracted.dict()), doc_id,
-                    json.dumps([]),
+                    extracted.issue_date, extracted.total_with_vat,
+                    json.dumps(journal["entries"]),
+                    json.dumps(extracted.dict()),
+                    doc_id,
+                    f"{extracted.document_type} — {party.counterparty_name or '?'}",
+                    confidence,
                 ),
             )
-            draft_id = cur.fetchone()[0]
             conn.commit()
         finally:
             cur.close()
             conn.close()
 
-        return ok_response("Foreign document", {
-            "status": "foreign_document",
-            "draft_id": draft_id,
-            "message": "ეს დოკუმენტი არ ეკუთვნის ჩვენი კომპანიის",
-            "warnings": party.warnings,
-            "extracted": extracted.dict(),
-        })
-
-    # ── 8. Classify operation ──────────────────────────────────────────────
-    category, cat_confidence = await classify_operation_async(extracted, llm_service)
-
-    # ── 9. Build journal entries ───────────────────────────────────────────
-    is_vat_payer = _get_tenant_vat(tenant_id)
-    journal = build_journal(extracted, party, category, is_vat_payer)
-
-    # ── 10. Calculate confidence ───────────────────────────────────────────
-    confidence = _confidence_score(parsed, extracted, party, cat_confidence)
-
-    # ── 11. Insert draft ───────────────────────────────────────────────────
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            INSERT INTO journal_drafts
-                (tenant_id, status, our_role, operation_type, operation_category,
-                 counterparty_inn, counterparty_name,
-                 document_series, document_number, date,
-                 amount, journal_entries, raw_extraction,
-                 source_document_id, description)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (
-                tenant_id, "pending",
-                party.our_role.value, extracted.document_type, category.value,
-                party.counterparty_inn, party.counterparty_name,
-                extracted.document_series, extracted.document_number,
-                extracted.issue_date,
-                extracted.total_with_vat,
-                json.dumps(journal["entries"]),
-                json.dumps(extracted.dict()),
-                doc_id,
-                f"{extracted.document_type} — {party.counterparty_name or '?'}",
-            ),
+        _upsert_counterparty(
+            tenant_id,
+            party.counterparty_inn or "",
+            party.counterparty_name or "",
+            "vendor" if party.our_role == OurRole.BUYER else "customer",
         )
-        draft_id = cur.fetchone()[0]
+
+        _mark_doc_status(doc_id, "completed", tenant_id)
+        log.info("action=bg_processing_done tenant=%s doc_id=%s role=%s conf=%.2f",
+                 tenant_id, doc_id, party.our_role.value, confidence)
+
+    except Exception as e:
+        log.error("action=bg_processing_failed doc_id=%s error=%s", doc_id, e)
+        _mark_doc_status(doc_id, "failed", tenant_id)
+
+
+def _mark_doc_status(doc_id: int, status: str, tenant_id: str):
+    try:
+        conn = get_db(tenant_id)
+        cur = conn.cursor()
+        cur.execute("UPDATE processed_documents SET status=%s WHERE id=%s", (status, doc_id))
         conn.commit()
-    finally:
         cur.close()
         conn.close()
-
-    # ── 12. Upsert counterparty ────────────────────────────────────────────
-    _upsert_counterparty(
-        tenant_id,
-        party.counterparty_inn or "",
-        party.counterparty_name or "",
-        "vendor" if party.our_role == OurRole.BUYER else "customer",
-    )
-
-    log.info("action=document_uploaded tenant=%s draft_id=%s role=%s conf=%.2f method=%s",
-             tenant_id, draft_id, party.our_role.value, confidence, parsed.get("method"))
-
-    return ok_response("Document processed", {
-        "status": "pending",
-        "draft_id": draft_id,
-        "confidence": confidence,
-        "our_role": party.our_role.value,
-        "counterparty": {
-            "inn": party.counterparty_inn,
-            "name": party.counterparty_name,
-        },
-        "operation_category": category.value,
-        "journal_entries": journal["entries"],
-        "extracted": extracted.dict(),
-        "warnings": journal["warnings"],
-        "extraction_method": parsed.get("method"),
-    })
+    except Exception as e:
+        log.warning("_mark_doc_status failed: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -853,7 +882,7 @@ async def get_document_file(doc_id: int, request: Request = None):
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT file_name, mime_type, file_content FROM processed_documents "
+            "SELECT file_name, mime_type, gcs_path, file_content FROM processed_documents "
             "WHERE id = %s AND tenant_id = %s",
             (doc_id, tenant_id),
         )
@@ -865,12 +894,21 @@ async def get_document_file(doc_id: int, request: Request = None):
     if not row:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Document not found"})
 
-    file_name, mime_type, file_content = row
-    if not file_content:
+    file_name, mime_type, gcs_path, file_content = row
+
+    if gcs_path:
+        try:
+            content = gcs_download(gcs_path)
+        except Exception as e:
+            log.error("gcs_download failed doc_id=%s: %s", doc_id, e)
+            return JSONResponse(status_code=502, content={"ok": False, "error": "File storage unavailable"})
+    elif file_content:
+        content = bytes(file_content)
+    else:
         return JSONResponse(status_code=404, content={"ok": False, "error": "File content not stored"})
 
     return Response(
-        content=bytes(file_content),
+        content=content,
         media_type=mime_type or "application/octet-stream",
         headers={"Content-Disposition": f'inline; filename="{file_name or "document"}"'},
     )

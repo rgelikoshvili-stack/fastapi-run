@@ -565,6 +565,19 @@ def _run_db_migrations():
             CREATE INDEX IF NOT EXISTS idx_idempotency_keys_lookup
                 ON idempotency_keys(tenant_id, idempotent_key, endpoint)
         """)
+        # ── Performance indexes ───────────────────────────────────────────
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant_status_created ON journal_drafts(tenant_id, status, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_processed_documents_tenant_status ON processed_documents(tenant_id, status, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_processed_documents_tenant_hash ON processed_documents(tenant_id, file_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_journal_drafts_source_document ON journal_drafts(source_document_id)",
+            "CREATE INDEX IF NOT EXISTS idx_tenants_company_inn ON tenants(company_inn)",
+        ]:
+            try:
+                cur.execute(idx_sql)
+            except Exception:
+                pass
+
         # ── journal_entries entry_hash dedup ──────────────────────────────
         cur.execute("""
             ALTER TABLE journal_entries

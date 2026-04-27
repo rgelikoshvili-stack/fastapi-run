@@ -4802,23 +4802,12 @@ async function showPostingPreview(id) {
 
     body.innerHTML = sectionA + sectionB + sectionC + sectionD + sectionE + warnHtml;
 
-    // ── ⋮ Actions menu + Save button ──
-    document.getElementById('modal-title').innerHTML = `
-      <span>Draft <em>#${esc(id)}</em></span>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-        <button id="draft-save-btn" onclick="saveDraftEdits(${id})" style="display:none;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">💾 შენახვა</button>
-        <div style="position:relative;display:inline-block">
-          <button id="draft-menu-btn" onclick="toggleDraftMenu()" style="background:rgba(0,0,0,.06);border:none;border-radius:8px;padding:5px 10px;font-size:16px;cursor:pointer;line-height:1" title="მოქმედებები">⋮</button>
-          <div id="draft-menu-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line-soft);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.14);min-width:160px;z-index:9999;overflow:hidden">
-            <div onclick="openEditModal(${id})" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✏️ რედაქტირება</div>
-            <div onclick="approve('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--green)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✓ დამტკიცება</div>
-            <div onclick="reject('${id}');closeModal()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--red)" onmouseenter="this.style.background='#f5f5f5'" onmouseleave="this.style.background=''">✕ უარყოფა</div>
-          </div>
-        </div>
-      </div>`;
+    document.getElementById('modal-title').innerHTML = `Draft <em>#${esc(id)}</em>`;
 
     document.getElementById('modal-footer').innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
+      <button class="btn btn-ghost btn-sm" onclick="openEditModal(${id})" style="color:var(--accent)">✏️ რედაქტირება</button>
+      <button class="btn btn-ghost btn-sm" onclick="reject('${esc(id)}');closeModal()" style="color:var(--red)">✕ უარყოფა</button>
       <button class="btn btn-success btn-sm" onclick="approve('${esc(id)}');closeModal()">✓ დამტკიცება</button>
     `;
   } catch (e) {
@@ -5323,6 +5312,7 @@ async function init() {
   setTimeout(() => loadNotifications(), 500);
   setTimeout(() => connectLiveWS(), 1500);
   setInterval(() => { loadKPI(); }, 30000);
+  setInterval(() => { loadPending(); }, 10000);
 }
 
 /* ═════════ LIVE WebSocket ═════════ */

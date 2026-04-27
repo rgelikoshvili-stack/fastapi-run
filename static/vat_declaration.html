@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VAT Declaration — Bridge Hub</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;color:#1e293b;min-height:100vh}
+.topbar{background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:16px 28px;display:flex;align-items:center;gap:16px}
+.topbar h1{font-size:20px;font-weight:700}
+.topbar span{font-size:13px;opacity:.8;margin-left:auto}
+.container{max-width:1100px;margin:0 auto;padding:24px 16px}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.kpi{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.kpi .label{font-size:11px;font-weight:600;text-transform:uppercase;color:#64748b;letter-spacing:.5px}
+.kpi .value{font-size:24px;font-weight:700;margin-top:4px}
+.kpi.blue .value{color:#3b82f6}
+.kpi.green .value{color:#10b981}
+.kpi.red .value{color:#ef4444}
+.kpi.amber .value{color:#f59e0b}
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.tab{padding:8px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;color:#64748b;transition:.15s}
+.tab.active{background:#3b82f6;color:#fff}
+.tab:hover:not(.active){background:#f1f5f9}
+.card{background:#fff;border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px}
+.card h3{font-size:14px;font-weight:700;margin-bottom:16px;color:#1e293b}
+.pane{display:none}
+.pane.active{display:block}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:12px;font-weight:600;color:#64748b}
+input,select{border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.15s;width:100%}
+input:focus,select:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-success{background:#10b981;color:#fff}
+.btn-success:hover{background:#059669}
+.btn-sm{padding:6px 12px;font-size:12px}
+.result-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-top:14px}
+.result-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f1f5f9}
+.result-row:last-child{border-bottom:none}
+.result-row .lbl{font-size:13px;color:#475569}
+.result-row .val{font-size:13px;font-weight:600;color:#1e293b}
+.result-row.total .lbl{font-weight:700;font-size:14px}
+.result-row.total .val{color:#3b82f6;font-size:16px;font-weight:700}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-blue{background:#dbeafe;color:#1d4ed8}
+.badge-green{background:#d1fae5;color:#065f46}
+.badge-red{background:#fee2e2;color:#991b1b}
+.badge-amber{background:#fef3c7;color:#92400e}
+table{width:100%;border-collapse:collapse}
+th{background:#f8fafc;padding:10px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+tr:hover td{background:#fafbfd}
+.rates-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.rate-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-align:center}
+.rate-card .rate{font-size:22px;font-weight:700;color:#3b82f6}
+.rate-card .name{font-size:11px;color:#64748b;margin-top:4px}
+.journal-entry{background:#f8fafc;border-left:4px solid #3b82f6;border-radius:4px;padding:14px;font-family:monospace;font-size:13px;line-height:1.9;margin-top:10px}
+.dr{color:#dc2626;font-weight:600}
+.cr{color:#16a34a;font-weight:600}
+.empty{text-align:center;padding:40px;color:#94a3b8}
+.toggle-row{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.toggle-btn{padding:6px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500;color:#475569;transition:.15s}
+.toggle-btn.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+.divider{height:1px;background:#f1f5f9;margin:14px 0}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:700px){.kpi-row,.two-col{grid-template-columns:1fr 1fr}.rates-grid{grid-template-columns:1fr 1fr}.form-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>&#127979; VAT Declaration Automation</h1>
+    <div style="font-size:12px;opacity:.8;margin-top:2px">საქართველოს საგადასახადო კოდექსი 2026</div>
+  </div>
+  <span id="ratesLabel">&#128197; Loading rates...</span>
+</div>
+
+<div class="container">
+  <div class="kpi-row" id="kpiRow">
+    <div class="kpi blue"><div class="label">VAT Rate</div><div class="value" id="kpiVat">—</div></div>
+    <div class="kpi amber"><div class="label">Income Tax</div><div class="value" id="kpiIt">—</div></div>
+    <div class="kpi red"><div class="label">Corporate Tax</div><div class="value" id="kpiCit">—</div></div>
+    <div class="kpi green"><div class="label">Dividend Tax</div><div class="value" id="kpiDiv">—</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('vat')">&#9654; VAT Calculator</div>
+    <div class="tab" onclick="switchTab('salary')">&#128104;&#8205;&#128188; Salary Tax</div>
+    <div class="tab" onclick="switchTab('corporate')">&#127970; Corporate Tax</div>
+    <div class="tab" onclick="switchTab('annual')">&#128200; Annual Summary</div>
+    <div class="tab" onclick="switchTab('rates')">&#128203; Tax Rates</div>
+  </div>
+
+  <!-- VAT TAB -->
+  <div class="pane active" id="pane-vat">
+    <div class="two-col">
+      <div class="card">
+        <h3>&#9654; VAT Calculation</h3>
+        <div class="toggle-row">
+          <span style="font-size:12px;font-weight:600;color:#64748b">Direction:</span>
+          <button class="toggle-btn active" id="dir-add" onclick="setDir('add')">Add VAT (excl. → incl.)</button>
+          <button class="toggle-btn" id="dir-extract" onclick="setDir('extract')">Extract VAT (incl. → excl.)</button>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Amount (GEL)</label>
+            <input type="number" id="vatAmount" placeholder="1000.00" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label>VAT Rate (%)</label>
+            <input type="number" id="vatRate" value="18" step="0.1"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Payment Status</label>
+            <select id="vatPayment">
+              <option value="paid">Paid (Cash)</option>
+              <option value="unpaid">Unpaid (Credit)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="calcVAT()">&#9654; Calculate VAT</button>
+
+        <div class="result-box" id="vatResult" style="display:none">
+          <div class="result-row"><span class="lbl">Base Amount</span><span class="val" id="r-base">—</span></div>
+          <div class="result-row"><span class="lbl">VAT Amount</span><span class="val" id="r-vat">—</span></div>
+          <div class="result-row total"><span class="lbl">Total with VAT</span><span class="val" id="r-total">—</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>&#128221; Accounting Journal Entry</h3>
+        <div id="vatJournal" class="empty">Calculate VAT to see journal entry</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SALARY TAB -->
+  <div class="pane" id="pane-salary">
+    <div class="two-col">
+      <div class="card">
+        <h3>&#128104;&#8205;&#128188; Salary Tax Calculator</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Gross Salary (GEL)</label>
+            <input type="number" id="grossSalary" placeholder="3000.00" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label>Pension Fund</label>
+            <select id="includePension">
+              <option value="true">Include (Employee 4% + Employer 2%)</option>
+              <option value="false">Exclude</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="calcSalary()">&#9654; Calculate Salary</button>
+        <div class="result-box" id="salaryResult" style="display:none">
+          <div class="result-row"><span class="lbl">Gross Salary</span><span class="val" id="s-gross">—</span></div>
+          <div class="result-row"><span class="lbl">Income Tax (20%)</span><span class="val" id="s-it">—</span></div>
+          <div class="result-row"><span class="lbl">Pension — Employee (4%)</span><span class="val" id="s-pe">—</span></div>
+          <div class="result-row"><span class="lbl">Pension — Employer (2%)</span><span class="val" id="s-pempl">—</span></div>
+          <div class="result-row"><span class="lbl">Effective Tax Rate</span><span class="val" id="s-eff">—</span></div>
+          <div class="result-row total"><span class="lbl">Net Salary (Take-Home)</span><span class="val" id="s-net">—</span></div>
+          <div class="divider"></div>
+          <div class="result-row total"><span class="lbl">Total Employer Cost</span><span class="val" id="s-emp">—</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>&#128221; Payroll Journal Entry</h3>
+        <div id="salaryJournal" class="empty">Calculate salary to see journal entry</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CORPORATE TAB -->
+  <div class="pane" id="pane-corporate">
+    <div class="two-col">
+      <div class="card">
+        <h3>&#127970; Corporate Tax (Estonian Model)</h3>
+        <p style="font-size:12px;color:#64748b;margin-bottom:14px">საქართველო: CIT გადასახადი მხოლოდ განაწილებულ მოგებაზე (15%)</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Profit / Distribution Amount (GEL)</label>
+            <input type="number" id="citProfit" placeholder="10000.00" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label>Type</label>
+            <select id="citDistributed">
+              <option value="true">Distributed Profit (15% tax)</option>
+              <option value="false">Retained Profit (0% tax)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="calcCorporate()">&#9654; Calculate CIT</button>
+        <div class="result-box" id="corpResult" style="display:none">
+          <div class="result-row"><span class="lbl">Gross Profit</span><span class="val" id="c-gross">—</span></div>
+          <div class="result-row"><span class="lbl">CIT Rate</span><span class="val" id="c-rate">—</span></div>
+          <div class="result-row"><span class="lbl">Corporate Tax</span><span class="val" id="c-tax">—</span></div>
+          <div class="result-row total"><span class="lbl">Net After Tax</span><span class="val" id="c-net">—</span></div>
+          <div id="c-note" style="font-size:12px;color:#64748b;margin-top:10px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>&#128218; Dividend Posting (2-step)</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Gross Dividend Amount (GEL)</label>
+            <input type="number" id="divAmount" placeholder="10000.00" step="0.01"/>
+          </div>
+        </div>
+        <button class="btn btn-success" onclick="calcDividend()">&#9654; Calculate Dividend</button>
+        <div class="result-box" id="divResult" style="display:none">
+          <div class="result-row"><span class="lbl">Gross Dividend</span><span class="val" id="d-gross">—</span></div>
+          <div class="result-row"><span class="lbl">CIT (15%)</span><span class="val" id="d-cit">—</span></div>
+          <div class="result-row total"><span class="lbl">Net to Shareholder</span><span class="val" id="d-net">—</span></div>
+        </div>
+        <div id="divJournal" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ANNUAL SUMMARY TAB -->
+  <div class="pane" id="pane-annual">
+    <div class="card">
+      <h3>&#128200; Annual Tax Summary</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Annual Revenue (GEL)</label>
+          <input type="number" id="annRev" placeholder="500000.00" step="0.01"/>
+        </div>
+        <div class="form-group">
+          <label>Annual Expenses (GEL)</label>
+          <input type="number" id="annExp" placeholder="380000.00" step="0.01"/>
+        </div>
+        <div class="form-group">
+          <label>Employee Count</label>
+          <input type="number" id="annEmp" placeholder="10" step="1"/>
+        </div>
+        <div class="form-group">
+          <label>Average Salary (GEL)</label>
+          <input type="number" id="annSalary" placeholder="2500.00" step="0.01"/>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="calcAnnual()">&#9654; Generate Annual Summary</button>
+    </div>
+    <div id="annualResult"></div>
+  </div>
+
+  <!-- RATES TAB -->
+  <div class="pane" id="pane-rates">
+    <div class="card">
+      <h3>&#128203; Georgian Tax Rates 2026</h3>
+      <div class="rates-grid" id="ratesGrid">
+        <div class="empty" style="grid-column:1/-1">Loading...</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>&#128218; Quick Reference</h3>
+      <table>
+        <thead><tr><th>Tax</th><th>Rate</th><th>Base</th><th>Deadline</th></tr></thead>
+        <tbody>
+          <tr><td>VAT (დღგ)</td><td><span class="badge badge-blue">18%</span></td><td>Turnover &gt; 100,000 GEL</td><td>15th of next month</td></tr>
+          <tr><td>Income Tax (PIT)</td><td><span class="badge badge-amber">20%</span></td><td>Employee gross salary</td><td>15th of next month</td></tr>
+          <tr><td>Corporate Tax (CIT)</td><td><span class="badge badge-red">15%</span></td><td>Distributed profit only</td><td>On distribution</td></tr>
+          <tr><td>Pension (Employee)</td><td><span class="badge badge-green">4%</span></td><td>Gross salary</td><td>15th of next month</td></tr>
+          <tr><td>Pension (Employer)</td><td><span class="badge badge-green">2%</span></td><td>Gross salary</td><td>15th of next month</td></tr>
+          <tr><td>Dividend Tax</td><td><span class="badge badge-blue">5%</span></td><td>Dividend amount</td><td>On payment</td></tr>
+          <tr><td>Property Tax</td><td><span class="badge badge-amber">1%</span></td><td>Asset value</td><td>Annual</td></tr>
+          <tr><td>Turnover Tax</td><td><span class="badge badge-green">1%</span></td><td>Small business turnover</td><td>Monthly</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let vatDir = 'add';
+let taxRates = {};
+
+async function loadRates() {
+  try {
+    const r = await fetch(`${API}/tax/rates`);
+    const d = await r.json();
+    taxRates = d.data || d;
+    document.getElementById('kpiVat').textContent = (taxRates.vat || 18) + '%';
+    document.getElementById('kpiIt').textContent = (taxRates.income_tax || 20) + '%';
+    document.getElementById('kpiCit').textContent = (taxRates.corporate_tax || 15) + '%';
+    document.getElementById('kpiDiv').textContent = (taxRates.dividend_tax || 5) + '%';
+    document.getElementById('ratesLabel').textContent = '✓ Rates loaded';
+    renderRatesGrid();
+  } catch(e) {
+    document.getElementById('ratesLabel').textContent = '⚠ Rates unavailable';
+  }
+}
+
+function renderRatesGrid() {
+  const labels = {vat:'VAT (დღგ)',income_tax:'Income Tax',corporate_tax:'Corporate Tax',pension:'Pension (Employee)',pension_employer:'Pension (Employer)',property_tax:'Property Tax',dividend_tax:'Dividend Tax',turnover_tax:'Turnover Tax'};
+  document.getElementById('ratesGrid').innerHTML = Object.entries(taxRates).map(([k,v]) =>
+    `<div class="rate-card"><div class="rate">${v}%</div><div class="name">${labels[k]||k}</div></div>`
+  ).join('');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['vat','salary','corporate','annual','rates'][i] === name));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('pane-' + name).classList.add('active');
+}
+
+function setDir(d) {
+  vatDir = d;
+  document.getElementById('dir-add').classList.toggle('active', d === 'add');
+  document.getElementById('dir-extract').classList.toggle('active', d === 'extract');
+}
+
+async function calcVAT() {
+  const amount = parseFloat(document.getElementById('vatAmount').value);
+  const rate = parseFloat(document.getElementById('vatRate').value);
+  const payment = document.getElementById('vatPayment').value;
+  if (!amount) return alert('Enter amount');
+  try {
+    const r = await fetch(`${API}/tax/vat`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({amount, direction: vatDir, vat_rate: rate, payment_status: payment})
+    });
+    const d = await r.json();
+    const data = d.data || d;
+    document.getElementById('vatResult').style.display = 'block';
+    if (vatDir === 'add') {
+      document.getElementById('r-base').textContent = data.subtotal_formatted || data.subtotal;
+      document.getElementById('r-vat').textContent = data.vat_amount_formatted || data.vat_amount;
+      document.getElementById('r-total').textContent = data.total_formatted || data.total_with_vat;
+    } else {
+      document.getElementById('r-base').textContent = data.subtotal_formatted || data.subtotal_excl_vat;
+      document.getElementById('r-vat').textContent = data.vat_amount_formatted || data.vat_amount;
+      document.getElementById('r-total').textContent = data.total_formatted || data.total;
+    }
+    const vatAmt = data.vat_amount || 0;
+    const base = vatDir === 'add' ? (data.subtotal || amount) : (data.subtotal_excl_vat || amount);
+    const debitAcc = payment === 'paid' ? '1120 Bank' : '1410 Receivable';
+    document.getElementById('vatJournal').innerHTML = `
+      <div class="journal-entry">
+        <div class="dr">Dr ${debitAcc} &nbsp;&nbsp;&nbsp; ${(base + vatAmt).toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 6110 Revenue &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${base.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3310 VAT Payable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${vatAmt.toFixed(2)} GEL</div>
+      </div>`;
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function calcSalary() {
+  const gross = parseFloat(document.getElementById('grossSalary').value);
+  const pension = document.getElementById('includePension').value === 'true';
+  if (!gross) return alert('Enter gross salary');
+  try {
+    const r = await fetch(`${API}/tax/salary`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({gross_salary: gross, include_pension: pension})
+    });
+    const d = await r.json();
+    const data = d.data || d;
+    document.getElementById('salaryResult').style.display = 'block';
+    document.getElementById('s-gross').textContent = data.gross_formatted || data.gross_salary + ' GEL';
+    document.getElementById('s-it').textContent = data.income_tax_formatted || data.income_tax_20pct + ' GEL';
+    document.getElementById('s-pe').textContent = data.pension_employee_formatted || data.pension_employee_4pct + ' GEL';
+    document.getElementById('s-pempl').textContent = data.pension_employer_2pct + ' GEL';
+    document.getElementById('s-eff').textContent = (data.effective_tax_rate || 0) + '%';
+    document.getElementById('s-net').textContent = data.net_salary_formatted || data.net_salary + ' GEL';
+    document.getElementById('s-emp').textContent = data.total_employer_formatted || data.total_employer_cost + ' GEL';
+    const it = data.income_tax_20pct || 0, pe = data.pension_employee_4pct || 0, pemp = data.pension_employer_2pct || 0, net = data.net_salary || 0;
+    document.getElementById('salaryJournal').innerHTML = `
+      <div class="journal-entry">
+        <div class="dr">Dr 7110 Salary Expense &nbsp;&nbsp; ${(gross + pemp).toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3321 PIT Payable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${it.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3322 Pension Payable &nbsp; ${(pe + pemp).toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3330 Salary Payable &nbsp;&nbsp; ${net.toFixed(2)} GEL</div>
+      </div>`;
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function calcCorporate() {
+  const profit = parseFloat(document.getElementById('citProfit').value);
+  const distributed = document.getElementById('citDistributed').value === 'true';
+  if (!profit) return alert('Enter profit amount');
+  try {
+    const r = await fetch(`${API}/tax/corporate`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({profit, distributed})
+    });
+    const d = await r.json();
+    const data = d.data || d;
+    document.getElementById('corpResult').style.display = 'block';
+    document.getElementById('c-gross').textContent = data.profit_formatted || data.profit + ' GEL';
+    document.getElementById('c-rate').textContent = data.tax_rate || '—';
+    document.getElementById('c-tax').textContent = data.corporate_tax_formatted || (data.corporate_tax || 0) + ' GEL';
+    document.getElementById('c-net').textContent = data.net_formatted || data.net_after_tax + ' GEL';
+    document.getElementById('c-note').textContent = data.note || '';
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function calcDividend() {
+  const amount = parseFloat(document.getElementById('divAmount').value);
+  if (!amount) return alert('Enter dividend amount');
+  try {
+    const r = await fetch(`${API}/tax/dividend`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({gross_amount: amount})
+    });
+    const d = await r.json();
+    const data = d.data || d;
+    document.getElementById('divResult').style.display = 'block';
+    document.getElementById('d-gross').textContent = data.gross_formatted || data.gross + ' GEL';
+    document.getElementById('d-cit').textContent = data.cit_formatted || data.cit + ' GEL';
+    document.getElementById('d-net').textContent = data.net_formatted || data.net_to_shareholder + ' GEL';
+    const cit = data.cit || 0, net = data.net_to_shareholder || 0;
+    document.getElementById('divJournal').innerHTML = `
+      <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:4px">Step 1 — Declare Dividend</div>
+      <div class="journal-entry">
+        <div class="dr">Dr 4210 Retained Earnings &nbsp; ${amount.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3320 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:#64748b;margin:10px 0 4px">Step 2 — Pay Dividend</div>
+      <div class="journal-entry">
+        <div class="dr">Dr 3320 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3340 CIT Payable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${cit.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 1120 Bank &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${net.toFixed(2)} GEL</div>
+      </div>`;
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function calcAnnual() {
+  const rev = parseFloat(document.getElementById('annRev').value);
+  const exp = parseFloat(document.getElementById('annExp').value);
+  const emp = parseInt(document.getElementById('annEmp').value) || 0;
+  const sal = parseFloat(document.getElementById('annSalary').value) || 0;
+  if (!rev || !exp) return alert('Enter revenue and expenses');
+  try {
+    const r = await fetch(`${API}/tax/annual-summary`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({annual_revenue: rev, annual_expenses: exp, employee_count: emp, avg_salary: sal})
+    });
+    const d = await r.json();
+    const data = d.data || d;
+    const fmt = (v) => v != null ? (typeof v === 'string' ? v : Number(v).toLocaleString('ka-GE', {minimumFractionDigits:2}) + ' ₾') : '—';
+    let html = '<div class="card"><h3>📊 Annual Tax Summary</h3>';
+    if (data.vat) {
+      html += `<div class="result-row"><span class="lbl">Annual VAT Collected</span><span class="val">${fmt(data.vat.vat_on_revenue)}</span></div>`;
+      html += `<div class="result-row"><span class="lbl">Annual VAT on Expenses</span><span class="val">${fmt(data.vat.vat_on_expenses)}</span></div>`;
+      html += `<div class="result-row"><span class="lbl">Net VAT Payable</span><span class="val">${fmt(data.vat.net_vat_payable)}</span></div>`;
+    }
+    if (data.profit) {
+      html += `<div class="result-row" style="margin-top:10px"><span class="lbl">Net Profit</span><span class="val">${fmt(data.profit.net_profit)}</span></div>`;
+      html += `<div class="result-row"><span class="lbl">CIT (if distributed)</span><span class="val">${fmt(data.profit.cit_if_distributed)}</span></div>`;
+    }
+    if (data.payroll) {
+      html += `<div class="result-row" style="margin-top:10px"><span class="lbl">Total Payroll Tax</span><span class="val">${fmt(data.payroll.total_payroll_tax)}</span></div>`;
+    }
+    html += '</div>';
+    document.getElementById('annualResult').innerHTML = html;
+  } catch(e) {
+    document.getElementById('annualResult').innerHTML = `<div class="card"><div class="empty">Error: ${e.message}</div></div>`;
+  }
+}
+
+loadRates();
+</script>
+</body>
+</html>

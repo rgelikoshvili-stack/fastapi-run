@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Budget Planning — Bridge Hub</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;color:#1e293b;min-height:100vh}
+.topbar{background:linear-gradient(135deg,#065f46,#10b981);color:#fff;padding:16px 28px;display:flex;align-items:center;gap:16px}
+.topbar h1{font-size:20px;font-weight:700}
+.topbar .sub{font-size:12px;opacity:.8;margin-top:2px}
+.topbar .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+.container{max-width:1200px;margin:0 auto;padding:24px 16px}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.kpi{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.kpi .label{font-size:11px;font-weight:600;text-transform:uppercase;color:#64748b;letter-spacing:.5px}
+.kpi .value{font-size:24px;font-weight:700;margin-top:4px}
+.kpi.green .value{color:#10b981}
+.kpi.blue .value{color:#3b82f6}
+.kpi.red .value{color:#ef4444}
+.kpi.amber .value{color:#f59e0b}
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.tab{padding:8px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;color:#64748b;transition:.15s}
+.tab.active{background:#10b981;color:#fff}
+.tab:hover:not(.active){background:#f1f5f9}
+.card{background:#fff;border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-header h3{font-size:14px;font-weight:700;color:#1e293b}
+.pane{display:none}
+.pane.active{display:block}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.form-row.three{grid-template-columns:1fr 1fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:12px;font-weight:600;color:#64748b}
+input,select,textarea{border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.15s;width:100%}
+input:focus,select:focus{border-color:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,.15)}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
+.btn-primary{background:#10b981;color:#fff}
+.btn-primary:hover{background:#059669}
+.btn-secondary{background:#f1f5f9;color:#475569}
+.btn-secondary:hover{background:#e2e8f0}
+.btn-danger{background:#fee2e2;color:#dc2626}
+.btn-danger:hover{background:#fecaca}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-xs{padding:3px 8px;font-size:11px}
+table{width:100%;border-collapse:collapse}
+th{background:#f8fafc;padding:10px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+tr:hover td{background:#fafbfd}
+.progress-bar{height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;min-width:80px}
+.progress-fill{height:100%;border-radius:3px;transition:.3s}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-green{background:#d1fae5;color:#065f46}
+.badge-red{background:#fee2e2;color:#991b1b}
+.badge-amber{background:#fef3c7;color:#92400e}
+.badge-blue{background:#dbeafe;color:#1d4ed8}
+.badge-gray{background:#f1f5f9;color:#475569}
+.empty{text-align:center;padding:40px;color:#94a3b8;font-size:14px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:16px;padding:28px;width:600px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h2{font-size:18px;font-weight:700;margin-bottom:20px}
+.modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;border-top:1px solid #f1f5f9;padding-top:16px}
+.year-nav{display:flex;align-items:center;gap:12px;font-size:14px;font-weight:700}
+.year-nav button{padding:4px 10px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size:14px}
+.variance-positive{color:#dc2626}
+.variance-negative{color:#10b981}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.line-items{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:12px}
+.line-item{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;padding:8px 12px;border-bottom:1px solid #f1f5f9;align-items:center}
+.line-item:last-child{border-bottom:none}
+.line-item-header{background:#f8fafc;font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;padding:8px 12px;border-bottom:1px solid #e2e8f0;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px}
+.total-row{background:#f0fdf4;padding:10px 12px;font-weight:700;font-size:13px;display:flex;justify-content:space-between;border-top:2px solid #10b981}
+@media(max-width:700px){.kpi-row,.two-col{grid-template-columns:1fr 1fr}.form-row.three{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>&#128200; Budget Planning</h1>
+    <div class="sub">ბიუჯეტის მართვა — vs Actual — Forecast</div>
+  </div>
+  <div class="right">
+    <div class="year-nav">
+      <button onclick="changeYear(-1)">&#9664;</button>
+      <span id="currentYear">2026</span>
+      <button onclick="changeYear(1)">&#9654;</button>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="openAddModal()">+ Add Budget</button>
+    <button class="btn btn-primary btn-sm" onclick="openAnnualModal()">&#128196; Annual Plan</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="kpi-row">
+    <div class="kpi green"><div class="label">Total Budgeted</div><div class="value" id="kpiBudgeted">—</div></div>
+    <div class="kpi blue"><div class="label">Total Actual</div><div class="value" id="kpiActual">—</div></div>
+    <div class="kpi amber"><div class="label">Variance</div><div class="value" id="kpiVariance">—</div></div>
+    <div class="kpi red"><div class="label">Over Budget Items</div><div class="value" id="kpiOver">—</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('vs-actual')">&#9654; Budget vs Actual</div>
+    <div class="tab" onclick="switchTab('list')">&#128203; Budget List</div>
+    <div class="tab" onclick="switchTab('forecast')">&#128202; Forecast</div>
+  </div>
+
+  <!-- VS ACTUAL TAB -->
+  <div class="pane active" id="pane-vs-actual">
+    <div class="card">
+      <div class="card-header">
+        <h3>&#9654; Budget vs Actual — <span id="vsYear">2026</span></h3>
+        <button class="btn btn-secondary btn-sm" onclick="loadVsActual()">&#8635; Refresh</button>
+      </div>
+      <div id="vsActualContainer">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIST TAB -->
+  <div class="pane" id="pane-list">
+    <div class="card">
+      <div class="card-header">
+        <h3>&#128203; Budget Lines — <span id="listYear">2026</span></h3>
+        <button class="btn btn-secondary btn-sm" onclick="loadList()">&#8635; Refresh</button>
+      </div>
+      <div id="listContainer">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORECAST TAB -->
+  <div class="pane" id="pane-forecast">
+    <div class="card">
+      <div class="card-header">
+        <h3>&#128202; AI Forecast — <span id="fcYear">2026</span></h3>
+        <button class="btn btn-secondary btn-sm" onclick="loadForecast()">&#8635; Refresh</button>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin-bottom:16px">Based on last 3 months average activity</p>
+      <div id="forecastContainer">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD SINGLE BUDGET MODAL -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h2>+ Add Budget Line</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="add-name" placeholder="Q1 Operating Budget"/>
+      </div>
+      <div class="form-group">
+        <label>Year</label>
+        <input type="number" id="add-year" value="2026"/>
+      </div>
+    </div>
+    <div class="form-row three">
+      <div class="form-group">
+        <label>Month (optional)</label>
+        <select id="add-month">
+          <option value="">Annual</option>
+          <option value="1">January</option><option value="2">February</option>
+          <option value="3">March</option><option value="4">April</option>
+          <option value="5">May</option><option value="6">June</option>
+          <option value="7">July</option><option value="8">August</option>
+          <option value="9">September</option><option value="10">October</option>
+          <option value="11">November</option><option value="12">December</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Account Code</label>
+        <input type="text" id="add-account" placeholder="7110"/>
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <input type="text" id="add-category" placeholder="Salaries"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Budgeted Amount (GEL)</label>
+        <input type="number" id="add-amount" placeholder="50000.00" step="0.01"/>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('addModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddBudget()">Save Budget Line</button>
+    </div>
+  </div>
+</div>
+
+<!-- ANNUAL PLAN MODAL -->
+<div class="modal-overlay" id="annualModal">
+  <div class="modal" style="width:700px">
+    <h2>&#128196; Create Annual Budget Plan</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Plan Name</label>
+        <input type="text" id="ann-name" placeholder="Annual Budget 2026"/>
+      </div>
+      <div class="form-group">
+        <label>Year</label>
+        <input type="number" id="ann-year" value="2026"/>
+      </div>
+    </div>
+    <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px">Budget Items</div>
+    <div class="line-item-header">
+      <span>Account Code</span><span>Category</span><span>Amount (GEL)</span><span></span>
+    </div>
+    <div id="annLines" class="line-items"></div>
+    <button class="btn btn-secondary btn-sm" onclick="addAnnLine()" style="margin-top:8px">+ Add Line</button>
+    <div class="total-row" id="annTotal">Total: 0.00 ₾</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('annualModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAnnualBudget()">Create Annual Plan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentYear = 2026;
+let activeTab = 'vs-actual';
+let annLineCount = 0;
+
+function fmt(v) {
+  if (v == null) return '—';
+  return Number(v).toLocaleString('ka-GE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ₾';
+}
+
+function changeYear(delta) {
+  currentYear += delta;
+  document.getElementById('currentYear').textContent = currentYear;
+  document.getElementById('vsYear').textContent = currentYear;
+  document.getElementById('listYear').textContent = currentYear;
+  document.getElementById('fcYear').textContent = currentYear;
+  document.getElementById('add-year').value = currentYear;
+  document.getElementById('ann-year').value = currentYear;
+  if (activeTab === 'vs-actual') loadVsActual();
+  else if (activeTab === 'list') loadList();
+  else if (activeTab === 'forecast') loadForecast();
+}
+
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['vs-actual','list','forecast'][i] === name));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('pane-' + name).classList.add('active');
+  if (name === 'vs-actual') loadVsActual();
+  else if (name === 'list') loadList();
+  else if (name === 'forecast') loadForecast();
+}
+
+async function loadVsActual() {
+  document.getElementById('vsActualContainer').innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const r = await fetch(`${API}/budget/vs-actual/${currentYear}`);
+    const d = await r.json();
+    const data = d.data || d;
+    const items = data.items || [];
+    document.getElementById('kpiBudgeted').textContent = fmt(data.total_budgeted);
+    document.getElementById('kpiActual').textContent = fmt(data.total_actual);
+    const variance = data.total_variance || 0;
+    document.getElementById('kpiVariance').textContent = fmt(Math.abs(variance));
+    document.getElementById('kpiVariance').parentElement.querySelector('.label').textContent = variance > 0 ? 'Over Budget' : 'Under Budget';
+    document.getElementById('kpiVariance').style.color = variance > 0 ? '#ef4444' : '#10b981';
+    const over = items.filter(i => i.status === 'over').length;
+    document.getElementById('kpiOver').textContent = over;
+    if (!items.length) {
+      document.getElementById('vsActualContainer').innerHTML = '<div class="empty">No budget data for ' + currentYear + '</div>';
+      return;
+    }
+    let html = `<table><thead><tr><th>Account</th><th>Category</th><th>Budgeted</th><th>Actual</th><th>Variance</th><th>Usage</th><th>Status</th></tr></thead><tbody>`;
+    items.forEach(item => {
+      const pct = item.usage_pct || 0;
+      const color = pct > 100 ? '#ef4444' : pct > 80 ? '#f59e0b' : '#10b981';
+      const statusBadge = item.status === 'over' ? 'badge-red' : item.status === 'under' ? 'badge-green' : 'badge-blue';
+      const varClass = (item.variance || 0) > 0 ? 'variance-positive' : 'variance-negative';
+      html += `<tr>
+        <td><span class="badge badge-gray">${item.account_code || '—'}</span></td>
+        <td>${item.category || '—'}</td>
+        <td>${fmt(item.budgeted)}</td>
+        <td>${fmt(item.actual)}</td>
+        <td class="${varClass}">${(item.variance || 0) > 0 ? '+' : ''}${fmt(item.variance)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>
+            <span style="font-size:12px;color:#64748b">${pct}%</span>
+          </div>
+        </td>
+        <td><span class="badge ${statusBadge}">${item.status}</span></td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    document.getElementById('vsActualContainer').innerHTML = html;
+  } catch(e) {
+    document.getElementById('vsActualContainer').innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+async function loadList() {
+  document.getElementById('listContainer').innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const r = await fetch(`${API}/budget/list/${currentYear}`);
+    const d = await r.json();
+    const data = d.data || d;
+    const budgets = data.budgets || [];
+    if (!budgets.length) {
+      document.getElementById('listContainer').innerHTML = '<div class="empty">No budgets for ' + currentYear + '. Click "Add Budget" to create one.</div>';
+      return;
+    }
+    let html = `<table><thead><tr><th>ID</th><th>Name</th><th>Account</th><th>Category</th><th>Month</th><th>Budgeted</th></tr></thead><tbody>`;
+    budgets.forEach(b => {
+      const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      html += `<tr>
+        <td style="color:#94a3b8">#${b.id}</td>
+        <td>${b.name || '—'}</td>
+        <td><span class="badge badge-gray">${b.account_code || '—'}</span></td>
+        <td>${b.category || '—'}</td>
+        <td>${b.month ? monthNames[b.month] : '<span class="badge badge-blue">Annual</span>'}</td>
+        <td style="font-weight:600">${fmt(b.budgeted)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    document.getElementById('listContainer').innerHTML = html;
+  } catch(e) {
+    document.getElementById('listContainer').innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+async function loadForecast() {
+  document.getElementById('forecastContainer').innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const r = await fetch(`${API}/budget/forecast/${currentYear}`);
+    const d = await r.json();
+    const data = d.data || d;
+    const items = data.items || [];
+    if (!items.length) {
+      document.getElementById('forecastContainer').innerHTML = '<div class="empty">Insufficient data for forecast (need 3 months of transactions)</div>';
+      return;
+    }
+    let html = `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;margin-bottom:16px;display:flex;gap:24px">
+        <div><div style="font-size:11px;color:#065f46;font-weight:600;text-transform:uppercase">Annual Forecast</div><div style="font-size:22px;font-weight:700;color:#10b981">${fmt(data.total_annual_forecast)}</div></div>
+        <div><div style="font-size:11px;color:#065f46;font-weight:600;text-transform:uppercase">Based On</div><div style="font-size:14px;color:#065f46;margin-top:4px">${data.based_on || 'Last 3 months'}</div></div>
+      </div>
+      <table><thead><tr><th>Account</th><th>Category</th><th>Avg Monthly</th><th>Q1 Forecast</th><th>Annual Forecast</th></tr></thead><tbody>`;
+    items.forEach(fc => {
+      html += `<tr>
+        <td><span class="badge badge-gray">${fc.account_code || '—'}</span></td>
+        <td>${fc.category || '—'}</td>
+        <td>${fmt(fc.avg_monthly)}</td>
+        <td>${fmt(fc.forecast_q1)}</td>
+        <td style="font-weight:600;color:#10b981">${fmt(fc.forecast_annual)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    document.getElementById('forecastContainer').innerHTML = html;
+  } catch(e) {
+    document.getElementById('forecastContainer').innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+function openAddModal() {
+  document.getElementById('add-year').value = currentYear;
+  document.getElementById('addModal').classList.add('open');
+}
+
+function openAnnualModal() {
+  document.getElementById('ann-year').value = currentYear;
+  document.getElementById('annLines').innerHTML = '';
+  annLineCount = 0;
+  addAnnLine(); addAnnLine(); addAnnLine();
+  document.getElementById('annualModal').classList.add('open');
+  updateAnnTotal();
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+async function submitAddBudget() {
+  const name = document.getElementById('add-name').value.trim();
+  const year = parseInt(document.getElementById('add-year').value);
+  const month = document.getElementById('add-month').value ? parseInt(document.getElementById('add-month').value) : null;
+  const account_code = document.getElementById('add-account').value.trim();
+  const category = document.getElementById('add-category').value.trim();
+  const budgeted = parseFloat(document.getElementById('add-amount').value);
+  if (!name || !year || !budgeted) return alert('Name, year, and amount are required');
+  try {
+    const r = await fetch(`${API}/budget/create`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, year, month, account_code: account_code || null, category: category || null, budgeted})
+    });
+    const d = await r.json();
+    if (d.error) return alert(d.error);
+    closeModal('addModal');
+    loadList();
+    loadVsActual();
+    alert('Budget line created!');
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function addAnnLine() {
+  annLineCount++;
+  const id = annLineCount;
+  const div = document.createElement('div');
+  div.className = 'line-item';
+  div.id = 'ann-line-' + id;
+  div.innerHTML = `
+    <input type="text" placeholder="7110" id="ann-acc-${id}" onchange="updateAnnTotal()"/>
+    <input type="text" placeholder="Salaries" id="ann-cat-${id}" onchange="updateAnnTotal()"/>
+    <input type="number" placeholder="0.00" id="ann-amt-${id}" step="0.01" oninput="updateAnnTotal()"/>
+    <button class="btn btn-danger btn-xs" onclick="removeAnnLine(${id})">&#10005;</button>`;
+  document.getElementById('annLines').appendChild(div);
+}
+
+function removeAnnLine(id) {
+  const el = document.getElementById('ann-line-' + id);
+  if (el) el.remove();
+  updateAnnTotal();
+}
+
+function updateAnnTotal() {
+  let total = 0;
+  document.querySelectorAll('#annLines .line-item').forEach(line => {
+    const id = line.id.replace('ann-line-', '');
+    const v = parseFloat(document.getElementById('ann-amt-' + id)?.value) || 0;
+    total += v;
+  });
+  document.getElementById('annTotal').textContent = 'Total: ' + fmt(total);
+}
+
+async function submitAnnualBudget() {
+  const name = document.getElementById('ann-name').value.trim();
+  const year = parseInt(document.getElementById('ann-year').value);
+  if (!name || !year) return alert('Name and year required');
+  const items = [];
+  document.querySelectorAll('#annLines .line-item').forEach(line => {
+    const id = line.id.replace('ann-line-', '');
+    const acc = document.getElementById('ann-acc-' + id)?.value.trim();
+    const cat = document.getElementById('ann-cat-' + id)?.value.trim();
+    const amt = parseFloat(document.getElementById('ann-amt-' + id)?.value);
+    if (acc && cat && amt > 0) items.push({account_code: acc, category: cat, budgeted: amt});
+  });
+  if (!items.length) return alert('Add at least one budget line with amount');
+  try {
+    const r = await fetch(`${API}/budget/create-annual`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, year, items})
+    });
+    const d = await r.json();
+    if (d.error) return alert(d.error);
+    closeModal('annualModal');
+    loadList();
+    loadVsActual();
+    alert(`Annual plan created: ${d.data?.items_count || items.length} lines`);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
+
+loadVsActual();
+</script>
+</body>
+</html>

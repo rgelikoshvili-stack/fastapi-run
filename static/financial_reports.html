@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hub — ფინანსური ანგარიშები</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
+h1{font-size:1.1rem;font-weight:600}
+.container{max-width:1400px;margin:0 auto;padding:1.5rem}
+.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1.5rem;background:#fff;border-radius:10px 10px 0 0;padding:.5rem .5rem 0}
+.tab{padding:.7rem 1.5rem;cursor:pointer;font-size:.9rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
+.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
+.tab-pane{display:none}.tab-pane.active{display:block}
+.card{background:#fff;border-radius:0 10px 10px 10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
+.card-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
+.card-title{font-weight:700;font-size:1rem}
+.card-body{padding:1.5rem}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
+.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
+.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
+.btn-sm{padding:.35rem .75rem;font-size:.82rem}
+.filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+input[type=month],input[type=date],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e}
+input:focus,select:focus{outline:none;border-color:#4361ee}
+/* P&L */
+.pnl-section{margin-bottom:1.25rem}
+.pnl-section-title{font-weight:700;font-size:.88rem;text-transform:uppercase;letter-spacing:.06em;color:#4361ee;padding:.5rem 0;border-bottom:2px solid #e7edff;margin-bottom:.5rem}
+.pnl-row{display:flex;justify-content:space-between;align-items:center;padding:.4rem .5rem;border-radius:4px;font-size:.88rem}
+.pnl-row:hover{background:#f8f9fa}
+.pnl-row.subtotal{font-weight:700;background:#e7edff;margin-top:.25rem;padding:.5rem .75rem}
+.pnl-row.total{font-weight:700;font-size:1.05rem;background:#4361ee;color:#fff;padding:.75rem 1rem;border-radius:8px;margin-top:.5rem}
+.pnl-row.total.neg{background:#f72585}
+.pnl-row.ebit-pos{background:#d1f2e1;color:#198754;font-weight:700;padding:.6rem .75rem;border-radius:6px}
+.pnl-row.ebit-neg{background:#fde8ef;color:#f72585;font-weight:700;padding:.6rem .75rem;border-radius:6px}
+.amount{font-family:'Courier New',monospace;font-weight:600;white-space:nowrap}
+/* Balance Sheet */
+.bs-cols{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+.bs-side-title{font-weight:700;font-size:1rem;padding:.5rem 0;border-bottom:2px solid #dee2e6;margin-bottom:.75rem;display:flex;justify-content:space-between}
+.bs-group{margin-bottom:1rem}
+.bs-group-label{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;margin-bottom:.35rem}
+.bs-item{display:flex;justify-content:space-between;padding:.3rem .5rem;font-size:.88rem;border-radius:4px}
+.bs-item:hover{background:#f8f9fa}
+.bs-subtotal{display:flex;justify-content:space-between;padding:.4rem .5rem;font-weight:700;background:#f0f2f5;border-radius:4px;margin-top:.25rem;font-size:.88rem}
+.bs-total{display:flex;justify-content:space-between;padding:.65rem .75rem;font-weight:700;font-size:1rem;background:#1a1a2e;color:#fff;border-radius:8px;margin-top:.75rem}
+.balanced-ok{display:inline-block;padding:.35rem .9rem;background:#d1f2e1;color:#198754;border-radius:20px;font-size:.82rem;font-weight:700}
+.balanced-no{display:inline-block;padding:.35rem .9rem;background:#fde8ef;color:#f72585;border-radius:20px;font-size:.82rem;font-weight:700}
+/* Recon */
+.recon-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.recon-card{background:#f8f9fa;border-radius:8px;padding:1rem;text-align:center;border-top:3px solid #dee2e6}
+.recon-card.matched{border-top-color:#198754}
+.recon-card.unmatched{border-top-color:#f72585}
+.recon-val{font-size:1.6rem;font-weight:700;margin:.25rem 0}
+.recon-val.green{color:#198754}.recon-val.red{color:#f72585}.recon-val.blue{color:#4361ee}
+.recon-label{font-size:.75rem;color:#6c757d}
+table.recon{width:100%;border-collapse:collapse;font-size:.82rem}
+table.recon th{background:#f8f9fa;padding:.5rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6}
+table.recon td{padding:.5rem .75rem;border-bottom:1px solid #f0f2f5}
+.empty{padding:3rem;text-align:center;color:#adb5bd}
+.loading{text-align:center;padding:2rem;color:#6c757d;font-size:.9rem}
+@media(max-width:768px){.bs-cols{grid-template-columns:1fr}.recon-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span style="color:#495057">›</span>
+  <h1>📊 ფინანსური ანგარიშები</h1>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('pnl',this)">📈 P&amp;L (მოგება/ზარალი)</div>
+    <div class="tab" onclick="switchTab('bs',this)">⚖️ ბალანსი</div>
+    <div class="tab" onclick="switchTab('recon',this)">🔗 GL Reconciliation</div>
+  </div>
+
+  <!-- P&L -->
+  <div id="pane-pnl" class="tab-pane active">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">📈 მოგება და ზარალი — IAS 1</span>
+        <div class="filters">
+          <select id="plYear" style="width:100px"></select>
+          <select id="plMonth" style="width:130px">
+            <option value="">— თვე —</option>
+            <option value="1">იანვარი</option><option value="2">თებერვალი</option>
+            <option value="3">მარტი</option><option value="4">აპრილი</option>
+            <option value="5">მაისი</option><option value="6">ივნისი</option>
+            <option value="7">ივლისი</option><option value="8">აგვისტო</option>
+            <option value="9">სექტემბერი</option><option value="10">ოქტომბერი</option>
+            <option value="11">ნოემბერი</option><option value="12">დეკემბერი</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="loadPnL()">📊 ჩვენება</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadPnLRange()">📅 პერიოდი</button>
+        </div>
+      </div>
+      <div class="card-body" id="pnlBody">
+        <div class="loading">აირჩიეთ წელი და თვე</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Balance Sheet -->
+  <div id="pane-bs" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">⚖️ ბალანსი — IAS 1</span>
+        <div class="filters">
+          <input type="date" id="bsDate">
+          <button class="btn btn-primary btn-sm" onclick="loadBS()">📊 ჩვენება</button>
+        </div>
+      </div>
+      <div class="card-body" id="bsBody">
+        <div class="loading">აირჩიეთ თარიღი</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reconciliation -->
+  <div id="pane-recon" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">🔗 GL ↔ ბანკი შეჯერება</span>
+        <div class="filters">
+          <input type="date" id="reconFrom">
+          <span style="color:#adb5bd">—</span>
+          <input type="date" id="reconTo">
+          <button class="btn btn-primary btn-sm" onclick="loadRecon()">🔍 შეჯერება</button>
+        </div>
+      </div>
+      <div class="card-body" id="reconBody">
+        <div class="loading">აირჩიეთ პერიოდი</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
+const TENANT=localStorage.getItem('tenant_id')||'';
+function hdr(){return{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
+async function api(path){
+  try{
+    const r=await fetch(path,{headers:hdr()});
+    if(r.status===401){localStorage.clear();location.href='/static/login.html';return null;}
+    return await r.json();
+  }catch(e){console.error(e);return null;}
+}
+function fmt(n,sign=false){
+  const v=Number(n||0);
+  const s=v.toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return sign&&v>0?'+'+s:s;
+}
+function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Init year selector
+(()=>{
+  const y=document.getElementById('plYear');
+  const yr=new Date().getFullYear();
+  for(let i=yr;i>=yr-5;i--) y.innerHTML+=`<option value="${i}">${i}</option>`;
+  document.getElementById('plMonth').value=new Date().getMonth()+1;
+  document.getElementById('bsDate').value=new Date().toISOString().split('T')[0];
+  const now=new Date();
+  document.getElementById('reconFrom').value=new Date(now.getFullYear(),now.getMonth(),1).toISOString().split('T')[0];
+  document.getElementById('reconTo').value=now.toISOString().split('T')[0];
+})();
+
+function switchTab(name,el){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('pane-'+name).classList.add('active');
+  el.classList.add('active');
+}
+
+// ── P&L ──────────────────────────────────────────────────────────────────────
+async function loadPnL(){
+  const year=document.getElementById('plYear').value;
+  const month=document.getElementById('plMonth').value;
+  if(!month){loadPnLRange();return;}
+  document.getElementById('pnlBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  const d=await api(`/reports/pl?year=${year}&month=${month}`);
+  renderPnL(d);
+}
+
+async function loadPnLRange(){
+  const year=document.getElementById('plYear').value;
+  document.getElementById('pnlBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  const d=await api(`/reports/pnl?date_from=${year}-01-01&date_to=${year}-12-31`);
+  renderPnL(d);
+}
+
+function renderPnL(d){
+  const el=document.getElementById('pnlBody');
+  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა ან მონაცემი არ არის</div>';return;}
+  const {revenue,cogs,gross_profit,opex,ebit,period}=d.data;
+  const ebitClass=ebit>=0?'ebit-pos':'ebit-neg';
+  let html=`
+    <div style="font-size:.82rem;color:#adb5bd;margin-bottom:1rem">📅 პერიოდი: ${period?.from||'—'} – ${period?.to||'—'}</div>
+    <div class="pnl-section">
+      <div class="pnl-section-title">💰 შემოსავალი (Revenue)</div>`;
+  (revenue?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  html+=`<div class="pnl-row subtotal"><span>სულ შემოსავალი</span><span class="amount">₾${fmt(revenue?.total)}</span></div></div>
+    <div class="pnl-section">
+      <div class="pnl-section-title">🔧 გაყიდული საქ. ღირ. (COGS)</div>`;
+  (cogs?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  html+=`<div class="pnl-row subtotal"><span>სულ COGS</span><span class="amount">₾${fmt(cogs?.total)}</span></div></div>
+    <div class="pnl-row subtotal" style="background:#e7edff;margin-bottom:1rem"><span>📊 მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(gross_profit)}</span></div>
+    <div class="pnl-section">
+      <div class="pnl-section-title">💸 საოპ. ხარჯები (OpEx)</div>`;
+  (opex?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  html+=`<div class="pnl-row subtotal"><span>სულ OpEx</span><span class="amount">₾${fmt(opex?.total)}</span></div></div>
+    <div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>`;
+  el.innerHTML=html;
+}
+
+// ── Balance Sheet ─────────────────────────────────────────────────────────────
+async function loadBS(){
+  const asOf=document.getElementById('bsDate').value;
+  document.getElementById('bsBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  const d=await api('/reports/balance-sheet?as_of='+asOf);
+  const el=document.getElementById('bsBody');
+  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა ან მონაცემი არ არის</div>';return;}
+  const {assets,liabilities,equity,balanced,as_of}=d.data;
+
+  function bsSide(sections,title,totalLabel,total){
+    let h=`<div class="bs-side-title"><span>${title}</span><span class="amount">₾${fmt(total)}</span></div>`;
+    Object.entries(sections).forEach(([key,grp])=>{
+      if(!grp.lines||!grp.lines.length)return;
+      h+=`<div class="bs-group"><div class="bs-group-label">${key.replace('_',' ')}</div>`;
+      grp.lines.forEach(l=>{h+=`<div class="bs-item"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+      h+=`<div class="bs-subtotal"><span>სულ</span><span class="amount">₾${fmt(grp.total)}</span></div></div>`;
+    });
+    h+=`<div class="bs-total"><span>${totalLabel}</span><span class="amount">₾${fmt(total)}</span></div>`;
+    return h;
+  }
+
+  const balancedBadge=balanced
+    ?`<span class="balanced-ok">✅ დაბალანსებულია</span>`
+    :`<span class="balanced-no">⚠️ დაუბალანსებელია</span>`;
+
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+      <span style="font-size:.85rem;color:#6c757d">📅 ${as_of} მდგომარეობით</span>
+      ${balancedBadge}
+    </div>
+    <div class="bs-cols">
+      <div>${bsSide({current:assets.current,non_current:assets.non_current},'🏦 აქტივები','სულ აქტივები',assets.total)}</div>
+      <div>
+        ${bsSide({current:liabilities.current,non_current:liabilities.non_current},'💳 ვალდებულებები','სულ ვალდ.',liabilities.total)}
+        <div style="margin-top:1.5rem">
+          ${bsSide({equity:equity.equity},'💼 კაპიტალი','სულ კაპიტალი',equity.total)}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── GL Reconciliation ─────────────────────────────────────────────────────────
+async function loadRecon(){
+  const from=document.getElementById('reconFrom').value;
+  const to=document.getElementById('reconTo').value;
+  if(!from||!to){alert('აირჩიეთ პერიოდი');return;}
+  document.getElementById('reconBody').innerHTML='<div class="loading">⏳ შეჯერება...</div>';
+  const d=await api(`/reports/gl-reconciliation?date_from=${from}&date_to=${to}`);
+  const el=document.getElementById('reconBody');
+  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა</div>';return;}
+  const {matched_pairs,unmatched_gl,unmatched_bank}=d.data;
+
+  let html=`<div class="recon-grid">
+    <div class="recon-card matched"><div class="recon-label">დაჯვარედინებული</div><div class="recon-val green">${(matched_pairs||[]).length}</div><div class="recon-label">matched pairs</div></div>
+    <div class="recon-card unmatched"><div class="recon-label">GL უჯვარედინო</div><div class="recon-val red">${(unmatched_gl||[]).length}</div><div class="recon-label">journal entries</div></div>
+    <div class="recon-card unmatched"><div class="recon-label">ბანკი უჯვარედინო</div><div class="recon-val red">${(unmatched_bank||[]).length}</div><div class="recon-label">bank transactions</div></div>
+  </div>`;
+
+  if((matched_pairs||[]).length){
+    html+=`<h4 style="margin-bottom:.5rem;font-size:.9rem">✅ დაჯვარედინებული პარები</h4>
+      <table class="recon"><thead><tr><th>GL თარიღი</th><th>GL თანხა</th><th>ბანკი თარ.</th><th>ბანკი თანხა</th><th>სხვაობა</th></tr></thead>
+      <tbody>${(matched_pairs||[]).map(p=>`<tr>
+        <td>${p.gl_date||'—'}</td><td>₾${fmt(p.gl_amount)}</td>
+        <td>${p.bank_date||'—'}</td><td>₾${fmt(p.bank_amount)}</td>
+        <td style="color:${Math.abs(p.diff||0)<0.05?'#198754':'#f72585'}">₾${fmt(p.diff)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+  if((unmatched_gl||[]).length){
+    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:#f72585">⚠️ GL — ბანკში ვერ ნაპოვნი</h4>
+      <table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
+      <tbody>${(unmatched_gl||[]).map(g=>`<tr><td>${g.date||'—'}</td><td>${esc(g.description||'—')}</td><td>₾${fmt(g.amount)}</td></tr>`).join('')}</tbody></table>`;
+  }
+  if((unmatched_bank||[]).length){
+    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:#f72585">⚠️ ბანკი — GL-ში ვერ ნაპოვნი</h4>
+      <table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
+      <tbody>${(unmatched_bank||[]).map(b=>`<tr><td>${b.date||'—'}</td><td>${esc(b.description||'—')}</td><td>₾${fmt(b.amount)}</td></tr>`).join('')}</tbody></table>`;
+  }
+  if(!(matched_pairs||[]).length&&!(unmatched_gl||[]).length&&!(unmatched_bank||[]).length){
+    html+=`<div class="empty">✅ ყველაფერი დაჯვარედინებულია — სხვაობა არ არის</div>`;
+  }
+  el.innerHTML=html;
+}
+</script>
+</body>
+</html>

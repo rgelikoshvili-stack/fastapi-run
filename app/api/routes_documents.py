@@ -143,16 +143,22 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
         })
 
     if existing_file and not existing_file[1]:
-        # Record exists but content was never stored — upload to GCS and patch gcs_path
+        # Record exists but content was never stored — patch it
         doc_id = existing_file[0]
         gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
         conn_patch = get_db(tenant_id)
         cur_patch = conn_patch.cursor()
         try:
-            cur_patch.execute(
-                "UPDATE processed_documents SET gcs_path = %s WHERE id = %s AND tenant_id = %s",
-                (gcs_path, doc_id, tenant_id),
-            )
+            if gcs_path:
+                cur_patch.execute(
+                    "UPDATE processed_documents SET gcs_path = %s WHERE id = %s AND tenant_id = %s",
+                    (gcs_path, doc_id, tenant_id),
+                )
+            else:
+                cur_patch.execute(
+                    "UPDATE processed_documents SET file_content = %s WHERE id = %s AND tenant_id = %s",
+                    (file_bytes, doc_id, tenant_id),
+                )
             conn_patch.commit()
         finally:
             cur_patch.close()
@@ -174,21 +180,33 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
             "existing_draft_id": existing_draft[0] if existing_draft else None,
         })
 
-    # ── 2. Upload to GCS, save processed document record (status=processing) ─
+    # ── 2. Upload to GCS (or fall back to DB storage if GCS not configured) ──
     gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
+    # gcs_path is None when GCS is unavailable → store bytes in file_content column
 
     conn = get_db(tenant_id)
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO processed_documents
-                (tenant_id, file_hash, file_name, file_size_bytes, mime_type, gcs_path, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'processing')
-            RETURNING id
-            """,
-            (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, gcs_path),
-        )
+        if gcs_path:
+            cur.execute(
+                """
+                INSERT INTO processed_documents
+                    (tenant_id, file_hash, file_name, file_size_bytes, mime_type, gcs_path, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+                RETURNING id
+                """,
+                (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, gcs_path),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO processed_documents
+                    (tenant_id, file_hash, file_name, file_size_bytes, mime_type, file_content, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+                RETURNING id
+                """,
+                (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, file_bytes),
+            )
         doc_id = cur.fetchone()[0]
         conn.commit()
     except Exception as e:

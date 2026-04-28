@@ -25,6 +25,18 @@ def run_db_migrations():
                 END $$;
             """)
 
+        # processed_documents — ensure gcs_path and file_content columns exist
+        cur.execute("""
+            ALTER TABLE processed_documents
+                ADD COLUMN IF NOT EXISTS gcs_path     TEXT,
+                ADD COLUMN IF NOT EXISTS file_content BYTEA,
+                ADD COLUMN IF NOT EXISTS file_hash    TEXT,
+                ADD COLUMN IF NOT EXISTS file_size_bytes INTEGER,
+                ADD COLUMN IF NOT EXISTS approved_by  TEXT,
+                ADD COLUMN IF NOT EXISTS approved_at  TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS source_document_id INTEGER
+        """)
+
         # journal_drafts columns
         cur.execute("""
             ALTER TABLE journal_drafts

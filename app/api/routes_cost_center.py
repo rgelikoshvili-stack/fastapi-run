@@ -177,7 +177,7 @@ def cost_center_analysis(
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         conds = ["jd.tenant_id = %s", "jd.status IN ('approved','auto_approved','posted')",
-                 "jd.cost_center_id IS NOT NULL", "jd.debit_account LIKE '7%'"]
+                 "jd.cost_center_id IS NOT NULL", "jd.debit_account LIKE '7%%'"]
         params = [tenant_id]
         if date_from:
             conds.append("jd.date >= %s"); params.append(date_from)
@@ -202,7 +202,7 @@ def cost_center_analysis(
             SELECT COUNT(*) AS entry_count, ROUND(SUM(amount)::numeric,2) AS total_amount
             FROM journal_drafts jd
             WHERE jd.tenant_id=%s AND jd.status IN ('approved','auto_approved','posted')
-              AND jd.cost_center_id IS NULL AND jd.debit_account LIKE '7%'
+              AND jd.cost_center_id IS NULL AND jd.debit_account LIKE '7%%'
               {"AND jd.date >= %s" if date_from else ""}
               {"AND jd.date <= %s" if date_to else ""}
         """, [tenant_id] + ([date_from] if date_from else []) + ([date_to] if date_to else []))

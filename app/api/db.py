@@ -25,44 +25,62 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     return _pool
 
 
-def get_db(tenant_id: Optional[str] = None) -> psycopg2.extensions.connection:
-    """Get a connection from the pool.
-    If tenant_id is provided, sets app.current_tenant_id on the session
-    so RLS policies are enforced. Caller must call conn.close() to return it.
-    """
-    try:
-        pool = _get_pool()
-        conn = pool.getconn()
-        conn.set_client_encoding("UTF8")
+class _PooledConn:
+    """Wraps a psycopg2 connection so close() returns it to the pool."""
 
-        if tenant_id:
-            with conn.cursor() as cur:
-                cur.execute(_SET_GUC, (tenant_id,))
-            conn.commit()
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
 
-        _original_close = conn.close
+    # proxy every attribute/method to the real connection
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
-        def _return_to_pool():
-            try:
-                if not conn.closed:
-                    # Reset GUC so the pooled connection doesn't carry tenant state
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute(_RESET_GUC)
-                        conn.commit()
-                    except Exception:
-                        pass
-                    conn.rollback()
-                pool.putconn(conn)
-            except Exception as e:
-                log.warning("pool putconn error: %s", e)
+    def close(self):
+        try:
+            if not self._conn.closed:
                 try:
-                    _original_close()
+                    with self._conn.cursor() as cur:
+                        cur.execute(_RESET_GUC)
+                    self._conn.commit()
                 except Exception:
                     pass
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    pass
+            self._pool.putconn(self._conn)
+        except Exception as e:
+            log.warning("pool putconn error: %s", e)
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
-        conn.close = _return_to_pool
-        return conn
+    # context manager support
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    # cursor() must return real cursor (already proxied via __getattr__)
+
+
+def get_db(tenant_id: Optional[str] = None):
+    """Get a pooled connection. Caller must call conn.close() to return it to pool."""
+    try:
+        pool = _get_pool()
+        raw_conn = pool.getconn()
+        raw_conn.set_client_encoding("UTF8")
+
+        if tenant_id:
+            with raw_conn.cursor() as cur:
+                cur.execute(_SET_GUC, (tenant_id,))
+            raw_conn.commit()
+
+        return _PooledConn(raw_conn, pool)
+
     except Exception as e:
         log.error("DB pool getconn failed: %s — falling back to direct connect", e)
         from app.config.secrets import get_secret
@@ -76,7 +94,7 @@ def get_db(tenant_id: Optional[str] = None) -> psycopg2.extensions.connection:
         return conn
 
 
-async def get_db_async(tenant_id: Optional[str] = None) -> psycopg2.extensions.connection:
+async def get_db_async(tenant_id: Optional[str] = None):
     """Async wrapper — runs get_db() in a thread pool to avoid blocking the event loop."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: get_db(tenant_id))

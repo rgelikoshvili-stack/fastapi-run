@@ -1,11 +1,12 @@
 """
-Bridge Hub — Direct Claude Chat with full DB context
-/api/claude/chat  →  Claude Sonnet sees all Bridge Hub data
+Bridge Hub — Claude Chat with Tool Use (MCP-style)
+/api/claude/chat  →  Claude can read AND write Bridge Hub data
 """
 import os
 import io
 import json
 import logging
+from datetime import date
 from fastapi import APIRouter, UploadFile, File, Form, Request
 from app.api.response_utils import http_error
 
@@ -13,200 +14,443 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/claude", tags=["Claude Chat"])
 
-# Knowledge keyword map → section keys
+# ── Knowledge keyword maps ────────────────────────────────────────────────────
 _TAX_KEYWORDS = {
-    "vat": ["დღგ", "vat", "დღგ-ს", "დღგ-ის"],
-    "pit": ["საშემოსავლო", "pit", "income tax", "personal"],
-    "cit": ["მოგების", "cit", "profit tax", "corporate"],
-    "withholding": ["წყაროსთან", "withholding", "retention"],
-    "property": ["ქონება", "property tax"],
-    "penalty": ["სანქცი", "penalty", "fine", "ჯარიმ"],
+    "vat":          ["დღგ", "vat", "დღგ-ს", "დღგ-ის"],
+    "pit":          ["საშემოსავლო", "pit", "income tax", "personal"],
+    "cit":          ["მოგების", "cit", "profit tax", "corporate"],
+    "withholding":  ["წყაროსთან", "withholding", "retention"],
+    "property":     ["ქონება", "property tax"],
+    "penalty":      ["სანქცი", "penalty", "fine", "ჯარიმ"],
     "non_resident": ["არარეზიდენტ", "non-resident", "foreign"],
-    "micro": ["მცირე ბიზნეს", "micro", "small business"],
+    "micro":        ["მცირე ბიზნეს", "micro", "small business"],
 }
 _ACC_KEYWORDS = {
-    "salary": ["ხელფას", "salary", "payroll", "payg", "შრომ"],
-    "dividends": ["დივიდენდ", "dividend"],
+    "salary":       ["ხელფას", "salary", "payroll", "payg", "შრომ"],
+    "dividends":    ["დივიდენდ", "dividend"],
     "depreciation": ["ამორტიზაც", "depreciation"],
-    "fixed_assets": ["ძირითადი საშუალებ", "fixed asset", "სიმდიდრ"],
-    "inventory": ["მარაგ", "inventory", "stock"],
-    "receivables": ["მოთხოვნ", "receivable", "debtor"],
-    "payables": ["ვალდებულ", "payable", "creditor"],
-    "loan": ["სესხ", "loan", "credit"],
-    "capital": ["კაპიტალ", "capital", "equity"],
-    "principles": ["პრინციპ", "principle", "standard", "ifrs", "gaap"],
+    "fixed_assets": ["ძირითადი საშუალებ", "fixed asset"],
+    "inventory":    ["მარაგ", "inventory", "stock"],
+    "receivables":  ["მოთხოვნ", "receivable", "debtor"],
+    "payables":     ["ვალდებულ", "payable", "creditor"],
+    "loan":         ["სესხ", "loan", "credit"],
+    "capital":      ["კაპიტალ", "capital", "equity"],
+    "principles":   ["პრინციპ", "principle", "standard", "ifrs", "gaap"],
 }
 
-
-def _fetch_knowledge_context(message: str) -> str:
-    """Pull relevant sections from loaded knowledge files based on message content."""
-    try:
-        from app.knowledge.knowledge_loader import get_tax_section, get_accounting_section
-    except Exception:
-        return ""
-
-    msg_lower = message.lower()
-    parts = []
-
-    for key, keywords in _TAX_KEYWORDS.items():
-        if any(kw in msg_lower for kw in keywords):
-            section = get_tax_section(key)
-            if section:
-                parts.append(f"📜 საგადასახადო კოდექსი ({key}):\n{section[:2000]}")
-            break  # one tax section per message to avoid token bloat
-
-    for key, keywords in _ACC_KEYWORDS.items():
-        if any(kw in msg_lower for kw in keywords):
-            section = get_accounting_section(key)
-            if section:
-                parts.append(f"📚 ბუღალტრული სტანდარტი ({key}):\n{section[:2000]}")
-            break
-
-    return "\n\n".join(parts)
-
 SYSTEM_PROMPT = """\
-შენ ხარ Bridge Hub AI — ქართული ფინანსური OS-ის ჭკვიანი ასისტენტი.
-შენ მუშაობ ისევე როგორც Claude — სრულყოფილი, გარჩეული, ნებისმიერ კითხვაზე პასუხობ.
+შენ ხარ Bridge Hub AI — ქართული ფინანსური OS-ის AI ბუღალტერი.
+შენ შეგიძლია:
+• ბუღალტრული გატარებების შექმნა (create_journal_draft)
+• მოლოდინში მყოფი გატარებების დამტკიცება (approve_draft)
+• გატარებების ძებნა და ნახვა (search_transactions, list_pending_drafts)
+• ანგარიშების ნაშთის გამოთვლა (get_account_balance)
+• ტრანზაქციის კლასიფიკაცია (classify_transaction)
 
 შენი ექსპერტიზა:
 • ქართული საგადასახადო კოდექსი — დღგ 18%, საშემოსავლო 20%, მოგების 15%, სოციალური 2%
 • IFRS/GAAP ბუღალტრული სტანდარტები
-• ჟურნალის ჩანაწერები, COA (ანგარიშთა გეგმა)
-• ხელფასი, დივიდენდი, ამორტიზაცია, VAT
-• ფინანსური ანგარიშები — ბალანსი, მოგება-ზარალი, ფულის ნაკადი
-• ბანკის ამონაწერი, რეკონსილიაცია
-• ნებისმიერი ზოგადი კითხვა — ისტორია, მათემატიკა, პროგრამირება, კანონი...
+• Bridge Hub COA — 1xxx:აქტივი, 2xxx:გრძვადიდი ვალდ., 3xxx:მოკლევ. ვალდ., 4xxx:კაპიტალი, 5xxx:შემოსავალი, 6xxx:წარმოება, 7xxx:ხარჯი
+• ხელფასი (Dr7110/Cr3310), VAT (Dr1430/Cr3350), ფაქტურა (Dr1410/Cr6110)
 
-როდესაც კონტექსტი (DB მონაცემები) მოგეწოდება, გამოიყენე სრულყოფილი ანალიზისთვის.
-პასუხი გასცე ქართულად, სრულად და გარჩეულად — ისე როგორც Claude მუშაობს.
+მოქმედების პრინციპი:
+1. თუ მომხმარებელი ითხოვს გატარებას → create_journal_draft-ს გამოიყენე
+2. თუ ანგარიშები გაუგია → classify_transaction-ს გამოიყენე პირველ
+3. დამტკიცებამდე დაასახელე რა გააკეთე (Dr/Cr)
+4. ქართულად ილაპარაკე, სრულად და გარჩეულად
 """
+
+# ── Tool definitions ──────────────────────────────────────────────────────────
+TOOLS = [
+    {
+        "name": "create_journal_draft",
+        "description": "ბუღალტრული გატარების შექმნა Bridge Hub-ში. გამოიყენე როდესაც მომხმარებელი ითხოვს ახალი ჩანაწერის, ფაქტურის ან ტრანზაქციის გატარებას.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "ტრანზაქციის სრული აღწერა"},
+                "amount":      {"type": "number", "description": "თანხა ლარში (დადებითი)"},
+                "debit_account": {"type": "string", "description": "სადებეტო ანგარიშის კოდი (მაგ: 7510)"},
+                "credit_account": {"type": "string", "description": "საკრედიტო ანგარიშის კოდი (მაგ: 3350)"},
+                "date":        {"type": "string", "description": "თარიღი YYYY-MM-DD (სურვილისამებრ, default: დღეს)"},
+                "vendor":      {"type": "string", "description": "მომწოდებელი/კონტრაჰენტი (სურვილისამებრ)"},
+            },
+            "required": ["description", "amount", "debit_account", "credit_account"],
+        },
+    },
+    {
+        "name": "approve_draft",
+        "description": "მოლოდინში მყოფი გატარების დამტკიცება draft ID-ით.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "draft_id": {"type": "integer", "description": "გატარების ID (create_journal_draft-ის შემდეგ ცნობილი)"},
+                "comment":  {"type": "string",  "description": "დამტკიცების კომენტარი (სურვილისამებრ)"},
+            },
+            "required": ["draft_id"],
+        },
+    },
+    {
+        "name": "list_pending_drafts",
+        "description": "დამტკიცების მოლოდინში მყოფი გატარებების სია.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "მაქსიმალური რაოდენობა (default: 10)"},
+            },
+        },
+    },
+    {
+        "name": "search_transactions",
+        "description": "გატარებების ძებნა — მოვაჭრის სახელით, აღწერით ან ანგარიშის კოდით.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":        {"type": "string", "description": "საძებნი ტექსტი (კომპანია, ტრანზაქციის ტიპი...)"},
+                "account_code": {"type": "string", "description": "ანგარიშის კოდი ფილტრისთვის (სურვილისამებრ)"},
+                "limit":        {"type": "integer", "description": "მაქსიმალური რაოდენობა (default: 10)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_account_balance",
+        "description": "ანგარიშის სრული ნაშთი — დებეტი, კრედიტი, ბალანსი.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account_code": {"type": "string", "description": "ანგარიშის კოდი (მაგ: 1110, 7510, 3350)"},
+                "date_from":    {"type": "string", "description": "დაწყების თარიღი YYYY-MM-DD (სურვილისამებრ)"},
+                "date_to":      {"type": "string", "description": "დამთავრების თარიღი YYYY-MM-DD (სურვილისამებრ)"},
+            },
+            "required": ["account_code"],
+        },
+    },
+    {
+        "name": "classify_transaction",
+        "description": "ტრანზაქციის კლასიფიკაცია — სადებეტო/საკრედიტო ანგარიშების ავტომატური განსაზღვრა Bridge Hub AI-ით.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "ტრანზაქციის აღწერა"},
+                "amount":      {"type": "number", "description": "თანხა (სურვილისამებრ)"},
+            },
+            "required": ["description"],
+        },
+    },
+]
+
+
+# ── Tool executors ────────────────────────────────────────────────────────────
+
+def _tool_create_draft(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_db
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        entry_date = inp.get("date") or date.today().isoformat()
+        cur.execute("""
+            INSERT INTO journal_drafts
+                (tenant_id, description, amount, debit_account, credit_account,
+                 date, source, status, account_code)
+            VALUES (%s, %s, %s, %s, %s, %s, 'chat', 'pending', %s)
+            RETURNING id, description, amount, debit_account, credit_account, date, status
+        """, (
+            tenant_id,
+            inp["description"],
+            float(inp["amount"]),
+            str(inp["debit_account"]),
+            str(inp["credit_account"]),
+            entry_date,
+            str(inp["debit_account"]),
+        ))
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        return {
+            "success": True,
+            "draft_id": row[0],
+            "description": row[1],
+            "amount": float(row[2] or 0),
+            "debit_account": row[3],
+            "credit_account": row[4],
+            "date": str(row[5]),
+            "status": row[6],
+            "message": f"გატარება #{row[0]} შეიქმნა — PENDING სტატუსით",
+        }
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def _tool_approve_draft(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_db
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        draft_id = int(inp["draft_id"])
+        cur.execute("""
+            UPDATE journal_drafts
+            SET status = 'approved', approved_by = 'chat_ai', approved_at = NOW()
+            WHERE id = %s AND tenant_id = %s AND status IN ('pending', 'PENDING')
+            RETURNING id, description, amount, status
+        """, (draft_id, tenant_id))
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        if row:
+            return {
+                "success": True,
+                "draft_id": row[0],
+                "description": row[1],
+                "amount": float(row[2] or 0),
+                "status": row[3],
+                "message": f"გატარება #{row[0]} დამტკიცდა",
+            }
+        return {"success": False, "error": f"გატარება #{draft_id} ვერ მოიძებნა ან უკვე დამტკიცებულია"}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def _tool_list_pending(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_db
+    import psycopg2.extras
+    conn = get_db()
+    try:
+        limit = min(int(inp.get("limit", 10)), 50)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, description, amount, debit_account, credit_account,
+                   TO_CHAR(date, 'YYYY-MM-DD') AS date, status,
+                   TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS created
+            FROM journal_drafts
+            WHERE tenant_id = %s AND status IN ('pending', 'PENDING')
+            ORDER BY created_at DESC LIMIT %s
+        """, (tenant_id, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        return {"success": True, "count": len(rows), "drafts": rows}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def _tool_search(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_db
+    import psycopg2.extras
+    conn = get_db()
+    try:
+        query = str(inp["query"])
+        account_code = inp.get("account_code")
+        limit = min(int(inp.get("limit", 10)), 50)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if account_code:
+            cur.execute("""
+                SELECT id, description, amount, debit_account, credit_account,
+                       TO_CHAR(date, 'YYYY-MM-DD') AS date, status
+                FROM journal_drafts
+                WHERE tenant_id = %s AND (debit_account = %s OR credit_account = %s OR account_code = %s)
+                ORDER BY created_at DESC LIMIT %s
+            """, (tenant_id, account_code, account_code, account_code, limit))
+        else:
+            cur.execute("""
+                SELECT id, description, amount, debit_account, credit_account,
+                       TO_CHAR(date, 'YYYY-MM-DD') AS date, status
+                FROM journal_drafts
+                WHERE tenant_id = %s AND description ILIKE %s
+                ORDER BY created_at DESC LIMIT %s
+            """, (tenant_id, f"%{query}%", limit))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        return {"success": True, "count": len(rows), "transactions": rows}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def _tool_account_balance(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_db
+    conn = get_db()
+    try:
+        account_code = str(inp["account_code"])
+        date_from = inp.get("date_from")
+        date_to = inp.get("date_to")
+        cur = conn.cursor()
+        conds = [
+            "tenant_id = %s",
+            "(debit_account = %s OR credit_account = %s OR account_code = %s)",
+            "status IN ('approved', 'auto_approved', 'posted', 'APPROVED')",
+        ]
+        params: list = [tenant_id, account_code, account_code, account_code]
+        if date_from:
+            conds.append("date >= %s"); params.append(date_from)
+        if date_to:
+            conds.append("date <= %s"); params.append(date_to)
+        cur.execute(f"""
+            SELECT
+                COUNT(*) AS cnt,
+                COALESCE(SUM(CASE WHEN debit_account  = %s THEN amount ELSE 0 END), 0) AS debit_sum,
+                COALESCE(SUM(CASE WHEN credit_account = %s THEN amount ELSE 0 END), 0) AS credit_sum
+            FROM journal_drafts
+            WHERE {' AND '.join(conds)}
+        """, [account_code, account_code] + params)
+        row = cur.fetchone()
+        cur.close()
+        debit  = float(row[1] or 0)
+        credit = float(row[2] or 0)
+        return {
+            "success": True,
+            "account_code": account_code,
+            "entry_count": int(row[0] or 0),
+            "debit_total":  round(debit,  2),
+            "credit_total": round(credit, 2),
+            "balance":      round(debit - credit, 2),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def _tool_classify(inp: dict, tenant_id: str) -> dict:
+    try:
+        from bridge_hub_knowledge import classify_transaction
+        result = classify_transaction(inp["description"], float(inp.get("amount", 0)), tenant_id)
+        return {"success": True, "classification": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _execute_tool(name: str, inp: dict, tenant_id: str) -> dict:
+    dispatch = {
+        "create_journal_draft": _tool_create_draft,
+        "approve_draft":        _tool_approve_draft,
+        "list_pending_drafts":  _tool_list_pending,
+        "search_transactions":  _tool_search,
+        "get_account_balance":  _tool_account_balance,
+        "classify_transaction": _tool_classify,
+    }
+    fn = dispatch.get(name)
+    if not fn:
+        return {"error": f"Unknown tool: {name}"}
+    try:
+        return fn(inp, tenant_id)
+    except Exception as e:
+        log.error("tool %s error: %s", name, e)
+        return {"error": str(e)}
+
+
+# ── Knowledge context helpers ─────────────────────────────────────────────────
+
+def _fetch_knowledge_context(message: str) -> str:
+    try:
+        from app.knowledge.knowledge_loader import get_tax_section, get_accounting_section
+    except Exception:
+        return ""
+    msg_lower = message.lower()
+    parts = []
+    for key, keywords in _TAX_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            s = get_tax_section(key)
+            if s:
+                parts.append(f"📜 საგადასახადო კოდექსი ({key}):\n{s[:2000]}")
+            break
+    for key, keywords in _ACC_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            s = get_accounting_section(key)
+            if s:
+                parts.append(f"📚 ბუღალტრული სტანდარტი ({key}):\n{s[:2000]}")
+            break
+    return "\n\n".join(parts)
 
 
 def _fetch_db_context(message: str, tenant_id: str) -> str:
-    """Fetch relevant data from DB based on the question."""
     try:
         import psycopg2
         from psycopg2.extras import RealDictCursor
-
         database_url = os.environ.get("DATABASE_URL")
         if not database_url:
             return ""
-
         conn = psycopg2.connect(database_url)
         cur = conn.cursor(cursor_factory=RealDictCursor)
         parts = []
         msg_lower = message.lower()
 
-        # Always fetch overview stats
         try:
             cur.execute("""
                 SELECT
                     COUNT(*) AS total,
-                    COUNT(*) FILTER (WHERE status='APPROVED') AS approved,
-                    COUNT(*) FILTER (WHERE status='PENDING') AS pending,
-                    COUNT(*) FILTER (WHERE status='REJECTED') AS rejected,
+                    COUNT(*) FILTER (WHERE status='approved' OR status='APPROVED') AS approved,
+                    COUNT(*) FILTER (WHERE status='pending'  OR status='PENDING')  AS pending,
+                    COUNT(*) FILTER (WHERE status='rejected' OR status='REJECTED') AS rejected,
                     COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
                     COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS outflow
-                FROM journal_drafts
-                WHERE tenant_id = %s
+                FROM journal_drafts WHERE tenant_id = %s
             """, (tenant_id,))
             row = cur.fetchone()
             if row:
                 parts.append(
                     f"📊 სისტემის სტატისტიკა:\n"
-                    f"  სულ დოკუმენტი: {row['total']}\n"
-                    f"  დამტკიცებული: {row['approved']}, მოლოდინში: {row['pending']}, უარყოფილი: {row['rejected']}\n"
-                    f"  შემოსავალი: {float(row['inflow'] or 0):.2f} ₾, გასავალი: {abs(float(row['outflow'] or 0)):.2f} ₾"
+                    f"  სულ: {row['total']} | დამტკ: {row['approved']} | მოლოდინი: {row['pending']} | უარი: {row['rejected']}\n"
+                    f"  შემოსავალი: {float(row['inflow'] or 0):.2f}₾ | გასავალი: {abs(float(row['outflow'] or 0)):.2f}₾"
                 )
         except Exception:
             pass
 
-        # If asking about transactions/drafts/documents
-        if any(w in msg_lower for w in ["ტრანზაქცი", "დრაფტ", "დოკუმენტ", "ჩანაწერ", "გატარ", "ბოლო", "ბარათ", "last", "recent"]):
+        if any(w in msg_lower for w in ["ტრანზაქცი", "დრაფტ", "დოკუმენტ", "ჩანაწერ", "გატარ", "ბოლო", "last", "recent"]):
             try:
                 cur.execute("""
-                    SELECT id, description, amount, account_code, status,
-                           debit_account, credit_account,
+                    SELECT id, description, amount, debit_account, credit_account, status,
                            TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS date
-                    FROM journal_drafts
-                    WHERE tenant_id = %s
+                    FROM journal_drafts WHERE tenant_id = %s
                     ORDER BY created_at DESC LIMIT 15
                 """, (tenant_id,))
                 rows = cur.fetchall()
                 if rows:
-                    lines = [f"📋 ბოლო {len(rows)} ტრანზაქცია:"]
+                    lines = [f"📋 ბოლო {len(rows)} ჩანაწერი:"]
                     for r in rows:
-                        lines.append(
-                            f"  [{r['date']}] {r['description'] or '-'} | "
-                            f"{float(r['amount'] or 0):.2f}₾ | {r['account_code'] or '-'} | {r['status']}"
-                        )
+                        lines.append(f"  #{r['id']} [{r['date']}] {r['description'] or '-'} | {float(r['amount'] or 0):.2f}₾ | Dr:{r['debit_account']} Cr:{r['credit_account']} | {r['status']}")
                     parts.append("\n".join(lines))
             except Exception:
                 pass
 
-        # If asking about bank transactions
-        if any(w in msg_lower for w in ["ბანკ", "bank", "გადარ", "ანგარიშ"]):
+        if any(w in msg_lower for w in ["ბანკ", "bank", "გადარ"]):
             try:
                 cur.execute("""
-                    SELECT bank, date, amount, description
-                    FROM bank_transactions
-                    WHERE tenant_id = %s
-                    ORDER BY date DESC LIMIT 15
+                    SELECT bank, date, amount, description FROM bank_transactions
+                    WHERE tenant_id = %s ORDER BY date DESC LIMIT 10
                 """, (tenant_id,))
                 rows = cur.fetchall()
                 if rows:
-                    lines = [f"🏦 ბანკის ბოლო {len(rows)} ოპერაცია:"]
+                    lines = [f"🏦 ბანკის ბოლო {len(rows)} ოპ.:"]
                     for r in rows:
-                        lines.append(
-                            f"  [{r['date']}] {r['bank']} | {float(r['amount'] or 0):.2f}₾ | {r['description'] or '-'}"
-                        )
+                        lines.append(f"  [{r['date']}] {r['bank']} | {float(r['amount'] or 0):.2f}₾ | {r['description'] or '-'}")
                     parts.append("\n".join(lines))
             except Exception:
                 pass
 
-        # If asking about learning/rules/classification
-        if any(w in msg_lower for w in ["ნასწავლ", "pattern", "კლასიფ", "წესი", "rule", "learn"]):
+        if any(w in msg_lower for w in ["თვ", "monthly", "report", "შემოსავ", "გასავ", "cashflow"]):
             try:
                 cur.execute("""
-                    SELECT pattern_value, account_code, reason, confidence_score, source
-                    FROM learning_patterns
-                    WHERE tenant_id IN (%s, 'global') AND status = 'active'
-                    ORDER BY confidence_score DESC LIMIT 20
-                """, (tenant_id,))
-                rows = cur.fetchall()
-                if rows:
-                    lines = [f"🧠 ნასწავლი {len(rows)} წესი:"]
-                    for r in rows:
-                        lines.append(
-                            f"  '{r['pattern_value']}' → {r['account_code']} "
-                            f"(confidence: {float(r['confidence_score'] or 0):.0%}, {r['source']})"
-                        )
-                    parts.append("\n".join(lines))
-            except Exception:
-                pass
-
-        # Monthly summary if asked
-        if any(w in msg_lower for w in ["თვ", "monthly", "ანგარიშ", "report", "შემოსავ", "გასავ", "cashflow"]):
-            try:
-                cur.execute("""
-                    SELECT
-                        TO_CHAR(created_at, 'YYYY-MM') AS month,
-                        COUNT(*) AS docs,
-                        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
-                        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) AS outflow
-                    FROM journal_drafts
-                    WHERE tenant_id = %s
+                    SELECT TO_CHAR(created_at,'YYYY-MM') AS month, COUNT(*) AS docs,
+                        COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS inflow,
+                        COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) AS outflow
+                    FROM journal_drafts WHERE tenant_id = %s
                     GROUP BY 1 ORDER BY 1 DESC LIMIT 6
                 """, (tenant_id,))
                 rows = cur.fetchall()
                 if rows:
-                    lines = ["📅 ბოლო თვეების შეჯამება:"]
+                    lines = ["📅 ბოლო თვეები:"]
                     for r in rows:
                         net = float(r['inflow'] or 0) - float(r['outflow'] or 0)
-                        lines.append(
-                            f"  {r['month']}: {r['docs']} დოკ | "
-                            f"+{float(r['inflow'] or 0):.0f}₾ / -{float(r['outflow'] or 0):.0f}₾ | net: {net:.0f}₾"
-                        )
+                        lines.append(f"  {r['month']}: {r['docs']} დოკ | +{float(r['inflow'] or 0):.0f}₾ / -{float(r['outflow'] or 0):.0f}₾ | net:{net:.0f}₾")
                     parts.append("\n".join(lines))
             except Exception:
                 pass
@@ -214,7 +458,6 @@ def _fetch_db_context(message: str, tenant_id: str) -> str:
         cur.close()
         conn.close()
         return "\n\n".join(parts)
-
     except Exception as e:
         log.warning("db context fetch failed: %s", e)
         return ""
@@ -246,6 +489,8 @@ def _read_file_text(filename: str, data: bytes) -> str:
     return f"[ფაილი: {filename} — ტექსტი ვერ წაიკითხა]"
 
 
+# ── Main chat endpoint ────────────────────────────────────────────────────────
+
 @router.post("/chat")
 async def claude_chat(
     request: Request,
@@ -262,37 +507,27 @@ async def claude_chat(
 
     try:
         import anthropic
-
         client = anthropic.Anthropic(api_key=api_key)
 
-        # Parse conversation history
         try:
             hist = json.loads(history) if history else []
         except Exception:
             hist = []
 
-        # Fetch DB context + knowledge file context
         db_context = _fetch_db_context(message, tenant_id)
         kb_context = _fetch_knowledge_context(message)
 
-        # Build system with live DB data + knowledge files
         system = SYSTEM_PROMPT
         if kb_context:
-            system += f"\n\n--- Bridge Hub ცოდნის ბაზა (საგადასახადო/ბუღალტრული ფაილები) ---\n{kb_context}\n---"
+            system += f"\n\n--- Bridge Hub ცოდნის ბაზა ---\n{kb_context}\n---"
         if db_context:
             system += f"\n\n--- Bridge Hub-ის მიმდინარე მონაცემები ---\n{db_context}\n---"
 
-        # Build messages
         messages = []
         for h in hist[-16:]:
             role = "user" if h.get("role") == "user" else "assistant"
-            text = h.get("text", "")
-            # strip file prefix from stored messages
-            if text.startswith("📎"):
-                text = text
-            messages.append({"role": role, "content": text})
+            messages.append({"role": role, "content": h.get("text", "")})
 
-        # Current user turn
         content_parts = []
         if file:
             raw = await file.read()
@@ -303,30 +538,64 @@ async def claude_chat(
         content_parts.append({"type": "text", "text": user_text})
         messages.append({"role": "user", "content": content_parts})
 
-        _CLAUDE_TIMEOUT = 10.0
-        _CLAUDE_FALLBACK = {"ok": False, "answer": "AI temporarily unavailable. Please try again.", "model": "claude-sonnet-4-6", "had_context": False}
+        # ── First call (may return tool_use) ─────────────────────────────
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4000,
+            system=system,
+            tools=TOOLS,
+            messages=messages,
+            timeout=30.0,
+        )
 
-        last_err = None
-        for attempt in range(2):
-            try:
-                resp = client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=3000,
-                    system=system,
-                    messages=messages,
-                    timeout=_CLAUDE_TIMEOUT,
-                )
-                answer = resp.content[0].text if resp.content else "პასუხი ვერ მივიღე."
-                return {"ok": True, "answer": answer, "model": "claude-sonnet-4-6", "had_context": bool(db_context or kb_context)}
-            except Exception as e:
-                last_err = e
-                log.warning("claude_chat attempt %d failed: %s", attempt + 1, e)
-                if attempt == 0:
-                    import time; time.sleep(1)
+        tools_used = []
 
-        log.error("claude_chat all retries failed: %s", last_err)
-        return http_error(503, "AI temporarily unavailable. Please try again.", "SERVICE_UNAVAILABLE")
+        # ── Tool use loop (max 3 rounds to avoid runaway) ─────────────────
+        for _round in range(3):
+            if resp.stop_reason != "tool_use":
+                break
+
+            # Execute every tool Claude requested
+            tool_results = []
+            for block in resp.content:
+                if block.type != "tool_use":
+                    continue
+                log.info("chat tool_use: %s %s", block.name, block.input)
+                result = _execute_tool(block.name, block.input, tenant_id)
+                tools_used.append({"tool": block.name, "result": result})
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(result, ensure_ascii=False),
+                })
+
+            # Append assistant turn + tool results, then call Claude again
+            messages.append({"role": "assistant", "content": resp.content})
+            messages.append({"role": "user",      "content": tool_results})
+
+            resp = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                system=system,
+                tools=TOOLS,
+                messages=messages,
+                timeout=30.0,
+            )
+
+        # Extract final text answer
+        answer = next(
+            (block.text for block in resp.content if hasattr(block, "text")),
+            "პასუხი ვერ მივიღე."
+        )
+
+        return {
+            "ok": True,
+            "answer": answer,
+            "model": "claude-sonnet-4-6",
+            "had_context": bool(db_context or kb_context),
+            "tools_used": tools_used,
+        }
 
     except Exception as e:
-        log.error("claude_chat setup error: %s", e)
+        log.error("claude_chat error: %s", e)
         return http_error(503, "AI temporarily unavailable. Please try again.", "SERVICE_UNAVAILABLE")

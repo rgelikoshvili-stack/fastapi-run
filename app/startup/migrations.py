@@ -127,7 +127,8 @@ def run_db_migrations():
         conn.close()
         log.info("action=db_migration_ok")
     except Exception as e:
-        log.warning("action=db_migration_skipped reason=%s", e)
+        import traceback
+        log.warning("action=db_migration_skipped reason=%s\n%s", e, traceback.format_exc())
 
 
 def _run_remaining_migrations(cur):

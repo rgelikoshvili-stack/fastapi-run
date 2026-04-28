@@ -127,8 +127,7 @@ def run_db_migrations():
         conn.close()
         log.info("action=db_migration_ok")
     except Exception as e:
-        import traceback
-        log.warning("action=db_migration_skipped reason=%s\n%s", e, traceback.format_exc())
+        log.warning("action=db_migration_skipped reason=%s", e)
 
 
 def _run_remaining_migrations(cur):
@@ -235,9 +234,25 @@ def _run_remaining_migrations(cur):
             created_at  TIMESTAMPTZ DEFAULT NOW(),
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_chat_sessions_tenant_session
-            ON chat_sessions(tenant_id, session_id);
     """)
+    # Backfill missing columns if table already existed without them
+    _conn_cs = cur.connection
+    for _cs_sql in [
+        "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'",
+        "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_id TEXT",
+        "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS messages JSONB DEFAULT '[]'",
+        "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS context JSONB DEFAULT '{}'",
+        "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+    ]:
+        try:
+            cur.execute(_cs_sql)
+            _conn_cs.commit()
+        except Exception:
+            _conn_cs.rollback()
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_tenant_session ON chat_sessions(tenant_id, session_id)")
+    except Exception:
+        _conn_cs.rollback()
 
     # Idempotency keys
     cur.execute("""

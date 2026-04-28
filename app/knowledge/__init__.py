@@ -18,11 +18,9 @@ from app.knowledge.tax_rules import (
     calculate_inventory_shortage,
 )
 from app.knowledge.knowledge_loader import (
-    LEARNED_RULES_FILE,
     _load_files,
     _load_learned,
     _load_learned_from_db,
-    _save_learned,
     learn_new_rule,
     migrate_json_to_db,
     get_tax_section,
@@ -44,8 +42,7 @@ __all__ = [
     "TAX_RULES",
     "calculate_vat", "calculate_payroll", "calculate_cit",
     "calculate_withholding", "calculate_depreciation", "calculate_inventory_shortage",
-    "LEARNED_RULES_FILE",
-    "_load_files", "_load_learned", "_load_learned_from_db", "_save_learned",
+    "_load_files", "_load_learned", "_load_learned_from_db",
     "learn_new_rule", "migrate_json_to_db",
     "get_tax_section", "get_accounting_section",
     "_CLS_RULES", "_KB",

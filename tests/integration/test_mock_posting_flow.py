@@ -1,6 +1,13 @@
-def test_mock_posting_route_exists(client):
-    # 999999 სავარაუდოდ არარსებული draft_id იქნება
-    response = client.post("/posting/mock/999999")
+import os
+import pytest
 
-    # route უნდა არსებობდეს; 404/400/422 ნორმალურია თუ draft არ არსებობს
+requires_db = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL"),
+    reason="requires DATABASE_URL",
+)
+
+
+@requires_db
+def test_mock_posting_route_exists(client):
+    response = client.post("/posting/mock/999999")
     assert response.status_code in [200, 400, 404, 422]

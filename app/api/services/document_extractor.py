@@ -94,12 +94,19 @@ Rules:
 4. Use null for missing fields
 5. Preserve original text for names
 
+CRITICAL — seller vs buyer identification:
+- Georgian "გამყიდველი" = SELLER (the company issuing/sending the invoice)
+- Georgian "მყიდველი" = BUYER (the company receiving and paying the invoice)
+- The seller INN often appears in the bank payment details section ("რეკვიზიტები")
+- The buyer INN often appears in the billing/delivery section under "მყიდველი"
+- Do NOT swap seller and buyer — the company that ISSUED the document is the seller
+
 Document types:
-- tax_invoice: Georgian tax invoice (სასაქონლო ზედნადები)
-- waybill: delivery document (სასაქონლო ნაშთი)
+- tax_invoice: Georgian tax invoice (სასაქონლო ზედნადები / ანგარიშ-ფაქტურა)
+- waybill: delivery document (სასაქონლო ნაშთი / ზედნადები)
 - contract: agreement (ხელშეკრულება)
-- receipt: payment receipt
-- bank_statement: bank statement
+- receipt: payment receipt (ქვითარი / ჩეკი)
+- bank_statement: bank statement (ამონაწერი)
 
 Return ONLY valid JSON, no explanation.
 
@@ -147,6 +154,20 @@ async def _llm_extract(text: str, llm_service) -> ExtractedDocument:
         return _regex_extract(text)
 
 
+def _extract_inn_near(text: str, keywords: list[str], window: int = 400) -> str | None:
+    """Return first valid INN found within `window` chars after any of the keywords."""
+    import re
+    inn_pat = re.compile(r'\b(\d{9}|\d{11})\b')
+    for kw in keywords:
+        idx = text.lower().find(kw.lower())
+        if idx >= 0:
+            section = text[idx: idx + window]
+            m = inn_pat.search(section)
+            if m:
+                return m.group(1)
+    return None
+
+
 def _regex_extract(text: str) -> ExtractedDocument:
     """Best-effort regex fallback when LLM not available."""
     import re
@@ -155,12 +176,33 @@ def _regex_extract(text: str) -> ExtractedDocument:
     amount_pattern = re.compile(r'(\d{1,10}[.,]\d{2})')
     date_pattern = re.compile(r'(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})')
 
-    inns = inn_pattern.findall(text)
     amounts = amount_pattern.findall(text)
     dates = date_pattern.findall(text)
 
-    seller_inn = inns[0] if len(inns) > 0 else None
-    buyer_inn = inns[1] if len(inns) > 1 else None
+    # Keyword-anchored party extraction (Georgian + English)
+    seller_inn = _extract_inn_near(text, ["გამყიდველი", "seller", "vendor", "რეკვიზიტები"])
+    buyer_inn  = _extract_inn_near(text, ["მყიდველი", "buyer", "customer", "purchaser", "recipient"])
+
+    # Fallback: first two INNs in document order, but avoid duplicates
+    if not seller_inn or not buyer_inn:
+        all_inns = inn_pattern.findall(text)
+        # De-duplicate preserving order
+        seen, unique_inns = set(), []
+        for i in all_inns:
+            if i not in seen:
+                seen.add(i); unique_inns.append(i)
+        if not seller_inn and not buyer_inn:
+            seller_inn = unique_inns[0] if len(unique_inns) > 0 else None
+            buyer_inn  = unique_inns[1] if len(unique_inns) > 1 else None
+        elif not seller_inn:
+            # buyer found — take first INN that isn't buyer as seller
+            for i in unique_inns:
+                if i != buyer_inn:
+                    seller_inn = i; break
+        elif not buyer_inn:
+            for i in unique_inns:
+                if i != seller_inn:
+                    buyer_inn = i; break
 
     total = None
     if amounts:

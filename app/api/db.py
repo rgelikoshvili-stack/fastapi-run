@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 import psycopg2
@@ -15,7 +16,8 @@ _SET_GUC = "SELECT set_config('app.current_tenant_id', %s, false)"
 def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None or _pool.closed:
-        db_url = os.environ["DATABASE_URL"]
+        from app.config.secrets import get_secret
+        db_url = get_secret("DATABASE_URL") or os.environ["DATABASE_URL"]
         min_conn = int(os.environ.get("DB_POOL_MIN", "2"))
         max_conn = int(os.environ.get("DB_POOL_MAX", "10"))
         _pool = psycopg2.pool.ThreadedConnectionPool(min_conn, max_conn, db_url)
@@ -63,10 +65,18 @@ def get_db(tenant_id: Optional[str] = None) -> psycopg2.extensions.connection:
         return conn
     except Exception as e:
         log.error("DB pool getconn failed: %s — falling back to direct connect", e)
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        from app.config.secrets import get_secret
+        db_url = get_secret("DATABASE_URL") or os.environ["DATABASE_URL"]
+        conn = psycopg2.connect(db_url)
         conn.set_client_encoding("UTF8")
         if tenant_id:
             with conn.cursor() as cur:
                 cur.execute(_SET_GUC, (tenant_id,))
             conn.commit()
         return conn
+
+
+async def get_db_async(tenant_id: Optional[str] = None) -> psycopg2.extensions.connection:
+    """Async wrapper — runs get_db() in a thread pool to avoid blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: get_db(tenant_id))

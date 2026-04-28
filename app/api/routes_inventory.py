@@ -1,5 +1,8 @@
 """app/api/routes_inventory.py — Inventory management endpoints."""
+import csv
+import io
 from fastapi import APIRouter, Request, Query
+from fastapi.responses import StreamingResponse
 from typing import Optional
 
 from app.api.tenant_context import resolve_tenant_id
@@ -27,7 +30,7 @@ def get_items(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     ensure_inventory_tables()
     try:
@@ -40,7 +43,7 @@ def get_items(
 
 @router.get("/items/{item_id}")
 def get_single_item(item_id: int, request: Request):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     item = get_item(tenant_id, item_id)
     if not item:
@@ -51,7 +54,7 @@ def get_single_item(item_id: int, request: Request):
 
 @router.post("/items")
 def add_item(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     ensure_inventory_tables()
     try:
@@ -72,7 +75,7 @@ def add_item(request: Request):
 
 @router.post("/items/create")
 async def add_item_body(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     ensure_inventory_tables()
     try:
@@ -92,7 +95,7 @@ async def add_item_body(request: Request):
 
 @router.put("/items/{item_id}")
 async def edit_item(item_id: int, request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     item = update_item(tenant_id, item_id, body)
@@ -105,7 +108,7 @@ async def edit_item(item_id: int, request: Request):
 
 @router.post("/movements")
 async def add_movement(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
 
@@ -140,7 +143,7 @@ def get_movement_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         result = get_movements(tenant_id, item_id=item_id, movement_type=movement_type,
@@ -159,7 +162,7 @@ def get_valuation(
     method: str = Query("fifo", pattern="^(fifo|lifo|average)$"),
     as_of: Optional[str] = None,
 ):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         result = calculate_valuation(tenant_id, method=method, as_of_date=as_of)
@@ -177,7 +180,7 @@ def get_purchase_orders(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         result = list_purchase_orders(tenant_id, status=status, limit=limit, offset=offset)
@@ -188,7 +191,7 @@ def get_purchase_orders(
 
 @router.post("/purchase-orders")
 async def new_purchase_order(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     try:
@@ -200,7 +203,7 @@ async def new_purchase_order(request: Request):
 
 @router.post("/purchase-orders/{po_id}/receive")
 async def receive_po(po_id: int, request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     lines = body.get("lines", [])
@@ -217,14 +220,14 @@ async def receive_po(po_id: int, request: Request):
 
 @router.get("/warehouses")
 def get_warehouses(request: Request):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return ok_response("Warehouses", list_warehouses(tenant_id))
 
 
 @router.post("/warehouses")
 async def add_warehouse(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     from app.api.db import get_db as _get_db
@@ -251,14 +254,81 @@ async def add_warehouse(request: Request):
 
 @router.get("/categories")
 def get_categories(request: Request):
-    require_permission(request, "read")
+    require_permission(request, "inventory:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return ok_response("Categories", list_categories(tenant_id))
 
 
+@router.get("/reorder-report")
+def get_reorder_report(request: Request):
+    require_permission(request, "inventory:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    result = list_items(tenant_id, low_stock=True, limit=500, offset=0)
+    items = result.get("items", [])
+    suggestions = [
+        {
+            "item_id": it["id"],
+            "item_code": it["item_code"],
+            "item_name": it["item_name"],
+            "current_stock": it.get("current_stock", 0),
+            "reorder_level": it.get("reorder_level", 0),
+            "suggested_qty": max(
+                (it.get("reorder_level", 0) * 2) - it.get("current_stock", 0), 1
+            ),
+            "unit_of_measure": it.get("unit_of_measure", ""),
+            "purchase_price": it.get("purchase_price", 0),
+        }
+        for it in items
+    ]
+    return ok_response("Reorder report", {
+        "low_stock_count": len(suggestions),
+        "items": suggestions,
+        "total_reorder_value": sum(
+            s["suggested_qty"] * s["purchase_price"] for s in suggestions
+        ),
+    })
+
+
+@router.get("/export")
+def export_inventory_csv(request: Request):
+    require_permission(request, "inventory:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    result = list_items(tenant_id, limit=10000, offset=0)
+    items = result.get("items", [])
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Item Code", "Item Name", "Category", "Unit",
+        "Current Stock", "Reorder Level", "Purchase Price", "Selling Price",
+        "Total Value", "Costing Method", "Active"
+    ])
+    for it in items:
+        writer.writerow([
+            it.get("item_code", ""),
+            it.get("item_name", ""),
+            it.get("category_name", ""),
+            it.get("unit_of_measure", ""),
+            it.get("current_stock", 0),
+            it.get("reorder_level", 0),
+            it.get("purchase_price", 0),
+            it.get("selling_price", 0),
+            round(it.get("current_stock", 0) * it.get("selling_price", 0), 2),
+            it.get("costing_method", "fifo"),
+            it.get("is_active", True),
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory.csv"},
+    )
+
+
 @router.post("/categories")
 async def add_category(request: Request):
-    require_permission(request, "write")
+    require_permission(request, "inventory:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     from app.api.db import get_db as _get_db

@@ -271,6 +271,7 @@ async function doUpload(inp){
   const fd=new FormData();fd.append('file',file);
   try{
     const r=await fetch(BASE+'/documents/upload',{method:'POST',headers:H(),body:fd});
+    if(r.status===401){localStorage.removeItem('access_token');localStorage.removeItem('bh_token');window.location.href='/static/login.html';return;}
     const d=await r.json();
     if(d.ok||r.ok){
       box.innerHTML=`<div class="result-card">
@@ -289,6 +290,7 @@ async function doSpecificUpload(inp, type){
   const fd=new FormData();fd.append('file',file);
   try{
     const r=await fetch(BASE+'/documents/upload-'+type,{method:'POST',headers:H(),body:fd});
+    if(r.status===401){localStorage.removeItem('access_token');localStorage.removeItem('bh_token');window.location.href='/static/login.html';return;}
     const d=await r.json();
     if(d.ok){
       const data=d.data||{};

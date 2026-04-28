@@ -47,6 +47,17 @@ def _load_tenant(tenant_id: str) -> dict:
         )
         row = cur.fetchone()
         if not row:
+            # Fallback: tenant_id might be the company INN itself
+            cur.execute(
+                """
+                SELECT company_inn, company_name_legal, company_name_aliases,
+                       owner_personal_id, company_type, is_vat_payer
+                FROM tenants WHERE company_inn = %s
+                """,
+                (tenant_id,),
+            )
+            row = cur.fetchone()
+        if not row:
             return {"inn": "", "name": tenant_id, "aliases": [], "owner_personal_id": None,
                     "company_type": "legal_entity", "is_vat_payer": True}
         return {

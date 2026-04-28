@@ -19,6 +19,7 @@ from app.api.services.posting_service import (
     apply_posting_service,
 )
 from app.api.services.posting_preview_service import preview_posting_service
+from app.api.services.idempotency_service import idempotency_check, idempotency_store
 
 router = APIRouter(prefix="/posting", tags=["posting"])
 
@@ -216,6 +217,13 @@ def apply_posting(
     force: bool = Query(False),
 ):
     require_permission(request, "posting:write")
-
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
+    idem_key = request.headers.get("X-Idempotent-Key")
+    if idem_key:
+        hit = idempotency_check(tenant_id, idem_key, f"posting:{draft_id}:{target}")
+        if hit is not None:
+            return hit
+    result = apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
+    if idem_key:
+        idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
+    return result

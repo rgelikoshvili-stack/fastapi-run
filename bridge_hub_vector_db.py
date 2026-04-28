@@ -139,9 +139,9 @@ def _read_file(filepath: str) -> Optional[str]:
                 return f.read()
         elif ext == ".pdf":
             try:
-                import pdfplumber
-                with pdfplumber.open(filepath) as pdf:
-                    return "\n".join(p.extract_text() or "" for p in pdf.pages)
+                import fitz
+                doc = fitz.open(filepath)
+                return "\n".join(doc[i].get_text() for i in range(len(doc)))
             except ImportError:
                 import subprocess
                 result = subprocess.run(

@@ -6,8 +6,8 @@ from app.knowledge import *  # noqa: F401, F403
 from app.knowledge import (
     TAX_RATES, CHART_OF_ACCOUNTS, ACCA_STANDARDS, TAX_RULES,
     _fmt, _jl, _journal, _payload, _CLS_RULES, _KB,
-    LEARNED_RULES_FILE, _load_files, _load_learned, _load_learned_from_db,
-    _save_learned, learn_new_rule, migrate_json_to_db,
+    _load_files, _load_learned, _load_learned_from_db,
+    learn_new_rule, migrate_json_to_db,
     get_tax_section, get_accounting_section,
     classify_transaction, search_knowledge, get_context_for_llm,
     build_journal_from_text, get_stats,

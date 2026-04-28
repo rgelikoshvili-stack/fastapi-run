@@ -102,18 +102,16 @@ def test_handle_ai_chat_draft_not_found_returns_not_found_message():
         "bank_accounts": [], "kpi": None, "not_found": True,
     }
 
-    with patch("app.api.services.chat_context_service.get_db", side_effect=Exception("no db")):
-        with patch(
-            "app.api.services.ai_chat_service.build_chat_context",
-            return_value=_not_found_ctx,
-        ):
-            result = asyncio.get_event_loop().run_until_complete(
-                handle_ai_chat(
-                    message="დრაფტი 999999 ამიხსენი",
-                    tenant_id="tenant_a",
-                    draft_id=999999,
-                )
+    with patch("app.api.services.chat_context_service.get_db", side_effect=Exception("no db")), \
+         patch("app.api.services.ai_chat_service._ORCHESTRATOR_AVAILABLE", False), \
+         patch("app.api.services.ai_chat_service.build_chat_context", return_value=_not_found_ctx):
+        result = asyncio.run(
+            handle_ai_chat(
+                message="დრაფტი 999999 ამიხსენი",
+                tenant_id="tenant_a",
+                draft_id=999999,
             )
+        )
 
     assert "ვერ ვიპოვე" in result["answer"] or "999999" in result["answer"]
     # Must NOT invent any data
@@ -148,29 +146,22 @@ def test_local_answer_not_intercepting_draft_questions():
         "not_found": False,
     }
 
-    with patch.object(ai_chat_service, "_local_answer", side_effect=spy_local):
-        with patch(
-            "app.api.services.ai_chat_service.build_chat_context",
-            return_value=_found_ctx,
-        ):
-            with patch(
-                "app.api.services.ai_chat_service.format_context_for_prompt",
-                return_value="REAL SYSTEM CONTEXT:\nDraft #1130",
-            ):
-                with patch(
-                    "app.api.services.ai_chat_service.chat_with_claude_structured",
-                    return_value={
-                        "answer": "ეს ინვოისი 7100 ანგარიშზე მიეკუთვნება რადგან...",
-                        "suggested_actions": [],
-                    },
-                ):
-                    result = asyncio.get_event_loop().run_until_complete(
-                        handle_ai_chat(
-                            message="ამ ინვოისს რატომ მიაკუთვნე 7100?",
-                            tenant_id="tenant_a",
-                            draft_id=1130,
-                        )
-                    )
+    with patch.object(ai_chat_service, "_local_answer", side_effect=spy_local), \
+         patch("app.api.services.ai_chat_service._ORCHESTRATOR_AVAILABLE", False), \
+         patch("app.api.services.ai_chat_service.CLAUDE_CHAT_AVAILABLE", True), \
+         patch("app.api.services.ai_chat_service.build_chat_context", return_value=_found_ctx), \
+         patch("app.api.services.ai_chat_service.format_context_for_prompt", return_value="REAL SYSTEM CONTEXT:\nDraft #1130"), \
+         patch("app.api.services.ai_chat_service.chat_with_claude_structured", return_value={
+             "answer": "ეს ინვოისი 7100 ანგარიშზე მიეკუთვნება რადგან...",
+             "suggested_actions": [],
+         }):
+        result = asyncio.run(
+            handle_ai_chat(
+                message="ამ ინვოისს რატომ მიაკუთვნე 7100?",
+                tenant_id="tenant_a",
+                draft_id=1130,
+            )
+        )
 
     # _local_answer must NOT have been called (draft_id present → is_db_question=True)
     assert len(intercepted) == 0, "_local_answer() must be bypassed for draft questions"

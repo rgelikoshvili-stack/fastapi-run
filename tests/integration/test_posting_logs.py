@@ -1,3 +1,13 @@
+import os
+import pytest
+
+requires_db = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL"),
+    reason="requires DATABASE_URL",
+)
+
+
+@requires_db
 def test_posting_logs_endpoint(client):
     response = client.get("/posting/logs")
     assert response.status_code in [200, 400, 422]

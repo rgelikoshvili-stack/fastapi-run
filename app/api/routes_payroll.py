@@ -184,6 +184,100 @@ def payroll_history(
         conn.close()
 
 
+@router.post("/payslip-pdf")
+def payroll_payslip_pdf(req: PayrollRequest, request: Request):
+    """Generate PDF pay slips for all employees in the payroll run."""
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import io as _io
+
+    employees = [e.dict() for e in req.employees]
+    period = req.period or datetime.now().strftime("%Y-%m")
+    results = calculate_payroll(employees, period)
+    payroll_data = results.get("employees", []) if isinstance(results, dict) else []
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                             leftMargin=2*cm, rightMargin=2*cm,
+                             topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = ParagraphStyle("Title", parent=styles["Heading1"],
+                                  fontSize=16, spaceAfter=6, textColor=colors.HexColor("#1a365d"))
+    header_style = ParagraphStyle("Header", parent=styles["Normal"],
+                                   fontSize=10, spaceAfter=2, textColor=colors.grey)
+    body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10)
+
+    for emp in payroll_data:
+        story.append(Paragraph("Bridge Hub — Pay Slip", title_style))
+        story.append(Paragraph(f"Period: {period}  |  Employee: {emp.get('name', 'N/A')}  |  Tenant: {tenant_id}", header_style))
+        story.append(Spacer(1, 0.3*cm))
+
+        data = [
+            ["Description", "Amount (GEL)"],
+            ["Gross Salary", f"{emp.get('gross_salary', 0):,.2f}"],
+            ["PIT (20%)", f"-{emp.get('pit', 0):,.2f}"],
+            ["Pension (Employee 2%)", f"-{emp.get('pension_employee', 0):,.2f}"],
+            ["Net Salary", f"{emp.get('net_salary', 0):,.2f}"],
+            ["", ""],
+            ["Employer Pension (2%)", f"{emp.get('pension_employer', 0):,.2f}"],
+            ["Total Employer Cost", f"{emp.get('total_employer_cost', 0):,.2f}"],
+        ]
+
+        tbl = Table(data, colWidths=[10*cm, 5*cm])
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a365d")),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",   (0, 0), (-1, -1), 10),
+            ("ALIGN",      (1, 0), (1, -1), "RIGHT"),
+            ("GRID",       (0, 0), (-1, -1), 0.5, colors.HexColor("#dee2e6")),
+            ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#e8f5e9")),
+            ("FONTNAME",   (0, 4), (-1, 4), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING",   (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 1*cm))
+
+        sig_data = [
+            ["Employer signature: _______________", "Employee signature: _______________"],
+            [f"Date: {period}", "Date: _______________"],
+        ]
+        sig_tbl = Table(sig_data, colWidths=[8*cm, 8*cm])
+        sig_tbl.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("TEXTCOLOR", (0, 0), (-1, -1), colors.grey),
+        ]))
+        story.append(sig_tbl)
+        story.append(Spacer(1, 2*cm))
+
+    if not payroll_data:
+        story.append(Paragraph("No payroll data to display.", body_style))
+
+    doc.build(story)
+    buf.seek(0)
+
+    filename = f"payslips_{period}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/status")
 def payroll_status(request: Request):
     require_permission(request, "payroll:read")
@@ -197,5 +291,6 @@ def payroll_status(request: Request):
             "generate-drafts",
             "rs-ge-xml",
             "history",
+            "payslip-pdf",
         ],
     }

@@ -1,5 +1,4 @@
 """app/knowledge/knowledge_loader.py — File loading, learned rules, DB operations"""
-import json
 import logging
 import os
 from datetime import datetime
@@ -20,8 +19,6 @@ _TAX_FILENAME_KEYWORDS = (
     "საგადასახადო", "გადასახადი", "დღგ", "შემოსავლო",
     "tax", "vat", "income_tax",
 )
-
-LEARNED_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "learned_rules.json")
 
 
 def _get_db():
@@ -141,34 +138,25 @@ def _load_learned_from_db():
 
 
 def _load_learned():
-    db_rules = _load_learned_from_db()
-    if db_rules:
-        return db_rules
-    if os.path.exists(LEARNED_RULES_FILE):
-        try:
-            with open(LEARNED_RULES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def _save_learned(rules):
-    pass  # DB is source of truth; JSON writes disabled
+    return _load_learned_from_db()
 
 
 def migrate_json_to_db():
     """One-time: move learned_rules.json entries → learning_patterns table."""
-    bak = LEARNED_RULES_FILE + ".bak"
-    if not os.path.exists(LEARNED_RULES_FILE):
+    json_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "learned_rules.json")
+    )
+    bak = json_path + ".bak"
+    if not os.path.exists(json_path):
         return
     if os.path.exists(bak):
         return
     try:
-        with open(LEARNED_RULES_FILE, "r", encoding="utf-8") as f:
+        import json
+        with open(json_path, "r", encoding="utf-8") as f:
             rules = json.load(f)
         if not rules:
-            os.rename(LEARNED_RULES_FILE, bak)
+            os.rename(json_path, bak)
             return
         conn = _get_db()
         cur = conn.cursor()
@@ -196,7 +184,7 @@ def migrate_json_to_db():
         conn.commit()
         cur.close()
         conn.close()
-        os.rename(LEARNED_RULES_FILE, bak)
+        os.rename(json_path, bak)
         log.info("JSON->DB migration: %d rules migrated, file archived as .bak", migrated)
     except Exception as e:
         log.warning("JSON->DB migration failed (non-fatal): %s", e)

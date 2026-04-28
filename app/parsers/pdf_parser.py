@@ -1,12 +1,10 @@
-import pdfplumber
+import fitz
 from app.schemas.canonical import CanonicalDocument
 
 def parse_pdf_document(filepath: str) -> CanonicalDocument:
     try:
-        with pdfplumber.open(filepath) as pdf:
-            full_text = ''
-            for page in pdf.pages:
-                full_text += page.extract_text() or ''
+        doc = fitz.open(filepath)
+        full_text = "".join(doc[i].get_text() for i in range(len(doc)))
         return CanonicalDocument(
             doc_type='unknown',
             filename=filepath.split('/')[-1],

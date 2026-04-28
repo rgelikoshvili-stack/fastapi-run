@@ -189,9 +189,9 @@ def _extract_pdf_attachments(msg) -> list[dict]:
 def _extract_text_from_pdf(data: bytes) -> str:
     """Best-effort text extraction from PDF bytes."""
     try:
-        import pdfplumber, io
-        with pdfplumber.open(io.BytesIO(data)) as pdf:
-            pages = [p.extract_text() or "" for p in pdf.pages[:10]]
+        import fitz
+        doc = fitz.open(stream=data, filetype="pdf")
+        pages = [doc[i].get_text() for i in range(min(len(doc), 10))]
         return "\n".join(pages).strip()
     except Exception:
         pass

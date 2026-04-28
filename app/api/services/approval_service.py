@@ -7,6 +7,7 @@ import psycopg2.errors
 from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+from app.api.services.entity_audit_service import log_entity_change
 
 log = logging.getLogger(__name__)
 
@@ -251,6 +252,23 @@ def approve_draft_service(draft_id: int, tenant_id: str):
         draft["confidence"] = float(draft.get("confidence") or 0.0)
         draft["amount"] = float(draft.get("amount") or 0.0)
 
+        # Period lock check
+        try:
+            from app.api.routes_period_lock import is_period_locked
+            from datetime import date as _date
+            entry_date_raw = draft.get("date")
+            if entry_date_raw:
+                if isinstance(entry_date_raw, str):
+                    entry_date_raw = _date.fromisoformat(str(entry_date_raw)[:10])
+                if is_period_locked(conn, tenant_id, entry_date_raw):
+                    return error_response(
+                        "Period is locked",
+                        "PERIOD_LOCKED",
+                        f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
+                    )
+        except Exception:
+            pass  # period_locks table may not exist yet
+
         if draft["status"] == "approved":
             return error_response(
                 "Already approved",
@@ -266,6 +284,39 @@ def approve_draft_service(draft_id: int, tenant_id: str):
             )
 
         qa_result = evaluate_decision(draft)
+
+        # Dual approval: amounts above threshold require CFO second approval
+        DUAL_APPROVAL_THRESHOLD = 10000.0
+        needs_dual = draft["amount"] >= DUAL_APPROVAL_THRESHOLD
+        # Check if already at level 1 (awaiting_cfo)
+        if draft.get("status") == "awaiting_cfo":
+            return error_response(
+                "Awaiting CFO",
+                "AWAITING_CFO",
+                f"Draft {draft_id} requires CFO second approval (amount ≥ ₾{DUAL_APPROVAL_THRESHOLD:,.0f}). Use /approval/cfo-approve/{draft_id}.",
+            )
+
+        if needs_dual:
+            # First approval: set to awaiting_cfo
+            cur.execute("""
+                UPDATE journal_drafts
+                SET status = 'awaiting_cfo',
+                    approved_by_mode = 'human',
+                    updated_at = NOW()
+                WHERE id = %s AND tenant_id = %s
+                  AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
+                RETURNING *
+            """, (draft_id, tenant_id))
+            updated = cur.fetchone()
+            if updated:
+                conn.commit()
+                _ws_notify(tenant_id, "draft_awaiting_cfo", draft_id, "awaiting_cfo")
+                return ok_response("First approval done — awaiting CFO", {
+                    "id": draft_id,
+                    "status": "awaiting_cfo",
+                    "message": f"Amount ₾{draft['amount']:,.2f} requires CFO approval. Use /approval/cfo-approve/{draft_id}.",
+                    "dual_approval_required": True,
+                })
 
         cur.execute(
             """
@@ -318,6 +369,9 @@ def approve_draft_service(draft_id: int, tenant_id: str):
         )
 
         generate_patterns_from_feedback(tenant_id=tenant_id)
+        log_entity_change(conn, "journal_drafts", draft_id,
+                          old_data=draft, new_data=dict(updated),
+                          actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
         conn.commit()
 
     except Exception as e:
@@ -456,6 +510,10 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             tenant_id=tenant_id,
         )
 
+        log_entity_change(conn, "journal_drafts", draft_id,
+                          old_data=draft, new_data=dict(updated),
+                          actor=tenant_id, tenant_id=tenant_id, action="REJECT",
+                          details=reason or None)
         conn.commit()
 
     except Exception as e:

@@ -15,10 +15,9 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, UploadFile, File, Request, Query
-from fastapi.responses import JSONResponse
 
 from app.api.tenant_context import resolve_tenant_id
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.db import get_db
 from app.api.security import limiter
 from app.api.services.document_parser import parse_document
@@ -109,7 +108,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+        return http_error(413, "File too large (max 10MB)", "FILE_TOO_LARGE")
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     mime_type = file.content_type or "application/pdf"
@@ -478,7 +477,7 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+        return http_error(413, "File too large (max 10MB)", "FILE_TOO_LARGE")
 
     mime_type = file.content_type or "application/pdf"
     parsed, extracted = await _extract_from_file(file_bytes, mime_type)
@@ -551,7 +550,7 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+        return http_error(413, "File too large (max 10MB)", "FILE_TOO_LARGE")
 
     mime_type = file.content_type or "application/pdf"
     parsed, extracted = await _extract_from_file(file_bytes, mime_type)
@@ -625,7 +624,7 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "File too large (max 10MB)"})
+        return http_error(413, "File too large (max 10MB)", "FILE_TOO_LARGE")
 
     mime_type = file.content_type or "application/pdf"
     parsed, extracted = await _extract_from_file(file_bytes, mime_type)
@@ -868,7 +867,7 @@ async def get_document_meta(doc_id: int, request: Request = None):
         conn.close()
 
     if not row:
-        return JSONResponse(status_code=404, content={"ok": False, "error": "Document not found"})
+        return http_error(404, "Document not found", "NOT_FOUND")
 
     import json as _json
     doc_id_val, file_name, mime_type, file_size, method, raw_text, extracted_data, created_at = row
@@ -910,7 +909,7 @@ async def get_document_file(doc_id: int, request: Request = None):
         conn.close()
 
     if not row:
-        return JSONResponse(status_code=404, content={"ok": False, "error": "Document not found"})
+        return http_error(404, "Document not found", "NOT_FOUND")
 
     file_name, mime_type, gcs_path, file_content = row
 
@@ -919,11 +918,11 @@ async def get_document_file(doc_id: int, request: Request = None):
             content = gcs_download(gcs_path)
         except Exception as e:
             log.error("gcs_download failed doc_id=%s: %s", doc_id, e)
-            return JSONResponse(status_code=502, content={"ok": False, "error": "File storage unavailable"})
+            return http_error(502, "File storage unavailable", "STORAGE_ERROR")
     elif file_content:
         content = bytes(file_content)
     else:
-        return JSONResponse(status_code=404, content={"ok": False, "error": "File content not stored"})
+        return http_error(404, "File content not stored", "NOT_FOUND")
 
     return Response(
         content=content,

@@ -96,3 +96,19 @@ def update_rate(data: RateUpdate):
     finally:
         cur.close(); conn.close()
     return ok_response("Rate updated", {"currency": currency, "rate": data.rate})
+
+
+@router.post("/rates/sync-nbg")
+def sync_nbg_rates():
+    """Fetch live rates from National Bank of Georgia and store in DB."""
+    try:
+        from app.integrations.nbg_api import sync_rates_to_db
+        conn = get_db()
+        try:
+            updated = sync_rates_to_db(conn)
+        finally:
+            conn.close()
+        return ok_response("NBG rates synced", {"updated": updated})
+    except Exception as e:
+        log.error("action=nbg_sync_error: %s", e)
+        return error_response("NBG sync failed", "NBG_ERROR", str(e))

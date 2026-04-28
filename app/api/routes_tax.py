@@ -305,3 +305,56 @@ def tax_from_journal(year: int, request: Request):
         "total_estimated": round(estimated_vat + estimated_corporate, 2),
         "total_formatted": format_gel(estimated_vat + estimated_corporate),
     })
+
+
+# ── rs.ge Declaration helpers ─────────────────────────────────────────────────
+
+class VatReturnRequest(BaseModel):
+    inn: str
+    year: int
+    month: int
+    taxable_sales: float = 0.0
+    vat_collected: float = 0.0
+    taxable_purchases: float = 0.0
+    vat_paid: float = 0.0
+
+
+class WithholdingRequest(BaseModel):
+    inn: str
+    year: int
+    month: int
+    payments: list = []
+
+
+@router.post("/rs-ge/vat-return")
+def rs_ge_vat_return(body: VatReturnRequest, request: Request):
+    """Build RS Form 10 (VAT Return) payload ready for rs.ge portal upload."""
+    from decimal import Decimal
+    from app.integrations.rs_ge_api import build_vat_return, verify_taxpayer_inn
+    v = verify_taxpayer_inn(body.inn)
+    if not v["valid"]:
+        return error_response("Invalid INN", "VALIDATION_ERROR", v["reason"])
+    payload = build_vat_return(
+        body.inn, body.year, body.month,
+        Decimal(str(body.taxable_sales)), Decimal(str(body.vat_collected)),
+        Decimal(str(body.taxable_purchases)), Decimal(str(body.vat_paid)),
+    )
+    return ok_response("VAT return payload (RS Form 10)", payload)
+
+
+@router.post("/rs-ge/withholding")
+def rs_ge_withholding(body: WithholdingRequest, request: Request):
+    """Build RS Form 1 (Withholding Tax) payload."""
+    from app.integrations.rs_ge_api import build_withholding_declaration, verify_taxpayer_inn
+    v = verify_taxpayer_inn(body.inn)
+    if not v["valid"]:
+        return error_response("Invalid INN", "VALIDATION_ERROR", v["reason"])
+    payload = build_withholding_declaration(body.inn, body.year, body.month, body.payments)
+    return ok_response("Withholding declaration payload (RS Form 1)", payload)
+
+
+@router.get("/rs-ge/verify-inn/{inn}")
+def rs_ge_verify_inn(inn: str):
+    """Validate Georgian taxpayer INN format."""
+    from app.integrations.rs_ge_api import verify_taxpayer_inn
+    return ok_response("INN validation", verify_taxpayer_inn(inn))

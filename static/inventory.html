@@ -99,6 +99,7 @@ tbody tr.low-stock{background:#fff3f5}
     <div class="tab" onclick="openTab('movements')" id="tab-movements">↕ მოძრაობები</div>
     <div class="tab" onclick="openTab('valuation')" id="tab-valuation">💰 შეფასება</div>
     <div class="tab" onclick="openTab('po')" id="tab-po">📋 შეკვეთები</div>
+    <div class="tab" onclick="openTab('reorder');loadReorder()" id="tab-reorder">⚠️ Reorder</div>
   </div>
 
   <!-- ITEMS tab -->
@@ -114,6 +115,7 @@ tbody tr.low-stock{background:#fff3f5}
           <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem">
             <input type="checkbox" id="lowStockChk" onchange="loadItems()"> დაბალი მარაგი
           </label>
+          <a href="/inventory/export" class="btn btn-outline btn-sm" download="inventory.csv">CSV ექსპორტი</a>
         </div>
       </div>
       <div class="card-body" style="padding:0;overflow-x:auto">
@@ -201,6 +203,32 @@ tbody tr.low-stock{background:#fff3f5}
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REORDER tab -->
+  <div id="pane-reorder" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Reorder Report — დასაბრუნებელი მარაგები</span>
+        <div class="toolbar">
+          <span id="reorderSummary" style="font-size:.85rem;color:#6c757d"></span>
+          <button class="btn btn-outline btn-sm" onclick="loadReorder()">განახლება</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>კოდი</th><th>სახელი</th>
+            <th class="text-right">მარაგი</th><th class="text-right">Reorder Level</th>
+            <th class="text-right">შეკვ. რაოდ.</th><th>ერთ.</th>
+            <th class="text-right">შეძ. ფასი</th><th class="text-right">სავარ. ღირ.</th>
+          </tr></thead>
+          <tbody id="reorderBody">
+            <tr><td colspan="8"><div class="empty"><div class="empty-icon">✅</div>ყველა მარაგი ნორმალურია</div></td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -699,6 +727,36 @@ function toast(msg,type='ok'){
   t.textContent=msg;
   document.body.appendChild(t);
   setTimeout(()=>t.remove(),3500);
+}
+
+async function loadReorder(){
+  const tbody=document.getElementById('reorderBody');
+  tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1rem;color:#6c757d">იტვირთება...</td></tr>';
+  try{
+    const r=await fetch('/inventory/reorder-report',{headers:{'Authorization':'Bearer '+localStorage.getItem('access_token'),'X-Tenant-ID':localStorage.getItem('tenant_id')||''}});
+    const d=await r.json();
+    const items=(d.data||d).items||[];
+    const total=(d.data||d).total_reorder_value||0;
+    document.getElementById('reorderSummary').textContent=
+      `${items.length} ნივთი • სავარ. ღირ.: ₾${total.toFixed(2)}`;
+    if(!items.length){
+      tbody.innerHTML='<tr><td colspan="8"><div class="empty"><div class="empty-icon">✅</div>ყველა მარაგი ნორმალურია</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML=items.map(it=>`
+      <tr>
+        <td><span class="badge badge-blue">${it.item_code}</span></td>
+        <td>${it.item_name}</td>
+        <td class="text-right" style="color:#f72585;font-weight:700">${it.current_stock}</td>
+        <td class="text-right">${it.reorder_level}</td>
+        <td class="text-right" style="font-weight:600">${it.suggested_qty}</td>
+        <td>${it.unit_of_measure}</td>
+        <td class="text-right">₾${Number(it.purchase_price).toFixed(2)}</td>
+        <td class="text-right" style="font-weight:600">₾${(it.suggested_qty*it.purchase_price).toFixed(2)}</td>
+      </tr>`).join('');
+  }catch(e){
+    tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:#f72585">შეცდომა: '+e.message+'</td></tr>';
+  }
 }
 
 // Init

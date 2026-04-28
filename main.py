@@ -55,11 +55,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
-from app.api.services.approval_service import autopilot_approve_service
-from app.api.services.learning_service import run_decay_service
-from app.api.services.email_collector import collect_tenant_inbox, get_all_active_tenants, _ensure_tables as _ensure_email_tables
+from app.api.services.email_collector import _ensure_tables as _ensure_email_tables
 from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
+from app.startup.background import autopilot_loop, decay_loop, email_poller_loop
+from app.startup.migrations import run_db_migrations as _run_db_migrations
 
 
 # --- GEORGIAN JSON RESPONSE ---
@@ -204,12 +204,36 @@ from app.api.middleware.auth_middleware import auth_middleware
 from app.api.middleware.audit_log_middleware import audit_log_middleware
 from app.api.middleware.correlation_middleware import correlation_middleware
 from app.api.routes_inventory import router as inventory_router
+from app.api.routes_audit_trail import router as audit_trail_router
+from app.api.routes_2fa import router as totp_router
+from app.api.routes_fx import router as fx_router
+from app.api.routes_webhooks import router as webhooks_router
+from app.api.routes_oauth import router as oauth_router
+from app.api.routes_employee_portal import router as employee_portal_router
+from app.api.routes_employee_portal import pension_router as pension_transfer_router
+from app.api.routes_integrations import router as integrations_router
+from app.api.routes_aging import router as aging_router
+from app.api.routes_period_lock import router as period_lock_router
+from app.api.routes_closing import router as closing_router
+from app.api.routes_cost_center import router as cost_center_router
 
 
 # --- INCLUDE ROUTERS ---
 app.include_router(routes_health.router)
 app.include_router(version_router)
 app.include_router(inventory_router)
+app.include_router(audit_trail_router)
+app.include_router(totp_router)
+app.include_router(fx_router)
+app.include_router(webhooks_router)
+app.include_router(oauth_router)
+app.include_router(employee_portal_router)
+app.include_router(pension_transfer_router)
+app.include_router(integrations_router)
+app.include_router(aging_router)
+app.include_router(period_lock_router)
+app.include_router(closing_router)
+app.include_router(cost_center_router)
 app.include_router(routes_debug.router)
 app.include_router(routes_bank_csv.router)
 app.include_router(routes_bank_process.router)
@@ -300,374 +324,6 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-# --- BACKGROUND TASKS ---
-_TASK_MAX_FAILURES = 5  # alert threshold before backing off
-
-async def _monitored_loop(name: str, fn, interval: int, max_failures: int = _TASK_MAX_FAILURES):
-    """
-    Generic supervisor for background loops.
-    - Tracks consecutive failures; logs WARNING after each, ERROR after max_failures.
-    - On max_failures reached: backs off to interval*10 until a success resets counter.
-    - Always resumes — never crashes the app.
-    """
-    log = logging.getLogger(f"bg.{name}")
-    consecutive_failures = 0
-
-    while True:
-        try:
-            result = await fn()
-            if consecutive_failures > 0:
-                log.info("task=%s recovered after %d failures result=%s", name, consecutive_failures, result)
-            consecutive_failures = 0
-            sleep_for = interval
-        except Exception as exc:
-            consecutive_failures += 1
-            if consecutive_failures >= max_failures:
-                log.error(
-                    "task=%s REPEATED_FAILURE consecutive=%d error=%s — backing off %ds",
-                    name, consecutive_failures, exc, interval * 10,
-                    exc_info=True,
-                )
-                sleep_for = interval * 10
-            else:
-                log.warning("task=%s failure=%d/%d error=%s", name, consecutive_failures, max_failures, exc)
-                sleep_for = interval
-
-        await asyncio.sleep(sleep_for)
-
-
-async def autopilot_loop():
-    log = logging.getLogger("bg.autopilot")
-    async def _run():
-        log.info("task=autopilot running")
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: autopilot_approve_service("default"))
-        log.info("task=autopilot approved=%s", result)
-        return result
-    await _monitored_loop("autopilot", _run, interval=60)
-
-
-async def decay_loop():
-    log = logging.getLogger("bg.decay")
-    async def _run():
-        log.info("task=decay running")
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, run_decay_service)
-        log.info("task=decay result=%s", result)
-        return result
-    await _monitored_loop("decay", _run, interval=3600)
-
-
-async def email_poller_loop():
-    """Poll all active tenants' inboxes every 5 minutes."""
-    log = logging.getLogger("bg.email_poller")
-    await asyncio.sleep(30)  # warm-up
-
-    async def _run():
-        tenants = get_all_active_tenants()
-        total_processed = 0
-        for tid in tenants:
-            try:
-                result = await collect_tenant_inbox(tid)
-                processed = result.get("processed", 0)
-                total_processed += processed
-                if processed > 0:
-                    log.info("task=email_poller tenant=%s drafted=%d", tid, processed)
-            except Exception as e:
-                log.warning("task=email_poller tenant=%s error=%s", tid, e)
-        return {"total_processed": total_processed, "tenants": len(tenants)}
-
-    await _monitored_loop("email_poller", _run, interval=300)
-
-
-def _run_db_migrations():
-    """Safe startup migrations — CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS."""
-    try:
-        import psycopg2, os
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
-        cur = conn.cursor()
-
-        # Fix tenant_id UUID → TEXT for tables that were created with wrong type
-        for tbl in ("expenses", "invoices", "contracts", "customers"):
-            cur.execute(f"""
-                DO $$ BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='{tbl}' AND column_name='tenant_id' AND data_type='uuid'
-                    ) THEN
-                        ALTER TABLE {tbl} ALTER COLUMN tenant_id TYPE TEXT USING tenant_id::text;
-                    END IF;
-                END $$;
-            """)
-
-        # journal_drafts columns
-        cur.execute("""
-            ALTER TABLE journal_drafts
-                ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC,
-                ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC,
-                ADD COLUMN IF NOT EXISTS review_required      BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS partner              TEXT,
-                ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT,
-                ADD COLUMN IF NOT EXISTS engine_metadata      JSONB
-        """)
-
-        # CRM tables
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS customers (
-                id          SERIAL PRIMARY KEY,
-                tenant_id   TEXT NOT NULL DEFAULT 'default',
-                name        TEXT NOT NULL,
-                email       TEXT,
-                phone       TEXT,
-                company     TEXT,
-                type        TEXT DEFAULT 'client',
-                tax_id      TEXT,
-                address     TEXT,
-                notes       TEXT,
-                status      TEXT DEFAULT 'active',
-                created_at  TIMESTAMPTZ DEFAULT NOW(),
-                updated_at  TIMESTAMPTZ DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS customer_interactions (
-                id          SERIAL PRIMARY KEY,
-                customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
-                tenant_id   TEXT NOT NULL DEFAULT 'default',
-                type        TEXT,
-                note        TEXT,
-                amount      NUMERIC,
-                created_by  TEXT,
-                created_at  TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-
-        # Contracts tables
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS contracts (
-                id              SERIAL PRIMARY KEY,
-                tenant_id       TEXT NOT NULL DEFAULT 'default',
-                contract_number TEXT,
-                title           TEXT NOT NULL,
-                party_name      TEXT,
-                party_tax_id    TEXT,
-                contract_type   TEXT DEFAULT 'service',
-                status          TEXT DEFAULT 'draft',
-                value           NUMERIC DEFAULT 0,
-                currency        TEXT DEFAULT 'GEL',
-                start_date      DATE,
-                end_date        DATE,
-                payment_terms   TEXT,
-                auto_renew      BOOLEAN DEFAULT FALSE,
-                notes           TEXT,
-                created_at      TIMESTAMPTZ DEFAULT NOW(),
-                updated_at      TIMESTAMPTZ DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS contract_milestones (
-                id          SERIAL PRIMARY KEY,
-                tenant_id   TEXT NOT NULL DEFAULT 'default',
-                contract_id INTEGER REFERENCES contracts(id) ON DELETE CASCADE,
-                title       TEXT NOT NULL,
-                due_date    DATE,
-                amount      NUMERIC DEFAULT 0,
-                status      TEXT DEFAULT 'pending',
-                notes       TEXT,
-                created_at  TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-
-        # Expense categories + expenses
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS expense_categories (
-                id           SERIAL PRIMARY KEY,
-                code         TEXT UNIQUE NOT NULL,
-                name         TEXT NOT NULL,
-                account_code TEXT DEFAULT '7990',
-                active       BOOLEAN DEFAULT TRUE
-            );
-            INSERT INTO expense_categories (code, name, account_code) VALUES
-                ('travel',      'მივლინება / მგზავრობა', '7310'),
-                ('office',      'საოფისე ხარჯები',        '7210'),
-                ('software',    'პროგრამული უზრუნველყოფა','7410'),
-                ('marketing',   'მარკეტინგი',             '7510'),
-                ('utilities',   'კომუნალური',              '7220'),
-                ('salary',      'ხელფასი',                 '7110'),
-                ('other',       'სხვა',                    '7990')
-            ON CONFLICT (code) DO NOTHING;
-
-            CREATE TABLE IF NOT EXISTS expenses (
-                id          SERIAL PRIMARY KEY,
-                tenant_id   TEXT NOT NULL DEFAULT 'default',
-                date        DATE DEFAULT CURRENT_DATE,
-                description TEXT NOT NULL,
-                category    TEXT,
-                account_code TEXT DEFAULT '7990',
-                amount      NUMERIC NOT NULL,
-                currency    TEXT DEFAULT 'GEL',
-                partner     TEXT,
-                receipt_ref TEXT,
-                submitted_by TEXT,
-                status      TEXT DEFAULT 'pending',
-                created_at  TIMESTAMPTZ DEFAULT NOW(),
-                updated_at  TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-
-        # Invoices tables
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invoices (
-                id             SERIAL PRIMARY KEY,
-                tenant_id      TEXT NOT NULL DEFAULT 'default',
-                invoice_number TEXT,
-                partner        TEXT,
-                issue_date     DATE DEFAULT CURRENT_DATE,
-                due_date       DATE,
-                subtotal       NUMERIC DEFAULT 0,
-                vat_amount     NUMERIC DEFAULT 0,
-                total          NUMERIC DEFAULT 0,
-                vat_rate       NUMERIC DEFAULT 18,
-                currency       TEXT DEFAULT 'GEL',
-                status         TEXT DEFAULT 'draft',
-                notes          TEXT,
-                created_at     TIMESTAMPTZ DEFAULT NOW(),
-                updated_at     TIMESTAMPTZ DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS invoice_items (
-                id          SERIAL PRIMARY KEY,
-                invoice_id  INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
-                description TEXT,
-                quantity    NUMERIC DEFAULT 1,
-                unit_price  NUMERIC DEFAULT 0,
-                total       NUMERIC DEFAULT 0
-            );
-        """)
-
-        # Collaboration: draft_comments + journal_drafts assignment columns
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS draft_comments (
-                id          SERIAL PRIMARY KEY,
-                tenant_id   TEXT NOT NULL DEFAULT 'default',
-                draft_id    INTEGER,
-                comment_text TEXT,
-                author      TEXT,
-                created_at  TIMESTAMPTZ DEFAULT NOW()
-            );
-            ALTER TABLE journal_drafts
-                ADD COLUMN IF NOT EXISTS assigned_to   TEXT,
-                ADD COLUMN IF NOT EXISTS assigned_by   TEXT,
-                ADD COLUMN IF NOT EXISTS assigned_at   TIMESTAMPTZ,
-                ADD COLUMN IF NOT EXISTS priority      TEXT DEFAULT 'normal';
-        """)
-
-        # processed_documents: store original file bytes for invoice preview
-        cur.execute("""
-            ALTER TABLE processed_documents
-                ADD COLUMN IF NOT EXISTS file_content BYTEA;
-        """)
-        cur.execute("""
-            ALTER TABLE processed_documents
-                ADD COLUMN IF NOT EXISTS gcs_path TEXT;
-        """)
-
-        # Chat session persistence
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS chat_sessions (
-                id            SERIAL PRIMARY KEY,
-                session_id    TEXT NOT NULL,
-                tenant_id     TEXT NOT NULL DEFAULT 'default',
-                role          TEXT,
-                messages      JSONB NOT NULL DEFAULT '[]',
-                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS chat_sessions_session_tenant
-                ON chat_sessions(session_id, tenant_id);
-        """)
-
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_learning_patterns_tenant
-                ON learning_patterns(tenant_id, confidence_score DESC)
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS idempotency_keys (
-                id SERIAL PRIMARY KEY,
-                tenant_id TEXT NOT NULL,
-                idempotent_key TEXT NOT NULL,
-                endpoint TEXT NOT NULL,
-                response_json JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE (tenant_id, idempotent_key, endpoint)
-            )
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_idempotency_keys_lookup
-                ON idempotency_keys(tenant_id, idempotent_key, endpoint)
-        """)
-        # ── Performance indexes ───────────────────────────────────────────
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant_status_created ON journal_drafts(tenant_id, status, created_at DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_processed_documents_tenant_status ON processed_documents(tenant_id, status, created_at DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_processed_documents_tenant_hash ON processed_documents(tenant_id, file_hash)",
-            "CREATE INDEX IF NOT EXISTS idx_journal_drafts_source_document ON journal_drafts(source_document_id)",
-            "CREATE INDEX IF NOT EXISTS idx_tenants_company_inn ON tenants(company_inn)",
-        ]:
-            try:
-                cur.execute(idx_sql)
-            except Exception:
-                pass
-
-        # ── journal_entries entry_hash dedup ──────────────────────────────
-        cur.execute("""
-            ALTER TABLE journal_entries
-                ADD COLUMN IF NOT EXISTS entry_hash TEXT
-        """)
-        cur.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_entries_hash
-                ON journal_entries(entry_hash)
-                WHERE entry_hash IS NOT NULL
-        """)
-        # ── Data quality constraints ──────────────────────────────────────
-        for constraint_sql in [
-            # journal_drafts: amount must be non-negative
-            """ALTER TABLE journal_drafts ADD CONSTRAINT IF NOT EXISTS chk_jd_amount_positive
-               CHECK (amount IS NULL OR amount >= 0)""",
-            # expenses: amount positive
-            """ALTER TABLE expenses ADD CONSTRAINT IF NOT EXISTS chk_exp_amount_positive
-               CHECK (amount IS NULL OR amount >= 0)""",
-            # invoices: totals non-negative
-            """ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS chk_inv_total_positive
-               CHECK (total IS NULL OR total >= 0)""",
-            # learning_patterns: confidence_score 0-1
-            """ALTER TABLE learning_patterns ADD CONSTRAINT IF NOT EXISTS chk_lp_confidence
-               CHECK (confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1))""",
-            # unique invoice_number per tenant
-            """ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS uq_invoice_number_tenant
-               UNIQUE (tenant_id, invoice_number)""",
-        ]:
-            try:
-                cur.execute(constraint_sql)
-            except Exception:
-                pass  # constraint may already exist under different name
-
-        # Normalize tenant_id: replace company_inn with actual tenant_id across all tables
-        # (handles the case where JWT carries company_inn instead of tenant_id slug)
-        for tbl in ("journal_drafts", "processed_documents", "learning_patterns",
-                    "audit_log", "bank_transactions", "chart_of_accounts"):
-            cur.execute(f"""
-                UPDATE {tbl} d
-                SET tenant_id = t.tenant_id
-                FROM tenants t
-                WHERE d.tenant_id = t.company_inn
-                  AND d.tenant_id != t.tenant_id
-                  AND t.company_inn IS NOT NULL
-                  AND t.company_inn != ''
-            """)
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("✅ DB migration OK (journal_drafts + CRM + contracts + expenses + invoices + collaboration + chat_sessions + tenant_id normalization)")
-    except Exception as e:
-        print(f"⚠️ DB migration skipped (non-fatal): {e}")
 
 
 @app.on_event("startup")
@@ -698,6 +354,27 @@ async def start_background_tasks():
         await loop.run_in_executor(None, migrate_json_to_db)
     except Exception as e:
         print(f"⚠️ KB migration error (non-fatal): {e}")
+    # Inventory tables
+    try:
+        from app.api.services.inventory_service import ensure_inventory_tables
+        await loop.run_in_executor(None, ensure_inventory_tables)
+        print("✅ Inventory tables OK")
+    except Exception as e:
+        print(f"⚠️ Inventory tables migration (non-fatal): {e}")
+    # NBG live exchange rates
+    try:
+        from app.integrations.nbg_api import sync_rates_to_db
+        from app.api.db import get_db as _get_db
+        def _nbg_sync():
+            conn = _get_db()
+            try:
+                n = sync_rates_to_db(conn)
+                print(f"✅ NBG rates synced: {n} currencies")
+            finally:
+                conn.close()
+        await loop.run_in_executor(None, _nbg_sync)
+    except Exception as e:
+        print(f"⚠️ NBG rate sync (non-fatal): {e}")
     # Knowledge Base preload
     try:
         from bridge_hub_knowledge import _load_files as _kb_load

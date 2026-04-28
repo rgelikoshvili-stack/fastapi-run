@@ -1,10 +1,9 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 
-from app.api.response_utils import error_response
+from app.api.response_utils import error_response, http_error
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.db import get_db
@@ -20,6 +19,7 @@ from app.api.services.approval_service import (
 )
 from app.api.services.correct_draft_service import correct_draft
 from app.services.route_bridge_service import build_preview_response
+from app.api.services.idempotency_service import idempotency_check, idempotency_store
 
 router = APIRouter(prefix="/approval", tags=["approval"])
 
@@ -73,9 +73,9 @@ def get_queue(request: Request, status: str = "", limit: int = 100, offset: int 
 
 
 def _check_locked(result):
-    """Return 409 JSONResponse if service detected a row lock conflict."""
+    """Return 409 if service detected a row lock conflict."""
     if isinstance(result, dict) and result.get("error", {}).get("code") == "DRAFT_LOCKED":
-        return JSONResponse(status_code=409, content=result)
+        return http_error(409, result.get("message", "Draft locked"), "DRAFT_LOCKED")
     return None
 
 
@@ -84,9 +84,17 @@ def _check_locked(result):
 def approve_draft(draft_id: int, request: Request):
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    idem_key = request.headers.get("X-Idempotent-Key")
+    if idem_key:
+        hit = idempotency_check(tenant_id, idem_key, f"approve:{draft_id}")
+        if hit is not None:
+            return hit
     log.info("action=approve draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
     result = approve_draft_service(draft_id, tenant_id=tenant_id)
-    return _check_locked(result) or result
+    result = _check_locked(result) or result
+    if idem_key:
+        idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
+    return result
 
 
 @router.post("/reject/{draft_id}")
@@ -94,9 +102,17 @@ def approve_draft(draft_id: int, request: Request):
 def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    idem_key = request.headers.get("X-Idempotent-Key")
+    if idem_key:
+        hit = idempotency_check(tenant_id, idem_key, f"reject:{draft_id}")
+        if hit is not None:
+            return hit
     log.info("action=reject draft_id=%s user=%s tenant=%s reason=%s", draft_id, user_id, tenant_id, req.reason)
     result = reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
-    return _check_locked(result) or result
+    result = _check_locked(result) or result
+    if idem_key:
+        idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
+    return result
 
 
 @router.post("/correct/{draft_id}")
@@ -249,3 +265,73 @@ def batch_action(body: BatchActionRequest, request: Request):
     except Exception as e:
         log.error("batch_action error: %s", e)
         return error_response("Batch action failed", "BATCH_ERROR", str(e))
+
+
+# ── CFO Second Approval ───────────────────────────────────────────────────────
+
+@router.post("/cfo-approve/{draft_id}")
+def cfo_approve(draft_id: int, request: Request):
+    """CFO second-level approval for high-value drafts (≥ ₾10,000)."""
+    from app.api.authz import require_permission
+    require_permission(request, "approval:cfo")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    user = getattr(request.state, "user_email", "cfo")
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT * FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s AND status = 'awaiting_cfo'
+            FOR UPDATE NOWAIT
+        """, (draft_id, tenant_id))
+        draft = cur.fetchone()
+        if not draft:
+            return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
+
+        cur.execute("""
+            UPDATE journal_drafts
+            SET status = 'approved',
+                approved_by_mode = 'dual_human',
+                updated_at = NOW()
+            WHERE id = %s AND tenant_id = %s
+            RETURNING id, status, amount
+        """, (draft_id, tenant_id))
+        updated = cur.fetchone()
+        conn.commit()
+        log.info("action=cfo_approve draft=%s tenant=%s by=%s", draft_id, tenant_id, user)
+        return {"ok": True, "id": draft_id, "status": "approved", "approved_by": user, "level": "CFO"}
+    except Exception as e:
+        conn.rollback()
+        return http_error(500, str(e), "CFO_APPROVE_ERROR")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.get("/awaiting-cfo")
+def list_awaiting_cfo(request: Request):
+    """List all drafts awaiting CFO second approval."""
+    from app.api.authz import require_permission
+    require_permission(request, "approval:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT id, date, description, partner, amount, currency, status, created_at
+            FROM journal_drafts
+            WHERE tenant_id = %s AND status = 'awaiting_cfo'
+            ORDER BY amount DESC
+        """, (tenant_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            r["date"] = str(r["date"])[:10] if r.get("date") else None
+            r["created_at"] = str(r["created_at"])[:19] if r.get("created_at") else None
+            r["amount"] = float(r["amount"] or 0)
+    finally:
+        cur.close()
+        conn.close()
+
+    return {"ok": True, "data": {"items": rows, "count": len(rows)}}

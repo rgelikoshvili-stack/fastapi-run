@@ -1,56 +1,130 @@
+"""app/api/routes_reconciliation.py — Bank reconciliation with smart auto-matching."""
 import logging
+from datetime import date
+from typing import List, Optional
 from fastapi import APIRouter, Request
-from app.api.response_utils import ok_response, error_response
+from pydantic import BaseModel
+
+from app.api.response_utils import ok_response, error_response, http_error
+from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
+from app.api.db import get_db
+from app.api.services.reconciliation_service import (
+    reconcile_bank_statement, apply_reconciliation,
+)
 
 log = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
+
+class BankTransaction(BaseModel):
+    id: Optional[str] = None
+    description: str
+    amount: float
+    transaction_date: str        # YYYY-MM-DD
+    reference: Optional[str] = None
+    currency: str = "GEL"
+
+
+class ReconcileRequest(BaseModel):
+    transactions: List[BankTransaction]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+class ApplyMatchRequest(BaseModel):
+    matches: List[dict]  # [{draft_id, bank_txn_id}]
+
+
 @router.post("/run")
-def run_reconciliation():
+def run_reconciliation(body: ReconcileRequest, request: Request):
+    """
+    Smart bank reconciliation — matches bank transactions against journal drafts.
+    Returns auto-matched, suggested, and unmatched items.
+    """
+    require_permission(request, "bank:process")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    txns = [t.dict() for t in body.transactions]
+    date_from = date.fromisoformat(body.date_from) if body.date_from else None
+    date_to = date.fromisoformat(body.date_to) if body.date_to else None
+
+    conn = get_db()
     try:
-        return ok_response(
-            "Reconciliation completed",
-            {
-                "matched": 0,
-                "unmatched": 0,
-                "status": "done"
-            }
-        )
+        result = reconcile_bank_statement(conn, tenant_id, txns, date_from, date_to)
     except Exception as e:
+        conn.close()
         return error_response("Reconciliation failed", "RECON_ERROR", str(e))
+    finally:
+        conn.close()
+
+    return ok_response("Reconciliation complete", result)
+
+
+@router.post("/apply")
+def apply_matches(body: ApplyMatchRequest, request: Request):
+    """Confirm and persist reconciliation matches."""
+    require_permission(request, "bank:process")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    conn = get_db()
+    try:
+        count = apply_reconciliation(conn, tenant_id, body.matches)
+    except Exception as e:
+        conn.close()
+        return error_response("Apply failed", "APPLY_ERROR", str(e))
+    finally:
+        conn.close()
+
+    return ok_response(f"Applied {count} matches", {"updated": count})
+
 
 @router.get("/status")
-def reconciliation_status():
+def reconciliation_status(request: Request):
+    require_permission(request, "bank:process")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor()
     try:
-        return ok_response(
-            "Reconciliation status",
-            {
-                "ready": True,
-                "status": "idle"
-            }
-        )
-    except Exception as e:
-        return error_response("Status failed", "RECON_STATUS_ERROR", str(e))
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE reconciled = TRUE)  AS reconciled_count,
+                COUNT(*) FILTER (WHERE reconciled IS NULL OR reconciled = FALSE) AS unreconciled_count
+            FROM journal_drafts WHERE tenant_id = %s
+        """, (tenant_id,))
+        row = cur.fetchone()
+        stats = {"reconciled": row[0] or 0, "unreconciled": row[1] or 0} if row else {}
+    except Exception:
+        stats = {}
+    finally:
+        cur.close(); conn.close()
+
+    return ok_response("Reconciliation status", {"ready": True, **stats})
+
 
 @router.get("/history")
 def reconciliation_history(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
-    from app.api.db import get_db
-    import psycopg2.extras
+    require_permission(request, "bank:process")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT status, COUNT(*) as cnt,
-                   MIN(created_at) as first, MAX(created_at) as last
-            FROM journal_drafts WHERE tenant_id = %s GROUP BY status ORDER BY cnt DESC
+            SELECT status, COUNT(*) AS cnt,
+                   MIN(created_at) AS first, MAX(created_at) AS last
+            FROM journal_drafts WHERE tenant_id = %s
+            GROUP BY status ORDER BY cnt DESC
         """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            for f in ("first", "last"):
+                if r.get(f):
+                    r[f] = r[f].isoformat()
     except Exception as e:
-        log.warning("reconciliation history query failed: %s", e)
+        log.warning("reconciliation history failed: %s", e)
         rows = []
     finally:
         cur.close(); conn.close()
-    from app.api.response_utils import ok_response
+
     return ok_response("Reconciliation history", {"summary": rows})

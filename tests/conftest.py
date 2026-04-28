@@ -3,7 +3,17 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 os.environ["TEST_MODE"] = "1"
+os.environ.setdefault("JWT_SECRET", "test-secret-for-ci")
+os.environ.setdefault("DATABASE_URL", "")
+
+# Skip marker for tests that require a live DATABASE_URL
+requires_db = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL"),
+    reason="requires DATABASE_URL (integration/DB test)",
+)
 
 import jwt
 import pytest

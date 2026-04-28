@@ -2,8 +2,6 @@ import io
 import re
 from typing import Optional
 
-import pdfplumber
-
 from app.api.invoice_ocr_fallback import extract_text_with_ocr
 
 
@@ -163,15 +161,12 @@ def _guess_vat_amount(text: str, total_amount: Optional[float]) -> Optional[floa
 
 
 def _extract_pdf_text(content: bytes) -> str:
-    text = ""
-
     try:
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+        import fitz
+        doc = fitz.open(stream=content, filetype="pdf")
+        return "\n".join(doc[i].get_text() for i in range(len(doc)))
     except Exception:
-        text = ""
-
-    return text or ""
+        return ""
 
 
 def parse_invoice_pdf(content: bytes) -> dict:

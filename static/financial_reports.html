@@ -62,6 +62,31 @@ table.recon td{padding:.5rem .75rem;border-bottom:1px solid #f0f2f5}
 .empty{padding:3rem;text-align:center;color:#adb5bd}
 .loading{text-align:center;padding:2rem;color:#6c757d;font-size:.9rem}
 @media(max-width:768px){.bs-cols{grid-template-columns:1fr}.recon-grid{grid-template-columns:1fr}}
+/* Drill-down drawer */
+.pnl-row.drillable{cursor:pointer}
+.pnl-row.drillable:hover{background:#e7edff;color:#4361ee}
+.pnl-row.drillable:hover .amount{color:#4361ee}
+.bs-item.drillable{cursor:pointer}
+.bs-item.drillable:hover{background:#e7edff}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:900;animation:fadeIn .15s}
+.drawer-overlay.open{display:block}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:520px;max-width:95vw;background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);z-index:901;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.drawer.open{transform:translateX(0)}
+.drawer-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.drawer-title{font-weight:700;font-size:1rem}
+.drawer-close{background:none;border:none;font-size:1.3rem;cursor:pointer;color:#6c757d;line-height:1;padding:.25rem}
+.drawer-summary{padding:.75rem 1.5rem;background:#f8f9fa;border-bottom:1px solid #f0f2f5;font-size:.85rem;color:#495057;flex-shrink:0}
+.drawer-body{flex:1;overflow-y:auto;padding:1rem 1.5rem}
+.drawer-tx{padding:.65rem .5rem;border-bottom:1px solid #f5f5f5;font-size:.85rem;display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem}
+.drawer-tx:hover{background:#fafafa}
+.drawer-tx-desc{flex:1;min-width:0}
+.drawer-tx-desc strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drawer-tx-desc small{color:#6c757d}
+.drawer-tx-amount{font-family:'Courier New',monospace;font-weight:600;white-space:nowrap;font-size:.88rem}
+.drawer-tx-amount.pos{color:#198754}
+.drawer-tx-amount.neg{color:#dc3545}
+.drawer-loading{text-align:center;padding:2rem;color:#6c757d}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
@@ -139,6 +164,17 @@ table.recon td{padding:.5rem .75rem;border-bottom:1px solid #f0f2f5}
   </div>
 </div>
 
+<!-- Drill-down drawer -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <span class="drawer-title" id="drawerTitle">ტრანზაქციები</span>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-summary" id="drawerSummary"></div>
+  <div class="drawer-body" id="drawerBody"><div class="drawer-loading">იტვირთება…</div></div>
+</div>
+
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
@@ -156,6 +192,39 @@ function fmt(n,sign=false){
   return sign&&v>0?'+'+s:s;
 }
 function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Drill-down drawer
+function openDrawer(title, url){
+  document.getElementById('drawerTitle').textContent=title;
+  document.getElementById('drawerSummary').textContent='';
+  document.getElementById('drawerBody').innerHTML='<div class="drawer-loading">იტვირთება…</div>';
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerOverlay').classList.add('open');
+  api(url).then(d=>{
+    if(!d){document.getElementById('drawerBody').innerHTML='<div class="drawer-loading">შეცდომა</div>';return;}
+    const txs=d.transactions||d.data||[];
+    const sum=d.summary||{};
+    document.getElementById('drawerSummary').innerHTML=
+      `<b>${sum.count||txs.length}</b> ჩანაწერი · ჯამი: <b>${fmt(sum.total_amount||0)}</b>`;
+    if(!txs.length){document.getElementById('drawerBody').innerHTML='<div class="drawer-loading">ჩანაწერები არ არის</div>';return;}
+    document.getElementById('drawerBody').innerHTML=txs.map(t=>{
+      const amt=Number(t.amount||0);
+      const cls=amt>=0?'pos':'neg';
+      return `<div class="drawer-tx">
+        <div class="drawer-tx-desc">
+          <strong>${esc(t.description||'—')}</strong>
+          <small>${(t.date||t.created_at||'').toString().slice(0,10)} ${t.partner?'· '+esc(t.partner):''}</small>
+        </div>
+        <div class="drawer-tx-amount ${cls}">${fmt(amt,true)}</div>
+      </div>`;
+    }).join('');
+  });
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
 // Init year selector
 (()=>{
@@ -202,18 +271,26 @@ function renderPnL(d){
     <div style="font-size:.82rem;color:#adb5bd;margin-bottom:1rem">📅 პერიოდი: ${period?.from||'—'} – ${period?.to||'—'}</div>
     <div class="pnl-section">
       <div class="pnl-section-title">💰 შემოსავალი (Revenue)</div>`;
-  (revenue?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  const df=period?.from||''; const dt=period?.to||'';
+  function drillRow(l){
+    const ac=l.account_code||'';
+    const onclick=ac?`onclick="openDrawer('${esc(l.label)} — ტრანზაქციები','/reports/pnl/detail?account_code=${ac}&date_from=${df}&date_to=${dt}')" title="დააჭირეთ დეტალებისთვის"`:'';
+    const cls=ac?'pnl-row drillable':'pnl-row';
+    return `<div class="${cls}" ${onclick}><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;
+  }
+  (revenue?.lines||[]).forEach(l=>{html+=drillRow(l);});
   html+=`<div class="pnl-row subtotal"><span>სულ შემოსავალი</span><span class="amount">₾${fmt(revenue?.total)}</span></div></div>
     <div class="pnl-section">
       <div class="pnl-section-title">🔧 გაყიდული საქ. ღირ. (COGS)</div>`;
-  (cogs?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  (cogs?.lines||[]).forEach(l=>{html+=drillRow(l);});
   html+=`<div class="pnl-row subtotal"><span>სულ COGS</span><span class="amount">₾${fmt(cogs?.total)}</span></div></div>
     <div class="pnl-row subtotal" style="background:#e7edff;margin-bottom:1rem"><span>📊 მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(gross_profit)}</span></div>
     <div class="pnl-section">
       <div class="pnl-section-title">💸 საოპ. ხარჯები (OpEx)</div>`;
-  (opex?.lines||[]).forEach(l=>{html+=`<div class="pnl-row"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+  (opex?.lines||[]).forEach(l=>{html+=drillRow(l);});
   html+=`<div class="pnl-row subtotal"><span>სულ OpEx</span><span class="amount">₾${fmt(opex?.total)}</span></div></div>
-    <div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>`;
+    <div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>
+    <div style="font-size:.75rem;color:#adb5bd;margin-top:.75rem;text-align:right">💡 ხაზებზე დაჭერით ნახავთ ინდივიდუალურ ტრანზაქციებს</div>`;
   el.innerHTML=html;
 }
 
@@ -231,7 +308,12 @@ async function loadBS(){
     Object.entries(sections).forEach(([key,grp])=>{
       if(!grp.lines||!grp.lines.length)return;
       h+=`<div class="bs-group"><div class="bs-group-label">${key.replace('_',' ')}</div>`;
-      grp.lines.forEach(l=>{h+=`<div class="bs-item"><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;});
+      grp.lines.forEach(l=>{
+        const ac=l.account_code||'';
+        const onclick=ac?`onclick="openDrawer('${esc(l.label)} — ბალანსი','/reports/bs/detail?account_code=${ac}&date_to=${asOf}')" title="დეტალები"`:'';
+        const cls=ac?'bs-item drillable':'bs-item';
+        h+=`<div class="${cls}" ${onclick}><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;
+      });
       h+=`<div class="bs-subtotal"><span>სულ</span><span class="amount">₾${fmt(grp.total)}</span></div></div>`;
     });
     h+=`<div class="bs-total"><span>${totalLabel}</span><span class="amount">₾${fmt(total)}</span></div>`;

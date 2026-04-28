@@ -1,12 +1,11 @@
 """Outgoing invoice routes — create, auto-save, finalize, list, PDF download."""
 import logging
 from fastapi import APIRouter, Request, Query
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
 from app.api.tenant_context import resolve_tenant_id
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.db import get_db
 from app.api.security import limiter
 from app.api.services.invoice_creator import (
@@ -81,7 +80,7 @@ def autosave_invoice(invoice_id: int, data: InvoiceUpdateRequest, request: Reque
         result = update_draft(conn, tenant_id, invoice_id, payload)
         return ok_response("Draft updated", result)
     except LookupError as e:
-        return JSONResponse(status_code=404, content={"ok": False, "error": str(e)})
+        return http_error(404, str(e), "NOT_FOUND")
     except Exception as e:
         log.error("update_draft failed: %s", e)
         return error_response("DB error", "DB_ERROR", str(e))
@@ -99,9 +98,9 @@ def finalize_invoice(invoice_id: int, request: Request):
         result = finalize(conn, tenant_id, invoice_id)
         return ok_response("Invoice finalized", result)
     except LookupError as e:
-        return JSONResponse(status_code=404, content={"ok": False, "error": str(e)})
+        return http_error(404, str(e), "NOT_FOUND")
     except ValueError as e:
-        return JSONResponse(status_code=409, content={"ok": False, "error": str(e)})
+        return http_error(409, str(e), "CONFLICT")
     except Exception as e:
         log.error("finalize failed tenant=%s id=%s: %s", tenant_id, invoice_id, e)
         return error_response("Finalize failed", "FINALIZE_ERROR", str(e))
@@ -150,7 +149,7 @@ def get_invoice(invoice_id: int, request: Request):
         )
         row = cur.fetchone()
         if not row:
-            return JSONResponse(status_code=404, content={"ok": False, "error": "Not found"})
+            return http_error(404, "Not found", "NOT_FOUND")
         result = dict(row)
         for dt_field in ("created_at", "updated_at", "finalized_at"):
             if result.get(dt_field):
@@ -183,7 +182,7 @@ def download_invoice_pdf(invoice_id: int, request: Request):
         )
         row = cur.fetchone()
         if not row:
-            return JSONResponse(status_code=404, content={"ok": False, "error": "Not found"})
+            return http_error(404, "Not found", "NOT_FOUND")
     finally:
         cur.close()
         conn.close()

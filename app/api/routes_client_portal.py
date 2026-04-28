@@ -262,6 +262,158 @@ def client_transaction_detail(draft_id: int, request: Request):
         conn.close()
 
 
+# ========== Invoices for client ==========
+
+@router.get("/invoices")
+def client_invoices(request: Request):
+    """Client sees their own invoices — amount, status, due date."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT id, invoice_number, issue_date, due_date,
+                   total, currency, status, notes
+            FROM invoices
+            WHERE tenant_id = %s
+            ORDER BY issue_date DESC LIMIT 100
+        """, (tenant_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            for f in ("issue_date", "due_date"):
+                if r.get(f):
+                    r[f] = str(r[f])[:10]
+    except Exception as e:
+        rows = []
+    finally:
+        cur.close(); conn.close()
+
+    total_outstanding = sum(
+        float(r.get("total") or 0) for r in rows
+        if r.get("status") not in ("paid", "cancelled")
+    )
+    return {"ok": True, "invoices": rows,
+            "summary": {"total_outstanding": total_outstanding,
+                        "count": len(rows)}}
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+def client_invoice_pdf(invoice_id: int, request: Request):
+    """Download invoice as PDF."""
+    from fastapi.responses import StreamingResponse
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    import io as _io
+
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT * FROM invoices WHERE id = %s AND tenant_id = %s
+        """, (invoice_id, tenant_id))
+        inv = cur.fetchone()
+    finally:
+        cur.close(); conn.close()
+
+    if not inv:
+        from app.api.response_utils import http_error
+        return http_error(404, "Invoice not found", "NOT_FOUND")
+
+    inv = dict(inv)
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                             leftMargin=2*cm, rightMargin=2*cm,
+                             topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("T", parent=styles["Heading1"],
+                                  fontSize=18, textColor=colors.HexColor("#1a365d"))
+    story = [
+        Paragraph("Bridge Hub — Invoice", title_style),
+        Spacer(1, 0.5*cm),
+    ]
+
+    meta = [
+        ["Invoice #", str(inv.get("invoice_number") or invoice_id)],
+        ["Date", str(inv.get("issue_date") or "")[:10]],
+        ["Due Date", str(inv.get("due_date") or "")[:10]],
+        ["Status", str(inv.get("status") or "").upper()],
+        ["Currency", str(inv.get("currency") or "GEL")],
+    ]
+    meta_tbl = Table(meta, colWidths=[5*cm, 10*cm])
+    meta_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#dee2e6")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(meta_tbl)
+    story.append(Spacer(1, 0.5*cm))
+
+    totals = [
+        ["Subtotal", f"{float(inv.get('subtotal') or 0):,.2f}"],
+        ["VAT", f"{float(inv.get('vat_amount') or 0):,.2f}"],
+        ["TOTAL", f"{float(inv.get('total') or 0):,.2f} {inv.get('currency','GEL')}"],
+    ]
+    tot_tbl = Table(totals, colWidths=[10*cm, 5*cm])
+    tot_tbl.setStyle(TableStyle([
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#dee2e6")),
+        ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#e8f5e9")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tot_tbl)
+
+    if inv.get("notes"):
+        story.append(Spacer(1, 0.5*cm))
+        story.append(Paragraph(f"Notes: {inv['notes']}", styles["Normal"]))
+
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="invoice_{invoice_id}.pdf"'},
+    )
+
+
+@router.get("/statement")
+def client_statement(request: Request):
+    """Account statement — all transactions summary for client."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT DATE_TRUNC('month', created_at) AS month,
+                   COUNT(*) AS transactions,
+                   SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS total_income,
+                   SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS total_expense
+            FROM journal_drafts
+            WHERE tenant_id = %s AND status = 'approved'
+            GROUP BY 1 ORDER BY 1 DESC LIMIT 12
+        """, (tenant_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("month"):
+                r["month"] = r["month"].strftime("%Y-%m")
+            for f in ("total_income", "total_expense"):
+                if r.get(f):
+                    r[f] = float(r[f])
+    except Exception:
+        rows = []
+    finally:
+        cur.close(); conn.close()
+
+    return {"ok": True, "statement": rows}
+
+
 # ========== Status ==========
 
 @router.get("/status")
@@ -270,9 +422,7 @@ def client_portal_status():
         "ok": True,
         "portal": "active",
         "features": [
-            "dashboard — საკუთარი ტრანზაქციების შეჯამება",
-            "transactions — ტრანზაქციების სია",
-            "upload — დოკუმენტის ატვირთვა",
-            "detail — ერთი ტრანზაქციის დეტალი",
+            "dashboard", "transactions", "upload", "detail",
+            "invoices", "invoices/{id}/pdf", "statement",
         ],
     }

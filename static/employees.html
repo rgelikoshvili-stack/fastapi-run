@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — თანამშრომლები</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
+h1{font-size:1.1rem;font-weight:600}
+.container{max-width:1300px;margin:0 auto;padding:1.5rem}
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1.25rem}
+.card-head{padding:1.1rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
+.card-title{font-weight:700;font-size:.95rem}
+.card-body{padding:1.25rem 1.5rem}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
+.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
+.btn-danger{background:#dc3545;color:#fff}.btn-danger:hover{background:#c82333}
+.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
+.btn-sm{padding:.35rem .75rem;font-size:.82rem}
+.btn-success{background:#198754;color:#fff}.btn-success:hover{background:#157347}
+.filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+input[type=text],input[type=email],input[type=number],input[type=date],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
+input:focus,select:focus{border-color:#4361ee}
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
+.stat{background:#fff;border-radius:10px;padding:1.1rem 1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid #dee2e6}
+.stat.blue{border-top-color:#4361ee}.stat.green{border-top-color:#198754}
+.stat.amber{border-top-color:#ffc107}.stat.red{border-top-color:#dc3545}
+.stat-val{font-size:1.6rem;font-weight:700;margin:.25rem 0}
+.stat-label{font-size:.75rem;color:#6c757d}
+/* Table */
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{background:#f8f9fa;padding:.6rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6;text-align:left;white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid #f5f5f5;vertical-align:middle}
+tr:hover td{background:#fafafa}
+.badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:20px;font-size:.75rem;font-weight:600}
+.badge-active{background:#d1f2e1;color:#198754}
+.badge-inactive{background:#f0f2f5;color:#6c757d}
+.empty{padding:3rem;text-align:center;color:#adb5bd;font-size:.9rem}
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:12px;padding:1.75rem;width:100%;max-width:520px;box-shadow:0 8px 32px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
+.modal h2{font-size:1.05rem;font-weight:700;margin-bottom:1.25rem}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.form-field{margin-bottom:.85rem}
+.form-field label{display:block;font-size:.78rem;font-weight:600;color:#6c757d;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em}
+.form-field input,.form-field select{width:100%}
+.modal-foot{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem;padding-top:1rem;border-top:1px solid #f0f2f5}
+/* Pension panel */
+.pension-panel{background:#f0f7ff;border:1px solid #b8d4f8;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
+.pension-panel h3{font-size:.9rem;font-weight:700;margin-bottom:.85rem;color:#1a3c6e}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span style="color:#495057">›</span>
+  <h1>👤 თანამშრომლები</h1>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats" id="statsRow">
+    <div class="stat blue"><div class="stat-val" id="sTotal">—</div><div class="stat-label">სულ თანამშრომელი</div></div>
+    <div class="stat green"><div class="stat-val" id="sActive">—</div><div class="stat-label">აქტიური</div></div>
+    <div class="stat amber"><div class="stat-val" id="sTotalSalary">—</div><div class="stat-label">სულ სახელფასო ფონდი</div></div>
+    <div class="stat red"><div class="stat-val" id="sTotalPension">—</div><div class="stat-label">სულ საპენსიო (4%)</div></div>
+  </div>
+
+  <!-- Pension Transfer -->
+  <div class="pension-panel">
+    <h3>🏦 საპენსიო გადარიცხვა</h3>
+    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:#1a3c6e;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:.3rem">პერიოდი</label>
+        <input type="month" id="pensionPeriod"/>
+      </div>
+      <button class="btn btn-primary" onclick="runPensionTransfer()" style="margin-top:1.25rem">📤 გადარიცხვის ჩანაწერი</button>
+      <button class="btn btn-ghost" onclick="loadPensionHistory()" style="margin-top:1.25rem">📋 ისტორია</button>
+    </div>
+    <div id="pensionResult" style="margin-top:.75rem;font-size:.85rem"></div>
+  </div>
+
+  <!-- Employees list -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">👥 თანამშრომელთა სია</span>
+      <div class="filters">
+        <input type="text" id="searchQ" placeholder="ძიება…" oninput="loadEmployees()" style="width:200px"/>
+        <select id="statusFilter" onchange="loadEmployees()">
+          <option value="active">აქტიური</option>
+          <option value="all">ყველა</option>
+          <option value="inactive">არააქტიური</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="openModal()">+ დამატება</button>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div id="empTable"><div class="empty">⏳ იტვირთება…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2 id="modalTitle">➕ ახალი თანამშრომელი</h2>
+    <input type="hidden" id="empId"/>
+    <div class="form-row">
+      <div class="form-field">
+        <label>სახელი გვარი *</label>
+        <input type="text" id="fName" placeholder="გიორგი მაისურაძე"/>
+      </div>
+      <div class="form-field">
+        <label>პირადი ნომერი</label>
+        <input type="text" id="fPN" placeholder="01234567890" maxlength="11"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>პოზიცია</label>
+        <input type="text" id="fPos" placeholder="ბუღალტერი"/>
+      </div>
+      <div class="form-field">
+        <label>დეპარტამენტი</label>
+        <input type="text" id="fDept" placeholder="ფინანსები"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>ელ-ფოსტა</label>
+        <input type="email" id="fEmail" placeholder="name@company.ge"/>
+      </div>
+      <div class="form-field">
+        <label>სამსახურში მიღება</label>
+        <input type="date" id="fHire"/>
+      </div>
+    </div>
+    <div class="form-field">
+      <label>საბაზო ხელფასი (ბრუტო, GEL)</label>
+      <input type="number" id="fSalary" placeholder="3000" step="0.01" min="0"/>
+    </div>
+    <div id="modalErr" style="color:#dc3545;font-size:.83rem;margin-top:.25rem;min-height:18px"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">გაუქმება</button>
+      <button class="btn btn-primary" onclick="saveEmployee()">შენახვა</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
+const TENANT = localStorage.getItem('tenant_id') || '';
+function hdr(){return{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
+
+async function api(path, opts={}){
+  try{
+    const r = await fetch(path, {headers:hdr(), ...opts});
+    return await r.json();
+  }catch(e){console.error(e);return null;}
+}
+
+function fmt(n){return Number(n||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Init
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('pensionPeriod').value=new Date().toISOString().slice(0,7);
+  loadEmployees();
+});
+
+async function loadEmployees(){
+  const q = document.getElementById('searchQ').value.trim();
+  const status = document.getElementById('statusFilter').value;
+  let url = `/employees?status=${status}&limit=200`;
+  if(q) url += `&q=${encodeURIComponent(q)}`;
+
+  const d = await api(url);
+  if(!d||!d.ok){
+    document.getElementById('empTable').innerHTML='<div class="empty">შეცდომა</div>';
+    return;
+  }
+  const items = d.data?.items || [];
+  updateStats(items);
+
+  if(!items.length){
+    document.getElementById('empTable').innerHTML='<div class="empty">თანამშრომლები არ არის</div>';
+    return;
+  }
+
+  const rows = items.map(e=>`
+    <tr>
+      <td>${esc(e.name)}</td>
+      <td style="color:#6c757d">${esc(e.personal_number||'—')}</td>
+      <td>${esc(e.position||'—')}</td>
+      <td>${esc(e.department||'—')}</td>
+      <td style="font-family:monospace">${fmt(e.gross_salary)}</td>
+      <td style="font-family:monospace;color:#6c757d">${fmt(e.gross_salary*0.04)}</td>
+      <td><span class="badge badge-${e.status==='active'?'active':'inactive'}">${e.status==='active'?'✓ აქტიური':'⊘ არააქტიური'}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editEmployee(${e.id})">✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="generatePortalToken(${e.id}, '${esc(e.name)}')">🔗</button>
+        ${e.status==='active'?`<button class="btn btn-ghost btn-sm" style="color:#dc3545" onclick="deactivate(${e.id})">✕</button>`:''}
+      </td>
+    </tr>`).join('');
+
+  document.getElementById('empTable').innerHTML=`
+    <table>
+      <thead><tr>
+        <th>სახელი</th><th>პირადი №</th><th>პოზიცია</th><th>დეპარტამენტი</th>
+        <th>ბრუტო</th><th>საპენსიო (4%)</th><th>სტატუსი</th><th>მოქმედება</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function updateStats(items){
+  const active = items.filter(e=>e.status==='active');
+  const totalSalary = active.reduce((s,e)=>s+Number(e.gross_salary||0),0);
+  document.getElementById('sTotal').textContent = items.length;
+  document.getElementById('sActive').textContent = active.length;
+  document.getElementById('sTotalSalary').textContent = '₾'+fmt(totalSalary);
+  document.getElementById('sTotalPension').textContent = '₾'+fmt(totalSalary*0.04);
+}
+
+function openModal(emp=null){
+  document.getElementById('empId').value = emp?.id||'';
+  document.getElementById('fName').value = emp?.name||'';
+  document.getElementById('fPN').value = emp?.personal_number||'';
+  document.getElementById('fPos').value = emp?.position||'';
+  document.getElementById('fDept').value = emp?.department||'';
+  document.getElementById('fEmail').value = emp?.email||'';
+  document.getElementById('fHire').value = emp?.hire_date||'';
+  document.getElementById('fSalary').value = emp?.gross_salary||'';
+  document.getElementById('modalErr').textContent='';
+  document.getElementById('modalTitle').textContent = emp?'✏️ თანამშრომლის რედაქტირება':'➕ ახალი თანამშრომელი';
+  document.getElementById('modalBg').classList.add('open');
+  document.getElementById('fName').focus();
+}
+
+function closeModal(){
+  document.getElementById('modalBg').classList.remove('open');
+}
+
+async function editEmployee(id){
+  const d = await api(`/employees/${id}`);
+  if(d?.ok) openModal(d.data);
+}
+
+async function saveEmployee(){
+  const errEl = document.getElementById('modalErr');
+  const name = document.getElementById('fName').value.trim();
+  if(!name){errEl.textContent='სახელი სავალდებულოა';return;}
+
+  const body = {
+    name,
+    personal_number: document.getElementById('fPN').value.trim()||null,
+    position: document.getElementById('fPos').value.trim()||null,
+    department: document.getElementById('fDept').value.trim()||null,
+    email: document.getElementById('fEmail').value.trim()||null,
+    hire_date: document.getElementById('fHire').value||null,
+    gross_salary: Number(document.getElementById('fSalary').value)||0,
+  };
+
+  const d = await api('/employees', {method:'POST', body:JSON.stringify(body)});
+  if(!d?.ok){errEl.textContent=d?.message||'შეცდომა';return;}
+  closeModal();
+  loadEmployees();
+}
+
+async function deactivate(id){
+  if(!confirm('გაუქმება?'))return;
+  const d = await api(`/employees/${id}`, {method:'DELETE'});
+  if(d?.ok) loadEmployees();
+}
+
+async function generatePortalToken(id, name){
+  const d = await api(`/employees/${id}/portal-token`, {method:'POST'});
+  if(!d?.ok){alert('შეცდომა: '+(d?.message||''));return;}
+  const url = window.location.origin + d.data.portal_url;
+  prompt(`🔗 ${name}-ის პორტალის ლინკი (30 დღე):`, url);
+}
+
+async function runPensionTransfer(){
+  const period = document.getElementById('pensionPeriod').value;
+  if(!period){alert('აირჩიეთ პერიოდი');return;}
+  const d = await api('/payroll/pension-transfer', {
+    method:'POST', body:JSON.stringify({period})
+  });
+  const el = document.getElementById('pensionResult');
+  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">❌ ${esc(d?.message||'შეცდომა')}</span>`;return;}
+  const rd = d.data;
+  el.innerHTML=`<span style="color:#198754">✅ ჩანაწერი შეიქმნა · ${rd.employee_count} თანამ. ·
+    თანამ. საპენსიო: <b>₾${fmt(rd.employee_pension_total)}</b> ·
+    დამსაქ. საპენსიო: <b>₾${fmt(rd.employer_pension_total)}</b> ·
+    სულ: <b>₾${fmt(rd.total_transfer)}</b></span>`;
+}
+
+async function loadPensionHistory(){
+  const d = await api('/payroll/pension-transfers');
+  if(!d?.ok)return;
+  const items = d.data?.items||[];
+  if(!items.length){document.getElementById('pensionResult').innerHTML='<span style="color:#6c757d">ისტორია ცარიელია</span>';return;}
+  const rows = items.map(i=>`${i.period}: ₾${fmt(i.total_amount)} (${i.employee_count} თანამ.) — ${i.status}`).join('<br>');
+  document.getElementById('pensionResult').innerHTML=`<div style="line-height:1.8">${rows}</div>`;
+}
+</script>
+</body>
+</html>

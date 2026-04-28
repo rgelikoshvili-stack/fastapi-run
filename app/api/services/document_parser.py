@@ -1,6 +1,6 @@
 """app/api/services/document_parser.py
 3-tier document text extraction:
-  1. Native PDF (pdfplumber)
+  1. Native PDF (PyMuPDF / fitz)
   2. OCR (Tesseract kat+eng+rus)
   3. Vision LLM fallback
 """
@@ -27,9 +27,9 @@ def _is_good_text(text: str) -> bool:
 
 def _extract_pdf_native(file_bytes: bytes) -> str:
     try:
-        import pdfplumber
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        return "\n\n".join(doc[i].get_text() for i in range(len(doc)))
     except Exception as e:
         log.warning("native PDF extraction failed: %s", e)
         return ""
@@ -37,9 +37,9 @@ def _extract_pdf_native(file_bytes: bytes) -> str:
 
 def _count_pdf_pages(file_bytes: bytes) -> int:
     try:
-        import pdfplumber
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            return len(pdf.pages)
+        import fitz
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        return len(doc)
     except Exception:
         return 0
 

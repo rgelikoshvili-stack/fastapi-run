@@ -326,3 +326,177 @@ def journal_report(
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = get_journal_entries(tenant_id, date, limit, offset)
     return {"ok": True, "report": "journal", **data}
+
+
+# ===============================
+# DRILL-DOWN: P&L line → transactions
+# ===============================
+@router.get("/pnl/detail")
+def pnl_detail(
+    request: Request,
+    account_code: Optional[str] = Query(None, description="e.g. 7100"),
+    debit_account: Optional[str] = Query(None),
+    credit_account: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Drill-down: click a P&L row → see individual journal drafts behind the number."""
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conditions = ["tenant_id = %s", "status IN ('approved','auto_approved','posted')"]
+        params: list = [tenant_id]
+        if account_code:
+            conditions.append("account_code = %s")
+            params.append(account_code)
+        if debit_account:
+            conditions.append("debit_account = %s")
+            params.append(debit_account)
+        if credit_account:
+            conditions.append("credit_account = %s")
+            params.append(credit_account)
+        if date_from:
+            conditions.append("date >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append("date <= %s")
+            params.append(date_to)
+        where = " AND ".join(conditions)
+        cur.execute(f"""
+            SELECT id, date, description, partner, amount,
+                   account_code, debit_account, credit_account, status, source_type, created_at
+            FROM journal_drafts
+            WHERE {where}
+            ORDER BY date DESC, id DESC
+            LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"""
+            SELECT COUNT(*) AS total, COALESCE(SUM(amount), 0) AS total_amount
+            FROM journal_drafts WHERE {where}
+        """, params)
+        agg = dict(cur.fetchone())
+    finally:
+        cur.close()
+        conn.close()
+    return {
+        "ok": True,
+        "filters": {"account_code": account_code, "debit_account": debit_account,
+                    "credit_account": credit_account, "date_from": date_from, "date_to": date_to},
+        "summary": {"count": int(agg["total"]), "total_amount": round(float(agg["total_amount"]), 2)},
+        "transactions": rows,
+    }
+
+
+# ===============================
+# DRILL-DOWN: Balance Sheet account
+# ===============================
+@router.get("/bs/detail")
+def bs_detail(
+    request: Request,
+    account_code: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Drill-down: Balance Sheet account → individual transactions."""
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conditions = ["tenant_id = %s"]
+        params: list = [tenant_id]
+        if account_code:
+            conditions.append("(debit_account = %s OR credit_account = %s OR account_code = %s)")
+            params += [account_code, account_code, account_code]
+        if date_from:
+            conditions.append("date >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append("date <= %s")
+            params.append(date_to)
+        where = " AND ".join(conditions)
+        cur.execute(f"""
+            SELECT id, date, description, partner, amount,
+                   account_code, debit_account, credit_account, status, created_at
+            FROM journal_drafts
+            WHERE {where}
+            ORDER BY date DESC, id DESC
+            LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"""
+            SELECT COUNT(*) AS total, COALESCE(SUM(amount), 0) AS total_amount
+            FROM journal_drafts WHERE {where}
+        """, params)
+        agg = dict(cur.fetchone())
+    finally:
+        cur.close()
+        conn.close()
+    return {
+        "ok": True,
+        "account_code": account_code,
+        "summary": {"count": int(agg["total"]), "total_amount": round(float(agg["total_amount"]), 2)},
+        "transactions": rows,
+    }
+
+
+# ===============================
+# DRILL-DOWN: Cash Flow detail
+# ===============================
+@router.get("/cashflow/detail")
+def cashflow_detail(
+    request: Request,
+    direction: Optional[str] = Query(None, description="in | out"),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Drill-down: Cash Flow in/out → individual bank transactions."""
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
+        params: list = [tenant_id]
+        if direction == "in":
+            conditions.append("amount > 0")
+        elif direction == "out":
+            conditions.append("amount < 0")
+        if date_from:
+            conditions.append("date::date >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append("date::date <= %s")
+            params.append(date_to)
+        where = " AND ".join(conditions)
+        cur.execute(f"""
+            SELECT id, date, description, amount, currency, created_at
+            FROM bank_transactions
+            WHERE {where}
+            ORDER BY date DESC, id DESC
+            LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute(f"""
+            SELECT COUNT(*) AS total, COALESCE(SUM(ABS(amount)), 0) AS total_amount
+            FROM bank_transactions WHERE {where}
+        """, params)
+        agg = dict(cur.fetchone())
+    finally:
+        cur.close()
+        conn.close()
+    return {
+        "ok": True,
+        "direction": direction,
+        "summary": {"count": int(agg["total"]), "total_amount": round(float(agg["total_amount"]), 2)},
+        "transactions": rows,
+    }

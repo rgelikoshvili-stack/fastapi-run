@@ -43,13 +43,29 @@ def _check_db() -> dict:
         return {"status": "error", "detail": str(e)}
 
 
+def _check_gcs() -> dict:
+    bucket_name = os.environ.get("GCS_BUCKET_NAME", "")
+    if not bucket_name:
+        return {"status": "not_configured"}
+    try:
+        from google.cloud import storage as gcs
+        client = gcs.Client()
+        bucket = client.bucket(bucket_name)
+        bucket.reload()
+        return {"status": "ok", "bucket": bucket_name}
+    except Exception as e:
+        log.error("health gcs check failed: %s", e)
+        return {"status": "error", "detail": str(e)}
+
+
 @router.get("/")
 def health_check():
     db = _check_db()
+    gcs = _check_gcs()
     env = _check_env()
     uptime_s = int(time.time() - _START_TIME)
     uptime = f"{uptime_s // 3600}h {(uptime_s % 3600) // 60}m {uptime_s % 60}s"
-    all_ok = db["status"] == "connected"
+    all_ok = db["status"] == "connected" and gcs.get("status") in ("ok", "not_configured")
 
     data = {
         "service": "Bridge Hub",
@@ -58,6 +74,7 @@ def health_check():
         "uptime": uptime,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "db": db,
+        "gcs": gcs,
         "env_vars": env,
         "connectors": {
             "balance": "configured" if os.environ.get("BALANCE_API_KEY") else "demo_mode",

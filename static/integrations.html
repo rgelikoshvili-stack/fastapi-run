@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Integrations</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
+h1{font-size:1.1rem;font-weight:600}
+.container{max-width:1100px;margin:0 auto;padding:1.5rem}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;margin-bottom:2rem}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.int-card{background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1.5rem;position:relative;border:1px solid #dee2e6;transition:box-shadow .15s}
+.int-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.int-card.active{border-color:#198754}
+.int-header{display:flex;align-items:center;gap:.85rem;margin-bottom:1rem}
+.int-logo{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.int-logo.shopify{background:#96bf48}
+.int-logo.stripe{background:#635bff}
+.int-logo.woocommerce{background:#7f54b3}
+.int-logo.slack{background:#4a154b}
+.int-logo.xero{background:#1ab4d7}
+.int-logo.quickbooks{background:#2ca01c}
+.int-name{font-weight:700;font-size:1rem;color:#1a1a2e}
+.int-cat{font-size:.78rem;color:#6c757d;margin-top:2px}
+.status-badge{position:absolute;top:1rem;right:1rem;padding:.25rem .65rem;border-radius:20px;font-size:.75rem;font-weight:600}
+.status-badge.on{background:#d1f2e1;color:#198754}
+.status-badge.off{background:#f0f2f5;color:#6c757d}
+.status-badge.coming{background:#fff3e0;color:#e67700}
+.int-desc{font-size:.84rem;color:#6c757d;line-height:1.5;margin-bottom:1rem}
+.int-webhook{background:#f8f9fa;border-radius:6px;padding:.5rem .75rem;font-family:monospace;font-size:.75rem;color:#495057;word-break:break-all;margin-bottom:1rem;border:1px solid #dee2e6}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .9rem;border:none;border-radius:6px;cursor:pointer;font-size:.83rem;font-weight:500;transition:all .15s}
+.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
+.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
+.btn-danger{background:#dc3545;color:#fff}.btn-danger:hover{background:#c82333}
+.int-actions{display:flex;gap:.5rem;flex-wrap:wrap}
+/* recent logs */
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
+.card-head{padding:1rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between}
+.card-title{font-weight:700;font-size:.95rem}
+.card-body{padding:1.25rem 1.5rem}
+table{width:100%;border-collapse:collapse;font-size:.84rem}
+th{background:#f8f9fa;padding:.5rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6;text-align:left;white-space:nowrap}
+td{padding:.5rem .75rem;border-bottom:1px solid #f5f5f5;vertical-align:middle}
+tr:hover td{background:#fafafa}
+.badge{display:inline-flex;align-items:center;padding:.2rem .5rem;border-radius:12px;font-size:.73rem;font-weight:600}
+.b-ok{background:#d1f2e1;color:#198754}
+.b-pending{background:#fff3e0;color:#e67700}
+.b-err{background:#fde8ef;color:#dc3545}
+.empty{padding:2rem;text-align:center;color:#adb5bd;font-size:.88rem}
+/* env panel */
+.env-section{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1.5rem;margin-bottom:1.5rem}
+.env-section h2{font-size:.95rem;font-weight:700;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.env-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.85rem}
+@media(max-width:700px){.env-grid{grid-template-columns:1fr}}
+.env-item{background:#f8f9fa;border-radius:8px;padding:.85rem 1rem;border:1px solid #dee2e6}
+.env-key{font-family:monospace;font-size:.78rem;color:#495057;font-weight:600;margin-bottom:.3rem}
+.env-val{font-size:.82rem;color:#1a1a2e}
+.env-val.set{color:#198754}
+.env-val.missing{color:#dc3545}
+/* copy */
+.copy-btn{background:transparent;border:none;cursor:pointer;padding:.15rem .35rem;border-radius:4px;color:#6c757d;font-size:.75rem}
+.copy-btn:hover{background:#f0f2f5;color:#4361ee}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span style="color:#495057">›</span>
+  <h1>🔗 Integrations</h1>
+</div>
+
+<div class="container">
+
+  <!-- Integration cards -->
+  <div class="grid" id="intGrid">
+    <!-- Shopify -->
+    <div class="int-card" id="card-shopify">
+      <div class="status-badge off" id="badge-shopify">⊘ Inactive</div>
+      <div class="int-header">
+        <div class="int-logo shopify">🛍</div>
+        <div>
+          <div class="int-name">Shopify</div>
+          <div class="int-cat">E-Commerce · Orders</div>
+        </div>
+      </div>
+      <p class="int-desc">Auto-create journal entries when orders are placed or paid in your Shopify store.</p>
+      <div class="int-webhook">
+        POST <span id="hook-shopify">/integrations/shopify/webhook</span>
+        <button class="copy-btn" onclick="copyUrl('hook-shopify')">📋</button>
+      </div>
+      <div class="int-actions">
+        <button class="btn btn-ghost" onclick="testWebhook('shopify')">🔁 Test</button>
+        <button class="btn btn-primary" onclick="configureInt('shopify')">⚙ Configure</button>
+      </div>
+    </div>
+
+    <!-- Stripe -->
+    <div class="int-card" id="card-stripe">
+      <div class="status-badge off" id="badge-stripe">⊘ Inactive</div>
+      <div class="int-header">
+        <div class="int-logo stripe">💳</div>
+        <div>
+          <div class="int-name">Stripe</div>
+          <div class="int-cat">Payments · Subscriptions</div>
+        </div>
+      </div>
+      <p class="int-desc">Receive payment_intent and invoice events from Stripe — auto-post to accounts receivable.</p>
+      <div class="int-webhook">
+        POST <span id="hook-stripe">/integrations/stripe/webhook</span>
+        <button class="copy-btn" onclick="copyUrl('hook-stripe')">📋</button>
+      </div>
+      <div class="int-actions">
+        <button class="btn btn-ghost" onclick="testWebhook('stripe')">🔁 Test</button>
+        <button class="btn btn-primary" onclick="configureInt('stripe')">⚙ Configure</button>
+      </div>
+    </div>
+
+    <!-- WooCommerce -->
+    <div class="int-card" id="card-woocommerce">
+      <div class="status-badge off" id="badge-woocommerce">⊘ Inactive</div>
+      <div class="int-header">
+        <div class="int-logo woocommerce">🛒</div>
+        <div>
+          <div class="int-name">WooCommerce</div>
+          <div class="int-cat">E-Commerce · WordPress</div>
+        </div>
+      </div>
+      <p class="int-desc">Capture WooCommerce order events and auto-generate accounting entries.</p>
+      <div class="int-webhook">
+        POST <span id="hook-woocommerce">/integrations/woocommerce/webhook</span>
+        <button class="copy-btn" onclick="copyUrl('hook-woocommerce')">📋</button>
+      </div>
+      <div class="int-actions">
+        <button class="btn btn-ghost" onclick="testWebhook('woocommerce')">🔁 Test</button>
+        <button class="btn btn-primary" onclick="configureInt('woocommerce')">⚙ Configure</button>
+      </div>
+    </div>
+
+    <!-- Slack — coming soon -->
+    <div class="int-card">
+      <div class="status-badge coming">⏳ Coming Soon</div>
+      <div class="int-header">
+        <div class="int-logo slack">💬</div>
+        <div>
+          <div class="int-name">Slack</div>
+          <div class="int-cat">Notifications · Approvals</div>
+        </div>
+      </div>
+      <p class="int-desc">Send approval requests and financial alerts directly to Slack channels.</p>
+      <div class="int-actions">
+        <button class="btn btn-ghost" disabled style="opacity:.5;cursor:not-allowed">მალე</button>
+      </div>
+    </div>
+
+    <!-- Xero — coming soon -->
+    <div class="int-card">
+      <div class="status-badge coming">⏳ Coming Soon</div>
+      <div class="int-header">
+        <div class="int-logo xero">📊</div>
+        <div>
+          <div class="int-name">Xero</div>
+          <div class="int-cat">Accounting · Sync</div>
+        </div>
+      </div>
+      <p class="int-desc">Two-way sync with Xero — import invoices, export journal entries.</p>
+      <div class="int-actions">
+        <button class="btn btn-ghost" disabled style="opacity:.5;cursor:not-allowed">მალე</button>
+      </div>
+    </div>
+
+    <!-- QuickBooks — coming soon -->
+    <div class="int-card">
+      <div class="status-badge coming">⏳ Coming Soon</div>
+      <div class="int-header">
+        <div class="int-logo quickbooks">📒</div>
+        <div>
+          <div class="int-name">QuickBooks</div>
+          <div class="int-cat">Accounting · Sync</div>
+        </div>
+      </div>
+      <p class="int-desc">Import QuickBooks data and migrate to Bridge Hub chart of accounts.</p>
+      <div class="int-actions">
+        <button class="btn btn-ghost" disabled style="opacity:.5;cursor:not-allowed">მალე</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Env vars status -->
+  <div class="env-section">
+    <h2>🔑 API Key Status</h2>
+    <div class="env-grid" id="envGrid">
+      <div class="empty">⏳ იტვირთება…</div>
+    </div>
+  </div>
+
+  <!-- Recent webhook events -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">📥 ბოლო Webhook Events</span>
+      <button class="btn btn-ghost" style="font-size:.82rem" onclick="loadRecent()">🔄 განახლება</button>
+    </div>
+    <div class="card-body" id="recentBody">
+      <div class="empty">⏳ იტვირთება…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
+const TENANT = localStorage.getItem('tenant_id') || '';
+function hdr(){return{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
+function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+const BASE = window.location.origin;
+
+// Set full webhook URLs
+['shopify','stripe','woocommerce'].forEach(k=>{
+  document.getElementById('hook-'+k).textContent = BASE+'/integrations/'+k+'/webhook';
+});
+
+async function loadStatus(){
+  try{
+    const r = await fetch('/integrations/status',{headers:hdr()});
+    const d = await r.json();
+    if(!d||!d.ok) return;
+    const cfg = d.data?.configured || [];
+
+    cfg.forEach(key=>{
+      const badge = document.getElementById('badge-'+key);
+      const card = document.getElementById('card-'+key);
+      if(badge){badge.className='status-badge on';badge.textContent='✓ Active';}
+      if(card){card.classList.add('active');}
+    });
+
+    // env grid
+    const envKeys = d.data?.env_vars || {};
+    const grid = document.getElementById('envGrid');
+    if(!Object.keys(envKeys).length){
+      grid.innerHTML='<p style="color:#adb5bd;font-size:.85rem">გარემოს ცვლადები არ მოიძებნა</p>';
+      return;
+    }
+    grid.innerHTML = Object.entries(envKeys).map(([k,v])=>`
+      <div class="env-item">
+        <div class="env-key">${esc(k)}</div>
+        <div class="env-val ${v?'set':'missing'}">${v?'✓ დაყენებულია':'✗ არ არის'}</div>
+      </div>`).join('');
+  }catch(e){console.error(e);}
+}
+
+async function loadRecent(){
+  const body = document.getElementById('recentBody');
+  try{
+    const r = await fetch('/integrations/events?limit=30',{headers:hdr()});
+    const d = await r.json();
+    if(!d||!d.ok||!d.data?.items?.length){
+      body.innerHTML='<div class="empty">Webhook events ჯერ არ არის</div>';
+      return;
+    }
+    const rows = d.data.items.map(e=>`<tr>
+      <td>${esc(e.source||'—')}</td>
+      <td>${esc(e.event_type||'—')}</td>
+      <td style="font-family:monospace">${esc(e.reference||'—')}</td>
+      <td><span class="badge ${e.status==='approved'||e.status==='posted'?'b-ok':e.status==='error'?'b-err':'b-pending'}">${esc(e.status||'—')}</span></td>
+      <td style="color:#6c757d;font-size:.78rem">${(e.created_at||'').slice(0,16)}</td>
+    </tr>`).join('');
+    body.innerHTML=`<table>
+      <thead><tr><th>წყარო</th><th>Event</th><th>Reference</th><th>სტატუსი</th><th>თარიღი</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }catch(e){
+    body.innerHTML='<div class="empty">⏳ Events endpoint უახლოეს მომავალში</div>';
+  }
+}
+
+async function testWebhook(provider){
+  const btn = event.target;
+  btn.disabled=true;btn.textContent='⏳…';
+  try{
+    const r = await fetch('/integrations/'+provider+'/test',{method:'POST',headers:hdr()});
+    const d = await r.json();
+    alert(d?.message || (d?.ok ? '✓ Test OK' : '✗ Failed: '+(d?.error?.details||'')));
+  }catch(e){
+    alert('⚠ Test endpoint ჯერ არ არის კონფიგურირებული');
+  }finally{
+    btn.disabled=false;btn.textContent='🔁 Test';
+  }
+}
+
+function configureInt(provider){
+  alert(`${provider.charAt(0).toUpperCase()+provider.slice(1)} კონფიგურაცია:\n\nServer-side env vars:\n• ${provider.toUpperCase()}_WEBHOOK_SECRET\n• ${provider.toUpperCase()}_CLIENT_ID (სადაც საჭიროა)\n\nWebhook URL:\n${BASE}/integrations/${provider}/webhook\n\nGCP Secret Manager-ში ან .env ფაილში დაამატეთ ეს ცვლადები.`);
+}
+
+function copyUrl(elId){
+  const text = document.getElementById(elId).textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn = event.target;
+    btn.textContent='✅';
+    setTimeout(()=>btn.textContent='📋',1500);
+  });
+}
+
+window.addEventListener('load',()=>{
+  loadStatus();
+  loadRecent();
+});
+</script>
+</body>
+</html>

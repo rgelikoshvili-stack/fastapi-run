@@ -93,6 +93,7 @@ tr:hover td{background:#fafbfd}
     <div class="tab" onclick="switchTab('corporate')">&#127970; Corporate Tax</div>
     <div class="tab" onclick="switchTab('annual')">&#128200; Annual Summary</div>
     <div class="tab" onclick="switchTab('rates')">&#128203; Tax Rates</div>
+    <div class="tab" onclick="switchTab('rsge')">&#128196; rs.ge Declarations</div>
   </div>
 
   <!-- VAT TAB -->
@@ -277,6 +278,51 @@ tr:hover td{background:#fafbfd}
         </tbody>
       </table>
     </div>
+  <!-- RS.GE Declarations tab -->
+  <div class="pane" id="pane-rsge">
+    <div class="card">
+      <h3>&#128196; rs.ge — Declaration Payload Builder</h3>
+      <p style="color:#64748b;font-size:.87rem;margin-bottom:16px">
+        ამ ინსტრუმენტი ამზადებს RS Form-10 (VAT) და RS Form-1 (Withholding) სტრუქტურირებულ პეილოადს rs.ge პორტალზე ასატვირთად.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="form-group"><label>გადასახადლის INN</label><input id="rsInn" type="text" placeholder="9 ან 11 ციფრი" maxlength="11"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group"><label>წელი</label><input id="rsYear" type="number" value="2026" min="2020" max="2030"></div>
+          <div class="form-group"><label>თვე</label><input id="rsMonth" type="number" value="1" min="1" max="12"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <h4 style="margin-bottom:12px">Form 10 — VAT Return</h4>
+          <div class="form-group"><label>დასაბეგრი გაყიდვები (GEL)</label><input id="rsTaxSales" type="number" value="0" step="0.01" min="0"></div>
+          <div class="form-group"><label>დარიცხული VAT 18%</label><input id="rsVatCollected" type="number" value="0" step="0.01" min="0"></div>
+          <div class="form-group"><label>დასაბეგრი შეძენები (GEL)</label><input id="rsTaxPurch" type="number" value="0" step="0.01" min="0"></div>
+          <div class="form-group"><label>გადახდილი VAT (კრედიტი)</label><input id="rsVatPaid" type="number" value="0" step="0.01" min="0"></div>
+          <button class="btn" onclick="buildVatReturn()">Form 10 ჩამოყალიბება</button>
+        </div>
+        <div id="rsVatResult" style="background:#f8fafc;border-radius:8px;padding:16px;font-family:monospace;font-size:.8rem;overflow:auto;white-space:pre-wrap;max-height:300px">
+          Form 10 payload გამოჩნდება აქ...
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px">
+          <h4 style="margin-bottom:12px">Form 1 — Withholding Tax</h4>
+          <p style="font-size:.82rem;color:#64748b;margin-bottom:8px">გადახდები JSON ფორმატში:</p>
+          <textarea id="rsPayments" rows="4" style="font-family:monospace;font-size:.8rem" placeholder='[{"recipient_inn":"01234567890","amount":1000,"tax_rate":0.05,"tax_amount":50,"payment_type":"dividend"}]'></textarea>
+          <button class="btn" style="margin-top:8px" onclick="buildWithholding()">Form 1 ჩამოყალიბება</button>
+        </div>
+        <div id="rsWhtResult" style="background:#f8fafc;border-radius:8px;padding:16px;font-family:monospace;font-size:.8rem;overflow:auto;white-space:pre-wrap;max-height:300px">
+          Form 1 payload გამოჩნდება აქ...
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <label>INN ვერიფიკაცია: <input id="rsVerifyInn" type="text" style="width:160px" placeholder="INN">
+        <button class="btn btn-sm" onclick="verifyInn()">შემოწმება</button>
+        <span id="rsInnResult" style="margin-left:12px;font-size:.87rem"></span></label>
+      </div>
+    </div>
+  </div>
   </div>
 </div>
 
@@ -471,6 +517,69 @@ async function calcAnnual() {
 }
 
 loadRates();
+
+async function buildVatReturn() {
+  const inn = document.getElementById('rsInn').value.trim();
+  const year = parseInt(document.getElementById('rsYear').value);
+  const month = parseInt(document.getElementById('rsMonth').value);
+  const el = document.getElementById('rsVatResult');
+  el.textContent = 'იტვირთება...';
+  try {
+    const r = await fetch(`${API}/tax/rs-ge/vat-return`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...authHeaders()},
+      body: JSON.stringify({
+        inn, year, month,
+        taxable_sales: parseFloat(document.getElementById('rsTaxSales').value)||0,
+        vat_collected: parseFloat(document.getElementById('rsVatCollected').value)||0,
+        taxable_purchases: parseFloat(document.getElementById('rsTaxPurch').value)||0,
+        vat_paid: parseFloat(document.getElementById('rsVatPaid').value)||0,
+      })
+    });
+    const d = await r.json();
+    el.textContent = JSON.stringify((d.data||d), null, 2);
+  } catch(e) { el.textContent = 'შეცდომა: ' + e.message; }
+}
+
+async function buildWithholding() {
+  const inn = document.getElementById('rsInn').value.trim();
+  const year = parseInt(document.getElementById('rsYear').value);
+  const month = parseInt(document.getElementById('rsMonth').value);
+  const el = document.getElementById('rsWhtResult');
+  el.textContent = 'იტვირთება...';
+  let payments = [];
+  try { payments = JSON.parse(document.getElementById('rsPayments').value || '[]'); } catch(e) {}
+  try {
+    const r = await fetch(`${API}/tax/rs-ge/withholding`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...authHeaders()},
+      body: JSON.stringify({inn, year, month, payments})
+    });
+    const d = await r.json();
+    el.textContent = JSON.stringify((d.data||d), null, 2);
+  } catch(e) { el.textContent = 'შეცდომა: ' + e.message; }
+}
+
+async function verifyInn() {
+  const inn = document.getElementById('rsVerifyInn').value.trim();
+  const el = document.getElementById('rsInnResult');
+  if (!inn) { el.textContent = ''; return; }
+  try {
+    const r = await fetch(`${API}/tax/rs-ge/verify-inn/${inn}`, {headers: authHeaders()});
+    const d = await r.json();
+    const v = (d.data||d);
+    el.style.color = v.valid ? '#16a34a' : '#dc2626';
+    el.textContent = v.valid
+      ? `✅ სწორია — ${v.type === 'legal_entity' ? 'იურ. პირი' : 'ფიზ. პირი'}`
+      : `❌ ${v.reason}`;
+  } catch(e) { el.textContent = 'Error'; }
+}
+
+function authHeaders() {
+  const tk = localStorage.getItem('access_token');
+  const tid = localStorage.getItem('tenant_id') || '';
+  return tk ? {'Authorization':'Bearer '+tk, 'X-Tenant-ID': tid} : {'X-Tenant-ID': tid};
+}
 </script>
 </body>
 </html>

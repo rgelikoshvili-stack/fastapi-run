@@ -61,13 +61,10 @@ def test_background_sets_failed_on_exception():
 
     with patch("app.api.routes_documents._mark_doc_status", side_effect=fake_mark):
         with patch("app.api.routes_documents.parse_document", side_effect=RuntimeError("OCR failed")):
-            try:
-                asyncio.get_event_loop().run_until_complete(
-                    __import__("app.api.routes_documents", fromlist=["_process_document_background"])
-                    ._process_document_background(1, "tenant_a", b"fake_bytes", "application/pdf", "test.pdf")
-                )
-            except Exception:
-                pass
+            from app.api.routes_documents import _process_document_background
+            asyncio.run(
+                _process_document_background(1, "tenant_a", b"fake_bytes", "application/pdf", "test.pdf")
+            )
 
     assert "failed" in status_updates
 
@@ -75,8 +72,8 @@ def test_background_sets_failed_on_exception():
 # ── 4. DB indexes present in migration ───────────────────────────────────────
 
 def test_db_indexes_defined_in_main():
-    """Verify critical indexes are defined in main.py startup migration."""
-    with open("main.py", "r", encoding="utf-8") as f:
+    """Verify critical indexes are defined in the startup migrations module."""
+    with open("app/startup/migrations.py", "r", encoding="utf-8") as f:
         content = f.read()
 
     assert "idx_journal_drafts_tenant_status_created" in content

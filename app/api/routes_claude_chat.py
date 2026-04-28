@@ -7,7 +7,7 @@ import io
 import json
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, Request
-from fastapi.responses import JSONResponse
+from app.api.response_utils import http_error
 
 log = logging.getLogger(__name__)
 
@@ -256,7 +256,7 @@ async def claude_chat(
     message = (message or "").strip()
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return JSONResponse(status_code=503, content={"ok": False, "answer": "ANTHROPIC_API_KEY არ არის კონფიგურირებული."})
+        return http_error(503, "ANTHROPIC_API_KEY არ არის კონფიგურირებული.", "SERVICE_UNAVAILABLE")
 
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
 
@@ -325,8 +325,8 @@ async def claude_chat(
                     import time; time.sleep(1)
 
         log.error("claude_chat all retries failed: %s", last_err)
-        return JSONResponse(status_code=503, content=_CLAUDE_FALLBACK)
+        return http_error(503, "AI temporarily unavailable. Please try again.", "SERVICE_UNAVAILABLE")
 
     except Exception as e:
         log.error("claude_chat setup error: %s", e)
-        return JSONResponse(status_code=503, content={"ok": False, "answer": "AI temporarily unavailable. Please try again.", "model": "claude-sonnet-4-6", "had_context": False})
+        return http_error(503, "AI temporarily unavailable. Please try again.", "SERVICE_UNAVAILABLE")

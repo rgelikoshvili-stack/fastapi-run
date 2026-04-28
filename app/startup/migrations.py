@@ -40,17 +40,22 @@ def run_db_migrations():
                 conn.rollback()
                 log.warning("processed_documents column migration skipped: %s", _col_err)
 
-        # journal_drafts columns
-        cur.execute("""
-            ALTER TABLE journal_drafts
-                ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC,
-                ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC,
-                ADD COLUMN IF NOT EXISTS review_required      BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS partner              TEXT,
-                ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT,
-                ADD COLUMN IF NOT EXISTS engine_metadata      JSONB
-        """)
+        # journal_drafts columns (each separately to survive partial failures)
+        for _jd_col in [
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS review_required      BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS partner              TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS engine_metadata      JSONB",
+        ]:
+            try:
+                cur.execute(_jd_col)
+                conn.commit()
+            except Exception as _e:
+                conn.rollback()
+                log.debug("journal_drafts col migration skipped: %s", _e)
 
         # CRM tables
         cur.execute("""
@@ -248,6 +253,8 @@ def _run_remaining_migrations(cur):
             ON idempotency_keys(tenant_id, idempotent_key, endpoint);
     """)
 
+    conn = cur.connection
+
     # Performance indexes
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant_status_created ON journal_drafts(tenant_id, status, created_at DESC)",
@@ -259,17 +266,20 @@ def _run_remaining_migrations(cur):
         try:
             cur.execute(idx_sql)
         except Exception:
-            pass
+            conn.rollback()
 
     # journal_entries dedup
-    cur.execute("ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS entry_hash TEXT")
+    try:
+        cur.execute("ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS entry_hash TEXT")
+    except Exception:
+        conn.rollback()
     try:
         cur.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_entries_hash
                 ON journal_entries(entry_hash) WHERE entry_hash IS NOT NULL
         """)
     except Exception:
-        pass
+        conn.rollback()
 
     # Data quality constraints
     for sql in [
@@ -282,7 +292,7 @@ def _run_remaining_migrations(cur):
         try:
             cur.execute(sql)
         except Exception:
-            pass
+            conn.rollback()
 
     # Normalize tenant_id: replace company_inn with actual tenant_id
     for tbl in ("journal_drafts", "processed_documents", "learning_patterns",
@@ -296,7 +306,7 @@ def _run_remaining_migrations(cur):
                   AND t.company_inn IS NOT NULL AND t.company_inn != ''
             """)
         except Exception:
-            pass
+            conn.rollback()
 
     # Auto-classify drafts with missing debit/credit accounts
     try:

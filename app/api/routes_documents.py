@@ -917,12 +917,15 @@ async def get_document_file(doc_id: int, request: Request = None):
         try:
             content = gcs_download(gcs_path)
         except Exception as e:
-            log.error("gcs_download failed doc_id=%s: %s", doc_id, e)
-            return http_error(502, "File storage unavailable", "STORAGE_ERROR")
+            log.warning("gcs_download failed doc_id=%s, trying file_content fallback: %s", doc_id, e)
+            if file_content:
+                content = bytes(file_content)
+            else:
+                return http_error(404, "File not available — please re-upload", "NOT_FOUND")
     elif file_content:
         content = bytes(file_content)
     else:
-        return http_error(404, "File content not stored", "NOT_FOUND")
+        return http_error(404, "File not available — please re-upload", "NOT_FOUND")
 
     return Response(
         content=content,

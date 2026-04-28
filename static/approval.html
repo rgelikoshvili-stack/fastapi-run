@@ -1512,6 +1512,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         </div>
         <div class="p-actions">
           <button class="btn btn-success btn-sm" onclick="approveAll()">ყველა</button>
+          <button class="btn btn-ghost btn-sm" title="ხელახლა კლასიფიცირება" onclick="reclassifyAll()" style="font-size:12px">⚡ კლასიფ.</button>
           <button class="btn btn-ghost btn-sm" onclick="loadPending(1)">↻</button>
           <span id="loadTimeIndicator" style="font-size:11px;color:var(--ink-dim);margin-left:4px"></span>
         </div>
@@ -2927,6 +2928,19 @@ async function loadPending(page = 1) {
   };
   renderInto('dash-rows', true);
   renderInto('pending-rows', false);
+}
+
+async function reclassifyAll() {
+  toast('⏳ კლასიფიცირება...', 'info');
+  try {
+    const d = await api('/approval/reclassify', { method: 'POST' });
+    if (d?.ok) {
+      toast(`✓ ${d.reclassified} ჩანაწერი კლასიფიცირდა`, 'ok');
+      loadPending(1);
+    } else {
+      toast('კლასიფიცირება ვერ მოხდა', 'error');
+    }
+  } catch(e) { toast('კლასიფიცირება ვერ მოხდა: ' + e.message, 'error'); }
 }
 
 async function loadApproved() {
@@ -4887,7 +4901,12 @@ async function showDraftDocument(draftId) {
   let blobUrl, fileName, fileType, fileSize;
   try {
     const resp = await fetch(fileUrl, { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
-    if (!resp.ok) { toast('დოკუმენტი ვერ მოიძებნა', 'error'); return; }
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => ({}));
+      const msg = errJson?.error?.details || errJson?.message || 'დოკუმენტი ვერ მოიძებნა';
+      toast(msg.includes('re-upload') ? '⬆ ფაილი ხელახლა ატვირთეთ (Cloud-ი მიუწვდომელია)' : 'დოკუმენტი ვერ მოიძებნა', 'error');
+      return;
+    }
     const ct = resp.headers.get('content-type') || 'application/octet-stream';
     const cd = resp.headers.get('content-disposition') || '';
     const nameMatch = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);

@@ -297,3 +297,42 @@ def _run_remaining_migrations(cur):
             """)
         except Exception:
             pass
+
+    # Auto-classify drafts with missing debit/credit accounts
+    try:
+        from app.knowledge.journal_builder import classify_transaction as _cls
+        cur.execute("""
+            SELECT id, description, tenant_id FROM journal_drafts
+            WHERE (debit_account IS NULL OR credit_account IS NULL)
+              AND description IS NOT NULL
+            LIMIT 500
+        """)
+        rows = cur.fetchall()
+        for row_id, desc, t_id in rows:
+            try:
+                res = _cls(desc or "", t_id or "default")
+                acc = res.get("account", "")
+                if not acc:
+                    continue
+                a = int(acc) if acc.isdigit() else 0
+                if 1000 <= a <= 1999:
+                    dr, cr = acc, "3110"
+                elif 2000 <= a <= 2999:
+                    dr, cr = acc, "3110"
+                elif 3000 <= a <= 3999:
+                    dr, cr = "1210", acc
+                elif 5000 <= a <= 5999:
+                    dr, cr = acc, "3110"
+                elif 7000 <= a <= 7999:
+                    dr, cr = acc, "1210"
+                else:
+                    dr, cr = acc, "3110"
+                cur.execute(
+                    "UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s WHERE id=%s",
+                    (dr, cr, acc, row_id),
+                )
+            except Exception:
+                pass
+        log.info("action=auto_classify_drafts count=%d", len(rows))
+    except Exception as e:
+        log.warning("auto_classify_drafts skipped: %s", e)

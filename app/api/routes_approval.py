@@ -230,6 +230,58 @@ def get_stats(request: Request):
         return error_response("Stats failed", "STATS_ERROR", str(e))
 
 
+@router.post("/reclassify")
+def reclassify_unclassified(request: Request):
+    """Re-run classification on drafts with NULL debit_account/credit_account."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        from app.knowledge.journal_builder import classify_transaction
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """SELECT id, description, amount FROM journal_drafts
+               WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL)
+               ORDER BY id LIMIT 200""",
+            (tenant_id,),
+        )
+        drafts = [dict(r) for r in cur.fetchall()]
+        updated = 0
+        for d in drafts:
+            try:
+                res = classify_transaction(d["description"] or "", tenant_id)
+                acc = res.get("account", "")
+                if not acc:
+                    continue
+                # determine debit/credit from account range
+                a = int(acc) if acc.isdigit() else 0
+                if 1000 <= a <= 1999:
+                    dr, cr = acc, "3110"
+                elif 2000 <= a <= 2999:
+                    dr, cr = acc, "3110"
+                elif 3000 <= a <= 3999:
+                    dr, cr = "1210", acc
+                elif 5000 <= a <= 5999:
+                    dr, cr = acc, "3110"
+                elif 7000 <= a <= 7999:
+                    dr, cr = acc, "1210"
+                else:
+                    dr, cr = acc, "3110"
+                cur.execute(
+                    """UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s
+                       WHERE id=%s AND tenant_id=%s""",
+                    (dr, cr, acc, d["id"], tenant_id),
+                )
+                updated += 1
+            except Exception:
+                pass
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"ok": True, "reclassified": updated, "total_unclassified": len(drafts)}
+    except Exception as e:
+        return error_response("Reclassify failed", "RECLASSIFY_ERROR", str(e))
+
+
 @router.post("/batch-action")
 @limiter.limit("30/minute")
 def batch_action(body: BatchActionRequest, request: Request):

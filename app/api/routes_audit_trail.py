@@ -51,7 +51,7 @@ def recent_changes(request: Request,
     conn = get_db()
     cur = conn.cursor()
     try:
-        conditions = ["tenant_id = %s"]
+        conditions = ["tenant_id::text = %s"]
         params = [tenant_id]
         if entity_type:
             conditions.append("resource = %s")

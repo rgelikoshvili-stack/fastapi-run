@@ -197,6 +197,18 @@ def _run_remaining_migrations(cur):
         );
     """)
 
+    # invoices — add FX column if missing
+    conn_inv = cur.connection
+    for _inv_sql in [
+        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_rate NUMERIC DEFAULT 1.0",
+        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC DEFAULT 1.0",
+    ]:
+        try:
+            cur.execute(_inv_sql)
+            conn_inv.commit()
+        except Exception:
+            conn_inv.rollback()
+
     # Collaboration
     cur.execute("""
         CREATE TABLE IF NOT EXISTS comments (

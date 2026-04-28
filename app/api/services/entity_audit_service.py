@@ -129,7 +129,7 @@ def get_entity_history(conn, entity_type: str, entity_id,
             SELECT id, actor, action, old_value, new_value,
                    details, created_at
             FROM audit_log
-            WHERE resource = %s AND resource_id = %s AND tenant_id = %s
+            WHERE resource = %s AND resource_id = %s AND tenant_id::text = %s
             ORDER BY created_at DESC
             LIMIT %s
         """, (entity_type, str(entity_id), tenant_id, limit))

@@ -47,3 +47,42 @@ def coa_categories():
     rows = cur.fetchall()
     cur.close(); conn.close()
     return {"ok": True, "categories": [dict(r) for r in rows]}
+
+
+@router.get("/summary")
+def coa_summary():
+    """Breakdown of chart of accounts by account type range."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT COUNT(*) as total FROM coa WHERE is_active=TRUE")
+        total = (cur.fetchone() or {}).get("total", 0)
+
+        cur.execute("""
+            SELECT
+                CASE
+                    WHEN code LIKE '1%%' THEN 'assets'
+                    WHEN code LIKE '2%%' THEN 'assets'
+                    WHEN code LIKE '3%%' THEN 'liabilities'
+                    WHEN code LIKE '4%%' THEN 'equity'
+                    WHEN code LIKE '6%%' THEN 'revenue'
+                    WHEN code LIKE '7%%' THEN 'expenses'
+                    WHEN code LIKE '8%%' THEN 'other'
+                    ELSE 'other'
+                END AS type,
+                COUNT(*) AS count
+            FROM coa
+            WHERE is_active=TRUE
+            GROUP BY 1
+            ORDER BY 1
+        """)
+        breakdown = {r["type"]: int(r["count"]) for r in cur.fetchall()}
+    finally:
+        cur.close()
+        conn.close()
+
+    return {
+        "ok": True,
+        "total_accounts": int(total),
+        "breakdown": breakdown,
+    }

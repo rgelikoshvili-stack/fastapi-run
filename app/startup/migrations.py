@@ -25,17 +25,20 @@ def run_db_migrations():
                 END $$;
             """)
 
-        # processed_documents — ensure gcs_path and file_content columns exist
-        cur.execute("""
-            ALTER TABLE processed_documents
-                ADD COLUMN IF NOT EXISTS gcs_path     TEXT,
-                ADD COLUMN IF NOT EXISTS file_content BYTEA,
-                ADD COLUMN IF NOT EXISTS file_hash    TEXT,
-                ADD COLUMN IF NOT EXISTS file_size_bytes INTEGER,
-                ADD COLUMN IF NOT EXISTS approved_by  TEXT,
-                ADD COLUMN IF NOT EXISTS approved_at  TIMESTAMPTZ,
-                ADD COLUMN IF NOT EXISTS source_document_id INTEGER
-        """)
+        # processed_documents — add missing columns one-by-one so one failure doesn't block others
+        for col_sql in [
+            "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS gcs_path TEXT",
+            "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'processing'",
+            "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS approved_by TEXT",
+            "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ",
+            "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS source_document_id INTEGER",
+        ]:
+            try:
+                cur.execute(col_sql)
+                conn.commit()
+            except Exception as _col_err:
+                conn.rollback()
+                log.warning("processed_documents column migration skipped: %s", _col_err)
 
         # journal_drafts columns
         cur.execute("""

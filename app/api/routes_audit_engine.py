@@ -43,7 +43,7 @@ def find_anomalies():
 
     try:
         cur.execute("""
-            SELECT run_id, filename, extraction_result, state, created_at
+            SELECT run_id, filename, extraction, state, created_at
             FROM pipeline_runs
             ORDER BY created_at DESC
             LIMIT 100
@@ -53,7 +53,7 @@ def find_anomalies():
         for row in rows:
             r = dict(row)
             try:
-                extraction = json.loads(r.get("extraction_result") or "{}")
+                extraction = json.loads(r.get("extraction") or "{}")
                 amounts = extraction.get("amounts", [])
 
                 for a in amounts:

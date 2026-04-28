@@ -30,9 +30,9 @@ def get_rate(conn, currency: str, rate_date: date) -> Optional[Decimal]:
     try:
         cur.execute("""
             SELECT rate FROM exchange_rates
-            WHERE currency = %s AND rate_date <= %s
-            ORDER BY rate_date DESC LIMIT 1
-        """, (currency.upper(), rate_date))
+            WHERE currency = %s
+            ORDER BY updated_at DESC LIMIT 1
+        """, (currency.upper(),))
         row = cur.fetchone()
         return Decimal(str(row[0])) if row else None
     finally:

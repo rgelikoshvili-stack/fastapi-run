@@ -111,7 +111,8 @@ def _get_trial_balance(tenant_id: str, date_from: Optional[str], date_to: Option
           AND jd.status IN ('approved', 'posted')
           {date_filter}
           AND (entry->>'dr' IS NOT NULL OR entry->>'cr' IS NOT NULL)
-        GROUP BY account_code, side
+        GROUP BY COALESCE(entry->>'dr', entry->>'cr'),
+                 CASE WHEN entry->>'dr' IS NOT NULL THEN 'debit' ELSE 'credit' END
     """
     conn = get_db()
     try:

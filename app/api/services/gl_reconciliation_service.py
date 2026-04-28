@@ -63,11 +63,10 @@ def _get_gl_bank_movements(tenant_id: str, date_from: str, date_to: str) -> list
 def _get_bank_transactions(tenant_id: str, date_from: str, date_to: str) -> list[dict]:
     """Return bank_transactions rows for the period."""
     sql = """
-        SELECT id, date, description, amount, transaction_type
+        SELECT id, date, description, amount
         FROM bank_transactions
         WHERE tenant_id = %s
           AND date BETWEEN %s AND %s
-          AND status != 'excluded'
         ORDER BY date, id
     """
     conn = get_db()
@@ -86,7 +85,7 @@ def _get_bank_transactions(tenant_id: str, date_from: str, date_to: str) -> list
             "date": r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1]),
             "description": r[2] or "",
             "amount": abs(float(r[3] or 0)),
-            "side": "debit" if float(r[3] or 0) > 0 else "credit",
+            "side": "debit" if float(r[3] or 0) >= 0 else "credit",
             "matched": False,
             "match_id": None,
         }

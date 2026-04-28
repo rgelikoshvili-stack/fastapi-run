@@ -54,3 +54,7 @@ _audit/
 
 # Aider AI tool
 .aider*
+
+# Long-filename Georgian PDFs — exceed Linux 255-byte limit
+knowledge_files/archive/*-*-*-*-*-*-*-*.pdf
+knowledge_files/archive/*-*-*-*-*-*-*.pdf

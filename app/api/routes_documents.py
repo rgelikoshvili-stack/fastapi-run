@@ -308,7 +308,7 @@ async def _process_document_background(
                         extracted.document_series, extracted.document_number,
                         extracted.issue_date, extracted.total_with_vat,
                         description, seller_name, warning_note,
-                        "????", "????",
+                        None, None,
                         json.dumps(extracted.dict()), doc_id, json.dumps([]),
                     ),
                 )

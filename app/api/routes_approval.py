@@ -240,7 +240,8 @@ def reclassify_unclassified(request: Request):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
             """SELECT id, description, amount FROM journal_drafts
-               WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL)
+               WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL
+                                        OR debit_account = '????' OR credit_account = '????')
                ORDER BY id LIMIT 200""",
             (tenant_id,),
         )

@@ -324,12 +324,13 @@ def _run_remaining_migrations(cur):
         except Exception:
             conn.rollback()
 
-    # Auto-classify drafts with missing debit/credit accounts
+    # Auto-classify drafts with missing or placeholder debit/credit accounts
     try:
         from app.knowledge.journal_builder import classify_transaction as _cls
         cur.execute("""
             SELECT id, description, tenant_id FROM journal_drafts
-            WHERE (debit_account IS NULL OR credit_account IS NULL)
+            WHERE (debit_account IS NULL OR credit_account IS NULL
+                   OR debit_account = '????' OR credit_account = '????')
               AND description IS NOT NULL
             LIMIT 500
         """)

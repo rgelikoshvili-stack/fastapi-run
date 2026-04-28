@@ -58,3 +58,9 @@ _audit/
 # Long-filename Georgian PDFs — exceed Linux 255-byte limit
 knowledge_files/archive/*-*-*-*-*-*-*-*.pdf
 knowledge_files/archive/*-*-*-*-*-*-*.pdf
+
+# ACCA English textbooks — not needed in deployment (74MB saved)
+knowledge_files/archive/Full.pdf
+knowledge_files/archive/*ACCA*.pdf
+knowledge_files/archive/*BPP*.pdf
+knowledge_files/archive/document*.doc

@@ -265,32 +265,56 @@ async function loadPnLRange(){
 function renderPnL(d){
   const el=document.getElementById('pnlBody');
   if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა ან მონაცემი არ არის</div>';return;}
-  const {revenue,cogs,gross_profit,opex,ebit,period}=d.data;
-  const ebitClass=ebit>=0?'ebit-pos':'ebit-neg';
-  let html=`
-    <div style="font-size:.82rem;color:#adb5bd;margin-bottom:1rem">📅 პერიოდი: ${period?.from||'—'} – ${period?.to||'—'}</div>
-    <div class="pnl-section">
-      <div class="pnl-section-title">💰 შემოსავალი (Revenue)</div>`;
-  const df=period?.from||''; const dt=period?.to||'';
+  const dt=d.data||{};
+  // New API: revenue_detail/cogs_detail/opex_detail; fallback to old structure
+  const revSec  = dt.revenue_detail || dt.revenue || {};
+  const cogsSec = dt.cogs_detail    || dt.cogs    || {};
+  const opexSec = dt.opex_detail    || dt.opex    || {};
+  const grossP  = dt.gross_profit   != null ? dt.gross_profit  : (dt.revenue - (dt.cogs||0));
+  const ebit    = dt.ebit           != null ? dt.ebit          : dt.net_profit || 0;
+  const period  = dt.period         || {};
+  const ebitClass = ebit >= 0 ? 'ebit-pos' : 'ebit-neg';
+  const pFrom = period.from||''; const pTo = period.to||'';
+
+  if (!revSec.lines?.length && !cogsSec.lines?.length && !opexSec.lines?.length) {
+    el.innerHTML=`<div class="empty">📭 Journal-ში დამტკიცებული ჩანაწერი არ მოიძებნა ამ პერიოდისთვის.<br><small style="color:#adb5bd">Approve drafts first, then reports will populate.</small></div>`;
+    return;
+  }
+
   function drillRow(l){
     const ac=l.account_code||'';
-    const onclick=ac?`onclick="openDrawer('${esc(l.label)} — ტრანზაქციები','/reports/pnl/detail?account_code=${ac}&date_from=${df}&date_to=${dt}')" title="დააჭირეთ დეტალებისთვის"`:'';
+    const lbl=l.label||l.name||ac;
+    const onclick=ac?`onclick="openDrawer('${esc(lbl)} — ტრანზაქციები','/reports/pnl/detail?account_code=${ac}&date_from=${pFrom}&date_to=${pTo}')" title="დააჭირეთ დეტალებისთვის"`:'';
     const cls=ac?'pnl-row drillable':'pnl-row';
-    return `<div class="${cls}" ${onclick}><span>${esc(l.label)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;
+    return `<div class="${cls}" ${onclick}><span>${esc(lbl)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;
   }
-  (revenue?.lines||[]).forEach(l=>{html+=drillRow(l);});
-  html+=`<div class="pnl-row subtotal"><span>სულ შემოსავალი</span><span class="amount">₾${fmt(revenue?.total)}</span></div></div>
-    <div class="pnl-section">
-      <div class="pnl-section-title">🔧 გაყიდული საქ. ღირ. (COGS)</div>`;
-  (cogs?.lines||[]).forEach(l=>{html+=drillRow(l);});
-  html+=`<div class="pnl-row subtotal"><span>სულ COGS</span><span class="amount">₾${fmt(cogs?.total)}</span></div></div>
-    <div class="pnl-row subtotal" style="background:#e7edff;margin-bottom:1rem"><span>📊 მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(gross_profit)}</span></div>
-    <div class="pnl-section">
-      <div class="pnl-section-title">💸 საოპ. ხარჯები (OpEx)</div>`;
-  (opex?.lines||[]).forEach(l=>{html+=drillRow(l);});
-  html+=`<div class="pnl-row subtotal"><span>სულ OpEx</span><span class="amount">₾${fmt(opex?.total)}</span></div></div>
-    <div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>
-    <div style="font-size:.75rem;color:#adb5bd;margin-top:.75rem;text-align:right">💡 ხაზებზე დაჭერით ნახავთ ინდივიდუალურ ტრანზაქციებს</div>`;
+
+  let html=`<div style="font-size:.82rem;color:#adb5bd;margin-bottom:1rem">📅 პერიოდი: ${pFrom||'—'} – ${pTo||'—'}</div>`;
+
+  // Revenue
+  html+=`<div class="pnl-section"><div class="pnl-section-title">💰 შემოსავალი (Revenue)</div>`;
+  (revSec.lines||[]).forEach(l=>{html+=drillRow(l);});
+  if(!(revSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 6xxx ანგარიშები ცარიელია</div>`;
+  html+=`<div class="pnl-row subtotal"><span>სულ შემოსავალი</span><span class="amount">₾${fmt(revSec.total??dt.revenue??0)}</span></div></div>`;
+
+  // COGS
+  html+=`<div class="pnl-section"><div class="pnl-section-title">🔧 გაყიდული საქ. ღირ. (COGS — 5xxx)</div>`;
+  (cogsSec.lines||[]).forEach(l=>{html+=drillRow(l);});
+  if(!(cogsSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 5xxx ანგარიშები ცარიელია</div>`;
+  html+=`<div class="pnl-row subtotal"><span>სულ COGS</span><span class="amount">₾${fmt(cogsSec.total??dt.cogs??0)}</span></div></div>`;
+
+  // Gross Profit
+  html+=`<div class="pnl-row subtotal" style="background:#e7edff;margin-bottom:1rem"><span>📊 მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(grossP)}</span></div>`;
+
+  // OpEx
+  html+=`<div class="pnl-section"><div class="pnl-section-title">💸 საოპ. ხარჯები (OpEx — 7xxx)</div>`;
+  (opexSec.lines||[]).forEach(l=>{html+=drillRow(l);});
+  if(!(opexSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 7xxx ანგარიშები ცარიელია</div>`;
+  html+=`<div class="pnl-row subtotal"><span>სულ OpEx</span><span class="amount">₾${fmt(opexSec.total??dt.opex??0)}</span></div></div>`;
+
+  // EBIT
+  html+=`<div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>`;
+  html+=`<div style="font-size:.75rem;color:#adb5bd;margin-top:.75rem;text-align:right">💡 ხაზებზე დაჭერით ნახავთ ინდივიდუალურ ტრანზაქციებს</div>`;
   el.innerHTML=html;
 }
 

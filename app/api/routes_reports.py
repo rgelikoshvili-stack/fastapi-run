@@ -133,7 +133,17 @@ def pnl_report(
     request: Request,
     year: int | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
+    """
+    P&L from journal_drafts using Georgian CoA:
+      Revenue (6xxx) = SUM where credit_account LIKE '6%'
+      COGS    (5xxx) = SUM where debit_account  LIKE '5%'
+      OpEx    (7xxx) = SUM where debit_account  LIKE '7%'
+    Only approved / auto_approved / posted drafts are counted.
+    Supports ?year=, ?year=&month=, ?date_from=&date_to=
+    """
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
@@ -141,43 +151,132 @@ def pnl_report(
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try:
-        conditions = ["tenant_id = %s"]
-        params = [tenant_id]
+        conditions = [
+            "tenant_id = %s",
+            "status IN ('approved','auto_approved','posted')",
+            "amount IS NOT NULL",
+            "amount > 0",
+        ]
+        params: list = [tenant_id]
 
-        conditions.append("date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'")
+        # date_from / date_to take priority over year/month
+        if date_from:
+            conditions.append("date >= %s"); params.append(date_from)
+        elif year:
+            conditions.append("EXTRACT(YEAR FROM date::date) = %s"); params.append(year)
 
-        if year:
-            conditions.append("EXTRACT(YEAR FROM date::date) = %s")
-            params.append(year)
+        if date_to:
+            conditions.append("date <= %s"); params.append(date_to)
+        elif year and month:
+            conditions.append("EXTRACT(MONTH FROM date::date) = %s"); params.append(month)
 
-        if month:
-            conditions.append("EXTRACT(MONTH FROM date::date) = %s")
-            params.append(month)
+        where = " AND ".join(conditions)
 
-        where_clause = " AND ".join(conditions)
-
+        # ── Revenue: credit_account starts with 6 ──────────────────────────
         cur.execute(f"""
             SELECT
-                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as revenue,
-                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as expenses
-            FROM bank_transactions
-            WHERE {where_clause}
+                COALESCE(LEFT(credit_account, 4), 'other') AS acc,
+                COALESCE(SUM(amount), 0)                    AS total
+            FROM journal_drafts
+            WHERE {where}
+              AND credit_account ~ '^6'
+            GROUP BY 1 ORDER BY total DESC
         """, params)
+        rev_rows = cur.fetchall()
 
-        row = cur.fetchone() or {}
+        # ── COGS: debit_account starts with 5 ─────────────────────────────
+        cur.execute(f"""
+            SELECT
+                COALESCE(LEFT(debit_account, 4), 'other') AS acc,
+                COALESCE(SUM(amount), 0)                   AS total
+            FROM journal_drafts
+            WHERE {where}
+              AND debit_account ~ '^5'
+            GROUP BY 1 ORDER BY total DESC
+        """, params)
+        cogs_rows = cur.fetchall()
 
-        revenue = round(float(row.get("revenue") or 0), 2)
-        expenses = round(float(row.get("expenses") or 0), 2)
+        # ── OpEx: debit_account starts with 7 ─────────────────────────────
+        cur.execute(f"""
+            SELECT
+                COALESCE(LEFT(debit_account, 4), 'other') AS acc,
+                COALESCE(SUM(amount), 0)                   AS total
+            FROM journal_drafts
+            WHERE {where}
+              AND debit_account ~ '^7'
+            GROUP BY 1 ORDER BY total DESC
+        """, params)
+        opex_rows = cur.fetchall()
+
+        # ── COA names lookup ───────────────────────────────────────────────
+        all_codes = (
+            [r["acc"] for r in rev_rows] +
+            [r["acc"] for r in cogs_rows] +
+            [r["acc"] for r in opex_rows]
+        )
+        coa_names: dict[str, str] = {}
+        if all_codes:
+            cur.execute("""
+                SELECT code, COALESCE(name_en, name_ka, code) AS name
+                FROM coa WHERE code = ANY(%s)
+            """, (list(set(all_codes)),))
+            coa_names = {r["code"]: r["name"] for r in cur.fetchall()}
+
+        def to_lines(rows) -> list[dict]:
+            return [
+                {
+                    "account_code": r["acc"],
+                    "name": coa_names.get(r["acc"], r["acc"]),
+                    "amount": round(float(r["total"]), 2),
+                }
+                for r in rows
+            ]
+
+        rev_lines  = to_lines(rev_rows)
+        cogs_lines = to_lines(cogs_rows)
+        opex_lines = to_lines(opex_rows)
+
+        revenue  = round(sum(l["amount"] for l in rev_lines), 2)
+        cogs     = round(sum(l["amount"] for l in cogs_lines), 2)
+        opex     = round(sum(l["amount"] for l in opex_lines), 2)
+        expenses = round(cogs + opex, 2)
+        gross    = round(revenue - cogs, 2)
+        ebit     = round(gross - opex, 2)
+        margin   = round(ebit / revenue * 100, 1) if revenue else 0.0
+
+        # Flat breakdown for the approval.html simple view
+        breakdown = (
+            [{"account_code": l["account_code"], "category": l["name"],
+              "amount": l["amount"], "type": "revenue"} for l in rev_lines] +
+            [{"account_code": l["account_code"], "category": l["name"],
+              "amount": l["amount"], "type": "cogs"} for l in cogs_lines] +
+            [{"account_code": l["account_code"], "category": l["name"],
+              "amount": l["amount"], "type": "opex"} for l in opex_lines]
+        )
+
+        period_from = date_from or (f"{year}-{month:02d}-01" if year and month else (f"{year}-01-01" if year else None))
+        period_to   = date_to   or (None)
 
         return {
             "ok": True,
             "report": "pnl",
             "data": {
-                "revenue": revenue,
-                "expenses": expenses,
-                "profit_before_tax": round(revenue - expenses, 2),
+                "revenue":          revenue,
+                "expenses":         expenses,
+                "cogs":             cogs,
+                "opex":             opex,
+                "gross_profit":     gross,
+                "ebit":             ebit,
+                "net_profit":       ebit,
+                "profit_before_tax": ebit,
+                "profit_margin":    margin,
+                "breakdown":        breakdown,
+                # Structured format for financial_reports.html
+                "revenue_detail":   {"total": revenue, "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in rev_lines]},
+                "cogs_detail":      {"total": cogs,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in cogs_lines]},
+                "opex_detail":      {"total": opex,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in opex_lines]},
+                "period":           {"from": period_from, "to": period_to},
             },
-            "note": "ეს არის მარტივი P&L ვერსია bank_transactions-ზე დაყრდნობით.",
         }
 
     finally:

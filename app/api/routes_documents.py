@@ -340,7 +340,7 @@ async def _process_document_background(
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
-                    tenant_id, "pending",
+                    tenant_id, "pending_approval",
                     party.our_role.value, extracted.document_type, category.value,
                     party.counterparty_inn, party.counterparty_name,
                     extracted.document_series, extracted.document_number,

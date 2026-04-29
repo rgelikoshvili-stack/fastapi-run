@@ -63,8 +63,8 @@ class ExtractedLineItem(BaseModel):
 
 class ExtractedDocument(BaseModel):
     document_type: Literal[
-        "tax_invoice", "waybill", "contract",
-        "receipt", "bank_statement", "unknown"
+        "tax_invoice", "waybill", "invoice", "contract",
+        "act", "delivery", "receipt", "bank_statement", "unknown"
     ] = "unknown"
     document_series: Optional[str] = None
     document_number: Optional[str] = None
@@ -82,6 +82,20 @@ class ExtractedDocument(BaseModel):
 
     currency: str = "GEL"
     notes: Optional[str] = None
+
+    # Extended fields for triangle matching
+    waybill_number: Optional[str] = None        # waybill doc number
+    waybill_date: Optional[str] = None          # waybill issue date
+    invoice_number: Optional[str] = None        # commercial invoice number
+    invoice_date: Optional[str] = None          # commercial invoice date
+    related_waybill_number: Optional[str] = None  # tax_invoice → references waybill
+    contract_number: Optional[str] = None       # referenced contract
+    delivery_date: Optional[str] = None         # delivery confirmation date
+    act_number: Optional[str] = None            # act of completion number
+    total_amount: Optional[float] = None        # alias for triangle matching
+    seller_inn: Optional[str] = None            # flat alias for triangle
+    buyer_inn: Optional[str] = None             # flat alias for triangle
+    provider_type: Optional[str] = None         # fp/im/shps/sp/npo/unknown
 
 
 EXTRACTION_PROMPT = """You are Bridge Hub's document intelligence system for Georgian accounting.
@@ -102,13 +116,24 @@ CRITICAL — seller vs buyer identification:
 - Do NOT swap seller and buyer — the company that ISSUED the document is the seller
 
 Document types:
-- tax_invoice: Georgian tax invoice (სასაქონლო ზედნადები / ანგარიშ-ფაქტურა)
-- waybill: delivery document (სასაქონლო ნაშთი / ზედნადები)
-- contract: agreement (ხელშეკრულება)
+- tax_invoice: Georgian tax invoice (ანგარიშ-ფაქტურა / სასაქონლო ზედნადები with VAT)
+- waybill: delivery / consignment note (სასაქონლო ზედნადები, ტვირთის გადაზიდვის ფურცელი)
+- invoice: commercial invoice for goods/services (ინვოისი / კომერციული ანგარიში)
+- contract: service or supply agreement (ხელშეკრულება / შეთანხმება)
+- act: act of completion / acceptance (მიღება-ჩაბარების აქტი)
+- delivery: delivery confirmation (მიწოდების დამადასტურებელი)
 - receipt: payment receipt (ქვითარი / ჩეკი)
 - bank_statement: bank statement (ამონაწერი)
 
-Return ONLY valid JSON, no explanation.
+Extra fields to extract (use null if absent):
+- waybill_number, waybill_date: for waybill documents
+- invoice_number, invoice_date: for invoice documents
+- related_waybill_number: reference to waybill in tax_invoice
+- contract_number: referenced contract number
+- act_number: act/completion number
+- delivery_date: for delivery documents
+
+Return ONLY valid JSON matching the ExtractedDocument schema, no explanation.
 
 Document text:
 ---
@@ -129,6 +154,22 @@ async def extract_document(text: str, llm_service=None) -> ExtractedDocument:
     return _regex_extract(text)
 
 
+def _populate_flat_aliases(doc: "ExtractedDocument") -> None:
+    """Populate flat seller_inn / buyer_inn / total_amount from nested fields."""
+    if not doc.seller_inn and doc.seller:
+        doc.seller_inn = doc.seller.inn
+    if not doc.buyer_inn and doc.buyer:
+        doc.buyer_inn = doc.buyer.inn
+    if doc.total_amount is None:
+        doc.total_amount = doc.total_with_vat
+    if not doc.provider_type and doc.seller_inn:
+        from app.api.services.contract_classifier import classify_provider_type
+        doc.provider_type = classify_provider_type(
+            doc.seller.name if doc.seller else None,
+            doc.seller_inn
+        ).value
+
+
 async def _llm_extract(text: str, llm_service) -> ExtractedDocument:
     truncated = text[:8000]
     try:
@@ -145,7 +186,9 @@ async def _llm_extract(text: str, llm_service) -> ExtractedDocument:
             if raw.startswith("json"):
                 raw = raw[4:]
         data = json.loads(raw)
-        return ExtractedDocument(**data)
+        doc = ExtractedDocument(**data)
+        _populate_flat_aliases(doc)
+        return doc
     except json.JSONDecodeError as e:
         log.error("LLM JSON parse failed: %s", e)
         return _regex_extract(text)
@@ -225,22 +268,78 @@ def _regex_extract(text: str) -> ExtractedDocument:
 
     doc_type = "unknown"
     text_lower = text.lower()
-    if any(kw in text_lower for kw in ["ზედნადები", "invoice", "ინვოისი"]):
+
+    # More specific matching — order matters (most specific first)
+    if any(kw in text_lower for kw in ["ანგარიშ-ფაქტურა", "tax invoice"]):
         doc_type = "tax_invoice"
-    elif any(kw in text_lower for kw in ["ხელშეკრულება", "contract", "agreement"]):
+    elif any(kw in text_lower for kw in ["მიღება-ჩაბარებ", "acceptance act", "completion act", "act of"]):
+        doc_type = "act"
+    elif any(kw in text_lower for kw in ["სასაქონლო ზედნადები", "waybill", "ზედნადები"]):
+        doc_type = "waybill"
+    elif any(kw in text_lower for kw in ["ხელშეკრულება", "contract", "agreement", "შეთანხმება"]):
         doc_type = "contract"
-    elif any(kw in text_lower for kw in ["ამონაწერი", "statement", "ბანკი"]):
+    elif any(kw in text_lower for kw in ["ინვოისი", "invoice", "commercial invoice"]):
+        doc_type = "invoice"
+    elif any(kw in text_lower for kw in ["მიწოდება", "delivery note", "dispatch"]):
+        doc_type = "delivery"
+    elif any(kw in text_lower for kw in ["ამონაწერი", "statement", "bank statement"]):
         doc_type = "bank_statement"
+    elif any(kw in text_lower for kw in ["ქვითარი", "receipt", "ჩეკი"]):
+        doc_type = "receipt"
+
+    # Extract doc numbers via common patterns
+    doc_number = None
+    num_match = re.search(r'(?:№|#|N|No\.?)\s*([A-Za-z0-9\-/]+)', text)
+    if num_match:
+        doc_number = num_match.group(1)
+
+    # Waybill-specific number
+    waybill_number = None
+    wb_match = re.search(r'(?:ზედნადები|waybill)[^\d]*(\d{5,12})', text, re.IGNORECASE)
+    if wb_match:
+        waybill_number = wb_match.group(1)
+
+    # Related waybill reference in tax_invoice
+    related_wb = None
+    ref_match = re.search(r'(?:ზედნადები|waybill)\s*(?:№|#|N)?\s*(\d{5,12})', text, re.IGNORECASE)
+    if ref_match and doc_type == "tax_invoice":
+        related_wb = ref_match.group(1)
 
     from app.api.services.journal_service import validate_georgian_inn
     validated_seller = seller_inn if seller_inn and validate_georgian_inn(seller_inn) else None
     validated_buyer = buyer_inn if buyer_inn and validate_georgian_inn(buyer_inn) else None
 
+    # Try to extract VAT from amounts — last large amount usually total, second-to-last is net
+    vat_total: float | None = None
+    net_amount: float | None = None
+    if len(amounts) >= 2:
+        try:
+            vat_total = float(amounts[-1].replace(",", "."))
+            net_amount = float(amounts[-2].replace(",", "."))
+        except Exception:
+            pass
+
+    # Classify provider type from INNs
+    from app.api.services.contract_classifier import classify_provider_type
+    p_type = classify_provider_type(None, validated_seller)
+
     return ExtractedDocument(
         document_type=doc_type,
+        document_number=doc_number,
         issue_date=issue_date,
         seller=ExtractedParty(inn=validated_seller),
         buyer=ExtractedParty(inn=validated_buyer),
         total_with_vat=total,
-        notes=text[:500],  # classifier searches notes for keywords
+        net_amount=net_amount,
+        notes=text[:500],
+        # flat aliases
+        waybill_number=waybill_number if doc_type == "waybill" else None,
+        waybill_date=issue_date if doc_type == "waybill" else None,
+        invoice_number=doc_number if doc_type in ("invoice", "tax_invoice") else None,
+        invoice_date=issue_date if doc_type in ("invoice", "tax_invoice") else None,
+        related_waybill_number=related_wb,
+        total_amount=total,
+        seller_inn=validated_seller,
+        buyer_inn=validated_buyer,
+        provider_type=p_type.value,
     )

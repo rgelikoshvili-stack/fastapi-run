@@ -49,6 +49,14 @@ def run_db_migrations():
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS partner              TEXT",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS autopilot_flag       TEXT",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS engine_metadata      JSONB",
+            # Document Intelligence Engine columns
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS doc_set_score        NUMERIC",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS doc_set_summary      TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS doc_matrix           JSONB",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS provider_type        TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS tax_detail           JSONB",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS triangle_match_id    INTEGER",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS completeness_alerts  JSONB",
         ]:
             try:
                 cur.execute(_jd_col)

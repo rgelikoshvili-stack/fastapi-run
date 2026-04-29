@@ -92,7 +92,9 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                 SELECT id, date, partner, amount, currency, status, our_role,
                        confidence, created_at, source_document_id,
                        description, account_code, debit_account, credit_account,
-                       operation_category, is_foreign_doc, counterparty_name
+                       operation_category, is_foreign_doc, counterparty_name,
+                       doc_set_summary, doc_set_score, doc_matrix,
+                       provider_type, completeness_alerts
                 FROM journal_drafts
                 WHERE status = %s AND tenant_id = %s
                 ORDER BY created_at DESC, id DESC
@@ -116,7 +118,9 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                 SELECT id, date, partner, amount, currency, status, our_role,
                        confidence, created_at, source_document_id,
                        description, account_code, debit_account, credit_account,
-                       operation_category, is_foreign_doc, counterparty_name
+                       operation_category, is_foreign_doc, counterparty_name,
+                       doc_set_summary, doc_set_score, doc_matrix,
+                       provider_type, completeness_alerts
                 FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
                   AND tenant_id = %s

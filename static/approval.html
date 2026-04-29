@@ -1534,9 +1534,9 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr>
-              <th>#</th><th>თარიღი</th><th>აღწერა</th><th>თანხა</th><th>კატ.</th><th>Conf.</th><th>სტ.</th><th>მოქმ.</th>
+              <th>#</th><th>თარიღი</th><th>აღწერა</th><th>თანხა</th><th>კატ.</th><th>Conf.</th><th>სტ.</th><th>დოკ.</th><th>მოქმ.</th>
             </tr></thead>
-            <tbody id="pending-rows"><tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+            <tbody id="pending-rows"><tr><td colspan="9"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
           </table>
         </div>
         <div id="pending-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border,#e2e8f0);font-size:12px;color:var(--ink-dim)">
@@ -2856,11 +2856,77 @@ async function loadKPI() {
   if (sb) { sb.textContent = k.pending ?? 0; sb.classList.toggle('hidden', !k.pending); }
 }
 
+/* ═════════ DOC MATRIX ═════════ */
+function fmtDocMatrix(r) {
+  const summary = r.doc_set_summary;
+  const score   = r.doc_set_score;
+  const matrix  = r.doc_matrix;
+  const alerts  = r.completeness_alerts;
+  const ptype   = r.provider_type;
+
+  if (!summary && !matrix) return '<span style="color:var(--ink-ghost);font-size:11px">—</span>';
+
+  // Parse matrix if it's a JSON string
+  let mx = matrix;
+  if (typeof mx === 'string') { try { mx = JSON.parse(mx); } catch(e) { mx = null; } }
+
+  // Parse alerts if JSON string
+  let al = alerts;
+  if (typeof al === 'string') { try { al = JSON.parse(al); } catch(e) { al = []; } }
+
+  // Icon row: waybill / tax_invoice / invoice (goods) or contract / act / tax_invoice (service)
+  const LABELS = {
+    waybill:     {icon:'📦', short:'WB'},
+    tax_invoice: {icon:'🧾', short:'TI'},
+    invoice:     {icon:'📄', short:'INV'},
+    contract:    {icon:'📝', short:'CT'},
+    act:         {icon:'✍️', short:'ACT'},
+    delivery:    {icon:'🚚', short:'DEL'},
+  };
+
+  let chips = '';
+  if (mx && typeof mx === 'object') {
+    for (const [dt, info] of Object.entries(mx)) {
+      const st  = info.status || 'missing';
+      const lbl = LABELS[dt] || {icon:'📎', short: dt.toUpperCase().slice(0,3)};
+      const col = st === 'ok' ? '#4a7c3a' : st === 'warning' ? '#b57d1a' : '#a83828';
+      const bg  = st === 'ok' ? 'rgba(74,124,58,.1)' : st === 'warning' ? 'rgba(181,125,26,.1)' : 'rgba(168,56,40,.1)';
+      const icn = st === 'ok' ? '✅' : st === 'warning' ? '⚠️' : '❌';
+      const num = info.doc_number ? `#${info.doc_number}` : '';
+      chips += `<span title="${lbl.short}: ${icn} ${num}" style="display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:5px;background:${bg};color:${col};font-size:10px;font-family:var(--mono);font-weight:600;cursor:default">${icn}${lbl.short}</span>`;
+    }
+  }
+
+  // Provider type chip
+  let ptChip = '';
+  if (ptype && ptype !== 'unknown') {
+    const ptLabel = {fp:'ფ.პ.',im:'ი.მ.',shps:'შპს',sp:'სს',npo:'ნპო'}[ptype] || ptype.toUpperCase();
+    const ptCol = (ptype === 'fp' || ptype === 'im') ? '#b57d1a' : '#3a5a8c';
+    const ptBg  = (ptype === 'fp' || ptype === 'im') ? 'rgba(181,125,26,.1)' : 'rgba(58,90,140,.1)';
+    ptChip = `<span style="padding:1px 5px;border-radius:4px;background:${ptBg};color:${ptCol};font-size:9.5px;font-family:var(--mono);font-weight:600">${ptLabel}</span>`;
+  }
+
+  // Summary line
+  const summText = summary || '';
+  const summColor = summText.startsWith('✅') ? 'var(--green)' : summText.startsWith('❌') ? 'var(--red)' : 'var(--amber)';
+  const summLine = summText ? `<div style="font-size:10px;color:${summColor};font-weight:600;margin-bottom:2px">${summText}</div>` : '';
+
+  // Alerts tooltip
+  const alertList = Array.isArray(al) ? al : [];
+  const alertTip  = alertList.length ? alertList.join('\n') : '';
+
+  return `<div title="${esc(alertTip)}" style="display:flex;flex-direction:column;gap:2px;min-width:80px">
+    ${summLine}
+    <div style="display:flex;flex-wrap:wrap;gap:2px">${chips}${ptChip}</div>
+  </div>`;
+}
+
 /* ═════════ PENDING ═════════ */
 function renderPendingRow(r, dashboard=false) {
   const id = getId(r);
   const conf = getConfV(r);
   const date = dashboard ? '' : `<td class="mono">${fmtDate(r.date || r.created_at)}</td>`;
+  const docMatrix = dashboard ? '' : `<td>${fmtDocMatrix(r)}</td>`;
   return `<tr style="cursor:pointer" onclick="showPostingPreview('${id}')">
     <td class="mono">#${id}</td>
     ${date}
@@ -2869,6 +2935,7 @@ function renderPendingRow(r, dashboard=false) {
     <td><span class="chip chip-draft">${esc(getCat(r))}</span></td>
     <td>${fmtConf(conf)}</td>
     <td>${fmtStatus(r.status)}</td>
+    ${docMatrix}
     <td><div class="act-wrap" style="gap:8px">
       <button onclick="event.stopPropagation();showDraftDocument('${id}')" title="ორიგინალი დოკუმენტის ნახვა"
         style="background:linear-gradient(135deg,#17a2b8,#138496);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(23,162,184,.35);transition:transform .2s,box-shadow .2s"
@@ -2920,7 +2987,7 @@ async function loadPending(page = 1) {
     const tbody = document.getElementById(target);
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="${isDash?7:8}"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">ცარიელი რიგი — ყველაფერი დამუშავებულია</div></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${isDash?7:9}"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">ცარიელი რიგი — ყველაფერი დამუშავებულია</div></div></td></tr>`;
       return;
     }
     const limited = isDash ? rows.slice(0, 6) : rows;

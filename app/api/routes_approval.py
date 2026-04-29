@@ -74,7 +74,7 @@ def get_queue(request: Request, status: str = "", limit: int = 100, offset: int 
 
 def _check_locked(result):
     """Return 409 if service detected a row lock conflict."""
-    if isinstance(result, dict) and result.get("error", {}).get("code") == "DRAFT_LOCKED":
+    if isinstance(result, dict) and (result.get("error") or {}).get("code") == "DRAFT_LOCKED":
         return http_error(409, result.get("message", "Draft locked"), "DRAFT_LOCKED")
     return None
 

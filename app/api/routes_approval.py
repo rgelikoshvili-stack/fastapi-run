@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
 
-from app.api.response_utils import error_response, http_error
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.db import get_db
@@ -129,6 +129,33 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
     }
     result = correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
     return _check_locked(result) or result
+
+
+@router.delete("/draft/{draft_id}")
+@limiter.limit("30/minute")
+def delete_draft(draft_id: int, request: Request):
+    """Permanently delete a journal draft (tenant-scoped)."""
+    user_id = resolve_tenant_id(getattr(request.state, "user_id", "anon") if request else "anon")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    from app.api.db import get_db
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "DELETE FROM journal_drafts WHERE id = %s AND tenant_id = %s RETURNING id",
+            (draft_id, tenant_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        if not row:
+            return http_error(404, "Draft not found", "NOT_FOUND")
+        log.info("action=delete_draft draft_id=%s tenant=%s", draft_id, tenant_id)
+        return ok_response("Draft deleted", {"draft_id": draft_id})
+    except Exception as e:
+        conn.rollback()
+        return error_response("DB error", "DB_ERROR", str(e))
+    finally:
+        cur.close(); conn.close()
 
 
 @router.patch("/draft/{draft_id}")

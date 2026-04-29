@@ -3072,6 +3072,18 @@ async function reject(id) {
 }
 window.reject = reject;
 
+async function deleteDraft(id) {
+  if (!confirm('გატარება წაიშლება სამუდამოდ. დარწმუნებული ხარ?')) return;
+  const d = await api('/approval/draft/' + id, 'DELETE');
+  if (d?.ok) {
+    toast('გატარება წაიშლა', 'success');
+    loadPending();
+  } else {
+    toast(d?.message || 'წაშლა ვერ მოხერხდა', 'error');
+  }
+}
+window.deleteDraft = deleteDraft;
+
 async function approveAll() {
   if (!allPending.length) { toast('ცარიელია', 'info'); return; }
   if (!confirm(`გსურთ ყველა ${allPending.length} ჩანაწერის დამტკიცება?`)) return;
@@ -5042,6 +5054,8 @@ function showRowMenu(event, id, desc, amount, accountCode) {
     { icon:'✏️', label:'რედაქტირება', color:'#fd7e14', fn: ()=> openEditModal(id) },
     { icon:'✅', label:'დამტკიცება',  color:'#28a745', fn: ()=> approve(id) },
     { icon:'❌', label:'უარყოფა',     color:'#dc3545', fn: ()=> reject(id) },
+    { sep: true },
+    { icon:'🗑️', label:'წაშლა',       color:'#6b7280', fn: ()=> deleteDraft(id) },
   ];
 
   items.forEach(item => {

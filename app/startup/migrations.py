@@ -65,6 +65,20 @@ def run_db_migrations():
                 conn.rollback()
                 log.debug("journal_drafts col migration skipped: %s", _e)
 
+        # learning_patterns — weighted learning columns (added in weighted-learning feature)
+        for _lp_col in [
+            "ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weighted_success_score NUMERIC DEFAULT 0",
+            "ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weighted_failure_score NUMERIC DEFAULT 0",
+            "ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS usage_count            INTEGER DEFAULT 0",
+            "ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS last_used_at           TIMESTAMPTZ",
+        ]:
+            try:
+                cur.execute(_lp_col)
+                conn.commit()
+            except Exception as _e:
+                conn.rollback()
+                log.debug("learning_patterns col migration skipped: %s", _e)
+
         # CRM tables
         cur.execute("""
             CREATE TABLE IF NOT EXISTS customers (

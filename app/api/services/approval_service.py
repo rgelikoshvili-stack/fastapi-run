@@ -386,10 +386,13 @@ def approve_draft_service(draft_id: int, tenant_id: str):
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft and draft.get("classification_source") in PATTERN_SOURCES:
-        pattern_update_result = _mark_success_for_draft(
-            draft, tenant_id, weight=SIGNAL_WEIGHTS["approve"]
-        )
+    try:
+        if draft and draft.get("classification_source") in PATTERN_SOURCES:
+            pattern_update_result = _mark_success_for_draft(
+                draft, tenant_id, weight=SIGNAL_WEIGHTS["approve"]
+            )
+    except Exception as _pe:
+        log.warning("pattern success update failed (non-fatal): %s", _pe)
 
     log_event(
         "draft_approved",
@@ -528,10 +531,13 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
         conn.close()
 
     pattern_update_result = {"updated": 0}
-    if draft and draft.get("classification_source") in PATTERN_SOURCES:
-        pattern_update_result = _mark_failure_for_draft(
-            draft, tenant_id, weight=SIGNAL_WEIGHTS["reject"]
-        )
+    try:
+        if draft and draft.get("classification_source") in PATTERN_SOURCES:
+            pattern_update_result = _mark_failure_for_draft(
+                draft, tenant_id, weight=SIGNAL_WEIGHTS["reject"]
+            )
+    except Exception as _pe:
+        log.warning("pattern failure update failed (non-fatal): %s", _pe)
 
     log_event(
         "draft_rejected",

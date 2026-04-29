@@ -28,6 +28,8 @@ from app.api.services.doc_journal_builder import build_journal
 from app.api.services.triangle_matcher import compute_match_score, find_candidates, upsert_triangle_match
 from app.api.services.correction_detector import detect_corrections, save_corrections
 from app.api.services.storage_service import upload_file as gcs_upload, download_file as gcs_download
+from app.api.services.completeness_checker import check_document_set
+from app.api.services.contract_classifier import classify_provider_type
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 log = logging.getLogger(__name__)
@@ -355,6 +357,8 @@ async def _process_document_background(
             cur.close()
             conn.close()
 
+        _apply_completeness(tenant_id, doc_id, extracted)
+
         _upsert_counterparty(
             tenant_id,
             party.counterparty_inn or "",
@@ -369,6 +373,226 @@ async def _process_document_background(
     except Exception as e:
         log.error("action=bg_processing_failed doc_id=%s error=%s", doc_id, e)
         _mark_doc_status(doc_id, "failed", tenant_id)
+
+
+def _apply_completeness(tenant_id: str, source_doc_id: int, extracted: "ExtractedDocument"):
+    """
+    Build pipeline_docs from the current doc + related waybills/tax_invoices/commercial_invoices,
+    run check_document_set, detect provider_type, and UPDATE the matching journal_draft.
+    Non-fatal — any failure is logged and swallowed.
+    """
+    try:
+        current = {
+            "doc_type": extracted.document_type,
+            "doc_number": extracted.document_number or "",
+            "total_amount": float(extracted.total_with_vat or 0),
+            "seller_inn": extracted.seller.inn,
+            "buyer_inn": extracted.buyer.inn,
+            "issue_date": extracted.issue_date,
+        }
+        pipeline_docs = [current]
+
+        seller_inn = extracted.seller.inn
+        buyer_inn  = extracted.buyer.inn
+
+        if seller_inn and buyer_inn:
+            conn = get_db(tenant_id)
+            cur  = conn.cursor()
+            try:
+                # Related waybill
+                cur.execute(
+                    "SELECT waybill_number, total_amount, seller_inn, buyer_inn "
+                    "FROM waybills WHERE tenant_id=%s AND seller_inn=%s AND buyer_inn=%s "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (tenant_id, seller_inn, buyer_inn),
+                )
+                wb = cur.fetchone()
+                if wb:
+                    pipeline_docs.append({"doc_type": "waybill", "doc_number": wb[0] or "",
+                                          "total_amount": float(wb[1] or 0),
+                                          "seller_inn": wb[2], "buyer_inn": wb[3]})
+                # Related tax invoice
+                cur.execute(
+                    "SELECT invoice_number, total_amount, seller_inn, buyer_inn "
+                    "FROM tax_invoices WHERE tenant_id=%s AND seller_inn=%s AND buyer_inn=%s "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (tenant_id, seller_inn, buyer_inn),
+                )
+                ti = cur.fetchone()
+                if ti:
+                    pipeline_docs.append({"doc_type": "tax_invoice", "doc_number": ti[0] or "",
+                                          "total_amount": float(ti[1] or 0),
+                                          "seller_inn": ti[2], "buyer_inn": ti[3]})
+                # Related commercial invoice
+                cur.execute(
+                    "SELECT invoice_number, total_amount, seller_inn, buyer_inn "
+                    "FROM commercial_invoices WHERE tenant_id=%s AND seller_inn=%s AND buyer_inn=%s "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (tenant_id, seller_inn, buyer_inn),
+                )
+                ci = cur.fetchone()
+                if ci:
+                    pipeline_docs.append({"doc_type": "invoice", "doc_number": ci[0] or "",
+                                          "total_amount": float(ci[1] or 0),
+                                          "seller_inn": ci[2], "buyer_inn": ci[3]})
+            finally:
+                cur.close()
+                conn.close()
+
+        completeness = check_document_set(pipeline_docs, flow="auto")
+        provider_type = classify_provider_type(
+            extracted.seller.name, extracted.seller.inn
+        ).value
+
+        conn = get_db(tenant_id)
+        cur  = conn.cursor()
+        try:
+            cur.execute(
+                """
+                UPDATE journal_drafts
+                SET doc_set_score       = %s,
+                    doc_set_summary     = %s,
+                    doc_matrix          = %s,
+                    completeness_alerts = %s,
+                    provider_type       = %s
+                WHERE source_document_id = %s AND tenant_id = %s
+                """,
+                (
+                    completeness.get("score"),
+                    completeness.get("summary"),
+                    json.dumps(completeness.get("indicators", {})),
+                    json.dumps(completeness.get("alerts", [])),
+                    provider_type,
+                    source_doc_id,
+                    tenant_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+        log.info("action=completeness_applied tenant=%s doc_id=%s score=%.2f summary=%s",
+                 tenant_id, source_doc_id,
+                 completeness.get("score", 0), completeness.get("summary", ""))
+    except Exception as e:
+        log.warning("action=completeness_failed doc_id=%s: %s", source_doc_id, e)
+
+
+def _refresh_related_drafts(tenant_id: str, seller_inn: str | None, buyer_inn: str | None):
+    """
+    When a waybill / tax_invoice / commercial_invoice is added via specialized upload,
+    find recent journal_drafts from the same counterparty and update their doc_matrix
+    to reflect the newly available document.
+    """
+    inn = seller_inn or buyer_inn
+    if not inn:
+        return
+    try:
+        # 1. Find related drafts
+        conn = get_db(tenant_id)
+        cur  = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT id FROM journal_drafts
+                WHERE tenant_id = %s AND counterparty_inn = %s
+                  AND status NOT IN ('rejected', 'posted')
+                ORDER BY created_at DESC LIMIT 10
+                """,
+                (tenant_id, inn),
+            )
+            draft_ids = [r[0] for r in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
+
+        if not draft_ids:
+            return
+
+        # 2. Build current doc set from triangle tables
+        pipeline_docs = []
+        conn = get_db(tenant_id)
+        cur  = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT waybill_number, total_amount FROM waybills "
+                "WHERE tenant_id=%s AND (seller_inn=%s OR buyer_inn=%s) "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, inn, inn),
+            )
+            wb = cur.fetchone()
+            if wb:
+                pipeline_docs.append({"doc_type": "waybill",
+                                       "doc_number": wb[0] or "",
+                                       "total_amount": float(wb[1] or 0)})
+
+            cur.execute(
+                "SELECT invoice_number, total_amount FROM tax_invoices "
+                "WHERE tenant_id=%s AND (seller_inn=%s OR buyer_inn=%s) "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, inn, inn),
+            )
+            ti = cur.fetchone()
+            if ti:
+                pipeline_docs.append({"doc_type": "tax_invoice",
+                                       "doc_number": ti[0] or "",
+                                       "total_amount": float(ti[1] or 0)})
+
+            cur.execute(
+                "SELECT invoice_number, total_amount FROM commercial_invoices "
+                "WHERE tenant_id=%s AND (seller_inn=%s OR buyer_inn=%s) "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, inn, inn),
+            )
+            ci = cur.fetchone()
+            if ci:
+                pipeline_docs.append({"doc_type": "invoice",
+                                       "doc_number": ci[0] or "",
+                                       "total_amount": float(ci[1] or 0)})
+        finally:
+            cur.close()
+            conn.close()
+
+        if not pipeline_docs:
+            return
+
+        completeness = check_document_set(pipeline_docs, flow="auto")
+
+        # 3. Bulk-update all matched drafts
+        conn = get_db(tenant_id)
+        cur  = conn.cursor()
+        try:
+            cur.executemany(
+                """
+                UPDATE journal_drafts
+                SET doc_set_score       = %s,
+                    doc_set_summary     = %s,
+                    doc_matrix          = %s,
+                    completeness_alerts = %s
+                WHERE id = %s AND tenant_id = %s
+                """,
+                [
+                    (
+                        completeness.get("score"),
+                        completeness.get("summary"),
+                        json.dumps(completeness.get("indicators", {})),
+                        json.dumps(completeness.get("alerts", [])),
+                        did,
+                        tenant_id,
+                    )
+                    for did in draft_ids
+                ],
+            )
+            conn.commit()
+            log.info("action=completeness_refreshed tenant=%s drafts=%s inn=%s score=%.2f",
+                     tenant_id, draft_ids, inn, completeness.get("score", 0))
+        finally:
+            cur.close()
+            conn.close()
+
+    except Exception as e:
+        log.warning("action=refresh_related_drafts_failed inn=%s: %s", inn, e)
 
 
 def _mark_doc_status(doc_id: int, status: str, tenant_id: str):
@@ -528,6 +752,8 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
     match_info = _try_match_triangle(conn, tenant_id, "waybill", waybill_id, doc)
     conn.close()
 
+    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+
     log.info("action=waybill_uploaded tenant=%s id=%s num=%s",
              tenant_id, waybill_id, doc["waybill_number"])
 
@@ -602,6 +828,8 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
     match_info = _try_match_triangle(conn, tenant_id, "tax_invoice", ti_id, doc)
     conn.close()
 
+    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+
     log.info("action=tax_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ti_id, doc["invoice_number"])
 
@@ -674,6 +902,8 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
 
     match_info = _try_match_triangle(conn, tenant_id, "commercial_invoice", ci_id, doc)
     conn.close()
+
+    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
 
     log.info("action=commercial_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ci_id, doc["invoice_number"])

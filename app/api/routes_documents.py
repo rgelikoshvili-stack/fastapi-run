@@ -691,6 +691,41 @@ def _try_match_triangle(conn, tenant_id: str, doc_type: str, doc_id: int, doc: d
         return None
 
 
+def _also_queue_for_pipeline(tenant_id: str, file_bytes: bytes, mime_type: str, filename: str):
+    """After a specialized upload, also insert into processed_documents and fire the full pipeline
+    so a journal draft is created and appears in the approval queue."""
+    try:
+        import hashlib as _hl
+        file_hash = _hl.md5(file_bytes).hexdigest()
+        conn = get_db(tenant_id)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO processed_documents
+                    (tenant_id, file_hash, file_name, file_size_bytes, mime_type, file_content, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+                ON CONFLICT DO NOTHING
+                RETURNING id
+                """,
+                (tenant_id, file_hash, filename, len(file_bytes), mime_type, file_bytes),
+            )
+            row = cur.fetchone()
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+        if row:
+            doc_id = row[0]
+            asyncio.create_task(
+                _process_document_background(doc_id, tenant_id, file_bytes, mime_type, filename)
+            )
+            log.info("action=specialized_queued_for_pipeline tenant=%s doc_id=%s", tenant_id, doc_id)
+    except Exception as e:
+        log.warning("_also_queue_for_pipeline failed (non-fatal): %s", e)
+
+
 # ── Upload Waybill ────────────────────────────────────────────────────────────
 
 @router.post("/upload-waybill")
@@ -753,6 +788,7 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
     conn.close()
 
     _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "waybill.pdf")
 
     log.info("action=waybill_uploaded tenant=%s id=%s num=%s",
              tenant_id, waybill_id, doc["waybill_number"])
@@ -829,6 +865,7 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
     conn.close()
 
     _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "tax_invoice.pdf")
 
     log.info("action=tax_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ti_id, doc["invoice_number"])
@@ -904,6 +941,7 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
     conn.close()
 
     _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "commercial_invoice.pdf")
 
     log.info("action=commercial_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ci_id, doc["invoice_number"])

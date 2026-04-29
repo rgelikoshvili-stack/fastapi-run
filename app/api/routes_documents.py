@@ -65,6 +65,24 @@ def _confidence_score(parsed: dict, extracted: ExtractedDocument, party, cat_con
     return round(min(score, 1.0), 2)
 
 
+def _build_description(extracted: "ExtractedDocument", party) -> str:
+    """Human-readable draft description: Company | №invoice_number | date."""
+    counterparty = (
+        party.counterparty_name
+        or extracted.seller.name
+        or extracted.buyer.name
+        or party.counterparty_inn
+        or "?"
+    )
+    parts = [counterparty]
+    doc_num = extracted.document_number or extracted.document_series
+    if doc_num:
+        parts.append(f"№{doc_num}")
+    if extracted.issue_date:
+        parts.append(extracted.issue_date)
+    return " | ".join(parts)
+
+
 def _get_tenant_vat(tenant_id: str) -> bool:
     conn = get_db(tenant_id)
     try:
@@ -348,7 +366,7 @@ async def _process_document_background(
                     json.dumps(journal["entries"]),
                     json.dumps(extracted.dict()),
                     doc_id,
-                    f"{extracted.document_type} — {party.counterparty_name or '?'}",
+                    _build_description(extracted, party),
                     confidence,
                 ),
             )

@@ -344,39 +344,49 @@ def approve_draft_service(draft_id: int, tenant_id: str):
                 f"Draft {draft_id} could not be approved for tenant {tenant_id}",
             )
 
-        save_feedback(
-            draft_id=draft.get("id"),
-            tx_fingerprint=draft.get("tx_fingerprint"),
-            source_type=draft.get("source_type"),
-            description_raw=draft.get("description"),
-            description_normalized=draft.get("normalized_description") or draft.get("description"),
-            partner_raw=draft.get("partner"),
-            partner_normalized=draft.get("partner"),
-            amount=draft.get("amount"),
-            original_account_code=draft.get("account_code"),
-            original_reason=draft.get("reason"),
-            original_confidence=float(draft.get("confidence") or 0.0),
-            final_account_code=draft.get("account_code"),
-            final_reason=draft.get("reason"),
-            feedback_type="approve",
-            corrected_by=None,
-            notes=None,
-            tenant_id=tenant_id,
-        )
+        conn.commit()  # commit status change first — audit/feedback are non-fatal
 
-        memory_result = save_transaction_memory(
-            draft.get("description"),
-            draft.get("partner"),
-            draft.get("amount"),
-            draft.get("account_code"),
-            tenant_id=tenant_id,
-        )
+        try:
+            save_feedback(
+                draft_id=draft.get("id"),
+                tx_fingerprint=draft.get("tx_fingerprint"),
+                source_type=draft.get("source_type"),
+                description_raw=draft.get("description"),
+                description_normalized=draft.get("normalized_description") or draft.get("description"),
+                partner_raw=draft.get("partner"),
+                partner_normalized=draft.get("partner"),
+                amount=draft.get("amount"),
+                original_account_code=draft.get("account_code"),
+                original_reason=draft.get("reason"),
+                original_confidence=float(draft.get("confidence") or 0.0),
+                final_account_code=draft.get("account_code"),
+                final_reason=draft.get("reason"),
+                feedback_type="approve",
+                corrected_by=None,
+                notes=None,
+                tenant_id=tenant_id,
+            )
+        except Exception as _fe:
+            log.warning("save_feedback failed (non-fatal): %s", _fe)
 
-        generate_patterns_from_feedback(tenant_id=tenant_id)
-        log_entity_change(conn, "journal_drafts", draft_id,
-                          old_data=draft, new_data=dict(updated),
-                          actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
-        conn.commit()
+        try:
+            save_transaction_memory(
+                draft.get("description"),
+                draft.get("partner"),
+                draft.get("amount"),
+                draft.get("account_code"),
+                tenant_id=tenant_id,
+            )
+            generate_patterns_from_feedback(tenant_id=tenant_id)
+        except Exception as _me:
+            log.warning("memory/patterns update failed (non-fatal): %s", _me)
+
+        try:
+            log_entity_change(conn, "journal_drafts", draft_id,
+                              old_data=draft, new_data=dict(updated),
+                              actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
+        except Exception as _ae:
+            log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
         conn.rollback()
@@ -497,31 +507,38 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
                 f"Draft {draft_id} could not be rejected for tenant {tenant_id}",
             )
 
-        save_feedback(
-            draft_id=draft.get("id"),
-            tx_fingerprint=draft.get("tx_fingerprint"),
-            source_type=draft.get("source_type"),
-            description_raw=draft.get("description"),
-            description_normalized=draft.get("normalized_description") or draft.get("description"),
-            partner_raw=draft.get("partner"),
-            partner_normalized=draft.get("partner"),
-            amount=draft.get("amount"),
-            original_account_code=draft.get("account_code"),
-            original_reason=draft.get("reason"),
-            original_confidence=float(draft.get("confidence") or 0.0),
-            final_account_code=None,
-            final_reason=None,
-            feedback_type="reject",
-            corrected_by=None,
-            notes=reason,
-            tenant_id=tenant_id,
-        )
+        conn.commit()  # commit status change first — audit/feedback are non-fatal
 
-        log_entity_change(conn, "journal_drafts", draft_id,
-                          old_data=draft, new_data=dict(updated),
-                          actor=tenant_id, tenant_id=tenant_id, action="REJECT",
-                          details=reason or None)
-        conn.commit()
+        try:
+            save_feedback(
+                draft_id=draft.get("id"),
+                tx_fingerprint=draft.get("tx_fingerprint"),
+                source_type=draft.get("source_type"),
+                description_raw=draft.get("description"),
+                description_normalized=draft.get("normalized_description") or draft.get("description"),
+                partner_raw=draft.get("partner"),
+                partner_normalized=draft.get("partner"),
+                amount=draft.get("amount"),
+                original_account_code=draft.get("account_code"),
+                original_reason=draft.get("reason"),
+                original_confidence=float(draft.get("confidence") or 0.0),
+                final_account_code=None,
+                final_reason=None,
+                feedback_type="reject",
+                corrected_by=None,
+                notes=reason,
+                tenant_id=tenant_id,
+            )
+        except Exception as _fe:
+            log.warning("save_feedback failed (non-fatal): %s", _fe)
+
+        try:
+            log_entity_change(conn, "journal_drafts", draft_id,
+                              old_data=draft, new_data=dict(updated),
+                              actor=tenant_id, tenant_id=tenant_id, action="REJECT",
+                              details=reason or None)
+        except Exception as _ae:
+            log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
         conn.rollback()

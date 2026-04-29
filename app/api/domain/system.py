@@ -13,6 +13,7 @@ from app.api import (
     routes_erp_import,
     routes_erp_memory,
     routes_balance_credentials,
+    routes_rsge_credentials,
     routes_balance_ge,
     routes_currency,
     routes_tenants,
@@ -36,6 +37,7 @@ router.include_router(routes_erp_connectors.router)
 router.include_router(routes_erp_import.router)
 router.include_router(routes_erp_memory.router)
 router.include_router(routes_balance_credentials.router)
+router.include_router(routes_rsge_credentials.router)
 router.include_router(routes_balance_ge.router)
 router.include_router(routes_currency.router)
 router.include_router(routes_tenants.router)

@@ -85,6 +85,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .form-inp[readonly]{color:var(--ink-dim);cursor:default}
 .form-sel{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper-soft);font-family:var(--font);font-size:13px;color:var(--ink);outline:none;width:100%;cursor:pointer}
 .form-desc{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-ghost);padding-top:3px;grid-column:2}
+.form-row{display:flex;gap:16px;flex-wrap:wrap}.form-col{flex:1;min-width:180px;display:flex;flex-direction:column;gap:6px}
+.lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
+.inp{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper-soft);font-family:var(--font);font-size:13px;color:var(--ink);outline:none;width:100%}
+.inp:focus{border-color:var(--ink);background:var(--card)}
 
 /* CHIP / BADGE */
 .chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;font-family:var(--mono);font-size:10.5px;font-weight:500}
@@ -211,6 +215,10 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
       <div class="tab" onclick="switchTab('balance',this)">
         <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
         Balance.ge
+      </div>
+      <div class="tab" onclick="switchTab('rsge',this)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        RS.ge
       </div>
     </div>
 
@@ -423,6 +431,8 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
           </div>
         </div>
       </div>
+    </div>
+
     <!-- ══════════ BALANCE.GE INTEGRATION ══════════ -->
     <div class="tab-panel" id="panel-balance">
       <div class="s-card">
@@ -511,9 +521,69 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
           </div>
         </div>
       </div>
+    <!-- ══════════ RS.GE INTEGRATION ══════════ -->
+    <div class="tab-panel" id="panel-rsge">
+      <div class="s-card">
+        <div class="s-head">
+          <div>
+            <div class="s-title">RS.ge — საქართველოს შემოსავლების სამსახური</div>
+            <div class="s-sub">eService პორტალის credentials — საგადასახადო დეკლარაციებისთვის</div>
+          </div>
+          <span id="rsge-status-chip" class="chip chip-draft">Loading…</span>
+        </div>
+        <div class="s-body">
+          <div class="form-row">
+            <div class="form-col">
+              <label class="lbl">RS.ge Username / Email</label>
+              <input class="inp" id="rsgeUsername" type="text" placeholder="yourname@example.com" autocomplete="off"/>
+            </div>
+            <div class="form-col">
+              <label class="lbl">Password</label>
+              <input class="inp" id="rsgePassword" type="password" placeholder="RS.ge პორტალის პაროლი" autocomplete="new-password"/>
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <div class="form-col" style="max-width:260px">
+              <label class="lbl">გადასახადის გადამხდელის INN (სურვილისამებრ)</label>
+              <input class="inp" id="rsgeTaxpayerInn" type="text" placeholder="123456789" maxlength="11"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="testRsGeConn()">🔌 კავშირის ტესტი</button>
+            <button class="btn btn-primary btn-sm" onclick="saveRsGeCreds()">💾 შენახვა</button>
+          </div>
+          <div id="rsge-msg" style="margin-top:12px;font-size:13px;min-height:18px"></div>
+        </div>
+      </div>
+
+      <div class="s-card">
+        <div class="s-head">
+          <div class="s-title">RS.ge — ხელმისაწვდომი ოპერაციები</div>
+        </div>
+        <div class="s-body" style="font-size:13px;line-height:1.8;color:var(--ink-mute)">
+          <p>📄 <strong>დღგ-ის დეკლარაცია</strong> — VAT Declaration XML გენერაცია → ატვირთვა RS.ge-ზე</p>
+          <p>👥 <strong>ხელფასის გადასახადი</strong> — PAYG/პენსია XML ექსპორტი (Payroll → RS.ge XML)</p>
+          <p>🏢 <strong>კორპ. გადასახადი</strong> — CIT 15% — წლიური დეკლარაცია</p>
+          <p style="margin-top:10px;padding:10px;background:var(--amber-bg);border-radius:8px;color:var(--amber)">
+            ⚠ პირდაპირი API ინტეგრაცია (ავტო-პოსტინგი) — coming soon. ამჟამად Bridge Hub XML-ს ქმნის, შენ ახვედრი RS.ge-ზე.
+          </p>
+        </div>
+      </div>
+
+      <div class="s-card">
+        <div class="s-head">
+          <div class="s-title">სწრაფი ლინკები</div>
+        </div>
+        <div class="s-body">
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <a href="https://eservice.rs.ge" target="_blank" class="btn btn-outline btn-sm">🌐 eService პორტალი</a>
+            <a href="/static/vat_declaration.html" class="btn btn-outline btn-sm">📋 VAT დეკლარაცია</a>
+            <a href="/payroll/rs-ge-xml" target="_blank" class="btn btn-outline btn-sm">📊 PAYG XML ექსპორტი</a>
+          </div>
+        </div>
+      </div>
     </div>
 
-    </div>
   </div>
 </div>
 
@@ -551,7 +621,7 @@ function switchTab(name, el) {
   el.classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
   currentTab = name;
-  const loaders = { currency: loadCurrencyRates, audit: loadAuditLog, health: loadHealth, apikeys: loadApiKeys, email: loadEmailStatus, balance: loadBalanceStatus };
+  const loaders = { currency: loadCurrencyRates, audit: loadAuditLog, health: loadHealth, apikeys: loadApiKeys, email: loadEmailStatus, balance: loadBalanceStatus, rsge: loadRsGeStatus };
   if (loaders[name]) loaders[name]();
 }
 
@@ -937,6 +1007,56 @@ async function triggerEmailPoll() {
     </div>`;
   } else {
     box.innerHTML = `<div style="color:var(--red);font-size:13px">❌ ${esc(d.error || d.status || 'შეცდომა')}</div>`;
+  }
+}
+
+// ── RS.GE ──
+async function loadRsGeStatus() {
+  const chip = document.getElementById('rsge-status-chip');
+  const d = await api('/rsge-credentials/status');
+  if (!d) return;
+  if (d.configured) {
+    chip.textContent = `✓ დაყენებულია · ${d.username}`;
+    chip.className = 'chip chip-approved';
+    if (d.username) document.getElementById('rsgeUsername').value = d.username;
+    if (d.taxpayer_inn) document.getElementById('rsgeTaxpayerInn').value = d.taxpayer_inn;
+  } else {
+    chip.textContent = 'არ არის დაყენებული';
+    chip.className = 'chip chip-draft';
+  }
+}
+
+async function testRsGeConn() {
+  const msg = document.getElementById('rsge-msg');
+  msg.textContent = '🔌 ვამოწმებ...';
+  const d = await api('/rsge-credentials/test', 'POST');
+  if (d && d.ok) {
+    msg.textContent = '✅ ' + (d.message || 'წარმატებულია');
+    msg.style.color = 'var(--green)';
+  } else {
+    msg.textContent = '❌ ' + (d?.error || 'credentials არ მოიძებნა');
+    msg.style.color = 'var(--red)';
+  }
+}
+
+async function saveRsGeCreds() {
+  const username = document.getElementById('rsgeUsername').value.trim();
+  const password = document.getElementById('rsgePassword').value.trim();
+  const inn = document.getElementById('rsgeTaxpayerInn').value.trim();
+  const msg = document.getElementById('rsge-msg');
+  if (!username) { msg.textContent = '⚠ Username აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  if (!password) { msg.textContent = '⚠ Password აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  const d = await api('/rsge-credentials/save', 'POST', { username, password, taxpayer_inn: inn });
+  if (d && d.ok) {
+    msg.textContent = '✅ შენახულია!';
+    msg.style.color = 'var(--green)';
+    document.getElementById('rsgePassword').value = '';
+    document.getElementById('rsge-status-chip').textContent = `✓ დაყენებულია · ${username}`;
+    document.getElementById('rsge-status-chip').className = 'chip chip-approved';
+    toast('RS.ge credentials შენახულია', 'ok');
+  } else {
+    msg.textContent = '❌ ' + (d?.error || 'შეცდომა');
+    msg.style.color = 'var(--red)';
   }
 }
 

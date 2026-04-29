@@ -714,7 +714,7 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
         "buyer_inn": extracted.buyer.inn,
         "buyer_name": extracted.buyer.name,
         "subtotal": _dec_or_none(extracted.net_amount),
-        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "vat_amount": _dec_or_none(extracted.total_vat),
         "total_amount": _dec_or_none(extracted.total_with_vat),
         "raw_text": (parsed.get("text") or "")[:5000],
     }
@@ -790,7 +790,7 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
         "buyer_inn": extracted.buyer.inn,
         "buyer_name": extracted.buyer.name,
         "subtotal": _dec_or_none(extracted.net_amount),
-        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "vat_amount": _dec_or_none(extracted.total_vat),
         "total_amount": _dec_or_none(extracted.total_with_vat),
         "raw_text": (parsed.get("text") or "")[:5000],
     }
@@ -865,7 +865,7 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
         "buyer_inn": extracted.buyer.inn,
         "buyer_name": extracted.buyer.name,
         "subtotal": _dec_or_none(extracted.net_amount),
-        "vat_amount": _dec_or_none(extracted.vat_amount),
+        "vat_amount": _dec_or_none(extracted.total_vat),
         "total_amount": _dec_or_none(extracted.total_with_vat),
         "raw_text": (parsed.get("text") or "")[:5000],
     }

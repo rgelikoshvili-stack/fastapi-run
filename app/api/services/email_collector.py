@@ -233,8 +233,10 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
     if not creds:
         return {"status": "no_credentials", "tenant_id": tenant_id}
 
+    import socket
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+        # 8-second socket timeout prevents blocking the event loop when credentials are wrong
+        mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=8)
         mail.login(creds["email"], creds["app_password"])
         mail.select("INBOX")
     except Exception as e:

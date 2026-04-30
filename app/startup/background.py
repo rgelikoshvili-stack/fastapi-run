@@ -72,15 +72,23 @@ async def email_poller_loop():
     await asyncio.sleep(30)  # warm-up
 
     async def _run():
+        import asyncio as _asyncio
         tenants = get_all_active_tenants()
         total_processed = 0
+        loop = _asyncio.get_running_loop()
         for tid in tenants:
             try:
-                result = await collect_tenant_inbox(tid)
+                # run_in_executor prevents blocking IMAP calls from stalling the event loop
+                result = await _asyncio.wait_for(
+                    loop.run_in_executor(None, lambda t=tid: _asyncio.run(collect_tenant_inbox(t))),
+                    timeout=20.0,
+                )
                 processed = result.get("processed", 0)
                 total_processed += processed
                 if processed > 0:
                     log.info("task=email_poller tenant=%s drafted=%d", tid, processed)
+            except _asyncio.TimeoutError:
+                log.warning("task=email_poller tenant=%s timeout after 20s", tid)
             except Exception as e:
                 log.warning("task=email_poller tenant=%s error=%s", tid, e)
         return {"total_processed": total_processed, "tenants": len(tenants)}

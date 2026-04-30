@@ -71,6 +71,12 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 4 \
+            --memory 2Gi \
+            --cpu 2 \
+            --concurrency 100 \
+            --timeout 300 \
             --quiet
 
       - name: Smoke test — health check

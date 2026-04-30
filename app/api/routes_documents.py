@@ -27,7 +27,7 @@ from app.api.services.operation_classifier import classify_operation_async
 from app.api.services.doc_journal_builder import build_journal
 from app.api.services.triangle_matcher import compute_match_score, find_candidates, upsert_triangle_match
 from app.api.services.correction_detector import detect_corrections, save_corrections
-from app.api.services.storage_service import upload_file as gcs_upload, download_file as gcs_download
+from app.api.services.storage_service import upload_file as gcs_upload, download_file as gcs_download, safe_download
 from app.api.services.completeness_checker import check_document_set
 from app.api.services.contract_classifier import classify_provider_type
 
@@ -65,22 +65,62 @@ def _confidence_score(parsed: dict, extracted: ExtractedDocument, party, cat_con
     return round(min(score, 1.0), 2)
 
 
-def _build_description(extracted: "ExtractedDocument", party) -> str:
-    """Human-readable draft description: Company | №invoice_number | date."""
-    counterparty = (
+import re as _re
+
+
+def _parse_company_from_notes(notes: str) -> str | None:
+    """Extract Georgian company name from raw OCR notes — prefers შპს over სს to avoid bank names."""
+    if not notes:
+        return None
+    # Priority 1: შპს (LLC) — most common for private companies
+    m = _re.search(r'შპს\s+([\w][^\n]{2,60})', notes, _re.UNICODE)
+    if m:
+        name = 'შპს ' + m.group(1).split('\n')[0].strip().rstrip('.,;:')
+        name = _re.sub(r'\s+(INVOICE|invoice|ინვოისი|შეკვ|ზედნ).*', '', name, flags=_re.I).strip()
+        if 6 < len(name) < 80:
+            return name
+    # Priority 2: ი/მ (sole trader)
+    m = _re.search(r'ი/მ\s+([\w][^\n]{2,60})', notes, _re.UNICODE)
+    if m:
+        name = 'ი/მ ' + m.group(1).split('\n')[0].strip().rstrip('.,;:')
+        if 6 < len(name) < 80:
+            return name
+    # Priority 3: სს — but exclude lines that are bank references ("ბანკი: სს ...")
+    for m in _re.finditer(r'სს\s+([\w][^\n]{2,60})', notes, _re.UNICODE):
+        line = notes[max(0, m.start()-15):m.start()]
+        if 'ბანკი' in line or 'bank' in line.lower():
+            continue
+        name = 'სს ' + m.group(1).split('\n')[0].strip().rstrip('.,;:')
+        if 6 < len(name) < 80:
+            return name
+    return None
+
+
+def _resolve_seller_name(extracted: "ExtractedDocument", party) -> str:
+    """Best available counterparty name — falls back to notes parsing."""
+    name = (
         party.counterparty_name
         or extracted.seller.name
         or extracted.buyer.name
-        or party.counterparty_inn
-        or "?"
     )
-    parts = [counterparty]
+    if not name:
+        name = _parse_company_from_notes(extracted.notes or "")
+    return name or ""
+
+
+def _build_description(extracted: "ExtractedDocument", party, draft_id: int = None, amount=None) -> str:
+    """Draft description: Company (INN)."""
+    company = _resolve_seller_name(extracted, party)
+    inn = party.counterparty_inn or extracted.seller.inn or extracted.seller_inn or ""
+    if company and inn:
+        return f"{company} ({inn})"
+    return company or inn or "?"
+
+
+def _build_partner(extracted: "ExtractedDocument", party) -> str:
+    """Partner field: invoice number."""
     doc_num = extracted.document_number or extracted.document_series
-    if doc_num:
-        parts.append(f"№{doc_num}")
-    if extracted.issue_date:
-        parts.append(extracted.issue_date)
-    return " | ".join(parts)
+    return f"№{doc_num}" if doc_num else ""
 
 
 def _get_tenant_vat(tenant_id: str) -> bool:
@@ -145,20 +185,36 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     conn.close()
 
     if existing_file and existing_file[1]:
-        # True duplicate — file already stored with content
+        # File already stored — check if the linked draft is still active
+        doc_id_existing = existing_file[0]
         conn2 = get_db(tenant_id)
         cur2 = conn2.cursor()
         cur2.execute(
-            "SELECT id, status FROM journal_drafts WHERE source_document_id = %s LIMIT 1",
-            (existing_file[0],),
+            "SELECT id, status FROM journal_drafts WHERE source_document_id = %s ORDER BY id DESC LIMIT 1",
+            (doc_id_existing,),
         )
         existing_draft = cur2.fetchone()
         cur2.close()
         conn2.close()
-        return ok_response("Duplicate file", {
-            "status": "duplicate_file",
-            "message": "ეს ფაილი უკვე ატვირთულია",
-            "existing_draft_id": existing_draft[0] if existing_draft else None,
+
+        _terminal = {'rejected', 'posted', 'auto_approved'}
+        draft_is_terminal = (existing_draft is None) or (existing_draft[1] in _terminal)
+
+        if not draft_is_terminal:
+            # Draft is still actionable — real duplicate
+            return ok_response("Duplicate file", {
+                "status": "duplicate_file",
+                "message": "ეს ფაილი უკვე ატვირთულია",
+                "existing_draft_id": existing_draft[0] if existing_draft else None,
+            })
+        # Draft was rejected/deleted — re-trigger pipeline on the existing stored file
+        asyncio.create_task(
+            _process_document_background(doc_id_existing, tenant_id, file_bytes, mime_type, file.filename or "document")
+        )
+        return ok_response("Re-processing file", {
+            "status": "reprocessing",
+            "message": "ფაილი ხელახლა მუშავდება",
+            "doc_id": doc_id_existing,
         })
 
     if existing_file and not existing_file[1]:
@@ -344,6 +400,11 @@ async def _process_document_background(
         journal = build_journal(extracted, party, category, is_vat_payer)
         confidence = _confidence_score(parsed, extracted, party, cat_confidence)
 
+        # Extract primary debit/credit accounts from journal entries
+        _dr = next((e["dr"] for e in journal["entries"] if "dr" in e), None)
+        _cr = next((e["cr"] for e in journal["entries"] if "cr" in e), None)
+        _partner = _build_partner(extracted, party)
+
         conn = get_db(tenant_id)
         cur = conn.cursor()
         try:
@@ -354,8 +415,10 @@ async def _process_document_background(
                      counterparty_inn, counterparty_name,
                      document_series, document_number, date,
                      amount, journal_entries, raw_extraction,
-                     source_document_id, description, confidence)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     source_document_id, description, confidence,
+                     debit_account, credit_account, partner)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
                 """,
                 (
                     tenant_id, "pending_approval",
@@ -368,6 +431,7 @@ async def _process_document_background(
                     doc_id,
                     _build_description(extracted, party),
                     confidence,
+                    _dr, _cr, _partner,
                 ),
             )
             conn.commit()
@@ -714,7 +778,7 @@ def _also_queue_for_pipeline(tenant_id: str, file_bytes: bytes, mime_type: str, 
     so a journal draft is created and appears in the approval queue."""
     try:
         import hashlib as _hl
-        file_hash = _hl.md5(file_bytes).hexdigest()
+        file_hash = _hl.sha256(file_bytes).hexdigest()  # consistent with main upload
         conn = get_db(tenant_id)
         cur = conn.cursor()
         try:
@@ -723,7 +787,8 @@ def _also_queue_for_pipeline(tenant_id: str, file_bytes: bytes, mime_type: str, 
                 INSERT INTO processed_documents
                     (tenant_id, file_hash, file_name, file_size_bytes, mime_type, file_content, status)
                 VALUES (%s, %s, %s, %s, %s, %s, 'processing')
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (tenant_id, file_hash) DO UPDATE
+                    SET status = 'processing', file_name = EXCLUDED.file_name
                 RETURNING id
                 """,
                 (tenant_id, file_hash, filename, len(file_bytes), mime_type, file_bytes),
@@ -1199,18 +1264,8 @@ async def get_document_file(doc_id: int, request: Request = None):
 
     file_name, mime_type, gcs_path, file_content = row
 
-    if gcs_path:
-        try:
-            content = gcs_download(gcs_path)
-        except Exception as e:
-            log.warning("gcs_download failed doc_id=%s, trying file_content fallback: %s", doc_id, e)
-            if file_content:
-                content = bytes(file_content)
-            else:
-                return http_error(404, "File not available — please re-upload", "NOT_FOUND")
-    elif file_content:
-        content = bytes(file_content)
-    else:
+    content = safe_download(gcs_path, file_content)
+    if not content:
         return http_error(404, "File not available — please re-upload", "NOT_FOUND")
 
     return Response(
@@ -1218,3 +1273,36 @@ async def get_document_file(doc_id: int, request: Request = None):
         media_type=mime_type or "application/octet-stream",
         headers={"Content-Disposition": f'inline; filename="{file_name or "document"}"'},
     )
+
+
+@router.get("/{doc_id}/url")
+async def get_document_signed_url(doc_id: int, request: Request = None):
+    """Return a short-lived GCS signed URL for direct browser preview.
+    Falls back to {"signed_url": null, "fallback": true} when GCS is unavailable."""
+    from app.api.services.storage_service import generate_signed_url
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    conn = get_db(tenant_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT file_name, mime_type, gcs_path FROM processed_documents "
+            "WHERE id = %s AND tenant_id = %s",
+            (doc_id, tenant_id),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        return http_error(404, "Document not found", "NOT_FOUND")
+
+    file_name, mime_type, gcs_path = row
+
+    if gcs_path:
+        signed_url = generate_signed_url(gcs_path, expires_in=900)
+        if signed_url:
+            return ok_response({"signed_url": signed_url, "file_name": file_name, "fallback": False})
+
+    # GCS unavailable or no gcs_path — signal client to use /file endpoint
+    return ok_response({"signed_url": None, "file_name": file_name, "fallback": True})

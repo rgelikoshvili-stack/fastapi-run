@@ -45,12 +45,23 @@ def upload_file(file_bytes: bytes, file_name: str, mime_type: str, tenant_id: st
 
 
 def download_file(gcs_path: str) -> bytes:
-    """Download bytes from GCS by path."""
+    """Download bytes from GCS by path. Raises on failure (caller should fallback to DB)."""
     bucket = _bucket()
     blob = bucket.blob(gcs_path)
     data = blob.download_as_bytes()
     log.info("action=gcs_download path=%s size=%d", gcs_path, len(data))
     return data
+
+
+def safe_download(gcs_path: str | None, db_fallback: bytes | None = None) -> bytes | None:
+    """Try GCS download; if it fails or gcs_path is None, return db_fallback bytes."""
+    if gcs_path:
+        try:
+            return download_file(gcs_path)
+        except Exception as e:
+            log.warning("action=gcs_download_failed path=%s fallback=%s err=%s",
+                        gcs_path, "db" if db_fallback else "none", e)
+    return bytes(db_fallback) if db_fallback else None
 
 
 def delete_file(gcs_path: str) -> None:
@@ -61,3 +72,37 @@ def delete_file(gcs_path: str) -> None:
         log.info("action=gcs_delete path=%s", gcs_path)
     except Exception as e:
         log.warning("gcs_delete failed (non-fatal): %s — %s", gcs_path, e)
+
+
+def generate_signed_url(gcs_path: str, expires_in: int = 900) -> str | None:
+    """Generate a temporary signed URL for direct browser access (default 15 min).
+    Returns None if GCS is unavailable or signing fails."""
+    if not _gcs_available():
+        return None
+    try:
+        import datetime
+        from google.oauth2 import service_account
+        bucket = _bucket()
+        blob = bucket.blob(gcs_path)
+        # Try with service account credentials (required for signing)
+        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+        if creds_path and os.path.exists(creds_path):
+            creds = service_account.Credentials.from_service_account_file(creds_path)
+            url = blob.generate_signed_url(
+                expiration=datetime.timedelta(seconds=expires_in),
+                method="GET",
+                credentials=creds,
+                version="v4",
+            )
+        else:
+            # Fallback: unsigned public URL pattern (works only for public buckets)
+            url = blob.generate_signed_url(
+                expiration=datetime.timedelta(seconds=expires_in),
+                method="GET",
+                version="v4",
+            )
+        log.info("action=gcs_signed_url path=%s expires=%ds", gcs_path, expires_in)
+        return url
+    except Exception as e:
+        log.warning("generate_signed_url failed path=%s: %s", gcs_path, e)
+        return None

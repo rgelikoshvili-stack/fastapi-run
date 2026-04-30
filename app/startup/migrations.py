@@ -42,6 +42,9 @@ def run_db_migrations():
 
         # journal_drafts columns (each separately to survive partial failures)
         for _jd_col in [
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS attached_file_path TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS attached_file_name TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS attached_file_size INTEGER",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS autopilot_suggested  BOOLEAN DEFAULT FALSE",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS confidence_score     NUMERIC",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS effective_threshold  NUMERIC",

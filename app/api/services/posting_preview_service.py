@@ -147,7 +147,8 @@ def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
             """
             SELECT id, description, partner, amount, currency,
                    account_code, debit_account, credit_account,
-                   reason, status, date, confidence, source_document_id
+                   reason, status, date, confidence, source_document_id,
+                   raw_extraction, attached_file_name, attached_file_path, attached_file_size
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
             """,
@@ -178,6 +179,9 @@ def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
                 "status": draft["status"],
                 "confidence": float(draft["confidence"] or 0),
                 "source_document_id": draft.get("source_document_id"),
+                "raw_extraction": draft.get("raw_extraction"),
+                "attached_file_name": draft.get("attached_file_name"),
+                "attached_file_size": draft.get("attached_file_size"),
             },
             "impact": impact,
             "warning": "ეს არის preview — DB-ში ჩანაწერი არ შეიქმნება",

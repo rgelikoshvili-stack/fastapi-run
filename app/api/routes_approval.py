@@ -65,6 +65,44 @@ class DraftUpdateRequest(BaseModel):
     reason: Optional[str] = None
 
 
+@router.get("/suggestions")
+def get_suggestions(request: Request, q: str = "", field: str = "partner"):
+    """Return autocomplete suggestions for partner/description fields from historical drafts."""
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    if len(q) < 2:
+        return ok_response([])
+    allowed_fields = {"partner", "description"}
+    if field not in allowed_fields:
+        return ok_response([])
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        col = "partner" if field == "partner" else "description"
+        cur.execute(
+            f"""
+            SELECT {col} AS val, COUNT(*) AS cnt
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND {col} ILIKE %s
+              AND {col} IS NOT NULL
+              AND {col} != ''
+            GROUP BY {col}
+            ORDER BY cnt DESC
+            LIMIT 8
+            """,
+            (tenant_id, f"%{q}%"),
+        )
+        rows = cur.fetchall()
+        return ok_response([{"value": r[0], "count": r[1]} for r in rows])
+    except Exception as e:
+        log.error("get_suggestions error: %s", e)
+        return ok_response([])
+    finally:
+        cur.close()
+        conn.close()
+
+
 @router.get("/queue")
 def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0):
     _validate_pagination(limit, offset)
@@ -345,6 +383,138 @@ def batch_action(body: BatchActionRequest, request: Request):
     except Exception as e:
         log.error("batch_action error: %s", e)
         return error_response("Batch action failed", "BATCH_ERROR", str(e))
+
+
+# ── Draft Attachment ──────────────────────────────────────────────────────────
+
+@router.post("/draft/{draft_id}/attach")
+async def attach_file_to_draft(draft_id: int, request: Request, file=None):
+    """Attach a file to an existing journal draft."""
+    from fastapi import UploadFile, File
+    from app.api.services.storage_service import upload_file as gcs_upload, generate_signed_url
+    import uuid as _uuid
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        return error_response("No file provided", "ATTACH_ERROR", "file field missing")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 20 * 1024 * 1024:
+        return error_response("File too large (max 20MB)", "ATTACH_ERROR", "size exceeds 20MB")
+
+    allowed_exts = ('.pdf', '.png', '.jpg', '.jpeg', '.xlsx', '.xls', '.csv')
+    fname = (file.filename or "file").lower()
+    if not any(fname.endswith(ext) for ext in allowed_exts):
+        return error_response("File type not allowed", "ATTACH_ERROR", f"allowed: {allowed_exts}")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id FROM journal_drafts WHERE id = %s AND tenant_id = %s",
+            (draft_id, tenant_id)
+        )
+        if not cur.fetchone():
+            cur.close(); conn.close()
+            return http_error(404, "Draft not found", "NOT_FOUND")
+
+        # Try GCS upload, fall back to DB storage
+        gcs_path = gcs_upload(file_bytes, file.filename, file.content_type or "application/octet-stream", tenant_id)
+
+        cur.execute(
+            """UPDATE journal_drafts
+               SET attached_file_path = %s, attached_file_name = %s, attached_file_size = %s
+               WHERE id = %s AND tenant_id = %s""",
+            (gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
+        )
+        conn.commit()
+        log.info("action=draft_attach draft_id=%s tenant=%s file=%s", draft_id, tenant_id, file.filename)
+        return ok_response({"draft_id": draft_id, "file_name": file.filename, "file_size": len(file_bytes)})
+    except Exception as e:
+        conn.rollback()
+        log.error("attach_file_to_draft draft_id=%s: %s", draft_id, e)
+        return error_response("Attach failed", "ATTACH_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.get("/draft/{draft_id}/attachment")
+def get_draft_attachment(draft_id: int, request: Request):
+    """Return signed URL or file info for a draft's attachment."""
+    from app.api.services.storage_service import generate_signed_url, download_file
+    from fastapi.responses import Response
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT attached_file_path, attached_file_name, attached_file_size FROM journal_drafts "
+            "WHERE id = %s AND tenant_id = %s",
+            (draft_id, tenant_id)
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row or not row[1]:
+        return http_error(404, "No attachment found", "NOT_FOUND")
+
+    gcs_path, file_name, file_size = row
+
+    if gcs_path:
+        signed_url = generate_signed_url(gcs_path, expires_in=900)
+        if signed_url:
+            return ok_response({"signed_url": signed_url, "file_name": file_name, "file_size": file_size})
+        # GCS signing failed — stream the file
+        try:
+            content = download_file(gcs_path)
+            return Response(content=content, media_type="application/octet-stream",
+                            headers={"Content-Disposition": f'inline; filename="{file_name}"'})
+        except Exception as e:
+            log.error("get_draft_attachment gcs_download failed: %s", e)
+
+    return http_error(404, "Attachment file unavailable", "NOT_FOUND")
+
+
+@router.delete("/draft/{draft_id}/attachment")
+def delete_draft_attachment(draft_id: int, request: Request):
+    """Remove attachment from a draft."""
+    from app.api.services.storage_service import delete_file
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT attached_file_path FROM journal_drafts WHERE id = %s AND tenant_id = %s",
+            (draft_id, tenant_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return http_error(404, "Draft not found", "NOT_FOUND")
+
+        if row[0]:
+            delete_file(row[0])
+
+        cur.execute(
+            "UPDATE journal_drafts SET attached_file_path=NULL, attached_file_name=NULL, attached_file_size=NULL "
+            "WHERE id=%s AND tenant_id=%s",
+            (draft_id, tenant_id)
+        )
+        conn.commit()
+        return ok_response({"draft_id": draft_id, "removed": True})
+    except Exception as e:
+        conn.rollback()
+        return error_response("Delete failed", "ATTACH_ERROR", str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ── CFO Second Approval ───────────────────────────────────────────────────────

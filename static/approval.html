@@ -1531,12 +1531,19 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
             <div class="ap-state" id="ap-state2">OFF</div>
           </div>
         </div>
+        <div id="bulk-toolbar" style="display:none;align-items:center;gap:10px;padding:8px 16px;background:var(--paper-soft,#f8fafc);border-bottom:1px solid var(--border,#e2e8f0);font-size:13px">
+          <span id="bulk-count" style="color:var(--ink-dim);font-weight:500">0 მონიშნული</span>
+          <button class="btn btn-success btn-sm" onclick="bulkApprove()" style="gap:4px">✅ დამტკიცება</button>
+          <button class="btn btn-danger btn-sm" onclick="bulkReject()" style="gap:4px">✕ უარყოფა</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()" style="font-size:11px">გაუქმება</button>
+        </div>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr>
+              <th style="width:32px"><input type="checkbox" id="bulk-select-all" onchange="toggleSelectAll(this.checked)" style="cursor:pointer"></th>
               <th>#</th><th>თარიღი</th><th>აღწერა</th><th>თანხა</th><th>კატ.</th><th>Conf.</th><th>სტ.</th><th>დოკ.</th><th>მოქმ.</th>
             </tr></thead>
-            <tbody id="pending-rows"><tr><td colspan="9"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
+            <tbody id="pending-rows"><tr><td colspan="10"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
           </table>
         </div>
         <div id="pending-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border,#e2e8f0);font-size:12px;color:var(--ink-dim)">
@@ -2927,7 +2934,9 @@ function renderPendingRow(r, dashboard=false) {
   const conf = getConfV(r);
   const date = dashboard ? '' : `<td class="mono">${fmtDate(r.date || r.created_at)}</td>`;
   const docMatrix = dashboard ? '' : `<td>${fmtDocMatrix(r)}</td>`;
+  const checkCol = dashboard ? '' : `<td onclick="event.stopPropagation()"><input type="checkbox" class="bulk-cb" data-id="${id}" onchange="onBulkCheck()" style="cursor:pointer"></td>`;
   return `<tr style="cursor:pointer" onclick="showPostingPreview('${id}')">
+    ${checkCol}
     <td class="mono">#${id}</td>
     ${date}
     <td class="td-desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
@@ -2987,7 +2996,7 @@ async function loadPending(page = 1) {
     const tbody = document.getElementById(target);
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="${isDash?7:9}"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">ცარიელი რიგი — ყველაფერი დამუშავებულია</div></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${isDash?7:10}"><div class="empty"><div class="empty-ic">ø</div><div class="empty-txt">ცარიელი რიგი — ყველაფერი დამუშავებულია</div></div></td></tr>`;
       return;
     }
     const limited = isDash ? rows.slice(0, 6) : rows;
@@ -4943,15 +4952,30 @@ async function showPostingPreview(id) {
         </div>
       </div>` : '';
 
-    body.innerHTML = sectionA + sectionB + sectionC + sectionD + sectionE + warnHtml;
+    // F: Attachment section
+    const attFile = dr.attached_file_name;
+    const sectionF = `
+      <div style="margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">დამხმარე ფაილი</div>
+        <div style="border:1px solid var(--line-soft);border-radius:var(--r);padding:10px 14px;background:var(--paper-soft);display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <span style="font-size:16px">📎</span>
+            <span id="attach-label-${id}" style="color:${attFile?'var(--ink)':'var(--ink-dim)'}">${attFile ? esc(attFile) : 'ფაილი არ არის მიბმული'}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            ${attFile ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="viewDraftAttachment(${id})">👁 ნახვა</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removeDraftAttachment(${id})">✕</button>` : ''}
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="attachFileToDraft(${id})">📎 მიბმა</button>
+          </div>
+        </div>
+      </div>`;
+
+    body.innerHTML = sectionA + sectionB + sectionC + sectionD + sectionE + sectionF + warnHtml;
 
     document.getElementById('modal-title').innerHTML = `Draft <em>#${esc(id)}</em>`;
 
     document.getElementById('modal-footer').innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
-      <button class="btn btn-ghost btn-sm" onclick="openEditModal(${id})" style="color:var(--accent)">✏️ რედაქტირება</button>
-      <button class="btn btn-ghost btn-sm" onclick="reject('${esc(id)}');closeModal()" style="color:var(--red)">✕ უარყოფა</button>
-      <button class="btn btn-success btn-sm" onclick="approve('${esc(id)}');closeModal()">✓ დამტკიცება</button>
     `;
   } catch (e) {
     body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r);font-size:13px">✕ Network error: ${esc(e.message)}</div>`;
@@ -4975,7 +4999,21 @@ async function showDraftDocument(draftId) {
     return;
   }
 
-  // 2. Fetch the actual file as blob (same as chat upload)
+  // 2a. Try signed URL first (instant, no server bandwidth)
+  try {
+    const urlResp = await fetch(BASE + '/documents/' + srcDocId + '/url', {
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}
+    });
+    if (urlResp.ok) {
+      const urlData = await urlResp.json();
+      if (urlData?.data?.signed_url) {
+        window.open(urlData.data.signed_url, '_blank');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // 2b. Fallback: fetch file as blob (existing behavior)
   const fileUrl = BASE + '/documents/' + srcDocId + '/file';
   let blobUrl, fileName, fileType, fileSize;
   try {
@@ -5033,6 +5071,125 @@ async function showDraftDocument(draftId) {
   wrap.appendChild(label);
   wrap.appendChild(card);
   overlay.appendChild(wrap);
+}
+
+/* ═════════ BULK SELECTION ═════════ */
+function getSelectedIds() {
+  return [...document.querySelectorAll('.bulk-cb:checked')].map(cb => parseInt(cb.dataset.id));
+}
+
+function onBulkCheck() {
+  const selected = getSelectedIds();
+  const toolbar = document.getElementById('bulk-toolbar');
+  const countEl = document.getElementById('bulk-count');
+  const allCb   = document.getElementById('bulk-select-all');
+  const total   = document.querySelectorAll('.bulk-cb').length;
+  if (toolbar) toolbar.style.display = selected.length ? 'flex' : 'none';
+  if (countEl) countEl.textContent = selected.length + ' მონიშნული';
+  if (allCb)   allCb.indeterminate = selected.length > 0 && selected.length < total;
+  if (allCb)   allCb.checked = selected.length === total && total > 0;
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.bulk-cb').forEach(cb => cb.checked = checked);
+  onBulkCheck();
+}
+
+function clearBulkSelection() {
+  document.querySelectorAll('.bulk-cb').forEach(cb => cb.checked = false);
+  const allCb = document.getElementById('bulk-select-all');
+  if (allCb) { allCb.checked = false; allCb.indeterminate = false; }
+  onBulkCheck();
+}
+
+async function _doBulkAction(action, reason) {
+  const ids = getSelectedIds();
+  if (!ids.length) { toast('არაფერი მონიშნული', 'warning'); return; }
+  const countEl = document.getElementById('bulk-count');
+  if (countEl) countEl.textContent = '⏳ ...';
+  try {
+    const d = await api('/approval/batch-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, draft_ids: ids, reason: reason || '' })
+    });
+    const affected = d?.affected ?? ids.length;
+    const labels = { approve: 'დამტკიცდა', reject: 'უარყოფილია' };
+    toast(`✅ ${affected} ჩანაწერი ${labels[action] || action}`, 'success');
+    clearBulkSelection();
+    await loadPending(pendingPage);
+  } catch(e) {
+    toast('შეცდომა: ' + e.message, 'error');
+    if (countEl) countEl.textContent = ids.length + ' მონიშნული';
+  }
+}
+
+function bulkApprove() { _doBulkAction('approve'); }
+function bulkReject()  {
+  const reason = prompt('უარყოფის მიზეზი (სურვილისამებრ):') ?? '';
+  _doBulkAction('reject', reason);
+}
+
+/* ═════════ DRAFT ATTACHMENT ═════════ */
+function attachFileToDraft(draftId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { toast('ფაილი 20MB-ზე მეტია', 'error'); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const r = await fetch(BASE + '/approval/draft/' + draftId + '/attach', {
+        method: 'POST',
+        headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {},
+        body: fd
+      });
+      const j = await r.json();
+      if (j.ok) {
+        toast('📎 ფაილი მიებმა: ' + (j.data?.file_name || file.name), 'success');
+        const lbl = document.getElementById('attach-label-' + draftId);
+        if (lbl) lbl.textContent = j.data?.file_name || file.name;
+        showPostingPreview(draftId);
+      } else {
+        toast('შეცდომა: ' + (j.error?.details || 'unknown'), 'error');
+      }
+    } catch(err) { toast('ქსელური შეცდომა', 'error'); }
+  };
+  input.click();
+}
+
+async function viewDraftAttachment(draftId) {
+  try {
+    const r = await fetch(BASE + '/approval/draft/' + draftId + '/attachment', {
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}
+    });
+    const j = await r.json();
+    if (j.ok && j.data?.signed_url) {
+      window.open(j.data.signed_url, '_blank');
+    } else {
+      toast('ფაილი ვერ მოიძებნა', 'error');
+    }
+  } catch(e) { toast('ქსელური შეცდომა', 'error'); }
+}
+
+async function removeDraftAttachment(draftId) {
+  if (!confirm('მიბმული ფაილი წაიშლება. გაგრძელება?')) return;
+  try {
+    const r = await fetch(BASE + '/approval/draft/' + draftId + '/attachment', {
+      method: 'DELETE',
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('📎 ფაილი წაიშალა', 'success');
+      showPostingPreview(draftId);
+    } else {
+      toast('შეცდომა: ' + (j.error?.details || 'unknown'), 'error');
+    }
+  } catch(e) { toast('ქსელური შეცდომა', 'error'); }
 }
 
 /* ═════════ ROW ACTIONS DROPDOWN ═════════ */
@@ -5100,13 +5257,25 @@ async function openEditModal(draftId) {
     } catch(e) {}
   }
 
-  const ext = docMeta?.extracted || {};
-  // Extract invoice info from processed_documents.extracted_data
+  // Use processed_documents extracted data, then fall back to raw_extraction on the draft itself
+  let rawExt = {};
+  if (draft.raw_extraction) {
+    try { rawExt = typeof draft.raw_extraction === 'string' ? JSON.parse(draft.raw_extraction) : draft.raw_extraction; } catch(e) {}
+  }
+  const _docExt = docMeta?.extracted || {};
+  const ext = Object.keys(_docExt).length ? _docExt : rawExt;
+  // Extract invoice info
   const invNum   = ext.document_number || ext.invoice_number || ext.number || '—';
-  const supplier = ext.seller?.name || draft.partner || '—';
+  const supplier = ext.seller?.name || ext.counterparty_name || draft.partner || '—';
+  const supplierInn = ext.seller?.inn || ext.seller_inn || ext.counterparty_inn || draft.counterparty_inn || '';
   const invDate  = ext.issue_date || draft.date || '—';
   const invAmt   = ext.total_with_vat ?? ext.total ?? draft.amount ?? 0;
-  const lineItems = ext.items || ext.lines || [];
+  const netAmt   = ext.net_amount ?? null;
+  const vatAmt   = ext.total_vat ?? null;
+  const sellerBank  = ext.seller?.bank_name || '';
+  const sellerIban  = ext.seller?.bank_account || '';
+  const sellerSwift = ext.seller?.swift || '';
+  const lineItems = ext.line_items || ext.items || ext.lines || [];
 
   const cur    = draft.currency || 'GEL';
   const debit  = draft.debit_account  || '';
@@ -5137,23 +5306,24 @@ async function openEditModal(draftId) {
         <tr style="background:var(--line-soft)">
           <th style="text-align:left;padding:5px 8px;font-weight:600;color:var(--ink-dim)">დასახელება</th>
           <th style="text-align:right;padding:5px 8px;font-weight:600;color:var(--ink-dim)">რაოდ.</th>
-          <th style="text-align:right;padding:5px 8px;font-weight:600;color:var(--ink-dim)">ერთ. ფასი</th>
-          <th style="text-align:right;padding:5px 8px;font-weight:600;color:var(--ink-dim)">ჯამი</th>
+          <th style="text-align:right;padding:5px 8px;font-weight:600;color:var(--ink-dim)">ჯამი (დღგ-ჩათ.)</th>
+          <th style="text-align:right;padding:5px 8px;font-weight:600;color:var(--ink-dim)">დღგ</th>
         </tr>
       </thead>
       <tbody>
-        ${lineItems.slice(0,8).map((li,i)=>`
+        ${lineItems.slice(0,20).map((li,i)=>`
           <tr style="${i%2?'background:var(--paper-soft)':''}">
             <td style="padding:5px 8px">${esc(li.description||li.name||li.label||'—')}</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--ink-dim)">${li.quantity??'—'}</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--ink-dim)">${li.unit_price||li.price?fmtMoney(parseFloat(li.unit_price||li.price||0)):'—'}</td>
-            <td style="padding:5px 8px;text-align:right;font-weight:600">${li.total||li.amount?fmtMoney(parseFloat(li.total||li.amount||0)):'—'}</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--ink-dim)">${li.quantity!=null?li.quantity:'—'} ${li.unit?esc(li.unit):''}</td>
+            <td style="padding:5px 8px;text-align:right;font-weight:600">${(li.amount_with_vat||li.total||li.amount)?fmtMoney(parseFloat(li.amount_with_vat||li.total||li.amount||0)):'—'}</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--ink-dim)">${li.vat_amount?fmtMoney(parseFloat(li.vat_amount||0)):'—'}</td>
           </tr>`).join('')}
       </tbody>
-      ${parseFloat(invAmt)?`<tfoot><tr style="border-top:2px solid var(--line-soft)">
-        <td colspan="3" style="padding:6px 8px;text-align:right;font-weight:600">სულ:</td>
-        <td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--accent)">${fmtMoney(parseFloat(invAmt))}</td>
-      </tr></tfoot>`:''}
+      <tfoot>
+        ${netAmt!=null?`<tr style="border-top:1px solid var(--line-soft)"><td colspan="2" style="padding:4px 8px;text-align:right;color:var(--ink-dim)">საბაზო:</td><td style="padding:4px 8px;text-align:right">${fmtMoney(parseFloat(netAmt))}</td><td></td></tr>`:''}
+        ${vatAmt!=null?`<tr><td colspan="2" style="padding:4px 8px;text-align:right;color:var(--ink-dim)">დღგ სულ:</td><td style="padding:4px 8px;text-align:right">${fmtMoney(parseFloat(vatAmt))}</td><td></td></tr>`:''}
+        ${parseFloat(invAmt)?`<tr style="border-top:2px solid var(--line-soft)"><td colspan="2" style="padding:6px 8px;text-align:right;font-weight:600">სულ ჯამი:</td><td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--accent)" colspan="2">${fmtMoney(parseFloat(invAmt))} ${esc(ext.currency||'GEL')}</td></tr>`:''}
+      </tfoot>
     </table>` : '';
 
   const sectionDoc = `
@@ -5171,15 +5341,22 @@ async function openEditModal(draftId) {
           <a class="btn btn-ghost btn-sm" style="font-size:11px;text-decoration:none" href="${fileUrl}" target="_blank" download>⬇ გადმოწერა</a>
         </div>`:''}
       </div>
-      ${srcDocId?`<div style="padding:12px 14px;font-size:13px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:4px">
-          ${invNum!=='—'?`<div><span style="color:var(--ink-dim);font-size:11px">ინვოისი #</span><span style="font-weight:600;font-family:var(--mono);margin-left:6px">${esc(invNum)}</span></div>`:''}
-          ${invDate!=='—'?`<div><span style="color:var(--ink-dim);font-size:11px">თარიღი</span><span style="font-weight:500;margin-left:6px">${esc(String(invDate))}</span></div>`:''}
-          ${supplier!=='—'?`<div style="grid-column:1/-1"><span style="color:var(--ink-dim);font-size:11px">მომწოდებელი</span><span style="font-weight:600;margin-left:6px">${esc(supplier)}</span></div>`:''}
-          ${buyer?`<div style="grid-column:1/-1"><span style="color:var(--ink-dim);font-size:11px">მყიდველი</span><span style="font-weight:500;margin-left:6px">${esc(buyer)}</span></div>`:''}
+      <div style="padding:12px 14px;font-size:13px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:8px">
+          ${invNum!=='—'?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">ინვოისი #</span><span style="font-weight:700;font-family:var(--mono);margin-left:6px">${esc(invNum)}</span></div>`:''}
+          ${invDate!=='—'?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">თარიღი</span><span style="font-weight:500;margin-left:6px">${esc(String(invDate))}</span></div>`:''}
+          ${supplier!=='—'?`<div style="grid-column:1/-1;margin-top:2px"><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">მომწოდებელი</span><span style="font-weight:700;margin-left:6px;font-size:14px">${esc(supplier)}</span></div>`:''}
+          ${supplierInn?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">INN</span><span style="font-family:var(--mono);margin-left:6px">${esc(supplierInn)}</span></div>`:''}
+          ${buyer?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">მყიდველი</span><span style="font-weight:500;margin-left:6px">${esc(buyer)}</span></div>`:''}
+          ${sellerBank?`<div style="grid-column:1/-1;padding:6px 0;border-top:1px solid var(--line-soft);margin-top:4px;display:grid;grid-template-columns:repeat(3,1fr);gap:4px 16px">
+            <div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">ბანკი</span><div style="font-weight:500;margin-top:2px">${esc(sellerBank)}</div></div>
+            ${sellerIban?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">ანგარიში</span><div style="font-family:var(--mono);font-size:11px;margin-top:2px">${esc(sellerIban)}</div></div>`:''}
+            ${sellerSwift?`<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">SWIFT</span><div style="font-family:var(--mono);font-weight:600;margin-top:2px">${esc(sellerSwift)}</div></div>`:''}
+          </div>`:''}
         </div>
         ${itemsTable}
-      </div>`:'<div style="padding:10px 14px;font-size:12px;color:var(--ink-dim);font-style:italic">ამ გატარებას ორიგინალი დოკუმენტი არ აქვს მიბმული</div>'}
+        ${!lineItems.length && !srcDocId?`<div style="color:var(--ink-dim);font-size:12px;font-style:italic;padding:4px 0">ამ გატარებას ორიგინალი დოკუმენტი არ აქვს მიბმული</div>`:''}
+      </div>
     </div>`;
 
   const _lineRow = (side, idAcc, valAcc, idNote, color) => `
@@ -5276,6 +5453,43 @@ function toggleDraftMenu() {
   }
 }
 
+/* ═════════ AUTOCOMPLETE ═════════ */
+function _attachAutocomplete(inp, field) {
+  let _ddEl = null, _timer = null;
+  const _close = () => { _ddEl?.remove(); _ddEl = null; };
+
+  inp.addEventListener('input', () => {
+    clearTimeout(_timer);
+    const q = inp.value.trim();
+    if (q.length < 2) { _close(); return; }
+    _timer = setTimeout(async () => {
+      try {
+        const r = await fetch(BASE + '/approval/suggestions?q=' + encodeURIComponent(q) + '&field=' + field, {
+          headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}
+        });
+        const j = await r.json();
+        const items = j?.data || [];
+        _close();
+        if (!items.length) return;
+        _ddEl = document.createElement('div');
+        _ddEl.style.cssText = 'position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);max-height:200px;overflow-y:auto;margin-top:2px';
+        items.forEach(item => {
+          const opt = document.createElement('div');
+          opt.style.cssText = 'padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center';
+          opt.innerHTML = `<span>${esc(item.value)}</span><span style="font-size:11px;color:var(--ink-dim)">${item.count}x</span>`;
+          opt.addEventListener('mousedown', e => { e.preventDefault(); inp.value = item.value; _close(); });
+          opt.addEventListener('mouseover', () => opt.style.background = 'var(--paper-soft)');
+          opt.addEventListener('mouseout',  () => opt.style.background = '');
+          _ddEl.appendChild(opt);
+        });
+        inp.parentElement.appendChild(_ddEl);
+      } catch(e) {}
+    }, 250);
+  });
+  inp.addEventListener('blur', () => setTimeout(_close, 200));
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape') _close(); });
+}
+
 function enableDraftEdit(id) {
   document.getElementById('draft-menu-dd').style.display = 'none';
   document.getElementById('draft-save-btn').style.display = 'inline-block';
@@ -5292,12 +5506,20 @@ function enableDraftEdit(id) {
     const el = document.querySelector(sel);
     if (!el) return;
     const val = el.textContent.trim().replace(/[₾,\s]/g, '');
+    const editKey = el.dataset.edit;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:100%';
     const inp = document.createElement('input');
     inp.type = type;
     inp.value = el.getAttribute('data-val') || val;
-    inp.dataset.editKey = el.dataset.edit;
+    inp.dataset.editKey = editKey;
     inp.style.cssText = 'border:1px solid var(--accent);border-radius:6px;padding:3px 7px;font-size:13px;width:100%;box-sizing:border-box;font-family:inherit;background:#fffef8';
-    el.replaceWith(inp);
+    // Autocomplete for partner and description
+    if (editKey === 'partner' || editKey === 'description') {
+      _attachAutocomplete(inp, editKey);
+    }
+    wrap.appendChild(inp);
+    el.replaceWith(wrap);
   });
 
   // Add journal line button

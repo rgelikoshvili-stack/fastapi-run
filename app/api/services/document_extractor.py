@@ -50,6 +50,9 @@ def resolve_account_code(code: Optional[str], description: str = "") -> Optional
 class ExtractedParty(BaseModel):
     inn: Optional[str] = None
     name: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    swift: Optional[str] = None
 
 
 class ExtractedLineItem(BaseModel):
@@ -132,6 +135,12 @@ Extra fields to extract (use null if absent):
 - contract_number: referenced contract number
 - act_number: act/completion number
 - delivery_date: for delivery documents
+
+Bank/payment details (from the "რეკვიზიტები" / payment details section):
+- seller.bank_name: seller's bank name (e.g. "სს საქართველოს ბანკი")
+- seller.bank_account: seller's IBAN / account number (e.g. "GE44BG0000000352876900")
+- seller.swift: seller's SWIFT/BIC code (e.g. "BAGAGE22")
+- buyer.bank_name, buyer.bank_account, buyer.swift: same for buyer if present
 
 Return ONLY valid JSON matching the ExtractedDocument schema, no explanation.
 

@@ -4963,9 +4963,7 @@ async function showPostingPreview(id) {
             <span id="attach-label-${id}" style="color:${attFile?'var(--ink)':'var(--ink-dim)'}">${attFile ? esc(attFile) : 'ფაილი არ არის მიბმული'}</span>
           </div>
           <div style="display:flex;gap:6px">
-            ${attFile ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="viewDraftAttachment(${id})">👁 ნახვა</button>
-              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removeDraftAttachment(${id})">✕</button>` : ''}
-            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="attachFileToDraft(${id})">📎 მიბმა</button>
+            ${attFile ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="viewDraftAttachment(${id})">👁 ნახვა</button>` : ''}
           </div>
         </div>
       </div>`;

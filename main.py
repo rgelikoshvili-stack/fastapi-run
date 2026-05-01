@@ -216,6 +216,7 @@ from app.api.routes_aging import router as aging_router
 from app.api.routes_period_lock import router as period_lock_router
 from app.api.routes_closing import router as closing_router
 from app.api.routes_cost_center import router as cost_center_router
+from app.api.routes_worker import router as worker_router
 
 
 # --- INCLUDE ROUTERS ---
@@ -232,6 +233,7 @@ app.include_router(pension_transfer_router)
 app.include_router(integrations_router)
 app.include_router(aging_router)
 app.include_router(period_lock_router)
+app.include_router(worker_router)
 app.include_router(closing_router)
 app.include_router(cost_center_router)
 app.include_router(routes_debug.router)
@@ -315,6 +317,17 @@ app.middleware("http")(audit_log_middleware)
 app.middleware("http")(rbac_middleware)
 app.middleware("http")(auth_middleware)
 app.middleware("http")(tenant_middleware)
+
+@app.middleware("http")
+async def https_redirect(request: Request, call_next):
+    """Redirect HTTP → HTTPS when behind a proxy (Cloud Run / load balancer)."""
+    proto = request.headers.get("X-Forwarded-Proto", "")
+    if proto == "http" and request.url.path != "/health":
+        https_url = str(request.url).replace("http://", "https://", 1)
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=https_url, status_code=301)
+    return await call_next(request)
+
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):

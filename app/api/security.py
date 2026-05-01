@@ -48,16 +48,20 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "SAMEORIGIN",
     "X-XSS-Protection": "1; mode=block",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Content-Security-Policy": (
         "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
-        "img-src 'self' data: https:; "
+        "img-src 'self' data: https: blob:; "
         "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com https://fonts.gstatic.com; "
-        "connect-src 'self' https://fastapi-run-226875230147.us-central1.run.app https://unpkg.com;"
+        "connect-src 'self' https://fastapi-run-oobzrmikna-ew.a.run.app https://storage.googleapis.com; "
+        "frame-src 'self' blob:; "
+        "object-src 'self' blob:;"
     ),
     "X-Powered-By": "BridgeHub/1.0",
 }

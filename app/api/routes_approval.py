@@ -104,10 +104,10 @@ def get_suggestions(request: Request, q: str = "", field: str = "partner"):
 
 
 @router.get("/queue")
-def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0):
+def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0, q: str = ""):
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return get_queue_service(status, limit, offset, tenant_id=tenant_id)
+    return get_queue_service(status, limit, offset, tenant_id=tenant_id, q=q)
 
 
 def _check_locked(result):

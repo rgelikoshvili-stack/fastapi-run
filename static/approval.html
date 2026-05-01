@@ -1511,6 +1511,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
           <div class="p-sub">გადახედე, დაამტკიცე ან უარყავი AI-ის მიერ წინასწარ კლასიფიცირებული ჩანაწერები.</div>
         </div>
         <div class="p-actions">
+          <input id="pending-search" type="text" placeholder="🔍 კომპანია ან საიდ. ნომერი..." oninput="loadPending(1)" style="height:32px;padding:0 10px;border:1px solid var(--line-soft);border-radius:var(--r);font-size:13px;width:220px;background:var(--paper);color:var(--ink)">
           <button class="btn btn-success btn-sm" onclick="approveAll()">ყველა</button>
           <button class="btn btn-ghost btn-sm" title="ხელახლა კლასიფიცირება" onclick="reclassifyAll()" style="font-size:12px">⚡ კლასიფ.</button>
           <button class="btn btn-ghost btn-sm" onclick="loadPending(1)">↻</button>
@@ -2965,7 +2966,9 @@ async function loadPending(page = 1) {
   pendingPage = page;
   const t0 = performance.now();
   const offset = (page - 1) * PENDING_LIMIT;
-  const d = await api(`/approval/queue?limit=${PENDING_LIMIT}&offset=${offset}`);
+  const q = (document.getElementById('pending-search')?.value || '').trim();
+  const qParam = q ? `&q=${encodeURIComponent(q)}` : '';
+  const d = await api(`/approval/queue?limit=${PENDING_LIMIT}&offset=${offset}${qParam}`);
   const loadMs = Math.round(performance.now() - t0);
 
   // load time indicator

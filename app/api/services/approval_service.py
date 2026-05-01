@@ -72,23 +72,30 @@ SIGNAL_WEIGHTS = {
 }
 
 
-def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
+def get_queue_service(status: str, limit: int, offset: int, tenant_id: str, q: str = ""):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    search_cond = ""
+    search_params: list = []
+    if q:
+        search_cond = " AND (counterparty_name ILIKE %s OR description ILIKE %s OR counterparty_inn ILIKE %s)"
+        like = f"%{q}%"
+        search_params = [like, like, like]
 
     try:
         if status:
             cur.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS total
                 FROM journal_drafts
-                WHERE status = %s AND tenant_id = %s
+                WHERE status = %s AND tenant_id = %s{search_cond}
                 """,
-                (status, tenant_id),
+                [status, tenant_id] + search_params,
             )
             total = cur.fetchone()["total"]
             cur.execute(
-                """
+                f"""
                 SELECT id, date, partner, amount, currency, status, our_role,
                        confidence, created_at, source_document_id,
                        description, account_code, debit_account, credit_account,
@@ -96,25 +103,25 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                        doc_set_summary, doc_set_score, doc_matrix,
                        provider_type, completeness_alerts
                 FROM journal_drafts
-                WHERE status = %s AND tenant_id = %s
+                WHERE status = %s AND tenant_id = %s{search_cond}
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (status, tenant_id, limit, offset),
+                [status, tenant_id] + search_params + [limit, offset],
             )
         else:
             cur.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS total
                 FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-                  AND tenant_id = %s
+                  AND tenant_id = %s{search_cond}
                 """,
-                (tenant_id,),
+                [tenant_id] + search_params,
             )
             total = cur.fetchone()["total"]
             cur.execute(
-                """
+                f"""
                 SELECT id, date, partner, amount, currency, status, our_role,
                        confidence, created_at, source_document_id,
                        description, account_code, debit_account, credit_account,
@@ -123,11 +130,11 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str):
                        provider_type, completeness_alerts
                 FROM journal_drafts
                 WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-                  AND tenant_id = %s
+                  AND tenant_id = %s{search_cond}
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (tenant_id, limit, offset),
+                [tenant_id] + search_params + [limit, offset],
             )
 
         items = [dict(r) for r in cur.fetchall()]

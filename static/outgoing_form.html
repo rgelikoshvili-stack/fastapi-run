@@ -776,7 +776,7 @@ async function finalizeInvoice(){
 ფაქ. ID: ${data.tax_invoice_id}`);
       }
     } else {
-      alert('შეცდომა: '+(d.error||JSON.stringify(d)));
+      alert('შეცდომა: '+(d.error?.details||d.error?.message||d.message||JSON.stringify(d.error||d)));
       if(btnF){btnF.disabled=false;btnF.innerHTML='<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none"><polyline points="20 6 9 17 4 12"/></svg> გამოქვეყნება';}
       if(btnF2){btnF2.disabled=false;}
     }

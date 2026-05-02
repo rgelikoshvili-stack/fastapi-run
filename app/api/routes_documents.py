@@ -1196,6 +1196,116 @@ def list_tax_invoices(
 
 
 # ─────────────────────────────────────────────────────────────
+# Tax invoice email sending
+# ─────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel, EmailStr as _EmailStr
+
+class _TIEmailReq(_BaseModel):
+    email: str
+
+@router.post("/tax-invoice/{invoice_id}/send-email")
+@limiter.limit("10/minute")
+def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request):
+    """Generate a PDF for a tax invoice and email it."""
+    import io, os, smtplib, json as _json
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email.mime.text import MIMEText
+    from email import encoders
+    import psycopg2.extras
+
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    if not smtp_user or not smtp_pass:
+        return error_response("Email not configured", "SMTP_ERROR", "SMTP_USER / SMTP_PASS env vars missing")
+
+    recipient = (data.email or "").strip()
+    if not recipient or "@" not in recipient:
+        return error_response("Invalid email", "VALIDATION_ERROR", "სწორი ელ-ფოსტა შეიყვანეთ")
+
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    conn = get_db(tenant_id)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            "SELECT * FROM tax_invoices WHERE id = %s AND tenant_id = %s",
+            (invoice_id, tenant_id),
+        )
+        inv = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not inv:
+        return http_error(404, "Not found", "NOT_FOUND")
+    inv = dict(inv)
+
+    # ── Build PDF ─────────────────────────────────────────────
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+    except ImportError:
+        return error_response("reportlab not installed", "PDF_ERROR")
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(50, h - 55, f"Tax Invoice {inv.get('invoice_number') or '#' + str(invoice_id)}")
+    c.setFont("Helvetica", 11)
+    c.drawString(50, h - 80, f"Date: {str(inv.get('invoice_date') or inv.get('created_at') or '')[:10]}")
+    c.drawString(50, h - 98, f"Seller:  {inv.get('seller_name') or '—'}  (INN: {inv.get('seller_inn') or '—'})")
+    c.drawString(50, h - 116, f"Buyer:   {inv.get('buyer_name') or '—'}  (INN: {inv.get('buyer_inn') or '—'})")
+    y = h - 150
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(50, y, "Subtotal:"); c.drawString(200, y, f"{float(inv.get('subtotal') or 0):.2f} GEL")
+    y -= 16
+    c.drawString(50, y, "VAT (18%):"); c.drawString(200, y, f"{float(inv.get('vat_amount') or 0):.2f} GEL")
+    y -= 16
+    c.drawString(50, y, "TOTAL:"); c.drawString(200, y, f"{float(inv.get('total_amount') or 0):.2f} GEL")
+    if inv.get("related_waybill_number"):
+        y -= 20
+        c.setFont("Helvetica", 9)
+        c.drawString(50, y, f"Waybill: {inv['related_waybill_number']}")
+    if inv.get("notes"):
+        y -= 16
+        c.setFont("Helvetica", 9)
+        c.drawString(50, y, f"Notes: {str(inv['notes'])[:100]}")
+    c.save()
+    buf.seek(0)
+    pdf_bytes = buf.read()
+
+    # ── Send email ────────────────────────────────────────────
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = smtp_user
+        msg["To"] = recipient
+        inv_num = inv.get("invoice_number") or f"#{invoice_id}"
+        msg["Subject"] = f"Tax Invoice {inv_num}"
+        body = (
+            f"Please find the attached tax invoice {inv_num}.\n"
+            f"Total: {float(inv.get('total_amount') or 0):.2f} GEL\n\n"
+            f"Bridge Hub"
+        )
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        part = MIMEBase("application", "pdf")
+        part.set_payload(pdf_bytes)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="tax_invoice_{inv_num}.pdf"')
+        msg.attach(part)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, recipient, msg.as_string())
+    except Exception as e:
+        log.error("send_tax_invoice_email failed: %s", e)
+        return error_response("Email send failed", "SMTP_ERROR", str(e))
+
+    log.info("action=tax_invoice_emailed tenant=%s id=%s to=%s", tenant_id, invoice_id, recipient)
+    return ok_response("ინვოისი გაიგზავნა", {"sent_to": recipient, "invoice_number": inv_num})
+
+
+# ─────────────────────────────────────────────────────────────
 # Original file preview endpoint
 # ─────────────────────────────────────────────────────────────
 

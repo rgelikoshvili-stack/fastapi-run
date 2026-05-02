@@ -297,13 +297,25 @@ td.date-cell{font-family:var(--mono);font-size:12px;color:var(--ink-soft);white-
       </div>
     </div>
     <div class="modal-body" id="mdBody"></div>
+    <!-- Email send strip -->
+    <div style="padding:14px 24px 18px;border-top:1px solid var(--line-soft);display:flex;gap:8px;align-items:center">
+      <input id="mdEmailInput" type="email" placeholder="კომპანიის ელ-ფოსტა..." autocomplete="email"
+        style="flex:1;padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);font-family:inherit;font-size:13px;color:var(--ink);outline:none"
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--line-strong)'">
+      <button id="mdSendBtn" onclick="sendTaxInvoiceEmail()"
+        style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--ink);color:var(--paper);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;font-family:inherit;transition:.15s"
+        onmouseover="this.style.background='var(--ink-soft)'" onmouseout="this.style.background='var(--ink)'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        გაგზავნა
+      </button>
+    </div>
   </div>
 </div>
 
 <script>
 const BASE='';
 let TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
-let _all=[], _filter='all', _page=0;
+let _all=[], _filter='all', _page=0, _currentInvoiceId=null;
 const PG=25;
 
 const H=()=>TOKEN?{Authorization:'Bearer '+TOKEN}:{};
@@ -430,6 +442,8 @@ function showEmpty(m){document.getElementById('tblBody').innerHTML=`<tr><td cols
 
 function showDetail(enc){
   const r=JSON.parse(decodeURIComponent(enc));
+  _currentInvoiceId=r.id;
+  document.getElementById('mdEmailInput').value=r.buyer_email||'';
   document.getElementById('mdTitle').textContent=`ანგ-ფაქტ. ${r.invoice_number||'#'+r.id}`;
   document.getElementById('mdSub').textContent=`${(r.invoice_date||'—').slice(0,10)} · ${r.total_amount?_fmt(r.total_amount)+' ₾':'—'}`;
   document.getElementById('mdBody').innerHTML=`
@@ -464,7 +478,29 @@ function showDetail(enc){
   document.getElementById('detailModal').classList.add('open');
 }
 
-function closeModal(){document.getElementById('detailModal').classList.remove('open')}
+function closeModal(){document.getElementById('detailModal').classList.remove('open');_currentInvoiceId=null;}
+
+async function sendTaxInvoiceEmail(){
+  if(!_currentInvoiceId){return;}
+  const email=(document.getElementById('mdEmailInput').value||'').trim();
+  if(!email||!email.includes('@')){alert('სწორი ელ-ფოსტა შეიყვანეთ');return;}
+  const btn=document.getElementById('mdSendBtn');
+  btn.disabled=true;btn.textContent='...';
+  try{
+    const r=await fetch(BASE+`/documents/tax-invoice/${_currentInvoiceId}/send-email`,{
+      method:'POST',headers:{...H(),'Content-Type':'application/json'},
+      body:JSON.stringify({email})
+    });
+    const d=await r.json();
+    if(d.ok){
+      btn.style.background='var(--green)';btn.textContent='✓ გაიგზავნა';
+      setTimeout(()=>{btn.style.background='var(--ink)';btn.textContent='გაგზავნა';btn.disabled=false;},3000);
+    }else{
+      alert('შეცდომა: '+(d.error?.details||d.message||'unknown'));
+      btn.disabled=false;btn.textContent='გაგზავნა';
+    }
+  }catch(e){alert('კავშირის შეცდომა');btn.disabled=false;btn.textContent='გაგზავნა';}
+}
 
 async function uploadTI(inp){
   const file=inp.files[0];if(!file)return;inp.value='';

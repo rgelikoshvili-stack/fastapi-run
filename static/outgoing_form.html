@@ -303,6 +303,22 @@ textarea.form-control{resize:vertical;min-height:80px}
           <span class="tot-label tot-total">სულ</span><span class="tot-val tot-total" id="prevTotal">0.00 ₾</span>
         </div>
 
+        <!-- email field in sidebar -->
+        <div style="margin:10px 0 8px">
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:5px">
+            მიმღების ელ-ფოსტა
+          </div>
+          <input id="sidebarEmail" type="email" placeholder="company@example.com"
+            oninput="document.getElementById('buyerEmail')&&(document.getElementById('buyerEmail').value=this.value)"
+            style="width:100%;padding:8px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:12.5px;color:var(--ink);outline:none;transition:.12s"
+            onfocus="this.style.borderColor='var(--accent,#8c3c2d)'"
+            onblur="this.style.borderColor='var(--line-strong)'"
+          >
+          <div style="font-size:10.5px;color:var(--ink-ghost);margin-top:3px;font-family:var(--serif);font-style:italic">
+            გამოქვეყნებისას ავტომატურად გაიგზავნება
+          </div>
+        </div>
+
         <button class="btn btn-finalize goods finalize-btn" id="btnFinalize2" onclick="finalizeInvoice()">
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
           გამოქვეყნება
@@ -545,6 +561,7 @@ async function loadDraft(){
     if(_q('buyerInn')) _q('buyerInn').value=inv.buyer_inn||'';
     if(_q('buyerName')) _q('buyerName').value=inv.buyer_name||'';
     if(_q('buyerEmail')) _q('buyerEmail').value=inv.buyer_email||'';
+    if(_q('sidebarEmail')) _q('sidebarEmail').value=inv.buyer_email||'';
     if(_q('transportFrom')) _q('transportFrom').value=inv.transport_from||'';
     if(_q('transportTo')) _q('transportTo').value=inv.transport_to||'';
     if(_q('vehicleNum')) _q('vehicleNum').value=inv.vehicle_number||'';
@@ -563,7 +580,7 @@ async function loadDraft(){
 
 // ── Finalize ──────────────────────────────────────────────────────────────────
 async function finalizeInvoice(){
-  const email=(_q('buyerEmail')?.value||'').trim();
+  const email=((_q('sidebarEmail')?.value||_q('buyerEmail')?.value||'')).trim();
   const willSend=email&&email.includes('@');
   const msg=willSend
     ?`გამოქვეყნება — ზედნადები და ფაქტურა შეიქმნება და ინვოისი გაიგზავნება: ${email}\n\nგავაგრძელოთ?`

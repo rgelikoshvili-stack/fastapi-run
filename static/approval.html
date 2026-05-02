@@ -2491,7 +2491,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <div class="form-grid c1">
         <div class="field"><label>ელ-ფოსტა</label><input id="li-email" type="email" class="inp" placeholder="admin@bridgehub.ge"/></div>
         <div class="field"><label>პაროლი</label><div style="position:relative"><input id="li-pass" type="password" class="inp" placeholder="••••••••" style="padding-right:38px"/><button type="button" onclick="var i=document.getElementById('li-pass');i.type=i.type==='password'?'text':'password';this.innerHTML=i.type==='password'?'&#128065;':'&#128584;'" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:0;line-height:1;color:#7a6a5a">&#128065;</button></div></div>
-        <div class="field"><label>Tenant ID</label><input id="li-tenant" type="text" class="inp" value="default"/></div>
+        <div class="field"><label>კომ. საიდ. კოდი (INN)</label><input id="li-tenant" type="text" class="inp" placeholder="მაგ. 202192643" style="font-family:monospace"/></div>
       </div>
       <div class="login-err" id="li-err"></div>
       <button id="li-btn" onclick="handleLogin()" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px">შესვლა</button>
@@ -2667,15 +2667,15 @@ function showRegisterForm() {
   document.getElementById('login-sub-txt').textContent = 'ახალი ანგარიშის შექმნა';
   document.getElementById('login-form-container').innerHTML = `
     <div class="form-grid c1">
-      <div class="field"><label>სახელი</label><input id="reg-name" type="text" class="inp" placeholder="სრული სახელი"/></div>
+      <div class="field"><label>კომპანიის სახელი</label><input id="reg-company" type="text" class="inp" placeholder="შპს კომპანიის სახელი"/></div>
+      <div class="field"><label>კომ. საიდ. კოდი (INN)</label><input id="reg-inn" type="text" class="inp" placeholder="მაგ. 202192643" maxlength="15" style="font-family:monospace"/></div>
       <div class="field"><label>ელ-ფოსტა</label><input id="reg-email" type="email" class="inp" placeholder="you@example.com"/></div>
-      <div class="field"><label>პაროლი</label><input id="reg-pass" type="password" class="inp" placeholder="მინ. 6 სიმბოლო"/></div>
-      <div class="field"><label>Tenant</label><input id="reg-tenant" type="text" class="inp" value="default"/></div>
+      <div class="field"><label>პაროლი</label><input id="reg-pass" type="password" class="inp" placeholder="მინ. 8 სიმბოლო"/></div>
     </div>
     <div class="login-err" id="reg-err"></div>
     <button id="reg-btn" onclick="handleRegister()" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px">რეგისტრაცია</button>`;
   document.querySelector('.login-foot').innerHTML = `უკვე გაქვთ ანგარიში?<a onclick="showLoginForm()">შესვლა</a>`;
-  setTimeout(() => document.getElementById('reg-name')?.focus(), 50);
+  setTimeout(() => document.getElementById('reg-company')?.focus(), 50);
 }
 
 function showLoginForm() {
@@ -2685,7 +2685,7 @@ function showLoginForm() {
     <div class="form-grid c1">
       <div class="field"><label>ელ-ფოსტა</label><input id="li-email" type="email" class="inp" placeholder="admin@bridgehub.ge"/></div>
       <div class="field"><label>პაროლი</label><input id="li-pass" type="password" class="inp" placeholder="••••••••"/></div>
-      <div class="field"><label>Tenant ID</label><input id="li-tenant" type="text" class="inp" value="default"/></div>
+      <div class="field"><label>კომ. საიდ. კოდი (INN)</label><input id="li-tenant" type="text" class="inp" placeholder="მაგ. 202192643" style="font-family:monospace"/></div>
     </div>
     <div class="login-err" id="li-err"></div>
     <button id="li-btn" onclick="handleLogin()" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px">შესვლა</button>`;
@@ -2696,25 +2696,34 @@ function showLoginForm() {
 async function handleRegister() {
   const btn = document.getElementById('reg-btn');
   const errEl = document.getElementById('reg-err');
-  const name = document.getElementById('reg-name').value.trim();
+  errEl.style.color = 'var(--red)';
+  const company = document.getElementById('reg-company').value.trim();
+  const inn = document.getElementById('reg-inn').value.trim();
   const email = document.getElementById('reg-email').value.trim();
   const pass = document.getElementById('reg-pass').value;
-  const tenant = document.getElementById('reg-tenant').value.trim() || 'default';
-  if (!name || !email || !pass) { errEl.textContent = 'შეავსეთ ყველა ველი'; return; }
-  if (pass.length < 6) { errEl.textContent = 'პაროლი მინ. 6 სიმბოლო'; return; }
+  if (!company || !inn || !email || !pass) { errEl.textContent = 'შეავსეთ ყველა ველი'; return; }
+  if (!/^\d{9,11}$/.test(inn)) { errEl.textContent = 'საიდ. კოდი უნდა იყოს 9–11 ციფრი'; return; }
+  if (pass.length < 8) { errEl.textContent = 'პაროლი მინ. 8 სიმბოლო'; return; }
   btn.textContent = 'გთხოვთ დაიცადოთ…'; btn.disabled = true;
   errEl.textContent = '';
   try {
-    const r = await fetch(BASE + '/auth/register', {
+    const r = await fetch(BASE + '/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ email, password: pass, name, tenant_id: tenant })
+      body: JSON.stringify({
+        company_inn: inn,
+        company_name_legal: company,
+        company_type: 'legal_entity',
+        is_vat_payer: true,
+        email,
+        password: pass
+      })
     });
     const d = await r.json();
     if (d.ok || r.status === 200 || r.status === 201) {
       errEl.style.color = 'var(--green)';
       errEl.textContent = '✓ რეგისტრაცია წარმატებულია · შედიხართ…';
-      const err = await doLogin(email, pass, tenant);
+      const err = await doLogin(email, pass, inn);
       if (err) { errEl.style.color = 'var(--red)'; errEl.textContent = err; btn.textContent='რეგისტრაცია'; btn.disabled=false; }
     } else {
       errEl.textContent = d.error?.details || d.message || 'რეგისტრაცია ვერ მოხდა';

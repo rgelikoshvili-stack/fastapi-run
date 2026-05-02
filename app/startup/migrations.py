@@ -376,6 +376,18 @@ def _run_remaining_migrations(cur):
     except Exception:
         conn.rollback()
 
+    # outgoing_invoices — expand status constraint to include 'sent'
+    for sql in [
+        "ALTER TABLE outgoing_invoices DROP CONSTRAINT IF EXISTS outgoing_invoices_status_check",
+        """ALTER TABLE outgoing_invoices ADD CONSTRAINT IF NOT EXISTS outgoing_invoices_status_check
+           CHECK (status IN ('draft','pending','finalized','sent','cancelled','imported','paid'))""",
+    ]:
+        try:
+            cur.execute(sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
     # Data quality constraints
     for sql in [
         "ALTER TABLE journal_drafts ADD CONSTRAINT IF NOT EXISTS chk_jd_amount_positive CHECK (amount IS NULL OR amount >= 0)",

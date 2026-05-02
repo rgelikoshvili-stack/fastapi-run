@@ -233,51 +233,34 @@ def _load_tenant_stamp(tenant_id: str):
 
 
 def _remove_bg(image_bytes: bytes):
-    """Adaptive background removal for smartphone photos of signed documents.
+    """Remove paper background using PIL autocontrast + threshold.
 
-    Strategy:
-    1. Sample image corners → estimate actual paper/background color
-    2. Compute each pixel's distance from that background color
-    3. Remove pixels within distance threshold (transparent)
-    4. Also remove high-luminance pixels (catches remaining light areas)
-    Works for white, grey, beige, yellowish paper regardless of lighting.
+    autocontrast stretches any paper color (grey, beige, yellow, dimly-lit)
+    to near-white, then a fixed threshold at 180 cleanly separates ink from paper.
+    Works for scans and smartphone photos under any lighting.
     """
     import io as _io
     import numpy as _np
-    from PIL import Image as _PILImage
+    from PIL import Image as _PILImage, ImageOps as _ImageOps
 
-    img = _PILImage.open(_io.BytesIO(image_bytes)).convert("RGBA")
-    arr = _np.array(img, dtype=_np.uint8)
-    h, w = arr.shape[:2]
+    orig = _PILImage.open(_io.BytesIO(image_bytes)).convert("RGBA")
+    arr  = _np.array(orig, dtype=_np.uint8)
 
-    # ── Step 1: estimate background color from image corners/edges ────────
-    margin = max(1, min(h, w) // 12)
-    corner_pixels = _np.concatenate([
-        arr[:margin,   :margin,   :3].reshape(-1, 3),
-        arr[:margin,  -margin:,   :3].reshape(-1, 3),
-        arr[-margin:,  :margin,   :3].reshape(-1, 3),
-        arr[-margin:, -margin:,   :3].reshape(-1, 3),
-    ], axis=0).astype(float)
-    bg_color = _np.median(corner_pixels, axis=0)   # median is robust to corner ink
+    # autocontrast on greyscale: stretches darkest→0, lightest→255
+    # After this, any paper color maps to ~200-255; ink maps to ~0-100
+    grey_norm = _np.array(
+        _ImageOps.autocontrast(orig.convert("L"), cutoff=2),
+        dtype=float,
+    )
 
-    # ── Step 2: distance from background color (per pixel) ────────────────
-    diff = (_np.abs(arr[:, :, :3].astype(float) - bg_color))
-    dist = diff.max(axis=2)   # Chebyshev distance — max channel difference
+    # Hard threshold + soft anti-aliased edge
+    hard = grey_norm > 180
+    soft = (grey_norm > 140) & ~hard
 
-    # ── Step 3: luminance (catches areas that are light regardless of bg hue)
-    lum = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(float)
-    # normalize luminance so paper → near 1.0 even under dim lighting
-    lum_norm = (lum - lum.min()) / max(lum.max() - lum.min(), 1)
-
-    # ── Step 4: build alpha mask ──────────────────────────────────────────
-    # pixel is background if EITHER close to bg_color OR high normalized luminance
-    bg_mask  = (dist < 35) | (lum_norm > 0.75)
-    # soft edge for anti-aliasing
-    soft     = (dist < 55) & ~bg_mask & (lum_norm > 0.55)
     alpha = arr[:, :, 3].astype(float)
-    alpha[bg_mask] = 0
-    alpha[soft]    = ((1 - lum_norm[soft]) / 0.45 * 255).clip(0, 255)
-    arr[:, :, 3]   = alpha.astype(_np.uint8)
+    alpha[hard] = 0
+    alpha[soft] = ((180 - grey_norm[soft]) / 40 * 255).clip(0, 255)
+    arr[:, :, 3] = alpha.astype(_np.uint8)
 
     result = _PILImage.fromarray(arr)
     bbox = result.getbbox()
@@ -707,13 +690,16 @@ def send_invoice_email(invoice_id: int, request: Request):
 
     # ── Mark as sent ─────────────────────────────────────────────────────────
     conn2 = get_db(tenant_id)
+    cur2 = conn2.cursor()
     try:
-        cur2 = conn2.cursor()
         cur2.execute(
             "UPDATE outgoing_invoices SET status='sent', sent_at=NOW() WHERE id=%s AND tenant_id=%s",
             (invoice_id, tenant_id),
         )
         conn2.commit()
+    except Exception as _upd_e:
+        log.warning("sent-status update failed (non-critical, email was delivered): %s", _upd_e)
+        conn2.rollback()
     finally:
         cur2.close()
         conn2.close()

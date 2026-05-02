@@ -199,12 +199,16 @@ def _load_tenant_signature(tenant_id: str):
         row = cur.fetchone()
         cur.close(); conn.close()
         if not row or not row[0]:
+            log.info("sig_load tenant=%s → not found in DB", tenant_id)
             return None
         b64 = row[0]
         if "," in b64:
             b64 = b64.split(",", 1)[1]
-        return base64.b64decode(b64)
-    except Exception:
+        data = base64.b64decode(b64)
+        log.info("sig_load tenant=%s → %d bytes", tenant_id, len(data))
+        return data
+    except Exception as _e:
+        log.warning("sig_load failed tenant=%s: %s", tenant_id, _e)
         return None
 
 
@@ -458,20 +462,16 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
     if signature_bytes:
         try:
             import io as _io
+            import numpy as _np
             from PIL import Image as _PILImage
             from reportlab.lib.utils import ImageReader
 
-            # Remove white/light background → transparent PNG
             pil_img = _PILImage.open(_io.BytesIO(signature_bytes)).convert("RGBA")
-            pixels = pil_img.load()
-            pw, ph = pil_img.size
-            for py in range(ph):
-                for px in range(pw):
-                    r, g, b, a = pixels[px, py]
-                    # make near-white pixels transparent
-                    if r > 210 and g > 210 and b > 210:
-                        pixels[px, py] = (r, g, b, 0)
-            # crop to bounding box of non-transparent content
+            arr = _np.array(pil_img, dtype=_np.uint8)
+            # vectorized: make near-white pixels transparent (threshold 210)
+            white_mask = (arr[:, :, 0] > 210) & (arr[:, :, 1] > 210) & (arr[:, :, 2] > 210)
+            arr[white_mask, 3] = 0
+            pil_img = _PILImage.fromarray(arr)
             bbox = pil_img.getbbox()
             if bbox:
                 pil_img = pil_img.crop(bbox)
@@ -486,10 +486,10 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
             scale = min(max_sig_w / max(sig_w, 1), max_sig_h / max(sig_h_px, 1), 1.0)
             draw_w = sig_w * scale
             draw_h = sig_h_px * scale
-            # center signature spanning both Director + Stamp positions
             cx_sig = ML + (CW - draw_w) / 2
             c.drawImage(sig_img, cx_sig, sig_y - draw_h + 14, width=draw_w, height=draw_h,
                         preserveAspectRatio=True, mask="auto")
+            log.info("signature embedded: %.0fx%.0f pt", draw_w, draw_h)
         except Exception as _se:
             log.warning("signature embed failed: %s", _se)
             c.drawString(ML, sig_y, "დირექტორი: _______________________")

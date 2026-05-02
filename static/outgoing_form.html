@@ -202,10 +202,15 @@ textarea.form-control{resize:vertical;min-height:80px}
             <input class="form-control" id="buyerName" placeholder="კომპანია ООО" oninput="scheduleAutosave()">
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row cols-2">
           <div class="form-group">
-            <label class="form-label">ელ. ფოსტა (ინვოისის გასაგზავნად)</label>
-            <input class="form-control" type="email" id="buyerEmail" placeholder="buyer@company.ge" oninput="scheduleAutosave()">
+            <label class="form-label">გამგზავნის ელ-ფოსტა</label>
+            <input class="form-control" type="email" id="senderEmailField" placeholder="ჩვენი ელ-ფოსტა..." readonly
+              style="background:var(--paper-sunk);color:var(--ink-mute);cursor:default">
+          </div>
+          <div class="form-group">
+            <label class="form-label">შემკვეთის ელ-ფოსტა</label>
+            <input class="form-control" type="email" id="buyerEmail" placeholder="company@example.ge" oninput="scheduleAutosave()">
           </div>
         </div>
       </div>
@@ -303,27 +308,6 @@ textarea.form-control{resize:vertical;min-height:80px}
           <span class="tot-label tot-total">სულ</span><span class="tot-val tot-total" id="prevTotal">0.00 ₾</span>
         </div>
 
-        <!-- email from/to row -->
-        <div style="margin:10px 0 8px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div>
-              <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:4px">გამგზავნი</div>
-              <div id="senderEmailDisplay" style="padding:7px 10px;background:var(--paper-sunk);border:1px solid var(--line);border-radius:8px;font-size:11.5px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="">—</div>
-            </div>
-            <div>
-              <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:4px">მიმღები</div>
-              <input id="sidebarEmail" type="email" placeholder="კომპანიის მელი..."
-                oninput="document.getElementById('buyerEmail')&&(document.getElementById('buyerEmail').value=this.value)"
-                style="width:100%;padding:7px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:11.5px;color:var(--ink);outline:none;transition:.12s"
-                onfocus="this.style.borderColor='var(--accent,#8c3c2d)'"
-                onblur="this.style.borderColor='var(--line-strong)'"
-              >
-            </div>
-          </div>
-          <div style="font-size:10px;color:var(--ink-ghost);margin-top:4px;font-family:var(--serif);font-style:italic">
-            მიმღების მელი მითითებისას გამოქვეყნებისას ავტომატურად გაიგზავნება
-          </div>
-        </div>
 
         <button class="btn btn-finalize goods finalize-btn" id="btnFinalize2" onclick="finalizeInvoice()">
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
@@ -376,8 +360,8 @@ async function loadSenderEmail(){
     if(d.ok){
       const u = d.data||d;
       const email = u.email||'';
-      const el = _q('senderEmailDisplay');
-      if(el){ el.textContent = email||'—'; el.title = email; }
+      const el = _q('senderEmailField');
+      if(el) el.value = email;
     }
   }catch(e){}
 }
@@ -581,7 +565,6 @@ async function loadDraft(){
     if(_q('buyerInn')) _q('buyerInn').value=inv.buyer_inn||'';
     if(_q('buyerName')) _q('buyerName').value=inv.buyer_name||'';
     if(_q('buyerEmail')) _q('buyerEmail').value=inv.buyer_email||'';
-    if(_q('sidebarEmail')) _q('sidebarEmail').value=inv.buyer_email||'';
     if(_q('transportFrom')) _q('transportFrom').value=inv.transport_from||'';
     if(_q('transportTo')) _q('transportTo').value=inv.transport_to||'';
     if(_q('vehicleNum')) _q('vehicleNum').value=inv.vehicle_number||'';
@@ -600,7 +583,7 @@ async function loadDraft(){
 
 // ── Finalize ──────────────────────────────────────────────────────────────────
 async function finalizeInvoice(){
-  const email=((_q('sidebarEmail')?.value||_q('buyerEmail')?.value||'')).trim();
+  const email=(_q('buyerEmail')?.value||'').trim();
   const willSend=email&&email.includes('@');
   const msg=willSend
     ?`გამოქვეყნება — ზედნადები და ფაქტურა შეიქმნება და ინვოისი გაიგზავნება: ${email}\n\nგავაგრძელოთ?`

@@ -12,6 +12,24 @@ def run_db_migrations():
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
         cur = conn.cursor()
 
+        # tenants table — ensure all party_resolver columns exist
+        for _t_col in [
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS company_inn TEXT",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS company_name_legal TEXT",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS company_name_aliases JSONB",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS owner_personal_id TEXT",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS company_type TEXT DEFAULT 'legal_entity'",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_vat_payer BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_tier TEXT DEFAULT 'trial'",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ",
+        ]:
+            try:
+                cur.execute(_t_col)
+                conn.commit()
+            except Exception as _e:
+                conn.rollback()
+                log.debug("tenants col migration skipped: %s", _e)
+
         # Fix tenant_id UUID → TEXT for tables created with wrong type
         for tbl in ("expenses", "invoices", "contracts", "customers"):
             cur.execute(f"""

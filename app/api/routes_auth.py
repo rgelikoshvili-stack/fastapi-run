@@ -451,6 +451,99 @@ def auth_reset_password(data: ResetPasswordRequest, request: Request):
         return error_response("Error", "RESET_ERROR", str(e))
 
 
+class CompanyProfileRequest(BaseModel):
+    company_inn: Optional[str] = None
+    company_name_legal: Optional[str] = None
+    company_type: Optional[str] = None
+    is_vat_payer: Optional[bool] = None
+
+
+@router.get("/company-profile")
+def get_company_profile(authorization: Optional[str] = Header(None)):
+    """Return the current tenant's company profile (INN, name, type, VAT status)."""
+    token = _extract_bearer_token(authorization)
+    if not token:
+        return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        return error_response("Unauthorized", "AUTH_ERROR", "Invalid token")
+
+    tenant_id = payload.get("tenant_id", "default")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT company_inn, company_name_legal, company_type, is_vat_payer
+               FROM tenants WHERE tenant_id = %s""",
+            (tenant_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        return ok_response("Company profile", {"company_inn": None, "company_name_legal": None,
+                                                "company_type": None, "is_vat_payer": True})
+    return ok_response("Company profile", {
+        "company_inn": row[0],
+        "company_name_legal": row[1],
+        "company_type": row[2],
+        "is_vat_payer": row[3],
+    })
+
+
+@router.patch("/company-profile")
+def update_company_profile(data: CompanyProfileRequest, authorization: Optional[str] = Header(None)):
+    """Update company INN, name, type, and VAT status for the current tenant."""
+    token = _extract_bearer_token(authorization)
+    if not token:
+        return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        return error_response("Unauthorized", "AUTH_ERROR", "Invalid token")
+
+    tenant_id = payload.get("tenant_id", "default")
+
+    fields, params = [], []
+    if data.company_inn is not None:
+        fields.append("company_inn = %s")
+        params.append(data.company_inn.strip())
+    if data.company_name_legal is not None:
+        import json as _json
+        fields.append("company_name_legal = %s")
+        fields.append("name = %s")
+        fields.append("company_name_aliases = %s")
+        params.append(data.company_name_legal.strip())
+        params.append(data.company_name_legal.strip())
+        params.append(_json.dumps(_generate_name_aliases(data.company_name_legal.strip())))
+    if data.company_type is not None:
+        fields.append("company_type = %s")
+        params.append(data.company_type)
+    if data.is_vat_payer is not None:
+        fields.append("is_vat_payer = %s")
+        params.append(data.is_vat_payer)
+
+    if not fields:
+        return error_response("No fields", "VALIDATION_ERROR", "No fields to update")
+
+    params.append(tenant_id)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE tenants SET {', '.join(fields)} WHERE tenant_id = %s",
+            params,
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    log.info("action=company_profile_updated tenant=%s", tenant_id)
+    return ok_response("კომპანიის პროფილი განახლდა", {})
+
+
 @router.post("/change-password")
 @limiter.limit("5/minute")
 def auth_change_password(data: ChangePasswordRequest, request: Request, authorization: Optional[str] = Header(None)):

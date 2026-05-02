@@ -263,6 +263,49 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
         </div>
       </div>
 
+      <!-- ── COMPANY IDENTITY ── -->
+      <div class="s-card">
+        <div class="s-head">
+          <div>
+            <div class="s-title">ჩვენი კომპანიის მონაცემები</div>
+            <div class="s-sub">საიდენტიფიკაციო ნომერი — გამოიყენება მყიდველი/გამყიდველის ავტომატური განსაზღვრისთვის</div>
+          </div>
+        </div>
+        <div class="s-body">
+          <div class="form-grid">
+            <div class="form-label">კომპანიის სახელი</div>
+            <div>
+              <input class="form-inp" id="cpName" placeholder="მაგ. შპს ალტე უნივერსიტეტი"/>
+              <div class="form-desc" style="display:block;margin-top:4px">იურიდიული სახელწოდება, ზუსტად ისე, როგორც დოკუმენტებში წერია</div>
+            </div>
+
+            <div class="form-label">საიდ. ნომერი (INN)</div>
+            <div>
+              <input class="form-inp" id="cpInn" placeholder="მაგ. 202192643" maxlength="15" style="font-family:var(--mono)"/>
+              <div class="form-desc" style="display:block;margin-top:4px">9 ან 11 ციფრი — ამ ნომრით სისტემა ამოიცნობს თქვენს კომპანიას ყველა ატვირთულ დოკუმენტში</div>
+            </div>
+
+            <div class="form-label">კომპანიის ტიპი</div>
+            <select class="form-sel" id="cpType">
+              <option value="legal_entity">შპს / სს (იურიდიული პირი)</option>
+              <option value="individual_entrepreneur">ინდ. მეწარმე</option>
+              <option value="individual">ფიზიკური პირი</option>
+            </select>
+
+            <div class="form-label">დღგ-ს გადამხდელი</div>
+            <select class="form-sel" id="cpVat">
+              <option value="true">კი — დღგ-ს გადამხდელი ვარ</option>
+              <option value="false">არა — არ ვარ დღგ-ს გადამხდელი</option>
+            </select>
+          </div>
+          <div style="margin-top:20px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="saveCompanyProfile()">შენახვა</button>
+            <span id="cpSaved" style="display:none;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--green)">✓ შენახულია</span>
+            <span id="cpErr" style="display:none;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--red)"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="s-card">
         <div class="s-head">
           <div class="s-title">JWT Token</div>
@@ -648,6 +691,48 @@ function logout() {
   location.href = '/static/approval.html';
 }
 
+// ── COMPANY PROFILE ──
+async function loadCompanyProfile() {
+  try {
+    const d = await api('/auth/company-profile');
+    if (!d || !d.ok) return;
+    const p = d.data || {};
+    if (p.company_name_legal) document.getElementById('cpName').value = p.company_name_legal;
+    if (p.company_inn) document.getElementById('cpInn').value = p.company_inn;
+    if (p.company_type) document.getElementById('cpType').value = p.company_type;
+    document.getElementById('cpVat').value = p.is_vat_payer === false ? 'false' : 'true';
+  } catch(e) {}
+}
+
+async function saveCompanyProfile() {
+  const inn = (document.getElementById('cpInn').value || '').trim();
+  const name = (document.getElementById('cpName').value || '').trim();
+  const type = document.getElementById('cpType').value;
+  const vat = document.getElementById('cpVat').value === 'true';
+  const errEl = document.getElementById('cpErr');
+  const savedEl = document.getElementById('cpSaved');
+  errEl.style.display = 'none';
+  if (inn && !/^\d{9,11}$/.test(inn)) {
+    errEl.textContent = 'საიდ. ნომერი უნდა იყოს 9–11 ციფრი';
+    errEl.style.display = 'inline';
+    return;
+  }
+  const body = {};
+  if (inn) body.company_inn = inn;
+  if (name) body.company_name_legal = name;
+  body.company_type = type;
+  body.is_vat_payer = vat;
+  const d = await api('/auth/company-profile', 'PATCH', body);
+  if (d && d.ok) {
+    savedEl.style.display = 'inline';
+    setTimeout(() => { savedEl.style.display = 'none'; }, 2500);
+    toast('კომპანიის მონაცემები შენახულია', 'ok');
+  } else {
+    errEl.textContent = d?.error?.details || 'შენახვა ვერ მოხერხდა';
+    errEl.style.display = 'inline';
+  }
+}
+
 // ── CURRENCY ──
 async function loadCurrencyRates() {
   const box = document.getElementById('currency-rates-body');
@@ -894,6 +979,8 @@ function boot() {
   if (savedCurr) { const el = document.getElementById('genCurrency'); if (el) el.value = savedCurr; }
   const savedLang = localStorage.getItem('bh_lang');
   if (savedLang) { const el = document.getElementById('genLang'); if (el) el.value = savedLang; }
+
+  loadCompanyProfile();
 }
 
 // ── BALANCE.GE ──

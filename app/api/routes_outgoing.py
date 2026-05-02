@@ -233,33 +233,57 @@ def _load_tenant_stamp(tenant_id: str):
 
 
 def _remove_bg(image_bytes: bytes):
-    """Remove paper/photo background. Uses luminance threshold 160 — catches
-    off-white, beige, light-grey paper while preserving dark ink and blue stamps."""
+    """Adaptive background removal for smartphone photos of signed documents.
+
+    Strategy:
+    1. Sample image corners → estimate actual paper/background color
+    2. Compute each pixel's distance from that background color
+    3. Remove pixels within distance threshold (transparent)
+    4. Also remove high-luminance pixels (catches remaining light areas)
+    Works for white, grey, beige, yellowish paper regardless of lighting.
+    """
     import io as _io
     import numpy as _np
     from PIL import Image as _PILImage
 
-    pil_img = _PILImage.open(_io.BytesIO(image_bytes)).convert("RGBA")
-    arr = _np.array(pil_img, dtype=_np.uint8)
-    r = arr[:, :, 0].astype(float)
-    g = arr[:, :, 1].astype(float)
-    b = arr[:, :, 2].astype(float)
-    # luminance threshold 160: removes grey/beige paper; black ink (~0-80) and
-    # dark blue stamp ink (~40-120) stay fully opaque
-    lum = 0.299 * r + 0.587 * g + 0.114 * b
-    # Graduated alpha: full transparent above 160, partial between 120-160 for
-    # smooth edges instead of hard cutoff
+    img = _PILImage.open(_io.BytesIO(image_bytes)).convert("RGBA")
+    arr = _np.array(img, dtype=_np.uint8)
+    h, w = arr.shape[:2]
+
+    # ── Step 1: estimate background color from image corners/edges ────────
+    margin = max(1, min(h, w) // 12)
+    corner_pixels = _np.concatenate([
+        arr[:margin,   :margin,   :3].reshape(-1, 3),
+        arr[:margin,  -margin:,   :3].reshape(-1, 3),
+        arr[-margin:,  :margin,   :3].reshape(-1, 3),
+        arr[-margin:, -margin:,   :3].reshape(-1, 3),
+    ], axis=0).astype(float)
+    bg_color = _np.median(corner_pixels, axis=0)   # median is robust to corner ink
+
+    # ── Step 2: distance from background color (per pixel) ────────────────
+    diff = (_np.abs(arr[:, :, :3].astype(float) - bg_color))
+    dist = diff.max(axis=2)   # Chebyshev distance — max channel difference
+
+    # ── Step 3: luminance (catches areas that are light regardless of bg hue)
+    lum = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(float)
+    # normalize luminance so paper → near 1.0 even under dim lighting
+    lum_norm = (lum - lum.min()) / max(lum.max() - lum.min(), 1)
+
+    # ── Step 4: build alpha mask ──────────────────────────────────────────
+    # pixel is background if EITHER close to bg_color OR high normalized luminance
+    bg_mask  = (dist < 35) | (lum_norm > 0.75)
+    # soft edge for anti-aliasing
+    soft     = (dist < 55) & ~bg_mask & (lum_norm > 0.55)
     alpha = arr[:, :, 3].astype(float)
-    hard_bg   = lum > 160
-    soft_edge = (lum > 120) & ~hard_bg
-    alpha[hard_bg]   = 0
-    alpha[soft_edge] = ((160 - lum[soft_edge]) / 40 * 255).clip(0, 255)
-    arr[:, :, 3] = alpha.astype(_np.uint8)
-    pil_img = _PILImage.fromarray(arr)
-    bbox = pil_img.getbbox()
+    alpha[bg_mask] = 0
+    alpha[soft]    = ((1 - lum_norm[soft]) / 0.45 * 255).clip(0, 255)
+    arr[:, :, 3]   = alpha.astype(_np.uint8)
+
+    result = _PILImage.fromarray(arr)
+    bbox = result.getbbox()
     if bbox:
-        pil_img = pil_img.crop(bbox)
-    return pil_img
+        result = result.crop(bbox)
+    return result
 
 
 def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes = None) -> bytes:

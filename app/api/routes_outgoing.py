@@ -458,18 +458,40 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
     if signature_bytes:
         try:
             import io as _io
+            from PIL import Image as _PILImage
             from reportlab.lib.utils import ImageReader
-            sig_img = ImageReader(_io.BytesIO(signature_bytes))
+
+            # Remove white/light background → transparent PNG
+            pil_img = _PILImage.open(_io.BytesIO(signature_bytes)).convert("RGBA")
+            pixels = pil_img.load()
+            pw, ph = pil_img.size
+            for py in range(ph):
+                for px in range(pw):
+                    r, g, b, a = pixels[px, py]
+                    # make near-white pixels transparent
+                    if r > 210 and g > 210 and b > 210:
+                        pixels[px, py] = (r, g, b, 0)
+            # crop to bounding box of non-transparent content
+            bbox = pil_img.getbbox()
+            if bbox:
+                pil_img = pil_img.crop(bbox)
+            png_buf = _io.BytesIO()
+            pil_img.save(png_buf, format="PNG")
+            png_buf.seek(0)
+
+            sig_img = ImageReader(png_buf)
             sig_w, sig_h_px = sig_img.getSize()
-            max_sig_w = 160
-            max_sig_h = 55
-            scale = min(max_sig_w / sig_w, max_sig_h / sig_h_px, 1.0)
+            max_sig_w = min(CW * 0.9, 370)
+            max_sig_h = 70
+            scale = min(max_sig_w / max(sig_w, 1), max_sig_h / max(sig_h_px, 1), 1.0)
             draw_w = sig_w * scale
             draw_h = sig_h_px * scale
-            # draw spanning signature+stamp area
-            c.drawImage(sig_img, ML, sig_y - draw_h + 10, width=draw_w, height=draw_h,
+            # center signature spanning both Director + Stamp positions
+            cx_sig = ML + (CW - draw_w) / 2
+            c.drawImage(sig_img, cx_sig, sig_y - draw_h + 14, width=draw_w, height=draw_h,
                         preserveAspectRatio=True, mask="auto")
-        except Exception:
+        except Exception as _se:
+            log.warning("signature embed failed: %s", _se)
             c.drawString(ML, sig_y, "დირექტორი: _______________________")
             c.drawString(w / 2, sig_y, "ბეჭედი")
     else:

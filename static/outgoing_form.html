@@ -148,6 +148,21 @@ textarea.form-control{resize:vertical;min-height:80px}
 .tot-total .tot-val{font-size:14px;font-weight:700;color:var(--ink)}
 .tot-sep{grid-column:1/-1;height:1px;background:var(--line-soft);margin:4px 0}
 .finalize-btn{width:100%;margin-top:14px;justify-content:center;padding:11px}
+
+/* SIGNATURE ZONE */
+.sig-zone{
+  border:2px dashed var(--line-strong);border-radius:10px;
+  padding:18px 16px;cursor:pointer;transition:.15s;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  background:var(--paper-soft);min-height:90px;justify-content:center;
+  position:relative;
+}
+.sig-zone:hover,.sig-zone.drag{border-color:var(--header-goods);background:var(--card)}
+.sig-zone.service:hover,.sig-zone.service.drag{border-color:var(--header-service)}
+.sig-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.sig-zone .sig-hint{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-ghost)}
+.sig-preview{max-width:100%;max-height:100px;border-radius:6px;display:block;margin:0 auto}
+.sig-clear{position:absolute;top:8px;right:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(121,31,31,.25);border-radius:5px;padding:2px 8px;font-size:11px;cursor:pointer;z-index:2}
 </style>
 </head>
 <body>
@@ -339,10 +354,34 @@ textarea.form-control{resize:vertical;min-height:80px}
       </div>
     </div>
 
-    <!-- Comment -->
+    <!-- Signature / Stamp upload -->
     <div class="card">
       <div class="card-head">
         <div class="card-head-stripe goods" id="headStripe4"></div>
+        <div class="card-title">ხელმოწერა / ბეჭედი</div>
+        <span style="font-family:var(--serif);font-style:italic;font-size:11px;color:var(--ink-ghost);margin-left:8px">ჩაიდება PDF-ში</span>
+      </div>
+      <div class="card-body">
+        <div class="sig-zone" id="sigZone"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="onSigDrop(event)">
+          <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)">
+          <div id="sigZoneContent">
+            <svg viewBox="0 0 24 24" style="width:28px;height:28px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+            </svg>
+            <div class="sig-hint">სურათი ჩააგდეთ ან დააჭირეთ ატვირთვას</div>
+            <div style="font-size:11px;color:var(--ink-ghost)">JPG / PNG — ხელმოწერა + ბეჭედი</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripe5"></div>
         <div class="card-title">💬 კომენტარი</div>
         <span style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-left:8px">→ ზედნადების + ფაქტურის notes</span>
       </div>
@@ -460,13 +499,14 @@ function applyType(){
   _q('btnFinalize2').className = `btn btn-finalize ${_type} finalize-btn`;
 
   // stripes
-  ['headStripeS','headStripe1','headStripe2','headStripe3','headStripe4'].forEach(id=>{
+  ['headStripeS','headStripe1','headStripe2','headStripe3','headStripe4','headStripe5'].forEach(id=>{
     const el=_q(id);
     if(el) el.className='card-head-stripe '+_type;
   });
 
   // transport visibility
   _q('transportCard').style.display = isGoods ? '' : 'none';
+  const sz=_q('sigZone'); if(sz) sz.className='sig-zone '+_type;
 
   // line items header
   const head = _q('lineItemsHead');
@@ -773,55 +813,81 @@ function downloadPDF(){
 }
 
 // ── Signature / stamp ────────────────────────────────────────────────────────
-async function onSigUpload(evt){
+function onSigDrop(evt){
+  evt.preventDefault();
+  _q('sigZone').classList.remove('drag');
+  const file = evt.dataTransfer?.files?.[0];
+  if(file) _processSigFile(file);
+}
+
+function onSigUpload(evt){
   const file = evt.target.files[0];
-  if(!file) return;
+  if(file) _processSigFile(file);
+}
+
+function _processSigFile(file){
+  if(!file.type.startsWith('image/')){ alert('გთხოვთ სურათი ატვირთოთ'); return; }
   const reader = new FileReader();
   reader.onload = async function(e){
-    const b64 = e.target.result; // data:image/...;base64,...
+    const b64 = e.target.result;
+    _renderSigZone(b64);
+    // sync topbar thumb
+    const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
+    if(tw&&ti){ti.src=b64;tw.style.display='inline-flex';}
+    if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     try{
-      const r = await fetch(BASE+'/auth/signature',{
-        method:'POST', headers:_authH(),
-        body: JSON.stringify({signature_b64: b64})
+      const r=await fetch(BASE+'/auth/signature',{
+        method:'POST',headers:_authH(),
+        body:JSON.stringify({signature_b64:b64})
       });
-      const d = await r.json();
-      if(d.ok){
-        _showSigThumb(b64);
-        _q('sigLabel').textContent = 'ხელმოწ. ✓';
-      } else {
-        alert('ხელმოწერის შენახვა ვერ მოხდა: '+(d.error?.details||''));
-      }
+      const d=await r.json();
+      if(!d.ok) alert('შენახვა ვერ მოხდა: '+(d.error?.details||''));
     }catch(err){ alert('შეცდომა: '+err.message); }
   };
   reader.readAsDataURL(file);
 }
 
-function _showSigThumb(b64){
-  const wrap = _q('sigThumbWrap');
-  const img  = _q('sigThumb');
-  if(wrap && img){ img.src=b64; wrap.style.display='inline-flex'; }
+function _renderSigZone(b64){
+  const zone=_q('sigZone');
+  if(!zone) return;
+  zone.innerHTML=`
+    <button class="sig-clear" onclick="clearSig(event)">✕ წაშლა</button>
+    <img class="sig-preview" src="${b64}" alt="signature">
+    <input type="file" id="sigFileZone" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onSigUpload(event)">
+  `;
 }
 
-async function clearSig(){
+async function clearSig(evt){
+  if(evt) evt.stopPropagation();
   try{
-    await fetch(BASE+'/auth/signature',{
-      method:'POST', headers:_authH(),
-      body: JSON.stringify({signature_b64:''})
-    });
+    await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),
+      body:JSON.stringify({signature_b64:''})});
   }catch(e){}
-  const wrap=_q('sigThumbWrap');
-  if(wrap) wrap.style.display='none';
-  _q('sigLabel').textContent='ხელმოწერა';
-  const fi=_q('sigFile'); if(fi) fi.value='';
+  // restore empty zone
+  _q('sigZone').innerHTML=`
+    <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+    <div id="sigZoneContent">
+      <svg viewBox="0 0 24 24" style="width:28px;height:28px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
+        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+      </svg>
+      <div class="sig-hint">სურათი ჩააგდეთ ან დააჭირეთ ატვირთვას</div>
+      <div style="font-size:11px;color:var(--ink-ghost)">JPG / PNG — ხელმოწერა + ბეჭედი</div>
+    </div>
+  `;
+  const tw=_q('sigThumbWrap'); if(tw) tw.style.display='none';
+  if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწერა';
 }
 
 async function loadSavedSignature(){
   if(!TOKEN) return;
   try{
-    const d = await fetch(BASE+'/auth/signature',{headers:_authH()}).then(r=>r.json());
+    const d=await fetch(BASE+'/auth/signature',{headers:_authH()}).then(r=>r.json());
     if(d.ok && d.data?.signature_b64){
-      _showSigThumb(d.data.signature_b64);
-      _q('sigLabel').textContent='ხელმოწ. ✓';
+      const b64=d.data.signature_b64;
+      _renderSigZone(b64);
+      const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
+      if(tw&&ti){ti.src=b64;tw.style.display='inline-flex';}
+      if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     }
   }catch(e){}
 }

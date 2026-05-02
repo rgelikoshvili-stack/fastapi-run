@@ -108,10 +108,10 @@ textarea.form-control{resize:vertical;min-height:80px}
 /* LINE ITEMS */
 .line-items-head{display:grid;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);}
 .line-items-head.goods{grid-template-columns:1fr 80px 90px 90px 32px}
-.line-items-head.service{grid-template-columns:1fr 90px 32px}
+.line-items-head.service{grid-template-columns:1fr 80px 90px 90px 32px}
 .line-item-row{display:grid;gap:8px;margin-bottom:8px;align-items:center}
 .line-item-row.goods{grid-template-columns:1fr 80px 90px 90px 32px}
-.line-item-row.service{grid-template-columns:1fr 90px 32px}
+.line-item-row.service{grid-template-columns:1fr 80px 90px 90px 32px}
 .line-item-row .form-control{padding:7px 10px;font-size:13px}
 .li-total{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink);text-align:right;padding:7px 4px}
 .rm-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-ghost);transition:.1s;}
@@ -467,7 +467,7 @@ function applyType(){
     title.textContent='საქონლის ჩამონათვალი';
   } else {
     head.className='line-items-head service';
-    head.innerHTML='<span>სერვისის აღწერა</span><span>თანხა ₾</span><span></span>';
+    head.innerHTML='<span>სერვისის აღწერა</span><span>რაოდ.</span><span>ერთ. ფასი</span><span>ჯამი</span><span></span>';
     title.textContent='სერვისების ჩამონათვალი';
   }
 
@@ -507,9 +507,12 @@ function renderLines(){
         <button class="rm-btn" onclick="removeLine(${i})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>`;
     } else {
+      const total = (parseFloat(li.qty||1)*parseFloat(li.unit_price||li.amount||0)).toFixed(2);
       return `<div class="line-item-row service">
         <input class="form-control" placeholder="სერვისის აღწერა" value="${_esc(li.description)}" oninput="_lines[${i}].description=this.value;updatePreview();scheduleAutosave()">
-        <input class="form-control" type="number" min="0" step="0.01" value="${li.amount||0}" style="text-align:right" oninput="_lines[${i}].amount=parseFloat(this.value)||0;_lines[${i}].unit_price=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <input class="form-control" type="number" min="0" step="0.01" value="${li.qty||1}" style="text-align:right" oninput="_lines[${i}].qty=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <input class="form-control" type="number" min="0" step="0.01" value="${li.unit_price||li.amount||0}" style="text-align:right" oninput="_lines[${i}].unit_price=parseFloat(this.value)||0;_lines[${i}].amount=parseFloat(this.value)||0;updatePreview();scheduleAutosave()">
+        <div class="li-total">${total}</div>
         <button class="rm-btn" onclick="removeLine(${i})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>`;
     }
@@ -522,8 +525,7 @@ function _esc(s){ return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;') }
 function calcTotals(){
   let subtotal=0;
   for(const li of _lines){
-    if(_type==='goods') subtotal += (parseFloat(li.qty||1))*(parseFloat(li.unit_price||0));
-    else subtotal += parseFloat(li.amount||li.unit_price||0);
+    subtotal += parseFloat(li.qty||1) * parseFloat(li.unit_price||li.amount||0);
   }
   const vat = subtotal*0.18;
   const total = subtotal+vat;

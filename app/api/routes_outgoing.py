@@ -267,10 +267,14 @@ def _build_nsd_pdf(inv: dict) -> bytes:
     BH, BW = 34, 93
     box_y0 = h - 60 - BH
     bx0 = MR - 3 * BW
+    def _fmt_date(d):
+        s = str(d or "")[:10]
+        return f"{s[8:10]}.{s[5:7]}.{s[:4]}" if len(s) == 10 and s[4] == "-" else s
+
     lv_pairs = [
-        ("თარიღი",       str(inv.get("invoice_date") or "")[:10]),
+        ("თარიღი",       _fmt_date(inv.get("invoice_date"))),
         ("ინვოისი #",    inv.get("invoice_number") or "DRAFT"),
-        ("მიწ. თარიღი",  str(inv.get("delivery_date") or "")[:10]),
+        ("მიწ. თარიღი",  _fmt_date(inv.get("delivery_date"))),
     ]
     for i, (lbl, val) in enumerate(lv_pairs):
         bx = bx0 + i * BW
@@ -427,20 +431,17 @@ def _build_nsd_pdf(inv: dict) -> bytes:
     c.rect(tx, tot_y - 3, MR - tx, 16, fill=1, stroke=0)
     _trow("ჯ ა მ ი:", f"{total:.2f} ₾", bold=True)
 
-    # Comment
-    if inv.get("comment"):
-        tot_y -= 6
-        c.setFillColor(colors.black)
-        c.setFont(FONT, 8)
-        c.drawString(ML, tot_y, f"შენიშვნა: {str(inv['comment'])[:120]}")
-        tot_y -= 14
-
     # Signature
-    sig_y = max(tot_y - 24, 52)
+    sig_y = max(tot_y - 28, 80)
     c.setFillColor(colors.black)
     c.setFont(FONT, 9)
     c.drawString(ML, sig_y, "დირექტორი: _______________________")
     c.drawString(w / 2, sig_y, "ბეჭედი")
+
+    # Comment below signature
+    if inv.get("comment"):
+        c.setFont(FONT, 8)
+        c.drawString(ML, sig_y - 18, f"კომენტარი: {str(inv['comment'])[:120]}")
 
     c.save()
     buf.seek(0)

@@ -190,10 +190,11 @@ def get_invoice(invoice_id: int, request: Request):
 
 
 def _build_nsd_pdf(inv: dict) -> bytes:
-    """Generate NSD-style Georgian invoice PDF. Returns PDF bytes."""
+    """Generate NSD-style Georgian invoice PDF with colors and styled table."""
     import io, json as _json
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
 
     FONT = "Helvetica"
     FONT_BOLD = "Helvetica-Bold"
@@ -206,10 +207,10 @@ def _build_nsd_pdf(inv: dict) -> bytes:
             "DejaVuSans-Bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         }
         _ok = 0
-        for _name, _fp in _paths.items():
+        for _n, _fp in _paths.items():
             if os.path.exists(_fp):
                 try:
-                    pdfmetrics.registerFont(TTFont(_name, _fp))
+                    pdfmetrics.registerFont(TTFont(_n, _fp))
                     _ok += 1
                 except Exception:
                     pass
@@ -223,14 +224,29 @@ def _build_nsd_pdf(inv: dict) -> bytes:
     if isinstance(line_items, str):
         line_items = _json.loads(line_items)
 
+    NAVY        = colors.HexColor("#1e3a5f")
+    NAVY_LIGHT  = colors.HexColor("#2d5f9e")
+    STRIPE      = colors.HexColor("#eef4fb")
+    BOX_BG      = colors.HexColor("#dce8f5")
+    TOTAL_BG    = colors.HexColor("#d0e4f5")
+
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
-    ML = 40
-    MR = 555  # right edge
+    ML = 38
+    MR = w - 38
+    CW = MR - ML
 
-    # ── Seller header ──────────────────────────────────────────────────────
-    y = h - 50
+    inv_type = inv.get("invoice_type", "service")
+
+    # ── Large "INVOICE" label top-right ───────────────────────────────────
+    c.setFillColor(NAVY)
+    c.setFont(FONT_BOLD, 26)
+    c.drawRightString(MR, h - 48, "INVOICE")
+
+    # ── Seller info (top-left) ────────────────────────────────────────────
+    y = h - 48
+    c.setFillColor(colors.black)
     c.setFont(FONT_BOLD, 13)
     c.drawString(ML, y, inv.get("seller_name") or "")
     c.setFont(FONT, 9)
@@ -244,127 +260,184 @@ def _build_nsd_pdf(inv: dict) -> bytes:
     ]:
         val = inv.get(key) or ""
         if val:
-            y -= 14
+            y -= 13
             c.drawString(ML, y, lbl + val)
 
-    # ── Info boxes top-right: date | invoice# | delivery ──────────────────
-    box_h, box_w = 36, 90
-    box_y = h - 50 - box_h
-    box_start_x = MR - 3 * box_w
-    labels_vals = [
-        ("თარიღი", str(inv.get("invoice_date") or "")[:10]),
-        ("ინვოისი №", inv.get("invoice_number") or "DRAFT"),
-        ("მიწოდ. თარიღი", str(inv.get("delivery_date") or "")[:10]),
+    # ── Three bordered boxes: date | inv# | delivery ──────────────────────
+    BH, BW = 34, 93
+    box_y0 = h - 60 - BH
+    bx0 = MR - 3 * BW
+    lv_pairs = [
+        ("თარიღი",       str(inv.get("invoice_date") or "")[:10]),
+        ("ინვოისი #",    inv.get("invoice_number") or "DRAFT"),
+        ("მიწ. თარიღი",  str(inv.get("delivery_date") or "")[:10]),
     ]
-    for i, (lbl, val) in enumerate(labels_vals):
-        bx = box_start_x + i * box_w
-        c.rect(bx, box_y, box_w, box_h)
-        c.setFont(FONT_BOLD, 7)
-        c.drawCentredString(bx + box_w / 2, box_y + box_h / 2 + 4, lbl)
-        c.setFont(FONT, 8)
-        c.drawCentredString(bx + box_w / 2, box_y + 6, val)
+    for i, (lbl, val) in enumerate(lv_pairs):
+        bx = bx0 + i * BW
+        c.setFillColor(BOX_BG)
+        c.setStrokeColor(NAVY)
+        c.setLineWidth(0.8)
+        c.rect(bx, box_y0, BW, BH, fill=1, stroke=1)
+        c.setFillColor(NAVY)
+        c.setFont(FONT_BOLD, 7.5)
+        c.drawCentredString(bx + BW / 2, box_y0 + BH / 2 + 4, lbl)
+        c.setFillColor(colors.black)
+        c.setFont(FONT_BOLD if i == 1 else FONT, 9)
+        c.drawCentredString(bx + BW / 2, box_y0 + 6, val)
 
-    # ── Title bar ──────────────────────────────────────────────────────────
-    title_y = min(y - 20, box_y - 20)
-    c.line(ML, title_y + 16, MR, title_y + 16)
-    inv_type = inv.get("invoice_type", "service")
+    # ── Horizontal rule + title ───────────────────────────────────────────
+    sep_y = min(y - 10, box_y0 - 10)
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(1.4)
+    c.line(ML, sep_y, MR, sep_y)
+
     title_txt = "საქონლის ზედნადები / ინვოისი" if inv_type == "goods" else "მომსახურეობის ინვოისი"
+    c.setFillColor(NAVY)
     c.setFont(FONT_BOLD, 11)
-    c.drawString(ML, title_y + 3, title_txt)
-    c.line(ML, title_y - 6, MR, title_y - 6)
+    c.drawString(ML, sep_y - 14, title_txt)
+    c.setLineWidth(0.5)
+    c.line(ML, sep_y - 22, MR, sep_y - 22)
 
-    # ── Buyer section ──────────────────────────────────────────────────────
-    by = title_y - 22
+    # ── Buyer bar + details ───────────────────────────────────────────────
+    bar_y = sep_y - 40
+    c.setFillColor(NAVY)
+    c.setStrokeColor(NAVY)
+    c.rect(ML, bar_y, CW, 16, fill=1, stroke=0)
+    c.setFillColor(colors.white)
     c.setFont(FONT_BOLD, 9)
-    c.drawString(ML, by, "მყიდველი:")
+    c.drawString(ML + 6, bar_y + 4, "მყიდველი")
+
+    by = bar_y - 13
+    c.setFillColor(colors.black)
+    c.setFont(FONT_BOLD, 9)
+    c.drawString(ML + 4, by, "კომპანია: " + (inv.get("buyer_name") or ""))
     c.setFont(FONT, 9)
-    c.drawString(ML + 65, by, inv.get("buyer_name") or "")
     for lbl, key in [
-        ("  საიდ. კოდი: ", "buyer_inn"),
-        ("  მისამართი: ", "buyer_address"),
-        ("  ტელ: ", "buyer_phone"),
+        ("საიდ. კოდი: ", "buyer_inn"),
+        ("მისამართი: ",  "buyer_address"),
+        ("ტელეფონი: ",   "buyer_phone"),
     ]:
         val = inv.get(key) or ""
         if val:
-            by -= 14
-            c.drawString(ML, by, lbl + val)
+            by -= 13
+            c.drawString(ML + 4, by, lbl + val)
 
-    # ── Items table ────────────────────────────────────────────────────────
-    tbl_top = by - 18
-    c.line(ML, tbl_top, MR, tbl_top)
+    # ── Items table ───────────────────────────────────────────────────────
+    tbl_top = by - 16
+    ROW_H = 14
+    COL_NUM   = 22
+    COL_QTY   = 55
+    COL_PRICE = 82
+    COL_AMT   = 86
+    COL_DESC  = CW - COL_NUM - COL_QTY - COL_PRICE - COL_AMT
+    cx = [
+        ML,
+        ML + COL_NUM,
+        ML + COL_NUM + COL_DESC,
+        ML + COL_NUM + COL_DESC + COL_QTY,
+        ML + COL_NUM + COL_DESC + COL_QTY + COL_PRICE,
+    ]
+    MIN_ROWS = max(len(line_items), 8)
+    tbl_h_total = ROW_H + MIN_ROWS * ROW_H
 
-    CW = MR - ML
-    COL_NUM = 22
-    COL_QTY = 50
-    COL_PRICE = 75
-    COL_AMT = 80
-    COL_DESC = CW - COL_NUM - COL_QTY - COL_PRICE - COL_AMT
+    # Outer border
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(0.8)
+    c.rect(ML, tbl_top - tbl_h_total, CW, tbl_h_total, fill=0, stroke=1)
 
-    cx = [ML, ML + COL_NUM, ML + COL_NUM + COL_DESC,
-          ML + COL_NUM + COL_DESC + COL_QTY,
-          ML + COL_NUM + COL_DESC + COL_QTY + COL_PRICE]
-
-    th_y = tbl_top - 15
+    # Header row
+    th_y = tbl_top - ROW_H
+    c.setFillColor(NAVY)
+    c.rect(ML, th_y, CW, ROW_H, fill=1, stroke=0)
+    c.setFillColor(colors.white)
     c.setFont(FONT_BOLD, 8)
-    c.drawCentredString(cx[0] + COL_NUM / 2, th_y, "№")
-    c.drawString(cx[1] + 3, th_y, "დასახელება")
-    c.drawRightString(cx[2] + COL_QTY - 3, th_y, "რაოდ.")
-    c.drawRightString(cx[3] + COL_PRICE - 3, th_y, "ერთ. ფასი")
-    c.drawRightString(cx[4] + COL_AMT - 3, th_y, "თანხა (₾)")
-    c.line(ML, th_y - 5, MR, th_y - 5)
+    c.drawCentredString(cx[0] + COL_NUM / 2, th_y + 4, "№")
+    c.drawCentredString(cx[1] + COL_DESC / 2, th_y + 4, "დასახელება")
+    c.drawRightString(cx[2] + COL_QTY - 4, th_y + 4, "რაოდ.")
+    c.drawRightString(cx[3] + COL_PRICE - 4, th_y + 4, "ერთ. ფასი")
+    c.drawRightString(cx[4] + COL_AMT - 4, th_y + 4, "თანხა (₾)")
+    c.setStrokeColor(colors.HexColor("#4a7ab5"))
+    c.setLineWidth(0.4)
+    for xi in cx[1:]:
+        c.line(xi, th_y, xi, th_y + ROW_H)
 
-    row_y = th_y - 18
-    c.setFont(FONT, 8)
-    for idx, item in enumerate(line_items, 1):
+    # Data rows
+    row_y = th_y - ROW_H
+    c.setLineWidth(0.25)
+    for idx, item in enumerate(line_items):
         if row_y < 130:
-            c.showPage()
-            row_y = h - 60
-            c.setFont(FONT, 8)
+            c.showPage(); row_y = h - 60
+        if idx % 2 == 1:
+            c.setFillColor(STRIPE)
+            c.rect(ML + 1, row_y, CW - 2, ROW_H, fill=1, stroke=0)
         desc = str(item.get("description") or "")
-        qty = float(item.get("qty") or item.get("quantity") or 1)
+        qty   = float(item.get("qty") or item.get("quantity") or 1)
         price = float(item.get("unit_price") or item.get("price") or item.get("amount") or 0)
-        if inv_type == "service":
-            qty = 1
-            price = float(item.get("amount") or item.get("unit_price") or 0)
-        amt = qty * price
-        if len(desc) > 40:
-            desc = desc[:39] + "…"
-        c.drawCentredString(cx[0] + COL_NUM / 2, row_y, str(idx))
-        c.drawString(cx[1] + 3, row_y, desc)
-        c.drawRightString(cx[2] + COL_QTY - 3, row_y, f"{qty:g}")
-        c.drawRightString(cx[3] + COL_PRICE - 3, row_y, f"{price:.2f}")
-        c.drawRightString(cx[4] + COL_AMT - 3, row_y, f"{amt:.2f}")
-        row_y -= 15
-        c.line(ML, row_y + 2, MR, row_y + 2)
-        row_y -= 4
+        amt   = qty * price
+        if len(desc) > 44: desc = desc[:43] + "…"
+        c.setFillColor(colors.black)
+        c.setFont(FONT, 8)
+        c.drawCentredString(cx[0] + COL_NUM / 2, row_y + 4, str(idx + 1))
+        c.drawString(cx[1] + 3, row_y + 4, desc)
+        c.drawRightString(cx[2] + COL_QTY - 4, row_y + 4, f"{qty:g}")
+        c.drawRightString(cx[3] + COL_PRICE - 4, row_y + 4, f"{price:.2f}")
+        c.drawRightString(cx[4] + COL_AMT - 4, row_y + 4, f"{amt:.2f}")
+        c.setStrokeColor(colors.HexColor("#c0d4e8"))
+        c.line(ML, row_y, MR, row_y)
+        for xi in cx[1:]:
+            c.line(xi, row_y, xi, row_y + ROW_H)
+        row_y -= ROW_H
 
-    # ── Totals ─────────────────────────────────────────────────────────────
+    # Empty filler rows
+    while row_y > tbl_top - tbl_h_total + ROW_H:
+        c.setStrokeColor(colors.HexColor("#ccdde8"))
+        c.setLineWidth(0.2)
+        c.line(ML, row_y, MR, row_y)
+        c.setFillColor(colors.HexColor("#aaaaaa"))
+        c.setFont(FONT, 7)
+        c.drawRightString(cx[4] + COL_AMT - 4, row_y + 4, "-")
+        for xi in cx[1:]:
+            c.line(xi, row_y, xi, row_y + ROW_H)
+        row_y -= ROW_H
+
+    # ── Totals block ──────────────────────────────────────────────────────
     subtotal = float(inv.get("subtotal") or 0)
-    vat = float(inv.get("vat_amount") or 0)
-    total = float(inv.get("total_amount") or 0)
-    tot_x = cx[3]
-    tot_y = row_y - 8
+    vat      = float(inv.get("vat_amount") or 0)
+    total    = float(inv.get("total_amount") or 0)
+    tot_y = row_y - 10
+    tx = cx[3]
 
-    def _row(lbl, val, bold=False):
+    def _trow(lbl, txt, bold=False):
         nonlocal tot_y
-        c.setFont(FONT_BOLD if bold else FONT, 9)
-        c.drawString(tot_x, tot_y, lbl)
-        c.drawRightString(MR, tot_y, f"{val:.2f} ₾")
+        c.setFillColor(NAVY if bold else colors.black)
+        c.setFont(FONT_BOLD if bold else FONT, 9 if not bold else 10)
+        c.drawString(tx, tot_y, lbl)
+        c.drawRightString(MR, tot_y, txt)
         tot_y -= 14
 
-    _row("ფასი:", subtotal)
-    _row("ფასდაკლება:", 0.0)
-    _row("სხვაობა:", subtotal)
-    _row("დღგ (18%):", vat)
-    c.line(tot_x, tot_y + 10, MR, tot_y + 10)
-    _row("ჯ ა მ ი:", total, bold=True)
+    _trow("ფასი:", f"{subtotal:.2f} ₾")
+    _trow("ფასდაკლება:", "0.00 ₾")
+    _trow("სხვაობა:", f"{subtotal:.2f} ₾")
+    _trow("დღგ (18%):", f"{vat:.2f} ₾")
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(0.8)
+    c.line(tx, tot_y + 11, MR, tot_y + 11)
+    # Total row with background
+    c.setFillColor(TOTAL_BG)
+    c.rect(tx, tot_y - 3, MR - tx, 16, fill=1, stroke=0)
+    _trow("ჯ ა მ ი:", f"{total:.2f} ₾", bold=True)
 
+    # Comment
     if inv.get("comment"):
-        tot_y -= 8
+        tot_y -= 6
+        c.setFillColor(colors.black)
         c.setFont(FONT, 8)
         c.drawString(ML, tot_y, f"შენიშვნა: {str(inv['comment'])[:120]}")
+        tot_y -= 14
 
-    sig_y = max(tot_y - 36, 55)
+    # Signature
+    sig_y = max(tot_y - 24, 52)
+    c.setFillColor(colors.black)
     c.setFont(FONT, 9)
     c.drawString(ML, sig_y, "დირექტორი: _______________________")
     c.drawString(w / 2, sig_y, "ბეჭედი")

@@ -25,6 +25,8 @@ async def auth_middleware(request: Request, call_next):
 
     if authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
+    elif not token:
+        token = request.query_params.get("token") or None
 
     request.state.authenticated = False
     request.state.user_id = None

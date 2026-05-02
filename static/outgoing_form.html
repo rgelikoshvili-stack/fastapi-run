@@ -758,7 +758,8 @@ async function sendInvoiceEmail(){
 
 function downloadPDF(){
   if(!_invoiceId){ alert('ჯერ ინვოისი შეინახეთ'); return; }
-  window.open(BASE+`/outgoing/${_invoiceId}/pdf`,'_blank');
+  const tok = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';
+  window.open(BASE+`/outgoing/${_invoiceId}/pdf${tok}`,'_blank');
 }
 
 init();

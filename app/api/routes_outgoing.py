@@ -233,7 +233,8 @@ def _load_tenant_stamp(tenant_id: str):
 
 
 def _remove_bg(image_bytes: bytes):
-    """Remove near-white/paper background from image using luminance threshold. Returns PIL image."""
+    """Remove paper/photo background. Uses luminance threshold 160 — catches
+    off-white, beige, light-grey paper while preserving dark ink and blue stamps."""
     import io as _io
     import numpy as _np
     from PIL import Image as _PILImage
@@ -243,10 +244,17 @@ def _remove_bg(image_bytes: bytes):
     r = arr[:, :, 0].astype(float)
     g = arr[:, :, 1].astype(float)
     b = arr[:, :, 2].astype(float)
-    # luminance-based: removes off-white, beige, light grey paper backgrounds
+    # luminance threshold 160: removes grey/beige paper; black ink (~0-80) and
+    # dark blue stamp ink (~40-120) stay fully opaque
     lum = 0.299 * r + 0.587 * g + 0.114 * b
-    bg_mask = lum > 205
-    arr[bg_mask, 3] = 0
+    # Graduated alpha: full transparent above 160, partial between 120-160 for
+    # smooth edges instead of hard cutoff
+    alpha = arr[:, :, 3].astype(float)
+    hard_bg   = lum > 160
+    soft_edge = (lum > 120) & ~hard_bg
+    alpha[hard_bg]   = 0
+    alpha[soft_edge] = ((160 - lum[soft_edge]) / 40 * 255).clip(0, 255)
+    arr[:, :, 3] = alpha.astype(_np.uint8)
     pil_img = _PILImage.fromarray(arr)
     bbox = pil_img.getbbox()
     if bbox:
@@ -500,22 +508,32 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
     import io as _io
     from reportlab.lib.utils import ImageReader
 
-    sig_line_y = max(tot_y - 32, 100)  # baseline for "დირექტორი:" line
-    c.setFillColor(colors.black)
-    c.setFont(FONT, 9)
+    STAMP_SIZE  = 90   # pt — stamp box (matches ~3 cm circle, NSD standard)
+    SIG_MAX_H   = 36   # signature image max height (handwriting size)
+    SIG_MAX_W   = 140  # signature image max width
 
-    # thin separator line above signature area
+    # ensure there is room below totals for sig line + stamp + comment
+    sig_line_y = max(tot_y - 38, STAMP_SIZE + 48)
+
+    # thin separator line
     c.setStrokeColor(colors.HexColor("#c0c0c0"))
     c.setLineWidth(0.4)
-    c.line(ML, sig_line_y + 20, MR, sig_line_y + 20)
+    c.line(ML, sig_line_y + 18, MR, sig_line_y + 18)
 
-    dir_label = "დირექტორი:"
-    dir_label_w = 62  # approximate pt width at 9pt
-
-    # ── Left: director label + signature image ────────────────────────────
+    # ── LEFT: "დირექტორი:" label ──────────────────────────────────────────
     c.setFillColor(colors.black)
     c.setFont(FONT, 9)
+    dir_label     = "დირექტორი:"
+    dir_label_w   = 63   # ~pt width of label at 9pt
+
     c.drawString(ML, sig_line_y, dir_label)
+
+    # underline where signature goes
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+    sig_line_x0 = ML + dir_label_w + 2
+    sig_line_x1 = ML + dir_label_w + SIG_MAX_W + 4
+    c.line(sig_line_x0, sig_line_y - 2, sig_line_x1, sig_line_y - 2)
 
     if signature_bytes:
         try:
@@ -523,23 +541,23 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
             png_buf = _io.BytesIO(); pil_sig.save(png_buf, format="PNG"); png_buf.seek(0)
             sig_img = ImageReader(png_buf)
             sw, sh = sig_img.getSize()
-            max_h, max_w = 34, 130
-            scale = min(max_w / max(sw, 1), max_h / max(sh, 1), 1.0)
+            scale = min(SIG_MAX_W / max(sw, 1), SIG_MAX_H / max(sh, 1), 1.0)
             dw, dh = sw * scale, sh * scale
-            # sit signature on the baseline line, just right of label
-            c.drawImage(sig_img, ML + dir_label_w + 4, sig_line_y - dh + 10,
-                        width=dw, height=dh, preserveAspectRatio=True, mask="auto")
+            # center image vertically on the signature line
+            c.drawImage(sig_img,
+                        sig_line_x0,
+                        sig_line_y - dh * 0.55,
+                        width=dw, height=dh,
+                        preserveAspectRatio=True, mask="auto")
             log.info("sig embedded %.0fx%.0f", dw, dh)
         except Exception as _se:
             log.warning("sig embed failed: %s", _se)
-            c.line(ML + dir_label_w + 4, sig_line_y, ML + dir_label_w + 140, sig_line_y)
-    else:
-        c.line(ML + dir_label_w + 4, sig_line_y, ML + dir_label_w + 140, sig_line_y)
 
-    # ── Right: stamp image ────────────────────────────────────────────────
-    stamp_size = 82   # pt — diameter / side
-    stamp_x = MR - stamp_size - 4
-    stamp_y = sig_line_y - stamp_size + 14
+    # ── RIGHT: stamp ──────────────────────────────────────────────────────
+    # stamp box: centered on right half of page, below sig line
+    stamp_cx = ML + CW * 0.82          # slightly right of center-right
+    stamp_bottom = sig_line_y - STAMP_SIZE + 14
+    stamp_left   = stamp_cx - STAMP_SIZE / 2
 
     if stamp_bytes:
         try:
@@ -547,30 +565,31 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
             png_buf2 = _io.BytesIO(); pil_stamp.save(png_buf2, format="PNG"); png_buf2.seek(0)
             stamp_img = ImageReader(png_buf2)
             stw, sth = stamp_img.getSize()
-            # keep aspect ratio within stamp_size square
-            scale_s = min(stamp_size / max(stw, 1), stamp_size / max(sth, 1), 1.0)
+            scale_s = min(STAMP_SIZE / max(stw, 1), STAMP_SIZE / max(sth, 1), 1.0)
             dsw, dsh = stw * scale_s, sth * scale_s
-            # center within stamp_size box
-            off_x = (stamp_size - dsw) / 2
-            off_y = (stamp_size - dsh) / 2
-            c.drawImage(stamp_img, stamp_x + off_x, stamp_y + off_y,
-                        width=dsw, height=dsh, preserveAspectRatio=True, mask="auto")
+            off_x = (STAMP_SIZE - dsw) / 2
+            off_y = (STAMP_SIZE - dsh) / 2
+            c.drawImage(stamp_img,
+                        stamp_left + off_x, stamp_bottom + off_y,
+                        width=dsw, height=dsh,
+                        preserveAspectRatio=True, mask="auto")
             log.info("stamp embedded %.0fx%.0f", dsw, dsh)
         except Exception as _ste:
             log.warning("stamp embed failed: %s", _ste)
-            c.setFillColor(colors.HexColor("#aaaaaa"))
+            c.setFillColor(colors.HexColor("#999999"))
             c.setFont(FONT, 8)
-            c.drawCentredString(stamp_x + stamp_size / 2, sig_line_y - 8, "ბეჭედი")
+            c.drawCentredString(stamp_cx, sig_line_y - 8, "ბეჭედი")
     else:
-        c.setFillColor(colors.HexColor("#aaaaaa"))
+        c.setFillColor(colors.HexColor("#999999"))
         c.setFont(FONT, 8)
-        c.drawCentredString(stamp_x + stamp_size / 2, sig_line_y - 8, "ბეჭედი")
+        c.drawCentredString(stamp_cx, sig_line_y - 8, "ბეჭედი")
 
-    # ── Comment below signature ───────────────────────────────────────────
+    # ── Comment below ─────────────────────────────────────────────────────
     if inv.get("comment"):
         c.setFillColor(colors.black)
         c.setFont(FONT, 8)
-        c.drawString(ML, sig_line_y - 26, f"კომენტარი: {str(inv['comment'])[:120]}")
+        comment_y = min(sig_line_y - 28, stamp_bottom - 10)
+        c.drawString(ML, comment_y, f"კომენტარი: {str(inv['comment'])[:120]}")
 
     c.save()
     buf.seek(0)

@@ -55,6 +55,15 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
+
+try:
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+    _PROM_REQUESTS = Counter("http_requests_total", "Total HTTP requests", ["method", "path", "status"])
+    _PROM_LATENCY  = Histogram("http_request_duration_seconds", "HTTP request latency", ["method", "path"])
+    _PROM_ACTIVE   = Gauge("http_active_requests", "Active HTTP requests")
+    _PROM_OK = True
+except ImportError:
+    _PROM_OK = False
 from app.api.services.email_collector import _ensure_tables as _ensure_email_tables
 from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
@@ -101,6 +110,15 @@ def hub_map():
         return FileResponse("static/bridge_hub_map.html")
     except Exception:
         return HTMLResponse("<h1>404</h1>")
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    """Prometheus metrics endpoint — internal use only."""
+    from fastapi.responses import Response
+    if not _PROM_OK:
+        return Response("# prometheus-client not installed\n", media_type="text/plain")
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # --- EXCEPTION HANDLERS ---
@@ -335,6 +353,24 @@ async def add_security_headers(request: Request, call_next):
     for k, v in SECURITY_HEADERS.items():
         response.headers[k] = v
     return response
+
+
+@app.middleware("http")
+async def prometheus_middleware(request: Request, call_next):
+    if not _PROM_OK or request.url.path == "/metrics":
+        return await call_next(request)
+    import time
+    path = request.url.path
+    method = request.method
+    _PROM_ACTIVE.inc()
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        _PROM_REQUESTS.labels(method=method, path=path, status=response.status_code).inc()
+        return response
+    finally:
+        _PROM_LATENCY.labels(method=method, path=path).observe(time.perf_counter() - start)
+        _PROM_ACTIVE.dec()
 
 
 

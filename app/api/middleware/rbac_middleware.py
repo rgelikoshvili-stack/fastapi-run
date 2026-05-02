@@ -6,7 +6,7 @@ from app.api.policy.permission_map import PERMISSION_MAP
 
 def match_permission(method: str, path: str):
     for allowed_method, prefix, permission in PERMISSION_MAP:
-        if method == allowed_method and path.startswith(prefix):
+        if (allowed_method == "*" or method == allowed_method) and path.startswith(prefix):
             return permission
     return None
 
@@ -20,6 +20,7 @@ async def rbac_middleware(request: Request, call_next):
         "/docs",
         "/openapi.json",
         "/health",
+        "/metrics",
         "/static",
         "/favicon",
         "/api/ai/",

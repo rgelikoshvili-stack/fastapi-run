@@ -78,3 +78,4 @@ chromadb==0.6.3
 rapidfuzz>=3.0.0
 pyotp==2.9.0
 qrcode==8.1
+prometheus-client==0.21.1

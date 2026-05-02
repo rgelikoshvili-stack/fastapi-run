@@ -12,9 +12,20 @@ def run_db_migrations():
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
         cur = conn.cursor()
 
-        # outgoing_invoices — sent_at column
+        # outgoing_invoices — sent_at + seller/buyer detail columns
         for _oi_col in [
             "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS invoice_date DATE",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS delivery_date DATE",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_name TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_inn TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_address TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_phone TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_bank TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_swift TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS seller_account TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS buyer_address TEXT",
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS buyer_phone TEXT",
         ]:
             try:
                 cur.execute(_oi_col)

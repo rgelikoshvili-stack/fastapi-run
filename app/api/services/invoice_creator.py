@@ -64,17 +64,25 @@ def create_draft(conn, tenant_id: str, data: dict) -> dict:
         """
         INSERT INTO outgoing_invoices
             (tenant_id, invoice_type, status,
-             buyer_inn, buyer_name, buyer_email,
+             seller_name, seller_inn, seller_address, seller_phone,
+             seller_bank, seller_swift, seller_account,
+             buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
+             invoice_date, delivery_date,
              transport_from, transport_to, vehicle_number, driver_name,
              line_items, subtotal, vat_amount, total_amount, comment,
              created_by)
-        VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id, invoice_type, status, buyer_inn, buyer_name,
                   subtotal, vat_amount, total_amount, comment, created_at
         """,
         (
             tenant_id, invoice_type,
+            data.get("seller_name"), data.get("seller_inn"),
+            data.get("seller_address"), data.get("seller_phone"),
+            data.get("seller_bank"), data.get("seller_swift"), data.get("seller_account"),
             data.get("buyer_inn"), data.get("buyer_name"), data.get("buyer_email"),
+            data.get("buyer_address"), data.get("buyer_phone"),
+            data.get("invoice_date") or None, data.get("delivery_date") or None,
             data.get("transport_from"), data.get("transport_to"),
             data.get("vehicle_number"), data.get("driver_name"),
             json.dumps(line_items),
@@ -104,7 +112,10 @@ def update_draft(conn, tenant_id: str, invoice_id: int, data: dict) -> dict:
         raise LookupError(f"Draft invoice {invoice_id} not found for tenant {tenant_id}")
 
     allowed = [
-        "buyer_inn", "buyer_name", "buyer_email",
+        "seller_name", "seller_inn", "seller_address", "seller_phone",
+        "seller_bank", "seller_swift", "seller_account",
+        "buyer_inn", "buyer_name", "buyer_email", "buyer_address", "buyer_phone",
+        "invoice_date", "delivery_date",
         "transport_from", "transport_to", "vehicle_number", "driver_name",
         "line_items", "comment",
     ]

@@ -185,7 +185,52 @@ textarea.form-control{resize:vertical;min-height:80px}
 <div class="layout">
   <!-- LEFT — FORM -->
   <div>
-    <!-- Buyer -->
+    <!-- Seller (our company) -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-stripe goods" id="headStripeS"></div>
+        <div class="card-title">გამყიდველი</div>
+        <span style="font-family:var(--serif);font-style:italic;font-size:11px;color:var(--ink-ghost);margin-left:8px">ჩვენი კომპანიის მონაცემები</span>
+      </div>
+      <div class="card-body">
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">კომპანიის სახელი</label>
+            <input class="form-control" id="sellerName" placeholder="შპს კომპანია" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">საიდ. კოდი</label>
+            <input class="form-control" id="sellerInn" placeholder="406039950" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">მისამართი</label>
+            <input class="form-control" id="sellerAddress" placeholder="თბილისი, ..." oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">ტელ</label>
+            <input class="form-control" id="sellerPhone" placeholder="555 00 00 00" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row cols-3">
+          <div class="form-group">
+            <label class="form-label">ბანკი</label>
+            <input class="form-control" id="sellerBank" placeholder="სს საქართველოს ბანკი" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SWIFT CODE</label>
+            <input class="form-control" id="sellerSwift" placeholder="BAGAGE22" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">ა/ა</label>
+            <input class="form-control" id="sellerAccount" placeholder="GE44BG..." oninput="scheduleAutosave()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buyer / შემკვეთი -->
     <div class="card">
       <div class="card-head">
         <div class="card-head-stripe goods" id="headStripe1"></div>
@@ -200,6 +245,26 @@ textarea.form-control{resize:vertical;min-height:80px}
           <div class="form-group">
             <label class="form-label">კომპანიის სახელი</label>
             <input class="form-control" id="buyerName" placeholder="კომპანია ООО" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">მისამართი</label>
+            <input class="form-control" id="buyerAddress" placeholder="თბილისი, ..." oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">ტელ</label>
+            <input class="form-control" id="buyerPhone" placeholder="555 00 00 00" oninput="scheduleAutosave()">
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">ინვოისის თარიღი</label>
+            <input class="form-control" type="date" id="invoiceDate" oninput="scheduleAutosave()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">მიწოდების თარიღი</label>
+            <input class="form-control" type="date" id="deliveryDate" oninput="scheduleAutosave()">
           </div>
         </div>
         <div class="form-row cols-2">
@@ -359,9 +424,16 @@ async function loadSenderEmail(){
     const d = await fetch(BASE+'/auth/me',{headers:_authH()}).then(r=>r.json());
     if(d.ok){
       const u = d.data||d;
-      const email = u.email||'';
-      const el = _q('senderEmailField');
-      if(el) el.value = email;
+      if(_q('senderEmailField')) _q('senderEmailField').value = u.email||'';
+      // auto-fill seller fields from company profile if fields are empty
+      const fillIfEmpty=(id,val)=>{ const el=_q(id); if(el&&!el.value&&val) el.value=val; };
+      fillIfEmpty('sellerName', u.company_name||u.company_name_legal||u.company||'');
+      fillIfEmpty('sellerInn', u.company_inn||u.inn||'');
+      fillIfEmpty('sellerAddress', u.company_address||u.address||'');
+      fillIfEmpty('sellerPhone', u.company_phone||u.phone||'');
+      fillIfEmpty('sellerBank', u.company_bank||u.bank||'');
+      fillIfEmpty('sellerSwift', u.company_swift||u.swift||'');
+      fillIfEmpty('sellerAccount', u.company_account||u.account||'');
     }
   }catch(e){}
 }
@@ -378,7 +450,7 @@ function applyType(){
   _q('btnFinalize2').className = `btn btn-finalize ${_type} finalize-btn`;
 
   // stripes
-  ['headStripe1','headStripe2','headStripe3','headStripe4'].forEach(id=>{
+  ['headStripeS','headStripe1','headStripe2','headStripe3','headStripe4'].forEach(id=>{
     const el=_q(id);
     if(el) el.className='card-head-stripe '+_type;
   });
@@ -543,9 +615,20 @@ function _buildPayload(){
   const li = _lines.map(l=>({...l}));
   return {
     invoice_type: _type,
+    seller_name: _q('sellerName')?.value||null,
+    seller_inn: _q('sellerInn')?.value||null,
+    seller_address: _q('sellerAddress')?.value||null,
+    seller_phone: _q('sellerPhone')?.value||null,
+    seller_bank: _q('sellerBank')?.value||null,
+    seller_swift: _q('sellerSwift')?.value||null,
+    seller_account: _q('sellerAccount')?.value||null,
     buyer_inn: _q('buyerInn')?.value||null,
     buyer_name: _q('buyerName')?.value||null,
+    buyer_address: _q('buyerAddress')?.value||null,
+    buyer_phone: _q('buyerPhone')?.value||null,
     buyer_email: _q('buyerEmail')?.value||null,
+    invoice_date: _q('invoiceDate')?.value||null,
+    delivery_date: _q('deliveryDate')?.value||null,
     transport_from: _type==='goods'?(_q('transportFrom')?.value||null):null,
     transport_to: _type==='goods'?(_q('transportTo')?.value||null):null,
     vehicle_number: _type==='goods'?(_q('vehicleNum')?.value||null):null,
@@ -562,14 +645,26 @@ async function loadDraft(){
     const d=await r.json();
     if(!d.ok) return;
     const inv=d.data;
-    if(_q('buyerInn')) _q('buyerInn').value=inv.buyer_inn||'';
-    if(_q('buyerName')) _q('buyerName').value=inv.buyer_name||'';
-    if(_q('buyerEmail')) _q('buyerEmail').value=inv.buyer_email||'';
-    if(_q('transportFrom')) _q('transportFrom').value=inv.transport_from||'';
-    if(_q('transportTo')) _q('transportTo').value=inv.transport_to||'';
-    if(_q('vehicleNum')) _q('vehicleNum').value=inv.vehicle_number||'';
-    if(_q('driverName')) _q('driverName').value=inv.driver_name||'';
-    if(_q('comment')) _q('comment').value=inv.comment||'';
+    const _fill=(id,val)=>{ const el=_q(id); if(el) el.value=val||''; };
+    _fill('sellerName', inv.seller_name);
+    _fill('sellerInn', inv.seller_inn);
+    _fill('sellerAddress', inv.seller_address);
+    _fill('sellerPhone', inv.seller_phone);
+    _fill('sellerBank', inv.seller_bank);
+    _fill('sellerSwift', inv.seller_swift);
+    _fill('sellerAccount', inv.seller_account);
+    _fill('buyerInn', inv.buyer_inn);
+    _fill('buyerName', inv.buyer_name);
+    _fill('buyerAddress', inv.buyer_address);
+    _fill('buyerPhone', inv.buyer_phone);
+    _fill('buyerEmail', inv.buyer_email);
+    _fill('invoiceDate', (inv.invoice_date||'').substring(0,10));
+    _fill('deliveryDate', (inv.delivery_date||'').substring(0,10));
+    _fill('transportFrom', inv.transport_from);
+    _fill('transportTo', inv.transport_to);
+    _fill('vehicleNum', inv.vehicle_number);
+    _fill('driverName', inv.driver_name);
+    _fill('comment', inv.comment);
     _lines = Array.isArray(inv.line_items)?inv.line_items:(typeof inv.line_items==='string'?JSON.parse(inv.line_items):[]);
     if(!_lines.length){addLine();addLine();}
     else renderLines();

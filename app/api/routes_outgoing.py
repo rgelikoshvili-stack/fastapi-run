@@ -25,9 +25,24 @@ class LineItem(BaseModel):
 
 class InvoiceCreateRequest(BaseModel):
     invoice_type: str = Field(..., pattern="^(goods|service)$")
+    # seller (our company)
+    seller_name: Optional[str] = None
+    seller_inn: Optional[str] = None
+    seller_address: Optional[str] = None
+    seller_phone: Optional[str] = None
+    seller_bank: Optional[str] = None
+    seller_swift: Optional[str] = None
+    seller_account: Optional[str] = None
+    # buyer (client)
     buyer_inn: Optional[str] = None
     buyer_name: Optional[str] = None
     buyer_email: Optional[str] = None
+    buyer_address: Optional[str] = None
+    buyer_phone: Optional[str] = None
+    # invoice meta
+    invoice_date: Optional[str] = None
+    delivery_date: Optional[str] = None
+    # transport
     transport_from: Optional[str] = None
     transport_to: Optional[str] = None
     vehicle_number: Optional[str] = None
@@ -37,9 +52,20 @@ class InvoiceCreateRequest(BaseModel):
 
 
 class InvoiceUpdateRequest(BaseModel):
+    seller_name: Optional[str] = None
+    seller_inn: Optional[str] = None
+    seller_address: Optional[str] = None
+    seller_phone: Optional[str] = None
+    seller_bank: Optional[str] = None
+    seller_swift: Optional[str] = None
+    seller_account: Optional[str] = None
     buyer_inn: Optional[str] = None
     buyer_name: Optional[str] = None
     buyer_email: Optional[str] = None
+    buyer_address: Optional[str] = None
+    buyer_phone: Optional[str] = None
+    invoice_date: Optional[str] = None
+    delivery_date: Optional[str] = None
     transport_from: Optional[str] = None
     transport_to: Optional[str] = None
     vehicle_number: Optional[str] = None
@@ -137,11 +163,14 @@ def get_invoice(invoice_id: int, request: Request):
         cur.execute(
             """
             SELECT id, invoice_number, invoice_type, status,
-                   buyer_inn, buyer_name, buyer_email,
+                   seller_name, seller_inn, seller_address, seller_phone,
+                   seller_bank, seller_swift, seller_account,
+                   buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
+                   invoice_date, delivery_date,
                    transport_from, transport_to, vehicle_number, driver_name,
                    line_items, subtotal, vat_amount, total_amount, comment,
                    generated_waybill_id, generated_tax_invoice_id,
-                   created_at, updated_at, finalized_at
+                   created_at, updated_at, finalized_at, sent_at
             FROM outgoing_invoices
             WHERE id = %s AND tenant_id = %s
             """,
@@ -151,20 +180,205 @@ def get_invoice(invoice_id: int, request: Request):
         if not row:
             return http_error(404, "Not found", "NOT_FOUND")
         result = dict(row)
-        for dt_field in ("created_at", "updated_at", "finalized_at"):
+        for dt_field in ("created_at", "updated_at", "finalized_at", "sent_at", "invoice_date", "delivery_date"):
             if result.get(dt_field):
-                result[dt_field] = result[dt_field].isoformat()
+                result[dt_field] = result[dt_field].isoformat() if hasattr(result[dt_field], 'isoformat') else str(result[dt_field])
         return ok_response("Invoice", result)
     finally:
         cur.close()
         conn.close()
 
 
+def _build_nsd_pdf(inv: dict) -> bytes:
+    """Generate NSD-style Georgian invoice PDF. Returns PDF bytes."""
+    import io, json as _json
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+
+    FONT = "Helvetica"
+    FONT_BOLD = "Helvetica-Bold"
+    try:
+        import os
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        _paths = {
+            "DejaVuSans": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "DejaVuSans-Bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        }
+        _ok = 0
+        for _name, _fp in _paths.items():
+            if os.path.exists(_fp):
+                try:
+                    pdfmetrics.registerFont(TTFont(_name, _fp))
+                    _ok += 1
+                except Exception:
+                    pass
+        if _ok == 2:
+            FONT = "DejaVuSans"
+            FONT_BOLD = "DejaVuSans-Bold"
+    except Exception:
+        pass
+
+    line_items = inv.get("line_items") or []
+    if isinstance(line_items, str):
+        line_items = _json.loads(line_items)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    ML = 40
+    MR = 555  # right edge
+
+    # ── Seller header ──────────────────────────────────────────────────────
+    y = h - 50
+    c.setFont(FONT_BOLD, 13)
+    c.drawString(ML, y, inv.get("seller_name") or "")
+    c.setFont(FONT, 9)
+    for lbl, key in [
+        ("მისამართი: ", "seller_address"),
+        ("საიდ. კოდი: ", "seller_inn"),
+        ("ტელ: ", "seller_phone"),
+        ("ბანკი: ", "seller_bank"),
+        ("SWIFT CODE: ", "seller_swift"),
+        ("ა/ა: ", "seller_account"),
+    ]:
+        val = inv.get(key) or ""
+        if val:
+            y -= 14
+            c.drawString(ML, y, lbl + val)
+
+    # ── Info boxes top-right: date | invoice# | delivery ──────────────────
+    box_h, box_w = 36, 90
+    box_y = h - 50 - box_h
+    box_start_x = MR - 3 * box_w
+    labels_vals = [
+        ("თარიღი", str(inv.get("invoice_date") or "")[:10]),
+        ("ინვოისი №", inv.get("invoice_number") or "DRAFT"),
+        ("მიწოდ. თარიღი", str(inv.get("delivery_date") or "")[:10]),
+    ]
+    for i, (lbl, val) in enumerate(labels_vals):
+        bx = box_start_x + i * box_w
+        c.rect(bx, box_y, box_w, box_h)
+        c.setFont(FONT_BOLD, 7)
+        c.drawCentredString(bx + box_w / 2, box_y + box_h / 2 + 4, lbl)
+        c.setFont(FONT, 8)
+        c.drawCentredString(bx + box_w / 2, box_y + 6, val)
+
+    # ── Title bar ──────────────────────────────────────────────────────────
+    title_y = min(y - 20, box_y - 20)
+    c.line(ML, title_y + 16, MR, title_y + 16)
+    inv_type = inv.get("invoice_type", "service")
+    title_txt = "საქონლის ზედნადები / ინვოისი" if inv_type == "goods" else "მომსახურეობის ინვოისი"
+    c.setFont(FONT_BOLD, 11)
+    c.drawString(ML, title_y + 3, title_txt)
+    c.line(ML, title_y - 6, MR, title_y - 6)
+
+    # ── Buyer section ──────────────────────────────────────────────────────
+    by = title_y - 22
+    c.setFont(FONT_BOLD, 9)
+    c.drawString(ML, by, "მყიდველი:")
+    c.setFont(FONT, 9)
+    c.drawString(ML + 65, by, inv.get("buyer_name") or "")
+    for lbl, key in [
+        ("  საიდ. კოდი: ", "buyer_inn"),
+        ("  მისამართი: ", "buyer_address"),
+        ("  ტელ: ", "buyer_phone"),
+    ]:
+        val = inv.get(key) or ""
+        if val:
+            by -= 14
+            c.drawString(ML, by, lbl + val)
+
+    # ── Items table ────────────────────────────────────────────────────────
+    tbl_top = by - 18
+    c.line(ML, tbl_top, MR, tbl_top)
+
+    CW = MR - ML
+    COL_NUM = 22
+    COL_QTY = 50
+    COL_PRICE = 75
+    COL_AMT = 80
+    COL_DESC = CW - COL_NUM - COL_QTY - COL_PRICE - COL_AMT
+
+    cx = [ML, ML + COL_NUM, ML + COL_NUM + COL_DESC,
+          ML + COL_NUM + COL_DESC + COL_QTY,
+          ML + COL_NUM + COL_DESC + COL_QTY + COL_PRICE]
+
+    th_y = tbl_top - 15
+    c.setFont(FONT_BOLD, 8)
+    c.drawCentredString(cx[0] + COL_NUM / 2, th_y, "№")
+    c.drawString(cx[1] + 3, th_y, "დასახელება")
+    c.drawRightString(cx[2] + COL_QTY - 3, th_y, "რაოდ.")
+    c.drawRightString(cx[3] + COL_PRICE - 3, th_y, "ერთ. ფასი")
+    c.drawRightString(cx[4] + COL_AMT - 3, th_y, "თანხა (₾)")
+    c.line(ML, th_y - 5, MR, th_y - 5)
+
+    row_y = th_y - 18
+    c.setFont(FONT, 8)
+    for idx, item in enumerate(line_items, 1):
+        if row_y < 130:
+            c.showPage()
+            row_y = h - 60
+            c.setFont(FONT, 8)
+        desc = str(item.get("description") or "")
+        qty = float(item.get("qty") or item.get("quantity") or 1)
+        price = float(item.get("unit_price") or item.get("price") or item.get("amount") or 0)
+        if inv_type == "service":
+            qty = 1
+            price = float(item.get("amount") or item.get("unit_price") or 0)
+        amt = qty * price
+        if len(desc) > 40:
+            desc = desc[:39] + "…"
+        c.drawCentredString(cx[0] + COL_NUM / 2, row_y, str(idx))
+        c.drawString(cx[1] + 3, row_y, desc)
+        c.drawRightString(cx[2] + COL_QTY - 3, row_y, f"{qty:g}")
+        c.drawRightString(cx[3] + COL_PRICE - 3, row_y, f"{price:.2f}")
+        c.drawRightString(cx[4] + COL_AMT - 3, row_y, f"{amt:.2f}")
+        row_y -= 15
+        c.line(ML, row_y + 2, MR, row_y + 2)
+        row_y -= 4
+
+    # ── Totals ─────────────────────────────────────────────────────────────
+    subtotal = float(inv.get("subtotal") or 0)
+    vat = float(inv.get("vat_amount") or 0)
+    total = float(inv.get("total_amount") or 0)
+    tot_x = cx[3]
+    tot_y = row_y - 8
+
+    def _row(lbl, val, bold=False):
+        nonlocal tot_y
+        c.setFont(FONT_BOLD if bold else FONT, 9)
+        c.drawString(tot_x, tot_y, lbl)
+        c.drawRightString(MR, tot_y, f"{val:.2f} ₾")
+        tot_y -= 14
+
+    _row("ფასი:", subtotal)
+    _row("ფასდაკლება:", 0.0)
+    _row("სხვაობა:", subtotal)
+    _row("დღგ (18%):", vat)
+    c.line(tot_x, tot_y + 10, MR, tot_y + 10)
+    _row("ჯ ა მ ი:", total, bold=True)
+
+    if inv.get("comment"):
+        tot_y -= 8
+        c.setFont(FONT, 8)
+        c.drawString(ML, tot_y, f"შენიშვნა: {str(inv['comment'])[:120]}")
+
+    sig_y = max(tot_y - 36, 55)
+    c.setFont(FONT, 9)
+    c.drawString(ML, sig_y, "დირექტორი: _______________________")
+    c.drawString(w / 2, sig_y, "ბეჭედი")
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
 @router.post("/{invoice_id}/send-email")
 @limiter.limit("10/minute")
 def send_invoice_email(invoice_id: int, request: Request):
     """Generate PDF and email it to buyer_email. Marks invoice as 'sent'."""
-    import io, os, json as _json, smtplib
+    import os, smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.base import MIMEBase
     from email.mime.text import MIMEText
@@ -181,12 +395,17 @@ def send_invoice_email(invoice_id: int, request: Request):
     cur = conn.cursor()
     try:
         cur.execute(
-            """SELECT invoice_number, invoice_type, buyer_name, buyer_inn, buyer_email,
-                      subtotal, vat_amount, total_amount, comment, line_items, created_at, status
+            """SELECT invoice_number, invoice_type,
+                      seller_name, seller_inn, seller_address, seller_phone,
+                      seller_bank, seller_swift, seller_account,
+                      buyer_name, buyer_inn, buyer_email, buyer_address, buyer_phone,
+                      invoice_date, delivery_date,
+                      subtotal, vat_amount, total_amount, comment, line_items, status
                FROM outgoing_invoices WHERE id = %s AND tenant_id = %s""",
             (invoice_id, tenant_id),
         )
         row = cur.fetchone()
+        col_names = [d[0] for d in cur.description]
     finally:
         cur.close()
         conn.close()
@@ -194,50 +413,22 @@ def send_invoice_email(invoice_id: int, request: Request):
     if not row:
         return http_error(404, "Not found", "NOT_FOUND")
 
-    inv_num, inv_type, buyer_name, buyer_inn, buyer_email, subtotal, vat, total, comment, line_items_raw, created_at, status = row
+    inv_data = dict(zip(col_names, row))
+    buyer_email = inv_data.get("buyer_email") or ""
     if not buyer_email:
-        return error_response("No buyer email", "VALIDATION_ERROR", "ინვოისზე მყიდველის ელ-ფოსტა არ არის მითითებული")
+        return error_response("No buyer email", "VALIDATION_ERROR", "ინვოისზე შემკვეთის ელ-ფოსტა არ არის მითითებული")
 
-    # ── Build PDF ────────────────────────────────────────────────────────────
+    # ── Build PDF ─────────────────────────────────────────────────────────────
     try:
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
+        pdf_bytes = _build_nsd_pdf(inv_data)
     except ImportError:
         return error_response("reportlab not installed", "PDF_ERROR")
+    except Exception as _pdf_e:
+        return error_response("PDF generation failed", "PDF_ERROR", str(_pdf_e))
 
-    line_items = _json.loads(line_items_raw) if isinstance(line_items_raw, str) else (line_items_raw or [])
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    w, h = A4
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, h - 60, f"Invoice {inv_num or 'DRAFT'}")
-    c.setFont("Helvetica", 11)
-    c.drawString(50, h - 85, f"Type: {inv_type} | Date: {str(created_at)[:10]}")
-    c.drawString(50, h - 105, f"Buyer: {buyer_name or '?'} (INN: {buyer_inn or '?'})")
-    y = h - 140
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(50, y, "Description"); c.drawString(320, y, "Qty"); c.drawString(370, y, "Price"); c.drawString(440, y, "Total")
-    y -= 15
-    c.setFont("Helvetica", 10)
-    for item in line_items:
-        desc = str(item.get("description", ""))[:45]
-        qty = item.get("qty", item.get("quantity", 1))
-        price = item.get("unit_price", item.get("price", item.get("amount", 0)))
-        amt = float(qty) * float(price)
-        c.drawString(50, y, desc); c.drawString(320, y, str(qty)); c.drawString(370, y, f"{float(price):.2f}"); c.drawString(440, y, f"{amt:.2f}")
-        y -= 14
-        if y < 100:
-            c.showPage(); y = h - 60
-    y -= 10
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(350, y, f"Subtotal: {float(subtotal or 0):.2f} GEL")
-    y -= 14; c.drawString(350, y, f"VAT (18%): {float(vat or 0):.2f} GEL")
-    y -= 14; c.drawString(350, y, f"TOTAL: {float(total or 0):.2f} GEL")
-    if comment:
-        y -= 20; c.setFont("Helvetica", 9); c.drawString(50, y, f"Note: {comment[:100]}")
-    c.save()
-    buf.seek(0)
-    pdf_bytes = buf.read()
+    inv_num = inv_data.get("invoice_number") or ""
+    buyer_name = inv_data.get("buyer_name") or ""
+    total = float(inv_data.get("total_amount") or 0)
 
     # ── Send email ───────────────────────────────────────────────────────────
     try:
@@ -247,8 +438,8 @@ def send_invoice_email(invoice_id: int, request: Request):
         msg["Subject"] = f"ინვოისი {inv_num or ''} — {buyer_name or ''}"
         body = (
             f"გამარჯობა,\n\n"
-            f"გთხოვთ იხილოთ თანდართული ინვოისი {inv_num or ''}.\n"
-            f"ჯამი: {float(total or 0):.2f} GEL\n\n"
+            f"გთხოვთ იხილოთ თანდართული ინვოისი {inv_num}.\n"
+            f"ჯამი: {total:.2f} GEL\n\n"
             f"პატივისცემით,\nBridge Hub"
         )
         msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -286,19 +477,22 @@ def send_invoice_email(invoice_id: int, request: Request):
 @router.get("/{invoice_id}/pdf")
 @limiter.limit("10/minute")
 def download_invoice_pdf(invoice_id: int, request: Request):
-    """Generate a simple PDF for an outgoing invoice."""
+    """Generate NSD-style PDF for an outgoing invoice."""
+    import io, psycopg2.extras
     from fastapi.responses import StreamingResponse
-    import io
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db(tenant_id)
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute(
             """
-            SELECT invoice_number, invoice_type, buyer_name, buyer_inn,
-                   subtotal, vat_amount, total_amount, comment,
-                   line_items, created_at
+            SELECT invoice_number, invoice_type,
+                   seller_name, seller_inn, seller_address, seller_phone,
+                   seller_bank, seller_swift, seller_account,
+                   buyer_name, buyer_inn, buyer_address, buyer_phone,
+                   invoice_date, delivery_date,
+                   subtotal, vat_amount, total_amount, comment, line_items
             FROM outgoing_invoices WHERE id = %s AND tenant_id = %s
             """,
             (invoice_id, tenant_id),
@@ -306,57 +500,16 @@ def download_invoice_pdf(invoice_id: int, request: Request):
         row = cur.fetchone()
         if not row:
             return http_error(404, "Not found", "NOT_FOUND")
+        inv_data = dict(row)
     finally:
         cur.close()
         conn.close()
 
-    inv_num, inv_type, buyer_name, buyer_inn, subtotal, vat, total, comment, line_items_raw, created_at = row
-
     try:
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-
-        import json as _json
-        line_items = _json.loads(line_items_raw) if isinstance(line_items_raw, str) else (line_items_raw or [])
-
-        buf = io.BytesIO()
-        c = canvas.Canvas(buf, pagesize=A4)
-        w, h = A4
-
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(50, h - 60, f"Invoice {inv_num or 'DRAFT'}")
-        c.setFont("Helvetica", 11)
-        c.drawString(50, h - 85, f"Type: {inv_type} | Date: {str(created_at)[:10]}")
-        c.drawString(50, h - 105, f"Buyer: {buyer_name or '?'} (INN: {buyer_inn or '?'})")
-
-        y = h - 140
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(50, y, "Description"); c.drawString(320, y, "Qty"); c.drawString(370, y, "Price"); c.drawString(440, y, "Total")
-        y -= 15
-        c.setFont("Helvetica", 10)
-        for item in line_items:
-            desc = str(item.get("description",""))[:45]
-            qty = item.get("qty", item.get("quantity", 1))
-            price = item.get("unit_price", item.get("price", item.get("amount", 0)))
-            amt = float(qty) * float(price)
-            c.drawString(50, y, desc); c.drawString(320, y, str(qty)); c.drawString(370, y, f"{float(price):.2f}"); c.drawString(440, y, f"{amt:.2f}")
-            y -= 14
-            if y < 100: c.showPage(); y = h - 60
-
-        y -= 10
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(350, y, f"Subtotal: {float(subtotal or 0):.2f} GEL")
-        y -= 14; c.drawString(350, y, f"VAT (18%): {float(vat or 0):.2f} GEL")
-        y -= 14; c.drawString(350, y, f"TOTAL: {float(total or 0):.2f} GEL")
-        if comment:
-            y -= 20; c.setFont("Helvetica", 9); c.drawString(50, y, f"Note: {comment[:100]}")
-
-        c.save()
-        buf.seek(0)
-
-        filename = f"invoice_{inv_num or invoice_id}.pdf"
+        pdf_bytes = _build_nsd_pdf(inv_data)
+        filename = f"invoice_{inv_data.get('invoice_number') or invoice_id}.pdf"
         return StreamingResponse(
-            buf,
+            io.BytesIO(pdf_bytes),
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )

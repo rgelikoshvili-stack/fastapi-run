@@ -44,6 +44,7 @@ def run_db_migrations():
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_vat_payer BOOLEAN DEFAULT TRUE",
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_tier TEXT DEFAULT 'trial'",
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS signature_b64 TEXT",
         ]:
             try:
                 cur.execute(_t_col)

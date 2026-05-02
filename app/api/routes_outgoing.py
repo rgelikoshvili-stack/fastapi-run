@@ -189,7 +189,26 @@ def get_invoice(invoice_id: int, request: Request):
         conn.close()
 
 
-def _build_nsd_pdf(inv: dict) -> bytes:
+def _load_tenant_signature(tenant_id: str):
+    """Return signature bytes (PNG/JPEG) from DB, or None."""
+    try:
+        import base64
+        conn = get_db(tenant_id)
+        cur = conn.cursor()
+        cur.execute("SELECT signature_b64 FROM tenants WHERE tenant_id=%s", (tenant_id,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if not row or not row[0]:
+            return None
+        b64 = row[0]
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        return base64.b64decode(b64)
+    except Exception:
+        return None
+
+
+def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
     """Generate NSD-style Georgian invoice PDF with colors and styled table."""
     import io, json as _json
     from reportlab.pdfgen import canvas
@@ -431,17 +450,36 @@ def _build_nsd_pdf(inv: dict) -> bytes:
     c.rect(tx, tot_y - 3, MR - tx, 16, fill=1, stroke=0)
     _trow("ჯ ა მ ი:", f"{total:.2f} ₾", bold=True)
 
-    # Signature
-    sig_y = max(tot_y - 28, 80)
+    # Signature + stamp area
+    sig_y = max(tot_y - 28, 90)
     c.setFillColor(colors.black)
     c.setFont(FONT, 9)
-    c.drawString(ML, sig_y, "დირექტორი: _______________________")
-    c.drawString(w / 2, sig_y, "ბეჭედი")
+
+    if signature_bytes:
+        try:
+            import io as _io
+            from reportlab.lib.utils import ImageReader
+            sig_img = ImageReader(_io.BytesIO(signature_bytes))
+            sig_w, sig_h_px = sig_img.getSize()
+            max_sig_w = 160
+            max_sig_h = 55
+            scale = min(max_sig_w / sig_w, max_sig_h / sig_h_px, 1.0)
+            draw_w = sig_w * scale
+            draw_h = sig_h_px * scale
+            # draw spanning signature+stamp area
+            c.drawImage(sig_img, ML, sig_y - draw_h + 10, width=draw_w, height=draw_h,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            c.drawString(ML, sig_y, "დირექტორი: _______________________")
+            c.drawString(w / 2, sig_y, "ბეჭედი")
+    else:
+        c.drawString(ML, sig_y, "დირექტორი: _______________________")
+        c.drawString(w / 2, sig_y, "ბეჭედი")
 
     # Comment below signature
     if inv.get("comment"):
         c.setFont(FONT, 8)
-        c.drawString(ML, sig_y - 18, f"კომენტარი: {str(inv['comment'])[:120]}")
+        c.drawString(ML, sig_y - 22, f"კომენტარი: {str(inv['comment'])[:120]}")
 
     c.save()
     buf.seek(0)
@@ -494,7 +532,8 @@ def send_invoice_email(invoice_id: int, request: Request):
 
     # ── Build PDF ─────────────────────────────────────────────────────────────
     try:
-        pdf_bytes = _build_nsd_pdf(inv_data)
+        sig_bytes = _load_tenant_signature(tenant_id)
+        pdf_bytes = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes)
     except ImportError:
         return error_response("reportlab not installed", "PDF_ERROR")
     except Exception as _pdf_e:
@@ -580,7 +619,8 @@ def download_invoice_pdf(invoice_id: int, request: Request):
         conn.close()
 
     try:
-        pdf_bytes = _build_nsd_pdf(inv_data)
+        sig_bytes = _load_tenant_signature(tenant_id)
+        pdf_bytes = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes)
         filename = f"invoice_{inv_data.get('invoice_number') or invoice_id}.pdf"
         return StreamingResponse(
             io.BytesIO(pdf_bytes),

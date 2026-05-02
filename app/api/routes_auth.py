@@ -575,3 +575,43 @@ def auth_change_password(data: ChangePasswordRequest, request: Request, authoriz
 
     log.info("action=change_password_success email=%s tenant=%s", email, tenant_id)
     return ok_response("პაროლი წარმატებით შეიცვალა", {})
+
+
+class SignatureRequest(BaseModel):
+    signature_b64: str  # base64 data URL, e.g. "data:image/png;base64,..."
+
+
+@router.post("/signature")
+@limiter.limit("10/minute")
+def save_signature(data: SignatureRequest, request: Request):
+    """Save tenant signature/stamp image (base64)."""
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    if not getattr(request.state, "authenticated", False):
+        return error_response("Unauthorized", "AUTH_ERROR")
+    b64 = data.signature_b64.strip()
+    if len(b64) > 2_000_000:
+        return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE tenants SET signature_b64=%s WHERE tenant_id=%s", (b64, tenant_id))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return ok_response("ხელმოწერა/ბეჭედი შენახულია", {})
+
+
+@router.get("/signature")
+def get_signature(request: Request):
+    """Return tenant's saved signature/stamp image (base64)."""
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT signature_b64 FROM tenants WHERE tenant_id=%s", (tenant_id,))
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    return ok_response("OK", {"signature_b64": row[0] if row else None})

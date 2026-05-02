@@ -35,7 +35,22 @@ async def rbac_middleware(request: Request, call_next):
     if path == "/" or path.startswith(public_prefixes):
         return await call_next(request)
 
-    # ❗ აქ იყო შენი მთავარი bug
+    # Fallback: ?token= query param (e.g. PDF download in new tab)
+    if not getattr(request.state, "authenticated", False):
+        _qt = request.query_params.get("token")
+        if _qt:
+            try:
+                from app.api.services.auth_service import verify_token as _vt
+                _pl = _vt(_qt, expected_type="access")
+                if _pl:
+                    request.state.authenticated = True
+                    request.state.user_id = _pl.get("sub")
+                    request.state.role = _pl.get("role")
+                    if _pl.get("tenant_id"):
+                        request.state.tenant_id = _pl.get("tenant_id")
+            except Exception:
+                pass
+
     if not getattr(request.state, "authenticated", False):
         return JSONResponse(
             status_code=401,

@@ -12,6 +12,17 @@ def run_db_migrations():
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
         cur = conn.cursor()
 
+        # outgoing_invoices — sent_at column
+        for _oi_col in [
+            "ALTER TABLE outgoing_invoices ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ",
+        ]:
+            try:
+                cur.execute(_oi_col)
+                conn.commit()
+            except Exception as _e:
+                conn.rollback()
+                log.debug("outgoing_invoices col migration skipped: %s", _e)
+
         # tenants table — ensure all party_resolver columns exist
         for _t_col in [
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS company_inn TEXT",

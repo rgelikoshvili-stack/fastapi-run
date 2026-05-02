@@ -167,6 +167,14 @@ textarea.form-control{resize:vertical;min-height:80px}
   </div>
   <div style="display:flex;gap:8px;margin-left:8px">
     <button class="btn btn-outline" onclick="location.href='/static/approval.html'">გაუქმება</button>
+    <button class="btn btn-outline" id="btnSendEmail" onclick="sendInvoiceEmail()" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      ელ-ფოსტით გაგზავნა
+    </button>
+    <button class="btn btn-outline" id="btnDownloadPDF" onclick="downloadPDF()" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      PDF
+    </button>
     <button class="btn btn-finalize goods" id="btnFinalize" onclick="finalizeInvoice()">
       <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
       გამოქვეყნება
@@ -565,13 +573,43 @@ async function finalizeInvoice(){
     const d=await r.json();
     if(d.ok){
       const data=d.data;
+      // show send + PDF buttons after finalize
+      const se=document.getElementById('btnSendEmail');
+      const pd=document.getElementById('btnDownloadPDF');
+      if(se) se.style.display='inline-flex';
+      if(pd) pd.style.display='inline-flex';
+      const btnF=document.getElementById('btnFinalize');
+      if(btnF) btnF.style.display='none';
       alert(`გამოქვეყნდა! ინვოისი: ${data.invoice_number}${data.waybill_id?`\nზ/ნ ID: ${data.waybill_id}`:''}
 ფაქ. ID: ${data.tax_invoice_id}`);
-      location.href='/static/approval.html';
     } else {
       alert('შეცდომა: '+(d.error||JSON.stringify(d)));
     }
   }catch(e){ alert('შეცდომა: '+e.message) }
+}
+
+async function sendInvoiceEmail(){
+  if(!_invoiceId){ alert('ჯერ ინვოისი შეინახეთ'); return; }
+  const btn=document.getElementById('btnSendEmail');
+  const orig=btn.innerHTML;
+  btn.innerHTML='<span style="font-size:12px">გაგზავნა...</span>'; btn.disabled=true;
+  try{
+    const r=await fetch(BASE+`/outgoing/${_invoiceId}/send-email`,{method:'POST',headers:_authH()});
+    const d=await r.json();
+    if(d.ok){
+      btn.innerHTML='<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none"><polyline points="20 6 9 17 4 12"/></svg> გაიგზავნა';
+      btn.style.color='var(--green,#27500A)';
+      alert(`ინვოისი გაიგზავნა: ${d.data?.sent_to}`);
+    } else {
+      alert('შეცდომა: '+(d.error?.details||d.message||'გაგზავნა ვერ მოხდა'));
+      btn.innerHTML=orig; btn.disabled=false;
+    }
+  }catch(e){ alert('შეცდომა: '+e.message); btn.innerHTML=orig; btn.disabled=false; }
+}
+
+function downloadPDF(){
+  if(!_invoiceId){ alert('ჯერ ინვოისი შეინახეთ'); return; }
+  window.open(BASE+`/outgoing/${_invoiceId}/pdf`,'_blank');
 }
 
 init();

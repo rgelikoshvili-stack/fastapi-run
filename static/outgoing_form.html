@@ -361,18 +361,39 @@ textarea.form-control{resize:vertical;min-height:80px}
         <div class="card-title">ხელმოწერა / ბეჭედი</div>
         <span style="font-family:var(--serif);font-style:italic;font-size:11px;color:var(--ink-ghost);margin-left:8px">ჩაიდება PDF-ში</span>
       </div>
-      <div class="card-body">
-        <div class="sig-zone" id="sigZone"
-             ondragover="event.preventDefault();this.classList.add('drag')"
-             ondragleave="this.classList.remove('drag')"
-             ondrop="onSigDrop(event)">
-          <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)">
-          <div id="sigZoneContent">
-            <svg viewBox="0 0 24 24" style="width:28px;height:28px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
-              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
-            </svg>
-            <div class="sig-hint">სურათი ჩააგდეთ ან დააჭირეთ ატვირთვას</div>
-            <div style="font-size:11px;color:var(--ink-ghost)">JPG / PNG — ხელმოწერა + ბეჭედი</div>
+      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <!-- Signature zone -->
+        <div>
+          <div style="font-size:11px;color:var(--ink-dim);margin-bottom:6px;font-weight:600">✍️ ხელმოწერა</div>
+          <div class="sig-zone" id="sigZone"
+               ondragover="event.preventDefault();this.classList.add('drag')"
+               ondragleave="this.classList.remove('drag')"
+               ondrop="onSigDrop(event)">
+            <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)">
+            <div id="sigZoneContent">
+              <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+              </svg>
+              <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
+              <div style="font-size:10px;color:var(--ink-ghost)">JPG / PNG</div>
+            </div>
+          </div>
+        </div>
+        <!-- Stamp zone -->
+        <div>
+          <div style="font-size:11px;color:var(--ink-dim);margin-bottom:6px;font-weight:600">🔵 ბეჭედი</div>
+          <div class="sig-zone" id="stampZone"
+               ondragover="event.preventDefault();this.classList.add('drag')"
+               ondragleave="this.classList.remove('drag')"
+               ondrop="onStampDrop(event)">
+            <input type="file" id="stampFileZone" accept="image/*" onchange="onStampUpload(event)">
+            <div id="stampZoneContent">
+              <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
+                <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+              </svg>
+              <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
+              <div style="font-size:10px;color:var(--ink-ghost)">JPG / PNG</div>
+            </div>
           </div>
         </div>
       </div>
@@ -812,34 +833,26 @@ function downloadPDF(){
   window.open(BASE+`/outgoing/${_invoiceId}/pdf${tok}`,'_blank');
 }
 
-// ── Signature / stamp ────────────────────────────────────────────────────────
+// ── Signature ────────────────────────────────────────────────────────────────
 function onSigDrop(evt){
   evt.preventDefault();
   _q('sigZone').classList.remove('drag');
-  const file = evt.dataTransfer?.files?.[0];
+  const file=evt.dataTransfer?.files?.[0];
   if(file) _processSigFile(file);
 }
-
-function onSigUpload(evt){
-  const file = evt.target.files[0];
-  if(file) _processSigFile(file);
-}
+function onSigUpload(evt){ const file=evt.target.files[0]; if(file) _processSigFile(file); }
 
 function _processSigFile(file){
   if(!file.type.startsWith('image/')){ alert('გთხოვთ სურათი ატვირთოთ'); return; }
-  const reader = new FileReader();
-  reader.onload = async function(e){
-    const b64 = e.target.result;
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const b64=e.target.result;
     _renderSigZone(b64);
-    // sync topbar thumb
     const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
     if(tw&&ti){ti.src=b64;tw.style.display='inline-flex';}
     if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     try{
-      const r=await fetch(BASE+'/auth/signature',{
-        method:'POST',headers:_authH(),
-        body:JSON.stringify({signature_b64:b64})
-      });
+      const r=await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),body:JSON.stringify({signature_b64:b64})});
       const d=await r.json();
       if(!d.ok) alert('შენახვა ვერ მოხდა: '+(d.error?.details||''));
     }catch(err){ alert('შეცდომა: '+err.message); }
@@ -848,10 +861,9 @@ function _processSigFile(file){
 }
 
 function _renderSigZone(b64){
-  const zone=_q('sigZone');
-  if(!zone) return;
+  const zone=_q('sigZone'); if(!zone) return;
   zone.innerHTML=`
-    <button class="sig-clear" onclick="clearSig(event)">✕ წაშლა</button>
+    <button class="sig-clear" onclick="clearSig(event)" style="z-index:10">✕</button>
     <img class="sig-preview" src="${b64}" alt="signature">
     <input type="file" id="sigFileZone" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onSigUpload(event)">
   `;
@@ -859,36 +871,77 @@ function _renderSigZone(b64){
 
 async function clearSig(evt){
   if(evt) evt.stopPropagation();
-  try{
-    await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),
-      body:JSON.stringify({signature_b64:''})});
-  }catch(e){}
-  // restore empty zone
+  try{ await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),body:JSON.stringify({signature_b64:''})}); }catch(e){}
   _q('sigZone').innerHTML=`
     <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
     <div id="sigZoneContent">
-      <svg viewBox="0 0 24 24" style="width:28px;height:28px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
-        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
-      </svg>
-      <div class="sig-hint">სურათი ჩააგდეთ ან დააჭირეთ ატვირთვას</div>
-      <div style="font-size:11px;color:var(--ink-ghost)">JPG / PNG — ხელმოწერა + ბეჭედი</div>
-    </div>
-  `;
+      <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+      <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
+      <div style="font-size:10px;color:var(--ink-ghost)">JPG / PNG</div>
+    </div>`;
   const tw=_q('sigThumbWrap'); if(tw) tw.style.display='none';
   if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწერა';
+}
+
+// ── Stamp ─────────────────────────────────────────────────────────────────────
+function onStampDrop(evt){
+  evt.preventDefault();
+  _q('stampZone').classList.remove('drag');
+  const file=evt.dataTransfer?.files?.[0];
+  if(file) _processStampFile(file);
+}
+function onStampUpload(evt){ const file=evt.target.files[0]; if(file) _processStampFile(file); }
+
+function _processStampFile(file){
+  if(!file.type.startsWith('image/')){ alert('გთხოვთ სურათი ატვირთოთ'); return; }
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const b64=e.target.result;
+    _renderStampZone(b64);
+    try{
+      const r=await fetch(BASE+'/auth/stamp',{method:'POST',headers:_authH(),body:JSON.stringify({stamp_b64:b64})});
+      const d=await r.json();
+      if(!d.ok) alert('ბეჭდის შენახვა ვერ მოხდა: '+(d.error?.details||''));
+    }catch(err){ alert('შეცდომა: '+err.message); }
+  };
+  reader.readAsDataURL(file);
+}
+
+function _renderStampZone(b64){
+  const zone=_q('stampZone'); if(!zone) return;
+  zone.innerHTML=`
+    <button class="sig-clear" onclick="clearStamp(event)" style="z-index:10">✕</button>
+    <img class="sig-preview" src="${b64}" alt="stamp">
+    <input type="file" id="stampFileZone" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onStampUpload(event)">
+  `;
+}
+
+async function clearStamp(evt){
+  if(evt) evt.stopPropagation();
+  try{ await fetch(BASE+'/auth/stamp',{method:'POST',headers:_authH(),body:JSON.stringify({stamp_b64:''})}); }catch(e){}
+  _q('stampZone').innerHTML=`
+    <input type="file" id="stampFileZone" accept="image/*" onchange="onStampUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+    <div id="stampZoneContent">
+      <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+      <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
+      <div style="font-size:10px;color:var(--ink-ghost)">JPG / PNG</div>
+    </div>`;
 }
 
 async function loadSavedSignature(){
   if(!TOKEN) return;
   try{
-    const d=await fetch(BASE+'/auth/signature',{headers:_authH()}).then(r=>r.json());
-    if(d.ok && d.data?.signature_b64){
-      const b64=d.data.signature_b64;
-      _renderSigZone(b64);
+    const [sd,stD]=await Promise.all([
+      fetch(BASE+'/auth/signature',{headers:_authH()}).then(r=>r.json()),
+      fetch(BASE+'/auth/stamp',{headers:_authH()}).then(r=>r.json())
+    ]);
+    if(sd.ok && sd.data?.signature_b64){
+      _renderSigZone(sd.data.signature_b64);
       const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
-      if(tw&&ti){ti.src=b64;tw.style.display='inline-flex';}
+      if(tw&&ti){ti.src=sd.data.signature_b64;tw.style.display='inline-flex';}
       if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     }
+    if(stD.ok && stD.data?.stamp_b64) _renderStampZone(stD.data.stamp_b64);
   }catch(e){}
 }
 

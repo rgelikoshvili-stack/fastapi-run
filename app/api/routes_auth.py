@@ -604,7 +604,7 @@ def save_signature(data: SignatureRequest, request: Request):
 
 @router.get("/signature")
 def get_signature(request: Request):
-    """Return tenant's saved signature/stamp image (base64)."""
+    """Return tenant's saved signature image (base64)."""
     tenant_id = getattr(request.state, "tenant_id", "default")
     conn = get_db()
     try:
@@ -615,3 +615,43 @@ def get_signature(request: Request):
         cur.close()
         conn.close()
     return ok_response("OK", {"signature_b64": row[0] if row else None})
+
+
+class StampRequest(BaseModel):
+    stamp_b64: str
+
+
+@router.post("/stamp")
+@limiter.limit("10/minute")
+def save_stamp(data: StampRequest, request: Request):
+    """Save tenant stamp image (base64)."""
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    if not getattr(request.state, "authenticated", False):
+        return error_response("Unauthorized", "AUTH_ERROR")
+    b64 = data.stamp_b64.strip()
+    if len(b64) > 2_000_000:
+        return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE tenants SET stamp_b64=%s WHERE tenant_id=%s", (b64, tenant_id))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return ok_response("ბეჭედი შენახულია", {})
+
+
+@router.get("/stamp")
+def get_stamp(request: Request):
+    """Return tenant's saved stamp image (base64)."""
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT stamp_b64 FROM tenants WHERE tenant_id=%s", (tenant_id,))
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    return ok_response("OK", {"stamp_b64": row[0] if row else None})

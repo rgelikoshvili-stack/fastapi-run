@@ -190,7 +190,7 @@ def get_invoice(invoice_id: int, request: Request):
 
 
 def _load_tenant_signature(tenant_id: str):
-    """Return signature bytes (PNG/JPEG) from DB, or None."""
+    """Return signature bytes from DB, or None."""
     try:
         import base64
         conn = get_db(tenant_id)
@@ -199,7 +199,7 @@ def _load_tenant_signature(tenant_id: str):
         row = cur.fetchone()
         cur.close(); conn.close()
         if not row or not row[0]:
-            log.info("sig_load tenant=%s → not found in DB", tenant_id)
+            log.info("sig_load tenant=%s → not found", tenant_id)
             return None
         b64 = row[0]
         if "," in b64:
@@ -212,7 +212,49 @@ def _load_tenant_signature(tenant_id: str):
         return None
 
 
-def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
+def _load_tenant_stamp(tenant_id: str):
+    """Return stamp bytes from DB, or None."""
+    try:
+        import base64
+        conn = get_db(tenant_id)
+        cur = conn.cursor()
+        cur.execute("SELECT stamp_b64 FROM tenants WHERE tenant_id=%s", (tenant_id,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if not row or not row[0]:
+            return None
+        b64 = row[0]
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        return base64.b64decode(b64)
+    except Exception as _e:
+        log.warning("stamp_load failed tenant=%s: %s", tenant_id, _e)
+        return None
+
+
+def _remove_bg(image_bytes: bytes):
+    """Remove near-white/paper background from image using luminance threshold. Returns PIL image."""
+    import io as _io
+    import numpy as _np
+    from PIL import Image as _PILImage
+
+    pil_img = _PILImage.open(_io.BytesIO(image_bytes)).convert("RGBA")
+    arr = _np.array(pil_img, dtype=_np.uint8)
+    r = arr[:, :, 0].astype(float)
+    g = arr[:, :, 1].astype(float)
+    b = arr[:, :, 2].astype(float)
+    # luminance-based: removes off-white, beige, light grey paper backgrounds
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    bg_mask = lum > 205
+    arr[bg_mask, 3] = 0
+    pil_img = _PILImage.fromarray(arr)
+    bbox = pil_img.getbbox()
+    if bbox:
+        pil_img = pil_img.crop(bbox)
+    return pil_img
+
+
+def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes = None) -> bytes:
     """Generate NSD-style Georgian invoice PDF with colors and styled table."""
     import io, json as _json
     from reportlab.pdfgen import canvas
@@ -454,54 +496,81 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None) -> bytes:
     c.rect(tx, tot_y - 3, MR - tx, 16, fill=1, stroke=0)
     _trow("ჯ ა მ ი:", f"{total:.2f} ₾", bold=True)
 
-    # Signature + stamp area
-    sig_y = max(tot_y - 28, 90)
+    # ── Signature + stamp area ────────────────────────────────────────────────
+    import io as _io
+    from reportlab.lib.utils import ImageReader
+
+    sig_line_y = max(tot_y - 32, 100)  # baseline for "დირექტორი:" line
     c.setFillColor(colors.black)
     c.setFont(FONT, 9)
 
+    # thin separator line above signature area
+    c.setStrokeColor(colors.HexColor("#c0c0c0"))
+    c.setLineWidth(0.4)
+    c.line(ML, sig_line_y + 20, MR, sig_line_y + 20)
+
+    dir_label = "დირექტორი:"
+    dir_label_w = 62  # approximate pt width at 9pt
+
+    # ── Left: director label + signature image ────────────────────────────
+    c.setFillColor(colors.black)
+    c.setFont(FONT, 9)
+    c.drawString(ML, sig_line_y, dir_label)
+
     if signature_bytes:
         try:
-            import io as _io
-            import numpy as _np
-            from PIL import Image as _PILImage
-            from reportlab.lib.utils import ImageReader
-
-            pil_img = _PILImage.open(_io.BytesIO(signature_bytes)).convert("RGBA")
-            arr = _np.array(pil_img, dtype=_np.uint8)
-            # vectorized: make near-white pixels transparent (threshold 210)
-            white_mask = (arr[:, :, 0] > 210) & (arr[:, :, 1] > 210) & (arr[:, :, 2] > 210)
-            arr[white_mask, 3] = 0
-            pil_img = _PILImage.fromarray(arr)
-            bbox = pil_img.getbbox()
-            if bbox:
-                pil_img = pil_img.crop(bbox)
-            png_buf = _io.BytesIO()
-            pil_img.save(png_buf, format="PNG")
-            png_buf.seek(0)
-
+            pil_sig = _remove_bg(signature_bytes)
+            png_buf = _io.BytesIO(); pil_sig.save(png_buf, format="PNG"); png_buf.seek(0)
             sig_img = ImageReader(png_buf)
-            sig_w, sig_h_px = sig_img.getSize()
-            max_sig_w = min(CW * 0.9, 370)
-            max_sig_h = 70
-            scale = min(max_sig_w / max(sig_w, 1), max_sig_h / max(sig_h_px, 1), 1.0)
-            draw_w = sig_w * scale
-            draw_h = sig_h_px * scale
-            cx_sig = ML + (CW - draw_w) / 2
-            c.drawImage(sig_img, cx_sig, sig_y - draw_h + 14, width=draw_w, height=draw_h,
-                        preserveAspectRatio=True, mask="auto")
-            log.info("signature embedded: %.0fx%.0f pt", draw_w, draw_h)
+            sw, sh = sig_img.getSize()
+            max_h, max_w = 34, 130
+            scale = min(max_w / max(sw, 1), max_h / max(sh, 1), 1.0)
+            dw, dh = sw * scale, sh * scale
+            # sit signature on the baseline line, just right of label
+            c.drawImage(sig_img, ML + dir_label_w + 4, sig_line_y - dh + 10,
+                        width=dw, height=dh, preserveAspectRatio=True, mask="auto")
+            log.info("sig embedded %.0fx%.0f", dw, dh)
         except Exception as _se:
-            log.warning("signature embed failed: %s", _se)
-            c.drawString(ML, sig_y, "დირექტორი: _______________________")
-            c.drawString(w / 2, sig_y, "ბეჭედი")
+            log.warning("sig embed failed: %s", _se)
+            c.line(ML + dir_label_w + 4, sig_line_y, ML + dir_label_w + 140, sig_line_y)
     else:
-        c.drawString(ML, sig_y, "დირექტორი: _______________________")
-        c.drawString(w / 2, sig_y, "ბეჭედი")
+        c.line(ML + dir_label_w + 4, sig_line_y, ML + dir_label_w + 140, sig_line_y)
 
-    # Comment below signature
-    if inv.get("comment"):
+    # ── Right: stamp image ────────────────────────────────────────────────
+    stamp_size = 82   # pt — diameter / side
+    stamp_x = MR - stamp_size - 4
+    stamp_y = sig_line_y - stamp_size + 14
+
+    if stamp_bytes:
+        try:
+            pil_stamp = _remove_bg(stamp_bytes)
+            png_buf2 = _io.BytesIO(); pil_stamp.save(png_buf2, format="PNG"); png_buf2.seek(0)
+            stamp_img = ImageReader(png_buf2)
+            stw, sth = stamp_img.getSize()
+            # keep aspect ratio within stamp_size square
+            scale_s = min(stamp_size / max(stw, 1), stamp_size / max(sth, 1), 1.0)
+            dsw, dsh = stw * scale_s, sth * scale_s
+            # center within stamp_size box
+            off_x = (stamp_size - dsw) / 2
+            off_y = (stamp_size - dsh) / 2
+            c.drawImage(stamp_img, stamp_x + off_x, stamp_y + off_y,
+                        width=dsw, height=dsh, preserveAspectRatio=True, mask="auto")
+            log.info("stamp embedded %.0fx%.0f", dsw, dsh)
+        except Exception as _ste:
+            log.warning("stamp embed failed: %s", _ste)
+            c.setFillColor(colors.HexColor("#aaaaaa"))
+            c.setFont(FONT, 8)
+            c.drawCentredString(stamp_x + stamp_size / 2, sig_line_y - 8, "ბეჭედი")
+    else:
+        c.setFillColor(colors.HexColor("#aaaaaa"))
         c.setFont(FONT, 8)
-        c.drawString(ML, sig_y - 22, f"კომენტარი: {str(inv['comment'])[:120]}")
+        c.drawCentredString(stamp_x + stamp_size / 2, sig_line_y - 8, "ბეჭედი")
+
+    # ── Comment below signature ───────────────────────────────────────────
+    if inv.get("comment"):
+        c.setFillColor(colors.black)
+        c.setFont(FONT, 8)
+        c.drawString(ML, sig_line_y - 26, f"კომენტარი: {str(inv['comment'])[:120]}")
 
     c.save()
     buf.seek(0)
@@ -554,8 +623,9 @@ def send_invoice_email(invoice_id: int, request: Request):
 
     # ── Build PDF ─────────────────────────────────────────────────────────────
     try:
-        sig_bytes = _load_tenant_signature(tenant_id)
-        pdf_bytes = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes)
+        sig_bytes   = _load_tenant_signature(tenant_id)
+        stamp_bytes = _load_tenant_stamp(tenant_id)
+        pdf_bytes   = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes, stamp_bytes=stamp_bytes)
     except ImportError:
         return error_response("reportlab not installed", "PDF_ERROR")
     except Exception as _pdf_e:
@@ -641,8 +711,9 @@ def download_invoice_pdf(invoice_id: int, request: Request):
         conn.close()
 
     try:
-        sig_bytes = _load_tenant_signature(tenant_id)
-        pdf_bytes = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes)
+        sig_bytes   = _load_tenant_signature(tenant_id)
+        stamp_bytes = _load_tenant_stamp(tenant_id)
+        pdf_bytes   = _build_nsd_pdf(inv_data, signature_bytes=sig_bytes, stamp_bytes=stamp_bytes)
         filename = f"invoice_{inv_data.get('invoice_number') or invoice_id}.pdf"
         return StreamingResponse(
             io.BytesIO(pdf_bytes),

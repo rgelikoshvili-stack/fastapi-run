@@ -1,0 +1,35 @@
+.docs-upload-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+@media (max-width: 700px) { .docs-upload-row { grid-template-columns: 1fr; } }
+
+.docs-upload-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+
+.upload-zone-card { padding: 12px; }
+.upload-toolbar { margin-bottom: 10px; }
+
+.upload-zone {
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.upload-zone:hover, .upload-zone--drag {
+  border-color: var(--accent);
+  background: rgba(140,60,45,.04);
+}
+.upload-icon { font-size: 28px; margin-bottom: 8px; }
+.upload-text { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.upload-sub { font-size: 11px; color: var(--ink-dim); margin-top: 4px; }

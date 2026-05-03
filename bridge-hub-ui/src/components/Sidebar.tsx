@@ -22,7 +22,6 @@ const NAV = [
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
-  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
   return (

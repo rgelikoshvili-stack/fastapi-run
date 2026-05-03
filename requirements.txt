@@ -42,7 +42,7 @@ pandas==3.0.1
 pillow==12.1.1
 proto-plus==1.27.1
 protobuf==6.33.6
-psycopg2-binary==2.9.11
+psycopg2-binary==2.9.11  # kept: 40+ sync services (approval, posting, OCR, learning)
 asyncpg>=0.29.0
 pytest-asyncio>=0.23.0
 pyasn1==0.6.3

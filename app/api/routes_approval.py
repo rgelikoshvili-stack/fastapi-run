@@ -7,8 +7,7 @@ from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
-from app.api.db import get_db
-import psycopg2.extras
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 from app.api.services.approval_service import (
@@ -67,7 +66,7 @@ class DraftUpdateRequest(BaseModel):
 
 
 @router.get("/suggestions")
-def get_suggestions(request: Request, q: str = "", field: str = "partner"):
+async def get_suggestions(request: Request, q: str = "", field: str = "partner"):
     """Return autocomplete suggestions for partner/description fields from historical drafts."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if len(q) < 2:
@@ -76,32 +75,24 @@ def get_suggestions(request: Request, q: str = "", field: str = "partner"):
     if field not in allowed_fields:
         return ok_response([])
 
-    conn = get_db()
-    cur = conn.cursor()
+    col = "partner" if field == "partner" else "description"
     try:
-        col = "partner" if field == "partner" else "description"
-        cur.execute(
-            f"""
-            SELECT {col} AS val, COUNT(*) AS cnt
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND {col} ILIKE %s
-              AND {col} IS NOT NULL
-              AND {col} != ''
-            GROUP BY {col}
-            ORDER BY cnt DESC
-            LIMIT 8
-            """,
-            (tenant_id, f"%{q}%"),
-        )
-        rows = cur.fetchall()
-        return ok_response([{"value": r[0], "count": r[1]} for r in rows])
+        async with get_conn() as conn:
+            rows = await conn.fetch(_q(f"""
+                SELECT {col} AS val, COUNT(*) AS cnt
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND {col} ILIKE %s
+                  AND {col} IS NOT NULL
+                  AND {col} != ''
+                GROUP BY {col}
+                ORDER BY cnt DESC
+                LIMIT 8
+            """), tenant_id, f"%{q}%")
+        return ok_response([{"value": r["val"], "count": r["cnt"]} for r in rows])
     except Exception as e:
         log.error("get_suggestions error: %s", e)
         return ok_response([])
-    finally:
-        cur.close()
-        conn.close()
 
 
 @router.get("/queue")
@@ -175,66 +166,53 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
 
 @router.delete("/draft/{draft_id}")
 @limiter.limit("30/minute")
-def delete_draft(draft_id: int, request: Request):
+async def delete_draft(draft_id: int, request: Request):
     """Permanently delete a journal draft (tenant-scoped)."""
     require_permission(request, "approval:write")
     user_id = resolve_tenant_id(getattr(request.state, "user_id", "anon") if request else "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    from app.api.db import get_db
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "DELETE FROM journal_drafts WHERE id = %s AND tenant_id = %s RETURNING id",
-            (draft_id, tenant_id),
-        )
-        row = cur.fetchone()
-        conn.commit()
+        async with get_conn() as conn:
+            row = await conn.fetchrow(
+                _q("DELETE FROM journal_drafts WHERE id = %s AND tenant_id = %s RETURNING id"),
+                draft_id, tenant_id,
+            )
         if not row:
             return http_error(404, "Draft not found", "NOT_FOUND")
         log.info("action=delete_draft draft_id=%s tenant=%s", draft_id, tenant_id)
         return ok_response("Draft deleted", {"draft_id": draft_id})
     except Exception as e:
-        conn.rollback()
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
 
 @router.patch("/draft/{draft_id}")
-def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
+async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
     """Save draft edits without changing status (no auto-approve)."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    from app.api.db import get_db
-    import psycopg2.extras, logging as _log
-    _log.getLogger(__name__).info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    log.info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
+
+    fields, vals = [], []
+    if req.description   is not None: fields.append("description = %s");   vals.append(req.description)
+    if req.partner        is not None: fields.append("partner = %s");        vals.append(req.partner)
+    if req.amount         is not None: fields.append("amount = %s");         vals.append(req.amount)
+    if req.debit_account  is not None: fields.append("debit_account = %s");  vals.append(req.debit_account)
+    if req.credit_account is not None: fields.append("credit_account = %s"); vals.append(req.credit_account)
+    if req.account_code   is not None: fields.append("account_code = %s");   vals.append(req.account_code)
+    if req.reason         is not None: fields.append("reason = %s");         vals.append(req.reason)
+    if not fields:
+        return {"ok": True, "message": "no_changes"}
+    fields.append("updated_at = NOW()")
+    vals += [draft_id, tenant_id]
     try:
-        fields, vals = [], []
-        if req.description  is not None: fields.append("description = %s");  vals.append(req.description)
-        if req.partner       is not None: fields.append("partner = %s");       vals.append(req.partner)
-        if req.amount        is not None: fields.append("amount = %s");        vals.append(req.amount)
-        if req.debit_account is not None: fields.append("debit_account = %s"); vals.append(req.debit_account)
-        if req.credit_account is not None: fields.append("credit_account = %s"); vals.append(req.credit_account)
-        if req.account_code  is not None: fields.append("account_code = %s"); vals.append(req.account_code)
-        if req.reason        is not None: fields.append("reason = %s");        vals.append(req.reason)
-        if not fields:
-            return {"ok": True, "message": "no_changes"}
-        fields.append("updated_at = NOW()")
-        vals += [draft_id, tenant_id]
-        cur.execute(
-            f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s",
-            vals,
-        )
-        conn.commit()
+        async with get_conn() as conn:
+            await conn.execute(
+                _q(f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s"),
+                *vals,
+            )
         return {"ok": True, "draft_id": draft_id}
     except Exception as e:
-        conn.rollback()
         return {"ok": False, "error": str(e)}
-    finally:
-        cur.close(); conn.close()
 
 
 @router.get("/audit")
@@ -267,14 +245,12 @@ def preview_draft(payload: dict, request: Request):
 
 
 @router.get("/stats")
-def get_stats(request: Request):
+async def get_stats(request: Request):
     """Real-time approval queue statistics."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute("""
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q("""
                 SELECT
                     COUNT(*) FILTER (WHERE status IN ('pending', 'pending_human_review')) AS pending_count,
                     COUNT(*) FILTER (WHERE status = 'auto_approved') AS auto_approved,
@@ -283,11 +259,7 @@ def get_stats(request: Request):
                     COALESCE(AVG(CAST(confidence AS FLOAT)), 0) AS avg_confidence
                 FROM journal_drafts
                 WHERE tenant_id::text = %s
-            """, (tenant_id,))
-            row = dict(cur.fetchone())
-        finally:
-            cur.close()
-            conn.close()
+            """), tenant_id)
         return {
             "ok": True,
             "pending_count": int(row["pending_count"] or 0),
@@ -303,54 +275,46 @@ def get_stats(request: Request):
 
 
 @router.post("/reclassify")
-def reclassify_unclassified(request: Request):
+async def reclassify_unclassified(request: Request):
     """Re-run classification on drafts with NULL debit_account/credit_account."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         from app.knowledge.journal_builder import classify_transaction
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(
-            """SELECT id, description, amount FROM journal_drafts
-               WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL
-                                        OR debit_account = '????' OR credit_account = '????')
-               ORDER BY id LIMIT 200""",
-            (tenant_id,),
-        )
-        drafts = [dict(r) for r in cur.fetchall()]
-        updated = 0
-        for d in drafts:
-            try:
-                res = classify_transaction(d["description"] or "", tenant_id)
-                acc = res.get("account", "")
-                if not acc:
-                    continue
-                # determine debit/credit from account range
-                a = int(acc) if acc.isdigit() else 0
-                if 1000 <= a <= 1999:
-                    dr, cr = acc, "3110"
-                elif 2000 <= a <= 2999:
-                    dr, cr = acc, "3110"
-                elif 3000 <= a <= 3999:
-                    dr, cr = "1210", acc
-                elif 5000 <= a <= 5999:
-                    dr, cr = acc, "3110"
-                elif 7000 <= a <= 7999:
-                    dr, cr = acc, "1210"
-                else:
-                    dr, cr = acc, "3110"
-                cur.execute(
-                    """UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s
-                       WHERE id=%s AND tenant_id=%s""",
-                    (dr, cr, acc, d["id"], tenant_id),
-                )
-                updated += 1
-            except Exception:
-                pass
-        conn.commit()
-        cur.close()
-        conn.close()
+        async with get_conn() as conn:
+            drafts = [dict(r) for r in await conn.fetch(_q(
+                """SELECT id, description, amount FROM journal_drafts
+                   WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL
+                                            OR debit_account = '????' OR credit_account = '????')
+                   ORDER BY id LIMIT 200"""),
+                tenant_id)]
+            updated = 0
+            for d in drafts:
+                try:
+                    res = classify_transaction(d["description"] or "", tenant_id)
+                    acc = res.get("account", "")
+                    if not acc:
+                        continue
+                    a = int(acc) if acc.isdigit() else 0
+                    if 1000 <= a <= 1999:
+                        dr, cr = acc, "3110"
+                    elif 2000 <= a <= 2999:
+                        dr, cr = acc, "3110"
+                    elif 3000 <= a <= 3999:
+                        dr, cr = "1210", acc
+                    elif 5000 <= a <= 5999:
+                        dr, cr = acc, "3110"
+                    elif 7000 <= a <= 7999:
+                        dr, cr = acc, "1210"
+                    else:
+                        dr, cr = acc, "3110"
+                    await conn.execute(_q(
+                        """UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s
+                           WHERE id=%s AND tenant_id=%s"""),
+                        dr, cr, acc, d["id"], tenant_id)
+                    updated += 1
+                except Exception:
+                    pass
         return {"ok": True, "reclassified": updated, "total_unclassified": len(drafts)}
     except Exception as e:
         return error_response("Reclassify failed", "RECLASSIFY_ERROR", str(e))
@@ -358,7 +322,7 @@ def reclassify_unclassified(request: Request):
 
 @router.post("/batch-action")
 @limiter.limit("30/minute")
-def batch_action(body: BatchActionRequest, request: Request):
+async def batch_action(body: BatchActionRequest, request: Request):
     """Execute approve/reject/correct on multiple drafts at once."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -372,21 +336,15 @@ def batch_action(body: BatchActionRequest, request: Request):
     new_status = status_map[body.action]
 
     try:
-        conn = get_db()
-        cur = conn.cursor()
-        try:
-            cur.execute("""
+        async with get_conn() as conn:
+            st = await conn.execute(_q("""
                 UPDATE journal_drafts
                 SET status = %s, updated_at = NOW()
                 WHERE id = ANY(%s)
                   AND tenant_id::text = %s
                   AND status NOT IN ('approved', 'rejected', 'posted')
-            """, (new_status, body.draft_ids, tenant_id))
-            affected = cur.rowcount
-            conn.commit()
-        finally:
-            cur.close()
-            conn.close()
+            """), new_status, body.draft_ids, tenant_id)
+            affected = int(st.split()[-1])
         log.info("batch_action action=%s affected=%s tenant=%s", body.action, affected, tenant_id)
         return {"ok": True, "action": body.action, "affected": affected, "tenant_id": tenant_id}
     except Exception as e:
@@ -400,9 +358,7 @@ def batch_action(body: BatchActionRequest, request: Request):
 async def attach_file_to_draft(draft_id: int, request: Request, file=None):
     """Attach a file to an existing journal draft."""
     require_permission(request, "approval:write")
-    from fastapi import UploadFile, File
     from app.api.services.storage_service import upload_file as gcs_upload, generate_signed_url
-    import uuid as _uuid
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     form = await request.form()
@@ -419,68 +375,52 @@ async def attach_file_to_draft(draft_id: int, request: Request, file=None):
     if not any(fname.endswith(ext) for ext in allowed_exts):
         return error_response("File type not allowed", "ATTACH_ERROR", f"allowed: {allowed_exts}")
 
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT id FROM journal_drafts WHERE id = %s AND tenant_id = %s",
-            (draft_id, tenant_id)
-        )
-        if not cur.fetchone():
-            cur.close(); conn.close()
-            return http_error(404, "Draft not found", "NOT_FOUND")
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
+                "SELECT id FROM journal_drafts WHERE id = %s AND tenant_id = %s"),
+                draft_id, tenant_id)
+            if not row:
+                return http_error(404, "Draft not found", "NOT_FOUND")
 
-        # Try GCS upload, fall back to DB storage
-        gcs_path = gcs_upload(file_bytes, file.filename, file.content_type or "application/octet-stream", tenant_id)
+            gcs_path = gcs_upload(file_bytes, file.filename, file.content_type or "application/octet-stream", tenant_id)
 
-        cur.execute(
-            """UPDATE journal_drafts
-               SET attached_file_path = %s, attached_file_name = %s, attached_file_size = %s
-               WHERE id = %s AND tenant_id = %s""",
-            (gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
-        )
-        conn.commit()
+            await conn.execute(_q(
+                """UPDATE journal_drafts
+                   SET attached_file_path = %s, attached_file_name = %s, attached_file_size = %s
+                   WHERE id = %s AND tenant_id = %s"""),
+                gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
         log.info("action=draft_attach draft_id=%s tenant=%s file=%s", draft_id, tenant_id, file.filename)
         return ok_response({"draft_id": draft_id, "file_name": file.filename, "file_size": len(file_bytes)})
     except Exception as e:
-        conn.rollback()
         log.error("attach_file_to_draft draft_id=%s: %s", draft_id, e)
         return error_response("Attach failed", "ATTACH_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
 
 @router.get("/draft/{draft_id}/attachment")
-def get_draft_attachment(draft_id: int, request: Request):
+async def get_draft_attachment(draft_id: int, request: Request):
     """Return signed URL or file info for a draft's attachment."""
     from app.api.services.storage_service import generate_signed_url, download_file
     from fastapi.responses import Response
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT attached_file_path, attached_file_name, attached_file_size FROM journal_drafts "
-            "WHERE id = %s AND tenant_id = %s",
-            (draft_id, tenant_id)
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE id = %s AND tenant_id = %s"),
+            draft_id, tenant_id)
 
-    if not row or not row[1]:
+    if not row or not row["attached_file_name"]:
         return http_error(404, "No attachment found", "NOT_FOUND")
 
-    gcs_path, file_name, file_size = row
+    gcs_path = row["attached_file_path"]
+    file_name = row["attached_file_name"]
+    file_size = row["attached_file_size"]
 
     if gcs_path:
         signed_url = generate_signed_url(gcs_path, expires_in=900)
         if signed_url:
             return ok_response({"signed_url": signed_url, "file_name": file_name, "file_size": file_size})
-        # GCS signing failed — stream the file
         try:
             content = download_file(gcs_path)
             return Response(content=content, media_type="application/octet-stream",
@@ -492,105 +432,81 @@ def get_draft_attachment(draft_id: int, request: Request):
 
 
 @router.delete("/draft/{draft_id}/attachment")
-def delete_draft_attachment(draft_id: int, request: Request):
+async def delete_draft_attachment(draft_id: int, request: Request):
     """Remove attachment from a draft."""
     require_permission(request, "approval:write")
     from app.api.services.storage_service import delete_file
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT attached_file_path FROM journal_drafts WHERE id = %s AND tenant_id = %s",
-            (draft_id, tenant_id)
-        )
-        row = cur.fetchone()
-        if not row:
-            cur.close(); conn.close()
-            return http_error(404, "Draft not found", "NOT_FOUND")
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
+                "SELECT attached_file_path FROM journal_drafts WHERE id = %s AND tenant_id = %s"),
+                draft_id, tenant_id)
+            if not row:
+                return http_error(404, "Draft not found", "NOT_FOUND")
 
-        if row[0]:
-            delete_file(row[0])
+            if row["attached_file_path"]:
+                delete_file(row["attached_file_path"])
 
-        cur.execute(
-            "UPDATE journal_drafts SET attached_file_path=NULL, attached_file_name=NULL, attached_file_size=NULL "
-            "WHERE id=%s AND tenant_id=%s",
-            (draft_id, tenant_id)
-        )
-        conn.commit()
+            await conn.execute(_q(
+                "UPDATE journal_drafts SET attached_file_path=NULL, attached_file_name=NULL, attached_file_size=NULL "
+                "WHERE id=%s AND tenant_id=%s"),
+                draft_id, tenant_id)
         return ok_response({"draft_id": draft_id, "removed": True})
     except Exception as e:
-        conn.rollback()
         return error_response("Delete failed", "ATTACH_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
 
 # ── CFO Second Approval ───────────────────────────────────────────────────────
 
 @router.post("/cfo-approve/{draft_id}")
-def cfo_approve(draft_id: int, request: Request):
+async def cfo_approve(draft_id: int, request: Request):
     """CFO second-level approval for high-value drafts (≥ ₾10,000)."""
     require_permission(request, "approval:cfo")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     user = getattr(request.state, "user_email", "cfo")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("""
-            SELECT * FROM journal_drafts
-            WHERE id = %s AND tenant_id = %s AND status = 'awaiting_cfo'
-            FOR UPDATE NOWAIT
-        """, (draft_id, tenant_id))
-        draft = cur.fetchone()
-        if not draft:
-            return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
+        async with get_conn() as conn:
+            async with conn.transaction():
+                draft = await conn.fetchrow(_q("""
+                    SELECT * FROM journal_drafts
+                    WHERE id = %s AND tenant_id = %s AND status = 'awaiting_cfo'
+                    FOR UPDATE NOWAIT
+                """), draft_id, tenant_id)
+                if not draft:
+                    return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
 
-        cur.execute("""
-            UPDATE journal_drafts
-            SET status = 'approved',
-                approved_by_mode = 'dual_human',
-                updated_at = NOW()
-            WHERE id = %s AND tenant_id = %s
-            RETURNING id, status, amount
-        """, (draft_id, tenant_id))
-        updated = cur.fetchone()
-        conn.commit()
+                await conn.execute(_q("""
+                    UPDATE journal_drafts
+                    SET status = 'approved',
+                        approved_by_mode = 'dual_human',
+                        updated_at = NOW()
+                    WHERE id = %s AND tenant_id = %s
+                """), draft_id, tenant_id)
         log.info("action=cfo_approve draft=%s tenant=%s by=%s", draft_id, tenant_id, user)
         return {"ok": True, "id": draft_id, "status": "approved", "approved_by": user, "level": "CFO"}
     except Exception as e:
-        conn.rollback()
         return http_error(500, str(e), "CFO_APPROVE_ERROR")
-    finally:
-        cur.close()
-        conn.close()
 
 
 @router.get("/awaiting-cfo")
-def list_awaiting_cfo(request: Request):
+async def list_awaiting_cfo(request: Request):
     """List all drafts awaiting CFO second approval."""
     require_permission(request, "approval:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q("""
             SELECT id, date, description, partner, amount, currency, status, created_at
             FROM journal_drafts
             WHERE tenant_id = %s AND status = 'awaiting_cfo'
             ORDER BY amount DESC
-        """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
-        for r in rows:
-            r["date"] = str(r["date"])[:10] if r.get("date") else None
-            r["created_at"] = str(r["created_at"])[:19] if r.get("created_at") else None
-            r["amount"] = float(r["amount"] or 0)
-    finally:
-        cur.close()
-        conn.close()
+        """), tenant_id)]
+    for r in rows:
+        r["date"] = str(r["date"])[:10] if r.get("date") else None
+        r["created_at"] = str(r["created_at"])[:19] if r.get("created_at") else None
+        r["amount"] = float(r["amount"] or 0)
 
     return {"ok": True, "data": {"items": rows, "count": len(rows)}}

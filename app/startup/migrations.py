@@ -8,8 +8,8 @@ log = logging.getLogger(__name__)
 def run_db_migrations():
     """Safe startup migrations — CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS."""
     try:
-        import psycopg2
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        from app.api.db import get_db_sync
+        conn = get_db_sync()
         cur = conn.cursor()
 
         # outgoing_invoices — sent_at + seller/buyer detail columns
@@ -214,7 +214,6 @@ def run_db_migrations():
 
 def _run_remaining_migrations(cur):
     """Continuation of run_db_migrations — additional tables and indexes."""
-    import psycopg2
 
     # Expense categories + expenses
     cur.execute("""
@@ -492,6 +491,54 @@ def _run_remaining_migrations(cur):
     ]:
         try:
             cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # ── Multi-currency: exchange_rates new columns ─────────────────────────────
+    for fx_sql in [
+        "ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS from_code VARCHAR(3)",
+        "ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS to_code   VARCHAR(3) DEFAULT 'GEL'",
+        "ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS source    TEXT       DEFAULT 'nbg'",
+        "ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ",
+    ]:
+        try:
+            cur.execute(fx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Backfill from_code / fetched_at from existing columns
+    for backfill in [
+        "UPDATE exchange_rates SET from_code = currency WHERE from_code IS NULL AND currency IS NOT NULL",
+        "UPDATE exchange_rates SET to_code   = 'GEL'     WHERE to_code   IS NULL",
+        "UPDATE exchange_rates SET fetched_at = COALESCE(updated_at, NOW()) WHERE fetched_at IS NULL",
+    ]:
+        try:
+            cur.execute(backfill)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Exchange rate history index
+    try:
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchange_rates_lookup
+                ON exchange_rates(from_code, to_code, fetched_at DESC)
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # ── Multi-currency: journal_drafts + journal_entries FX columns ────────────
+    for jfx_sql in [
+        "ALTER TABLE journal_drafts  ADD COLUMN IF NOT EXISTS currency      VARCHAR(3)     DEFAULT 'GEL'",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS currency      VARCHAR(3)     DEFAULT 'GEL'",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS amount_gel    NUMERIC(15,2)",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(20,8)  DEFAULT 1.0",
+    ]:
+        try:
+            cur.execute(jfx_sql)
             conn.commit()
         except Exception:
             conn.rollback()

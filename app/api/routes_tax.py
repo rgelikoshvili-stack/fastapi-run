@@ -7,8 +7,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from app.api.response_utils import ok_response, error_response
-from app.api.db import get_db
-import psycopg2.extras
+from app.api.db import get_conn, _q
  
 # ── Accounting Rules ──────────────────────────────────────────────────────────
 try:
@@ -255,34 +254,23 @@ def annual_tax_summary(req: AnnualTaxRequest):
  
  
 @router.get("/from-journal/{year}")
-def tax_from_journal(year: int, request: Request):
+async def tax_from_journal(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s AND tenant_id = %s",
-            (f"{year}%", tenant_id)
-        )
-        r = cur.fetchone()
+    async with get_conn() as conn:
+        r = await conn.fetchrow(_q(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s AND tenant_id = %s"),
+            f"{year}%", tenant_id)
         revenue = float(r["total"]) if r else 0.0
 
-        cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND date LIKE %s AND tenant_id = %s",
-            (f"{year}%", tenant_id)
-        )
-        r = cur.fetchone()
+        r = await conn.fetchrow(_q(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '7%%' AND date LIKE %s AND tenant_id = %s"),
+            f"{year}%", tenant_id)
         expenses = float(r["total"]) if r else 0.0
 
-        cur.execute(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s AND tenant_id = %s",
-            (f"{year}%", tenant_id)
-        )
-        r = cur.fetchone()
+        r = await conn.fetchrow(_q(
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s AND tenant_id = %s"),
+            f"{year}%", tenant_id)
         tax_paid = float(r["total"]) if r else 0.0
-    finally:
-        cur.close()
-        conn.close()
  
     profit = round(revenue - expenses, 2)
     estimated_vat = round(revenue * 0.18, 2)

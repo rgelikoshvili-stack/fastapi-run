@@ -7,12 +7,11 @@ import json
 import logging
 from typing import Optional
 
-import psycopg2.extras
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.authz import require_permission
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.decision_engine import run_decision_pipeline
@@ -21,8 +20,6 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/decision-engine", tags=["decision-engine"])
 
-
-# ── Request Models ────────────────────────────────────────────────────────────
 
 class InvoiceLine(BaseModel):
     description: str
@@ -45,14 +42,9 @@ class BatchAnalyzeRequest(BaseModel):
     candidates: Optional[list[dict]] = None
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
-
 @router.post("/analyze")
 def analyze_invoice(req: AnalyzeRequest, request: Request):
-    """
-    Submit a single invoice for hybrid matching + AI classification.
-    Returns draft IDs + preview lines. Status always = pending_approval.
-    """
+    """Submit a single invoice for hybrid matching + AI classification."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
@@ -97,34 +89,24 @@ def analyze_batch(req: BatchAnalyzeRequest, request: Request):
 
 
 @router.get("/queue")
-def get_de_queue(request: Request, limit: int = 50, offset: int = 0):
-    """
-    Return journal drafts created by the decision engine (source_type='decision_engine').
-    Groups by engine_metadata.match_type and confidence.
-    """
+async def get_de_queue(request: Request, limit: int = 50, offset: int = 0):
+    """Return journal drafts created by the decision engine."""
     require_permission(request, "approval:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                """
+        async with get_conn() as conn:
+            raw_rows = await conn.fetch(_q("""
                 SELECT id, date, description, amount, debit_account, credit_account,
                        account_code, confidence, status, partner,
                        autopilot_flag, engine_metadata, created_at
                 FROM journal_drafts
-                WHERE tenant_id = %s
-                  AND source_type = 'decision_engine'
-                  AND status = 'pending_approval'
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-                """,
-                (tenant_id, limit, offset),
-            )
+                WHERE tenant_id = %s AND source_type = 'decision_engine' AND status = 'pending_approval'
+                ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """), tenant_id, limit, offset)
+
             rows = []
-            for r in cur.fetchall():
+            for r in raw_rows:
                 row = dict(r)
                 if row.get("engine_metadata") and isinstance(row["engine_metadata"], str):
                     try:
@@ -133,45 +115,27 @@ def get_de_queue(request: Request, limit: int = 50, offset: int = 0):
                         pass
                 rows.append(row)
 
-            cur.execute(
-                """
-                SELECT COUNT(*) as total
-                FROM journal_drafts
-                WHERE tenant_id = %s
-                  AND source_type = 'decision_engine'
-                  AND status = 'pending_approval'
-                """,
-                (tenant_id,),
-            )
-            total = cur.fetchone()["total"]
-
-        finally:
-            cur.close()
-            conn.close()
+            total = await conn.fetchval(_q("""
+                SELECT COUNT(*) FROM journal_drafts
+                WHERE tenant_id = %s AND source_type = 'decision_engine' AND status = 'pending_approval'
+            """), tenant_id) or 0
 
         return ok_response("Decision Engine queue", {
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "items": rows,
+            "total": total, "limit": limit, "offset": offset, "items": rows,
         })
-
     except Exception as e:
         return error_response("Queue failed", "DE_QUEUE_ERROR", str(e))
 
 
 @router.get("/stats")
-def get_de_stats(request: Request):
+async def get_de_stats(request: Request):
     """Stats for decision engine drafts."""
     require_permission(request, "approval:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                """
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q("""
                 SELECT
                     COUNT(*) as total,
                     COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
@@ -181,13 +145,7 @@ def get_de_stats(request: Request):
                     SUM(amount) as total_amount
                 FROM journal_drafts
                 WHERE tenant_id = %s AND source_type = 'decision_engine'
-                """,
-                (tenant_id,),
-            )
-            row = dict(cur.fetchone())
-        finally:
-            cur.close()
-            conn.close()
+            """), tenant_id)
 
         return ok_response("Decision Engine stats", {
             "total": row["total"],
@@ -197,17 +155,13 @@ def get_de_stats(request: Request):
             "avg_confidence": round(float(row["avg_confidence"] or 0), 3),
             "total_amount": round(float(row["total_amount"] or 0), 2),
         })
-
     except Exception as e:
         return error_response("Stats failed", "DE_STATS_ERROR", str(e))
 
 
 @router.post("/preview")
 def preview_pipeline(req: AnalyzeRequest, request: Request):
-    """
-    Run the pipeline WITHOUT saving to DB — for preview/testing.
-    Returns what drafts WOULD be created.
-    """
+    """Run the pipeline WITHOUT saving to DB — for preview/testing."""
     require_permission(request, "approval:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 

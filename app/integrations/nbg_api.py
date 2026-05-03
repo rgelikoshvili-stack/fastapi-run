@@ -52,7 +52,9 @@ def fetch_nbg_rates(target_date: Optional[str] = None) -> dict:
 
 
 def sync_rates_to_db(conn) -> int:
-    """Fetch NBG rates and upsert into exchange_rates table. Returns count updated."""
+    """Fetch NBG rates and upsert into exchange_rates table (both old and new columns).
+    Returns count updated.
+    """
     rates = fetch_nbg_rates()
     if not rates:
         return 0
@@ -63,13 +65,22 @@ def sync_rates_to_db(conn) -> int:
         for currency, rate in rates.items():
             if currency == "GEL":
                 continue
+            # Write to both the legacy columns (currency/rate) and new columns
+            # (from_code/to_code/fetched_at) in one upsert.
             cur.execute(
                 """
-                INSERT INTO exchange_rates (currency, rate, updated_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (currency) DO UPDATE SET rate = %s, updated_at = NOW()
+                INSERT INTO exchange_rates
+                    (currency, rate, updated_at, from_code, to_code, source, fetched_at)
+                VALUES (%s, %s, NOW(), %s, 'GEL', 'nbg', NOW())
+                ON CONFLICT (currency) DO UPDATE
+                    SET rate       = EXCLUDED.rate,
+                        updated_at = EXCLUDED.updated_at,
+                        from_code  = EXCLUDED.from_code,
+                        to_code    = EXCLUDED.to_code,
+                        source     = EXCLUDED.source,
+                        fetched_at = EXCLUDED.fetched_at
                 """,
-                (currency, rate, rate),
+                (currency, rate, currency),
             )
             updated += 1
         conn.commit()

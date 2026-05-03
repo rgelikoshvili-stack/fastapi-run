@@ -1,35 +1,26 @@
 from fastapi import APIRouter, Request
 import os
-import psycopg2.extras
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
 @router.get("/log")
-def debug_log(request: Request, limit: int = 20):
+async def debug_log(request: Request, limit: int = 20):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute(
-            """
-            SELECT id, event_type, actor, details, created_at
-            FROM audit_events
-            WHERE tenant_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (tenant_id, limit),
-        )
-        rows = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(_q("""
+                SELECT id, event_type, actor, details, created_at
+                FROM audit_events
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+            """), tenant_id, limit)]
     except Exception as e:
         return error_response("Debug log failed", "DEBUG_LOG_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
     return ok_response("Debug log", {"count": len(rows), "events": rows})
 
 

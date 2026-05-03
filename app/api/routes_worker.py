@@ -13,7 +13,7 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.services.worker_client import verify_worker_signature
 
@@ -62,76 +62,54 @@ async def worker_result(request: Request):
     if status == "ok" and job_type == "ocr":
         raw_text = (data.get("raw_text") or "")[:10000]
         method   = data.get("method", "hetzner_ocr")
-        _update_doc_text(tenant_id, doc_id, raw_text, method)
-        # Re-trigger the document pipeline with the new text
-        _retrigger_pipeline(tenant_id, doc_id)
+        await _update_doc_text(tenant_id, doc_id, raw_text, method)
+        await _retrigger_pipeline(tenant_id, doc_id)
 
     elif status == "failed":
-        _mark_doc_status(tenant_id, doc_id, "ocr_failed")
+        await _mark_doc_status(tenant_id, doc_id, "ocr_failed")
 
     return ok_response("result received", {"doc_id": doc_id, "status": status})
 
 
-def _update_doc_text(tenant_id: str, doc_id: int, raw_text: str, method: str):
+async def _update_doc_text(tenant_id: str, doc_id: int, raw_text: str, method: str):
     try:
-        conn = get_db(tenant_id)
-        cur  = conn.cursor()
-        try:
-            cur.execute(
-                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s AND tenant_id=%s",
-                (raw_text, method, doc_id, tenant_id),
-            )
-            conn.commit()
-        finally:
-            cur.close()
-            conn.close()
+        async with get_conn() as conn:
+            await conn.execute(_q(
+                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s AND tenant_id=%s"
+            ), raw_text, method, doc_id, tenant_id)
     except Exception as e:
         log.error("_update_doc_text doc=%s err=%s", doc_id, e)
 
 
-def _mark_doc_status(tenant_id: str, doc_id: int, status: str):
+async def _mark_doc_status(tenant_id: str, doc_id: int, status: str):
     try:
-        conn = get_db(tenant_id)
-        cur  = conn.cursor()
-        try:
-            cur.execute(
-                "UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s",
-                (status, doc_id, tenant_id),
-            )
-            conn.commit()
-        finally:
-            cur.close()
-            conn.close()
+        async with get_conn() as conn:
+            await conn.execute(_q(
+                "UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s"
+            ), status, doc_id, tenant_id)
     except Exception as e:
         log.error("_mark_doc_status doc=%s err=%s", doc_id, e)
 
 
-def _retrigger_pipeline(tenant_id: str, doc_id: int):
+async def _retrigger_pipeline(tenant_id: str, doc_id: int):
     """After OCR completes on Hetzner, run the extract→classify→draft pipeline."""
     try:
         import asyncio
-        from app.api.db import get_db as _get_db
-
-        conn = _get_db(tenant_id)
-        cur  = conn.cursor()
-        try:
-            cur.execute(
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
                 "SELECT file_content, mime_type, file_name, gcs_path FROM processed_documents "
-                "WHERE id=%s AND tenant_id=%s",
-                (doc_id, tenant_id),
-            )
-            row = cur.fetchone()
-        finally:
-            cur.close()
-            conn.close()
+                "WHERE id=%s AND tenant_id=%s"
+            ), doc_id, tenant_id)
 
         if not row:
             log.warning("_retrigger_pipeline: doc %s not found", doc_id)
             return
 
-        file_content, mime_type, file_name, gcs_path = row
+        file_content = row["file_content"]
+        mime_type    = row["mime_type"]
+        file_name    = row["file_name"]
+        gcs_path     = row["gcs_path"]
 
-        # Get file bytes
         if gcs_path:
             from app.api.services.storage_service import safe_download
             file_bytes = safe_download(gcs_path, file_content)

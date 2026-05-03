@@ -9,10 +9,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
-import psycopg2.extras
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -37,21 +35,18 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
         fontSize=13, textColor=colors.HexColor("#1e293b"), spaceAfter=8)
 
     story = []
-
-    # Header
-    story.append(Paragraph("🌉 Bridge Hub", title_style))
+    story.append(Paragraph("Bridge Hub", title_style))
     story.append(Paragraph(f"Financial Report — {req.report_type.upper()}", sub_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", sub_style))
     story.append(Spacer(1, 0.4*cm))
 
-    # KPI Summary
     story.append(Paragraph("Summary", heading_style))
     kpi_data = [
         ["Metric", "Value"],
         ["Total Transactions", str(recon.get("total_transactions", len(drafts)))],
-        ["Total Income", f"₾ {recon.get('total_income', 0):,.2f}"],
-        ["Total Expense", f"₾ {recon.get('total_expense', 0):,.2f}"],
-        ["Balance", f"₾ {recon.get('balance', 0):,.2f}"],
+        ["Total Income", f"GEL {recon.get('total_income', 0):,.2f}"],
+        ["Total Expense", f"GEL {recon.get('total_expense', 0):,.2f}"],
+        ["Balance", f"GEL {recon.get('balance', 0):,.2f}"],
         ["Status", recon.get("status", "N/A").upper()],
         ["Duplicates", str(recon.get("duplicate_count", 0))],
         ["Unmatched", str(recon.get("unmatched_count", 0))],
@@ -69,7 +64,6 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
     story.append(kpi_table)
     story.append(Spacer(1, 0.6*cm))
 
-    # Journal Drafts table
     story.append(Paragraph("Journal Entries", heading_style))
     headers = ["ID", "Date", "Description", "Partner", "Dr", "Cr", "Amount", "Status"]
     rows = [headers]
@@ -104,27 +98,27 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
     buf.seek(0)
     return buf.read()
 
+
 @router.post("/pdf")
-def generate_pdf_report(req: ReportRequest, request: Request):
+async def generate_pdf_report(req: ReportRequest, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    conds = ["tenant_id = %s"]
+    params: list = [tenant_id]
+    if req.date_from:
+        conds.append("date >= %s"); params.append(req.date_from)
+    if req.date_to:
+        conds.append("date <= %s"); params.append(req.date_to)
+    if req.status:
+        conds.append("status = %s"); params.append(req.status)
+
     try:
-        query = "SELECT * FROM journal_drafts WHERE tenant_id = %s"
-        params = [tenant_id]
-        if req.date_from:
-            query += " AND date >= %s"; params.append(req.date_from)
-        if req.date_to:
-            query += " AND date <= %s"; params.append(req.date_to)
-        if req.status:
-            query += " AND status = %s"; params.append(req.status)
-        query += " ORDER BY created_at DESC"
-        cur.execute(query, params)
-        drafts = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            drafts = [dict(r) for r in await conn.fetch(_q(
+                f"SELECT * FROM journal_drafts WHERE {' AND '.join(conds)} ORDER BY created_at DESC"
+            ), *params)]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
     total_income = sum(float(d.get("amount") or 0) for d in drafts if str(d.get("account_code","")).startswith("6"))
     total_expense = sum(float(d.get("amount") or 0) for d in drafts if str(d.get("account_code","")).startswith("7"))

@@ -6,8 +6,7 @@ from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from app.api.tenant_context import resolve_tenant_id
 from app.api.security import limiter
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
-from app.api.db import get_db
-import psycopg2.extras
+from app.api.db import get_conn, _q
 
 router = APIRouter(prefix="/ocr", tags=["ocr"])
 
@@ -18,10 +17,7 @@ async def extract_from_file(
     request: Request,
     file: UploadFile = File(...),
 ):
-    """
-    PDF/Excel/სურათიდან ინვოისის ველების ამოღება.
-    Draft არ იქმნება — მხოლოდ extraction.
-    """
+    """PDF/Excel/სურათიდან ინვოისის ველების ამოღება. Draft არ იქმნება."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     if not file.filename:
@@ -29,23 +25,14 @@ async def extract_from_file(
 
     allowed = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg")
     if not any(file.filename.lower().endswith(ext) for ext in allowed):
-        raise HTTPException(
-            status_code=400,
-            detail=f"დასაშვები ფორმატები: {', '.join(allowed)}"
-        )
+        raise HTTPException(status_code=400, detail=f"დასაშვები ფორმატები: {', '.join(allowed)}")
 
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="ფაილი 10MB-ზე მეტია")
 
     fields = extract_invoice_fields(file.filename, data)
-
-    return {
-        "ok": True,
-        "tenant_id": tenant_id,
-        "filename": file.filename,
-        "fields": fields,
-    }
+    return {"ok": True, "tenant_id": tenant_id, "filename": file.filename, "fields": fields}
 
 
 @router.post("/extract-and-draft")
@@ -54,9 +41,7 @@ async def extract_and_create_draft(
     request: Request,
     file: UploadFile = File(...),
 ):
-    """
-    PDF/Excel-იდან ინვოისის ამოღება + Draft-ის ავტომატური შექმნა.
-    """
+    """PDF/Excel-იდან ინვოისის ამოღება + Draft-ის ავტომატური შექმნა."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     if not file.filename:
@@ -69,75 +54,44 @@ async def extract_and_create_draft(
         return {"ok": False, "error": "ინვოისიდან მონაცემების ამოღება ვერ მოხდა"}
 
     if not fields.get("amount"):
-        return {
-            "ok": False,
-            "error": "თანხა ვერ ამოიღო",
-            "fields": fields,
-        }
+        return {"ok": False, "error": "თანხა ვერ ამოიღო", "fields": fields}
 
     draft = create_draft_from_invoice(fields, tenant_id=tenant_id)
-
-    return {
-        "ok": True,
-        "tenant_id": tenant_id,
-        "filename": file.filename,
-        "extracted_fields": fields,
-        "draft": draft,
-    }
+    return {"ok": True, "tenant_id": tenant_id, "filename": file.filename,
+            "extracted_fields": fields, "draft": draft}
 
 
 @router.get("/history")
-def ocr_history(
+async def ocr_history(
     request: Request,
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """
-    OCR / document extraction history.
-    """
+    """OCR / document extraction history."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute(
-            """
-            SELECT
-                run_id,
-                filename,
-                state,
-                created_at
+    async with get_conn() as conn:
+        items = [dict(r) for r in await conn.fetch("""
+            SELECT run_id, filename, state, created_at
             FROM pipeline_runs
             ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
-            """,
-            (limit, offset),
-        )
-        items = [dict(r) for r in cur.fetchall()]
+            LIMIT $1 OFFSET $2
+        """, limit, offset)]
+        total = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs") or 0
 
-        cur.execute("SELECT COUNT(*) AS total FROM pipeline_runs")
-        total = cur.fetchone()["total"]
-
-        return {
-            "ok": True,
-            "tenant_id": tenant_id,
-            "count": len(items),
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "items": items,
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "count": len(items),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
 
 
 @router.get("/status")
 def ocr_status():
-    """
-    OCR სისტემის სტატუსი.
-    """
+    """OCR სისტემის სტატუსი."""
     try:
         import fitz
         pdf_support = True

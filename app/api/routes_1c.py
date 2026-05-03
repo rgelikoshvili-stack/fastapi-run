@@ -5,8 +5,7 @@ from typing import List, Optional
 import io, xml.etree.ElementTree as ET
 from datetime import datetime
 from app.api.response_utils import ok_response, error_response
-from app.api.db import get_db
-import psycopg2.extras
+from app.api.db import get_conn, _q
 
 router = APIRouter(prefix="/1c", tags=["1c"])
 
@@ -56,24 +55,18 @@ def drafts_to_1c_csv(drafts: list) -> str:
 @router.post("/export")
 async def export_1c(req: ExportRequest, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        if req.draft_ids:
-            cur.execute(
-                "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND tenant_id = %s",
-                (req.draft_ids, tenant_id),
-            )
-        else:
-            cur.execute(
-                "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id = %s ORDER BY created_at",
-                (req.status, tenant_id),
-            )
-        drafts = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            if req.draft_ids:
+                drafts = [dict(r) for r in await conn.fetch(_q(
+                    "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND tenant_id = %s"),
+                    req.draft_ids, tenant_id)]
+            else:
+                drafts = [dict(r) for r in await conn.fetch(_q(
+                    "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id = %s ORDER BY created_at"),
+                    req.status, tenant_id)]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
     if not drafts:
         return error_response("No drafts found", "NOT_FOUND", "")
@@ -96,18 +89,13 @@ async def export_1c(req: ExportRequest, request: Request):
 @router.get("/preview/{status}")
 async def preview_1c(status: str, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute(
-            "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id=%s ORDER BY created_at LIMIT 20",
-            (status, tenant_id),
-        )
-        drafts = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            drafts = [dict(r) for r in await conn.fetch(_q(
+                "SELECT * FROM journal_drafts WHERE status=%s AND tenant_id=%s ORDER BY created_at LIMIT 20"),
+                status, tenant_id)]
     except Exception as e:
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
     preview = [{
         "id": d["id"],

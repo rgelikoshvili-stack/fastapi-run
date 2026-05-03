@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
-from app.api.db import get_db
+from app.api.db import get_conn, _q, get_db
 from app.api.services.reconciliation_service import (
     reconcile_bank_statement, apply_reconciliation,
 )
@@ -80,43 +80,36 @@ def apply_matches(body: ApplyMatchRequest, request: Request):
 
 
 @router.get("/status")
-def reconciliation_status(request: Request):
+async def reconciliation_status(request: Request):
     require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT
-                COUNT(*) FILTER (WHERE reconciled = TRUE)  AS reconciled_count,
-                COUNT(*) FILTER (WHERE reconciled IS NULL OR reconciled = FALSE) AS unreconciled_count
-            FROM journal_drafts WHERE tenant_id = %s
-        """, (tenant_id,))
-        row = cur.fetchone()
-        stats = {"reconciled": row[0] or 0, "unreconciled": row[1] or 0} if row else {}
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q("""
+                SELECT
+                    COUNT(*) FILTER (WHERE reconciled = TRUE)  AS reconciled_count,
+                    COUNT(*) FILTER (WHERE reconciled IS NULL OR reconciled = FALSE) AS unreconciled_count
+                FROM journal_drafts WHERE tenant_id = %s
+            """), tenant_id)
+        stats = {"reconciled": row["reconciled_count"] or 0, "unreconciled": row["unreconciled_count"] or 0} if row else {}
     except Exception:
         stats = {}
-    finally:
-        cur.close(); conn.close()
 
     return ok_response("Reconciliation status", {"ready": True, **stats})
 
 
 @router.get("/history")
-def reconciliation_history(request: Request):
+async def reconciliation_history(request: Request):
     require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT status, COUNT(*) AS cnt,
-                   MIN(created_at) AS first, MAX(created_at) AS last
-            FROM journal_drafts WHERE tenant_id = %s
-            GROUP BY status ORDER BY cnt DESC
-        """, (tenant_id,))
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(_q("""
+                SELECT status, COUNT(*) AS cnt,
+                       MIN(created_at) AS first, MAX(created_at) AS last
+                FROM journal_drafts WHERE tenant_id = %s
+                GROUP BY status ORDER BY cnt DESC
+            """), tenant_id)]
         for r in rows:
             for f in ("first", "last"):
                 if r.get(f):
@@ -124,7 +117,5 @@ def reconciliation_history(request: Request):
     except Exception as e:
         log.warning("reconciliation history failed: %s", e)
         rows = []
-    finally:
-        cur.close(); conn.close()
 
     return ok_response("Reconciliation history", {"summary": rows})

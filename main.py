@@ -379,12 +379,41 @@ async def prometheus_middleware(request: Request, call_next):
 
 
 
+async def _nbg_sync_loop():
+    """Sync NBG exchange rates daily at startup and every 24 h."""
+    import asyncio as _asyncio
+    loop = _asyncio.get_running_loop()
+    while True:
+        try:
+            from app.integrations.nbg_api import sync_rates_to_db as _sync
+            from app.api.db import get_db as _get_db
+            def _do_sync():
+                conn = _get_db()
+                try:
+                    n = _sync(conn)
+                    print(f"✅ NBG daily sync: {n} currencies")
+                finally:
+                    conn.close()
+            await loop.run_in_executor(None, _do_sync)
+        except Exception as e:
+            print(f"⚠️ NBG daily sync failed: {e}")
+        await _asyncio.sleep(86400)
+
+
 @app.on_event("startup")
 async def start_background_tasks():
     print("🚀 Starting background scheduler...")
+    # Warm up asyncpg pool
+    try:
+        from app.api.db import get_pool
+        await get_pool()
+        print("✅ asyncpg pool ready")
+    except Exception as e:
+        print(f"⚠️ asyncpg pool init (non-fatal): {e}")
     asyncio.create_task(autopilot_loop())
     asyncio.create_task(decay_loop())
     asyncio.create_task(email_poller_loop())
+    asyncio.create_task(_nbg_sync_loop())
     # DB column migrations
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _run_db_migrations)
@@ -417,9 +446,9 @@ async def start_background_tasks():
     # NBG live exchange rates
     try:
         from app.integrations.nbg_api import sync_rates_to_db
-        from app.api.db import get_db as _get_db
+        from app.api.db import get_db_sync as _get_db_sync
         def _nbg_sync():
-            conn = _get_db()
+            conn = _get_db_sync()
             try:
                 n = sync_rates_to_db(conn)
                 print(f"✅ NBG rates synced: {n} currencies")
@@ -436,3 +465,10 @@ async def start_background_tasks():
         print("✅ Knowledge Base loaded!")
     except Exception as e:
         print(f"⚠️ KB load error: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.api.db import close_pool
+    await close_pool()
+    print("✅ asyncpg pool closed")

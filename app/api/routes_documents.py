@@ -18,7 +18,7 @@ from fastapi import APIRouter, UploadFile, File, Request, Query
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
-from app.api.db import get_db
+from app.api.db import get_conn, get_db, _q
 from app.api.security import limiter
 from app.api.services.document_parser import parse_document
 from app.api.services.document_extractor import extract_document, ExtractedDocument
@@ -1047,40 +1047,29 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
 # ── Triangle match status ─────────────────────────────────────────────────────
 
 @router.get("/triangle-matches")
-def list_triangle_matches(
+async def list_triangle_matches(
     request: Request,
     status: str = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """List triangle matches for tenant, optionally filtered by match_status."""
-    import psycopg2.extras
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        where = "WHERE tenant_id = %s"
-        params = [tenant_id]
-        if status:
-            where += " AND match_status = %s"
-            params.append(status)
-        cur.execute(
-            f"""
+    where = "WHERE tenant_id = %s"
+    params: list = [tenant_id]
+    if status:
+        where += " AND match_status = %s"
+        params.append(status)
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT id, waybill_id, tax_invoice_id, commercial_invoice_id,
                    match_score, match_status, mismatch_fields,
                    waybill_total, tax_invoice_total, commercial_invoice_total,
                    amount_diff, matched_at
             FROM triangle_matches {where}
             ORDER BY matched_at DESC LIMIT %s OFFSET %s
-            """,
-            params + [limit, offset],
-        )
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"SELECT COUNT(*) FROM triangle_matches {where}", params)
-        total = cur.fetchone()["count"]
-    finally:
-        cur.close()
-        conn.close()
+        """), *params, limit, offset)]
+        total = await conn.fetchval(_q(f"SELECT COUNT(*) FROM triangle_matches {where}"), *params) or 0
 
     return ok_response("Triangle matches", {
         "total": total, "limit": limit, "offset": offset, "items": rows
@@ -1090,7 +1079,7 @@ def list_triangle_matches(
 # ── Waybills list ─────────────────────────────────────────────────────────────
 
 @router.get("/waybills")
-def list_waybills(
+async def list_waybills(
     request: Request,
     q: str = Query(None),
     status: str = Query(None),
@@ -1098,26 +1087,22 @@ def list_waybills(
     offset: int = Query(0, ge=0),
 ):
     """List waybills with triangle-match status joined."""
-    import psycopg2.extras
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        conditions = ["w.tenant_id = %s"]
-        params: list = [tenant_id]
-        if status:
-            conditions.append("w.status = %s")
-            params.append(status)
-        if q:
-            conditions.append(
-                "(w.waybill_number ILIKE %s OR w.seller_inn ILIKE %s"
-                " OR w.buyer_inn ILIKE %s OR w.seller_name ILIKE %s OR w.buyer_name ILIKE %s)"
-            )
-            like = f"%{q}%"
-            params += [like, like, like, like, like]
-        where = "WHERE " + " AND ".join(conditions)
-        cur.execute(
-            f"""
+    conditions = ["w.tenant_id = %s"]
+    params: list = [tenant_id]
+    if status:
+        conditions.append("w.status = %s")
+        params.append(status)
+    if q:
+        conditions.append(
+            "(w.waybill_number ILIKE %s OR w.seller_inn ILIKE %s"
+            " OR w.buyer_inn ILIKE %s OR w.seller_name ILIKE %s OR w.buyer_name ILIKE %s)"
+        )
+        like = f"%{q}%"
+        params += [like, like, like, like, like]
+    where = "WHERE " + " AND ".join(conditions)
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT w.id, w.waybill_number, w.seller_inn, w.seller_name,
                    w.buyer_inn, w.buyer_name, w.waybill_date,
                    w.subtotal, w.vat_amount, w.total_amount,
@@ -1132,15 +1117,8 @@ def list_waybills(
             {where}
             ORDER BY w.created_at DESC
             LIMIT %s OFFSET %s
-            """,
-            params + [limit, offset],
-        )
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"SELECT COUNT(*) FROM waybills w {where}", params)
-        total = cur.fetchone()["count"]
-    finally:
-        cur.close()
-        conn.close()
+        """), *params, limit, offset)]
+        total = await conn.fetchval(_q(f"SELECT COUNT(*) FROM waybills w {where}"), *params) or 0
 
     return ok_response("Waybills", {"total": total, "limit": limit, "offset": offset, "items": rows})
 
@@ -1148,7 +1126,7 @@ def list_waybills(
 # ── Tax invoices list ─────────────────────────────────────────────────────────
 
 @router.get("/tax-invoices")
-def list_tax_invoices(
+async def list_tax_invoices(
     request: Request,
     q: str = Query(None),
     status: str = Query(None),
@@ -1156,26 +1134,22 @@ def list_tax_invoices(
     offset: int = Query(0, ge=0),
 ):
     """List tax invoices with optional waybill link status."""
-    import psycopg2.extras
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        conditions = ["ti.tenant_id = %s"]
-        params: list = [tenant_id]
-        if status:
-            conditions.append("ti.status = %s")
-            params.append(status)
-        if q:
-            conditions.append(
-                "(ti.invoice_number ILIKE %s OR ti.seller_inn ILIKE %s"
-                " OR ti.buyer_inn ILIKE %s OR ti.seller_name ILIKE %s OR ti.buyer_name ILIKE %s)"
-            )
-            like = f"%{q}%"
-            params += [like, like, like, like, like]
-        where = "WHERE " + " AND ".join(conditions)
-        cur.execute(
-            f"""
+    conditions = ["ti.tenant_id = %s"]
+    params: list = [tenant_id]
+    if status:
+        conditions.append("ti.status = %s")
+        params.append(status)
+    if q:
+        conditions.append(
+            "(ti.invoice_number ILIKE %s OR ti.seller_inn ILIKE %s"
+            " OR ti.buyer_inn ILIKE %s OR ti.seller_name ILIKE %s OR ti.buyer_name ILIKE %s)"
+        )
+        like = f"%{q}%"
+        params += [like, like, like, like, like]
+    where = "WHERE " + " AND ".join(conditions)
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT ti.id, ti.invoice_number, ti.seller_inn, ti.seller_name,
                    ti.buyer_inn, ti.buyer_name, ti.invoice_date,
                    ti.subtotal, ti.vat_amount, ti.total_amount,
@@ -1188,15 +1162,8 @@ def list_tax_invoices(
             {where}
             ORDER BY ti.created_at DESC
             LIMIT %s OFFSET %s
-            """,
-            params + [limit, offset],
-        )
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"SELECT COUNT(*) FROM tax_invoices ti {where}", params)
-        total = cur.fetchone()["count"]
-    finally:
-        cur.close()
-        conn.close()
+        """), *params, limit, offset)]
+        total = await conn.fetchval(_q(f"SELECT COUNT(*) FROM tax_invoices ti {where}"), *params) or 0
 
     return ok_response("Tax invoices", {"total": total, "limit": limit, "offset": offset, "items": rows})
 
@@ -1212,7 +1179,7 @@ class _TIEmailReq(_BaseModel):
 
 @router.post("/tax-invoice/{invoice_id}/send-email")
 @limiter.limit("10/minute")
-def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request):
+async def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request):
     """Generate a PDF for a tax invoice and email it."""
     require_permission(request, "ocr:write")
     import io, os, smtplib, json as _json
@@ -1220,7 +1187,6 @@ def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request)
     from email.mime.base import MIMEBase
     from email.mime.text import MIMEText
     from email import encoders
-    import psycopg2.extras
 
     smtp_user = os.environ.get("SMTP_USER", "")
     smtp_pass = os.environ.get("SMTP_PASS", "")
@@ -1232,17 +1198,10 @@ def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request)
         return error_response("Invalid email", "VALIDATION_ERROR", "სწორი ელ-ფოსტა შეიყვანეთ")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM tax_invoices WHERE id = %s AND tenant_id = %s",
-            (invoice_id, tenant_id),
-        )
-        inv = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+    async with get_conn() as conn:
+        inv = await conn.fetchrow(_q(
+            "SELECT * FROM tax_invoices WHERE id = %s AND tenant_id = %s"
+        ), invoice_id, tenant_id)
 
     if not inv:
         return http_error(404, "Not found", "NOT_FOUND")
@@ -1320,25 +1279,18 @@ def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request)
 async def get_document_meta(doc_id: int, request: Request = None):
     """Return extracted metadata for a processed document (no file bytes)."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             """SELECT id, file_name, mime_type, file_size_bytes, extraction_method,
                       raw_text, extracted_data, created_at
-               FROM processed_documents WHERE id = %s AND tenant_id = %s""",
-            (doc_id, tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+               FROM processed_documents WHERE id = %s AND tenant_id = %s"""
+        ), doc_id, tenant_id)
 
     if not row:
         return http_error(404, "Document not found", "NOT_FOUND")
 
     import json as _json
-    doc_id_val, file_name, mime_type, file_size, method, raw_text, extracted_data, created_at = row
+    extracted_data = row["extracted_data"]
     extracted = {}
     if extracted_data:
         try:
@@ -1348,13 +1300,13 @@ async def get_document_meta(doc_id: int, request: Request = None):
 
     return {
         "ok": True,
-        "id": doc_id_val,
-        "file_name": file_name,
-        "mime_type": mime_type,
-        "file_size_bytes": file_size,
-        "extraction_method": method,
+        "id": row["id"],
+        "file_name": row["file_name"],
+        "mime_type": row["mime_type"],
+        "file_size_bytes": row["file_size_bytes"],
+        "extraction_method": row["extraction_method"],
         "extracted": extracted,
-        "created_at": str(created_at) if created_at else None,
+        "created_at": str(row["created_at"]) if row["created_at"] else None,
     }
 
 
@@ -1364,23 +1316,19 @@ async def get_document_file(doc_id: int, request: Request = None):
     import time
     from fastapi.responses import Response
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT file_name, mime_type, gcs_path, file_content FROM processed_documents "
-            "WHERE id = %s AND tenant_id = %s",
-            (doc_id, tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE id = %s AND tenant_id = %s"
+        ), doc_id, tenant_id)
 
     if not row:
         return http_error(404, "Document not found", "NOT_FOUND")
 
-    file_name, mime_type, gcs_path, file_content = row
+    file_name = row["file_name"]
+    mime_type = row["mime_type"]
+    gcs_path = row["gcs_path"]
+    file_content = row["file_content"]
 
     _t0 = time.time()
     content = safe_download(gcs_path, file_content)
@@ -1403,23 +1351,18 @@ async def get_document_signed_url(doc_id: int, request: Request = None):
     Falls back to {"signed_url": null, "fallback": true} when GCS is unavailable."""
     from app.api.services.storage_service import generate_signed_url
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT file_name, mime_type, gcs_path FROM processed_documents "
-            "WHERE id = %s AND tenant_id = %s",
-            (doc_id, tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE id = %s AND tenant_id = %s"
+        ), doc_id, tenant_id)
 
     if not row:
         return http_error(404, "Document not found", "NOT_FOUND")
 
-    file_name, mime_type, gcs_path = row
+    file_name = row["file_name"]
+    mime_type = row["mime_type"]
+    gcs_path = row["gcs_path"]
 
     if gcs_path:
         import time as _time

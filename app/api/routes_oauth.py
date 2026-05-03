@@ -9,7 +9,7 @@ import requests as _http
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
 from app.api.services.auth_service import create_access_token, create_refresh_token
 
@@ -84,7 +84,7 @@ def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
 
 
 @router.get("/{provider}/callback")
-def oauth_callback(
+async def oauth_callback(
     provider: str, request: Request,
     code: str = None, state: str = None, error: str = None,
 ):
@@ -132,33 +132,29 @@ def oauth_callback(
     if not email:
         return http_error(400, "Provider did not return email", "OAUTH_NO_EMAIL")
 
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(32)")
-        cur.execute("SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE",
-                    (email, tenant_id))
-        existing = cur.fetchone()
-        if not existing:
-            cur.execute("""
-                INSERT INTO users (email, password_hash, tenant_id, role, oauth_provider)
-                VALUES (%s, %s, %s, 'accountant', %s)
-                ON CONFLICT (email, tenant_id) DO UPDATE
-                    SET oauth_provider = EXCLUDED.oauth_provider
-                RETURNING id, role
-            """, (email, secrets.token_hex(32), tenant_id, provider))
-            row = cur.fetchone()
-            role = row[1] if row else "accountant"
-        else:
-            role = existing[1]
-        conn.commit()
+        async with get_conn() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(32)"
+                )
+                existing = await conn.fetchrow(_q(
+                    "SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
+                ), email, tenant_id)
+                if not existing:
+                    row = await conn.fetchrow(_q("""
+                        INSERT INTO users (email, password_hash, tenant_id, role, oauth_provider)
+                        VALUES (%s, %s, %s, 'accountant', %s)
+                        ON CONFLICT (email, tenant_id) DO UPDATE
+                            SET oauth_provider = EXCLUDED.oauth_provider
+                        RETURNING id, role
+                    """), email, secrets.token_hex(32), tenant_id, provider)
+                    role = row["role"] if row else "accountant"
+                else:
+                    role = existing["role"]
     except Exception as e:
-        conn.rollback()
         log.warning("oauth_user_upsert failed: %s", e)
         return http_error(500, "User persistence failed", "DB_ERROR")
-    finally:
-        cur.close()
-        conn.close()
 
     jwt_access  = create_access_token({"sub": email, "tenant_id": tenant_id, "role": role or "accountant"})
     jwt_refresh = create_refresh_token({"sub": email, "tenant_id": tenant_id})

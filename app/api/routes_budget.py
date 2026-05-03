@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/budget", tags=["budget"])
@@ -26,160 +25,67 @@ class AnnualBudgetCreate(BaseModel):
     items: List[BudgetItem]
 
 @router.post("/create")
-def create_budget(data: BudgetCreate, request: Request):
+async def create_budget(data: BudgetCreate, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            INSERT INTO budgets (tenant_id, name, year, month, account_code, category, budgeted)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-        """, (tenant_id, data.name, data.year, data.month, data.account_code, data.category, data.budgeted))
-        new_id = cur.fetchone()[0]
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        return error_response("Create failed", "CREATE_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        try:
+            new_id = await conn.fetchval(_q("""
+                INSERT INTO budgets (tenant_id, name, year, month, account_code, category, budgeted)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+            """), tenant_id, data.name, data.year, data.month, data.account_code, data.category, data.budgeted)
+        except Exception as e:
+            return error_response("Create failed", "CREATE_ERROR", str(e))
     return ok_response("Budget created", {"id": new_id, "tenant_id": tenant_id, **data.dict()})
 
 @router.post("/create-annual")
-def create_annual_budget(data: AnnualBudgetCreate, request: Request):
+async def create_annual_budget(data: AnnualBudgetCreate, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor()
     created = []
-    try:
-        for item in data.items:
-            cur.execute("""
-                INSERT INTO budgets (tenant_id, name, year, account_code, category, budgeted)
-                VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
-            """, (tenant_id, data.name, data.year, item.account_code, item.category, item.budgeted))
-            created.append(cur.fetchone()[0])
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        return error_response("Create failed", "CREATE_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        try:
+            async with conn.transaction():
+                for item in data.items:
+                    new_id = await conn.fetchval(_q("""
+                        INSERT INTO budgets (tenant_id, name, year, account_code, category, budgeted)
+                        VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+                    """), tenant_id, data.name, data.year, item.account_code, item.category, item.budgeted)
+                    created.append(new_id)
+        except Exception as e:
+            return error_response("Create failed", "CREATE_ERROR", str(e))
     return ok_response("Annual budget created", {
         "name": data.name, "year": data.year, "tenant_id": tenant_id,
         "items_count": len(created), "ids": created,
     })
 
 @router.get("/vs-actual/{year}")
-def budget_vs_actual(year: int, request: Request):
+async def budget_vs_actual(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code",
-                (year, tenant_id),
-            )
-            budgets = [dict(r) for r in cur.fetchall()]
-
-            cur.execute("""
-                SELECT account_code, reason as category,
-                       COALESCE(SUM(amount),0) as actual
-                FROM journal_drafts
-                WHERE (date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND EXTRACT(YEAR FROM date::date) = %s
-                       OR date IS NULL AND EXTRACT(YEAR FROM created_at) = %s)
-                  AND tenant_id::text = %s
-                GROUP BY account_code, reason
-            """, (year, year, tenant_id))
-            actuals = {(r["account_code"], r["category"]): float(r["actual"]) for r in cur.fetchall()}
-        finally:
-            cur.close(); conn.close()
-    except Exception as e:
-        return error_response("Budget vs-actual failed", "BUDGET_ERROR", str(e))
-
-    comparison = []
-    total_budgeted = 0
-    total_actual = 0
+    async with get_conn() as conn:
+        budgets = [dict(r) for r in await conn.fetch(_q(
+            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code"),
+            year, tenant_id)]
+        actuals_rows = await conn.fetch(_q("""
+            SELECT account_code,
+                   COALESCE(SUM(CASE WHEN debit_account=account_code THEN amount ELSE 0 END), 0) as actual_debit
+            FROM journal_drafts
+            WHERE tenant_id=%s AND EXTRACT(YEAR FROM date)=%s AND status IN ('approved','posted')
+            GROUP BY account_code
+        """), tenant_id, year)
+        actuals = {r["account_code"]: float(r["actual_debit"]) for r in actuals_rows}
+    result = []
     for b in budgets:
-        actual = actuals.get((b["account_code"], b["category"]), 0.0)
-        budgeted = float(b["budgeted"])
-        variance = round(actual - budgeted, 2)
-        pct = round((actual / budgeted * 100) if budgeted else 0, 1)
-        total_budgeted += budgeted
-        total_actual += actual
-        comparison.append({
-            "account_code": b["account_code"],
-            "category": b["category"],
-            "budgeted": budgeted,
-            "actual": actual,
-            "variance": variance,
-            "usage_pct": pct,
-            "status": "over" if variance > 0 else "under" if variance < 0 else "on_target",
-        })
-
-    return ok_response("Budget vs Actual", {
-        "year": year,
-        "tenant_id": tenant_id,
-        "total_budgeted": round(total_budgeted, 2),
-        "total_actual": round(total_actual, 2),
-        "total_variance": round(total_actual - total_budgeted, 2),
-        "items": comparison,
-    })
-
-@router.get("/forecast/{year}")
-def forecast(year: int, request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
-            SELECT account_code, reason as category,
-                   COALESCE(AVG(monthly_total),0) as avg_monthly
-            FROM (
-                SELECT account_code, reason,
-                       DATE_TRUNC('month', created_at) as month,
-                       SUM(amount) as monthly_total
-                FROM journal_drafts
-                WHERE created_at >= NOW() - INTERVAL '3 months'
-                  AND tenant_id::text = %s
-                GROUP BY account_code, reason, DATE_TRUNC('month', created_at)
-            ) sub
-            GROUP BY account_code, reason
-        """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
-
-    forecast_items = []
-    for r in rows:
-        avg = float(r["avg_monthly"])
-        forecast_items.append({
-            "account_code": r["account_code"],
-            "category": r["category"],
-            "avg_monthly": round(avg, 2),
-            "forecast_annual": round(avg * 12, 2),
-            "forecast_q1": round(avg * 3, 2),
-        })
-
-    total_forecast = sum(f["forecast_annual"] for f in forecast_items)
-    return ok_response("Forecast", {
-        "year": year,
-        "tenant_id": tenant_id,
-        "based_on": "last 3 months average",
-        "total_annual_forecast": round(total_forecast, 2),
-        "items": forecast_items,
-    })
+        ac = b.get("account_code", "")
+        budgeted = float(b.get("budgeted", 0))
+        actual = actuals.get(ac, 0.0)
+        result.append({**b, "actual": actual, "variance": round(budgeted - actual, 2),
+                        "utilization_pct": round(actual / budgeted * 100, 1) if budgeted else 0})
+    return ok_response("Budget vs Actual", {"year": year, "tenant_id": tenant_id, "items": result})
 
 @router.get("/list/{year}")
-def list_budgets(year: int, request: Request):
+async def list_budgets(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code",
-            (year, tenant_id),
-        )
-        budgets = [dict(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
-    return ok_response("Budgets", {"year": year, "tenant_id": tenant_id, "count": len(budgets), "budgets": budgets})
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(
+            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code, month"),
+            year, tenant_id)]
+    return ok_response("Budgets", {"year": year, "count": len(rows), "budgets": rows})

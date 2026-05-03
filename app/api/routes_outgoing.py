@@ -6,7 +6,7 @@ from typing import Optional, List
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
-from app.api.db import get_db
+from app.api.db import get_conn, get_db, _q
 from app.api.security import limiter
 from app.api.services.invoice_creator import (
     create_draft, update_draft, finalize, list_invoices
@@ -160,14 +160,10 @@ def list_outgoing_invoices(
 
 
 @router.get("/{invoice_id}")
-def get_invoice(invoice_id: int, request: Request):
-    import psycopg2.extras
+async def get_invoice(invoice_id: int, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             SELECT id, invoice_number, invoice_type, status,
                    seller_name, seller_inn, seller_address, seller_phone,
                    seller_bank, seller_swift, seller_account,
@@ -179,20 +175,14 @@ def get_invoice(invoice_id: int, request: Request):
                    created_at, updated_at, finalized_at, sent_at
             FROM outgoing_invoices
             WHERE id = %s AND tenant_id = %s
-            """,
-            (invoice_id, tenant_id),
-        )
-        row = cur.fetchone()
-        if not row:
-            return http_error(404, "Not found", "NOT_FOUND")
-        result = dict(row)
-        for dt_field in ("created_at", "updated_at", "finalized_at", "sent_at", "invoice_date", "delivery_date"):
-            if result.get(dt_field):
-                result[dt_field] = result[dt_field].isoformat() if hasattr(result[dt_field], 'isoformat') else str(result[dt_field])
-        return ok_response("Invoice", result)
-    finally:
-        cur.close()
-        conn.close()
+        """), invoice_id, tenant_id)
+    if not row:
+        return http_error(404, "Not found", "NOT_FOUND")
+    result = dict(row)
+    for dt_field in ("created_at", "updated_at", "finalized_at", "sent_at", "invoice_date", "delivery_date"):
+        if result.get(dt_field):
+            result[dt_field] = result[dt_field].isoformat() if hasattr(result[dt_field], 'isoformat') else str(result[dt_field])
+    return ok_response("Invoice", result)
 
 
 def _load_tenant_signature(tenant_id: str):

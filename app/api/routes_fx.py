@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
-from app.api.db import get_db
+from app.api.db import get_conn, _q, get_db
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.services.fx_service import (
     get_rate, calculate_fx_difference, revalue_open_items, build_fx_journal_entry,
@@ -136,21 +136,20 @@ def revalue_positions(body: FXRevaluationRequest, request: Request):
 
 
 @router.get("/exposure")
-def get_fx_exposure(request: Request,
-                    currency: Optional[str] = Query(None)):
+async def get_fx_exposure(request: Request,
+                          currency: Optional[str] = Query(None)):
     """Summary of all open foreign-currency positions (unpaid invoices, payables)."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        params = [tenant_id]
-        cond = ""
-        if currency:
-            cond = "AND currency = %s"
-            params.append(currency.upper())
 
-        cur.execute(f"""
+    params: list = [tenant_id]
+    cond = ""
+    if currency:
+        cond = "AND currency = %s"
+        params.append(currency.upper())
+
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT currency,
                    COUNT(*) AS invoice_count,
                    SUM(total) AS total_foreign,
@@ -161,15 +160,10 @@ def get_fx_exposure(request: Request,
               AND status NOT IN ('paid', 'cancelled') {cond}
             GROUP BY currency
             ORDER BY booked_gel DESC
-        """, params)
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-        for r in rows:
-            for k in ("total_foreign", "booked_gel"):
-                if r[k]:
-                    r[k] = float(r[k])
-    finally:
-        cur.close()
-        conn.close()
+        """), *params)]
+    for r in rows:
+        for k in ("total_foreign", "booked_gel"):
+            if r[k]:
+                r[k] = float(r[k])
 
     return ok_response("FX exposure", {"positions": rows, "count": len(rows)})

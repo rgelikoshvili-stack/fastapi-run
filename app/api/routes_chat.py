@@ -3,7 +3,7 @@ from typing import Optional
 from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
 import os, anthropic, base64, json
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 _sessions: dict = {}
@@ -38,32 +38,28 @@ CSV ანალიზისას:
 გვიპასუხე ქართულად, კონკრეტულად. ფაილი თუ მოგცეს — სრული ანალიზი გაუკეთე."""
 
 
-def _get_db_context(tenant_id: str) -> str:
+async def _get_db_context(tenant_id: str) -> str:
     try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 
-                COUNT(*) FILTER (WHERE status IN ('drafted','pending_approval')) as pending,
-                COUNT(*) FILTER (WHERE status='approved') as approved,
-                COUNT(*) FILTER (WHERE status='rejected') as rejected,
-                COALESCE(SUM(amount) FILTER (WHERE status='approved'), 0) as total_approved
-            FROM journal_drafts WHERE tenant_id=%s
-        """, (tenant_id,))
-        r = cur.fetchone()
-        cur.execute("SELECT COUNT(*) FROM learning_patterns WHERE tenant_id=%s AND status='active'", (tenant_id,))
-        patterns = cur.fetchone()[0]
-        cur.execute("""
-            SELECT account_code, COUNT(*) as cnt 
-            FROM journal_drafts WHERE tenant_id=%s AND status='approved'
-            GROUP BY account_code ORDER BY cnt DESC LIMIT 3
-        """, (tenant_id,))
-        top = cur.fetchall()
-        cur.close()
-        conn.close()
-        top_str = ", ".join([f"{row[0]}({row[1]})" for row in top])
-        return (f"\nDB: {r[0]} pending, {r[1]} approved, {r[2]} rejected"
-                f"\nდამტკ. ჯამი: {round(float(r[3]),2)} GEL"
+        async with get_conn() as conn:
+            r = await conn.fetchrow(_q("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status IN ('drafted','pending_approval')) as pending,
+                    COUNT(*) FILTER (WHERE status='approved') as approved,
+                    COUNT(*) FILTER (WHERE status='rejected') as rejected,
+                    COALESCE(SUM(amount) FILTER (WHERE status='approved'), 0) as total_approved
+                FROM journal_drafts WHERE tenant_id=%s
+            """), tenant_id)
+            patterns = await conn.fetchval(_q(
+                "SELECT COUNT(*) FROM learning_patterns WHERE tenant_id=%s AND status='active'"
+            ), tenant_id) or 0
+            top = await conn.fetch(_q("""
+                SELECT account_code, COUNT(*) as cnt
+                FROM journal_drafts WHERE tenant_id=%s AND status='approved'
+                GROUP BY account_code ORDER BY cnt DESC LIMIT 3
+            """), tenant_id)
+        top_str = ", ".join([f"{row['account_code']}({row['cnt']})" for row in top])
+        return (f"\nDB: {r['pending']} pending, {r['approved']} approved, {r['rejected']} rejected"
+                f"\nდამტკ. ჯამი: {round(float(r['total_approved']),2)} GEL"
                 f"\nActive patterns: {patterns}"
                 f"\nTop accounts: {top_str}")
     except Exception as e:
@@ -118,7 +114,7 @@ async def send_message(
             _sessions[session_id] = []
 
         history = _sessions[session_id]
-        db_ctx = _get_db_context(tenant_id)
+        db_ctx = await _get_db_context(tenant_id)
         system = SYSTEM_PROMPT + db_ctx + f"\nTenant: {tenant_id}"
 
         content = []

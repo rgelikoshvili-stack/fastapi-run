@@ -8,6 +8,7 @@ Table: recurring_invoice_templates
 
 Trigger: POST /recurring/run — generates due invoices (called by scheduler or manually).
 """
+import json
 import logging
 import os
 import smtplib
@@ -16,12 +17,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional, List
 
-import psycopg2.extras
 from fastapi import APIRouter, Request, Query
 from pydantic import BaseModel, Field
 
 from app.api.authz import require_permission
-from app.api.db import get_db
+from app.api.db import get_conn, get_db, _q
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
@@ -81,39 +81,46 @@ def _send_invoice_email(to_email: str, buyer_name: str, seller_name: str,
 
 # ── DB bootstrap ──────────────────────────────────────────────────────────────
 
+_CREATE_RECURRING = """
+    CREATE TABLE IF NOT EXISTS recurring_invoice_templates (
+        id              SERIAL PRIMARY KEY,
+        tenant_id       TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        frequency       TEXT NOT NULL DEFAULT 'monthly',
+        next_run_date   DATE NOT NULL,
+        last_run_date   DATE,
+        active          BOOLEAN DEFAULT TRUE,
+        auto_send       BOOLEAN DEFAULT FALSE,
+        invoice_type    TEXT DEFAULT 'service',
+        seller_name     TEXT,
+        seller_inn      TEXT,
+        seller_address  TEXT,
+        seller_phone    TEXT,
+        seller_bank     TEXT,
+        seller_swift    TEXT,
+        seller_account  TEXT,
+        buyer_inn       TEXT,
+        buyer_name      TEXT,
+        buyer_email     TEXT,
+        buyer_address   TEXT,
+        buyer_phone     TEXT,
+        due_days        INT DEFAULT 30,
+        line_items      JSONB DEFAULT '[]',
+        comment         TEXT,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW()
+    )
+"""
+
+
+async def _ensure_table_async(conn):
+    await conn.execute(_CREATE_RECURRING)
+
+
 def _ensure_table(conn):
     cur = conn.cursor()
     try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS recurring_invoice_templates (
-                id              SERIAL PRIMARY KEY,
-                tenant_id       TEXT NOT NULL,
-                name            TEXT NOT NULL,
-                frequency       TEXT NOT NULL DEFAULT 'monthly',
-                next_run_date   DATE NOT NULL,
-                last_run_date   DATE,
-                active          BOOLEAN DEFAULT TRUE,
-                auto_send       BOOLEAN DEFAULT FALSE,
-                invoice_type    TEXT DEFAULT 'service',
-                seller_name     TEXT,
-                seller_inn      TEXT,
-                seller_address  TEXT,
-                seller_phone    TEXT,
-                seller_bank     TEXT,
-                seller_swift    TEXT,
-                seller_account  TEXT,
-                buyer_inn       TEXT,
-                buyer_name      TEXT,
-                buyer_email     TEXT,
-                buyer_address   TEXT,
-                buyer_phone     TEXT,
-                due_days        INT DEFAULT 30,
-                line_items      JSONB DEFAULT '[]',
-                comment         TEXT,
-                created_at      TIMESTAMP DEFAULT NOW(),
-                updated_at      TIMESTAMP DEFAULT NOW()
-            )
-        """)
+        cur.execute(_CREATE_RECURRING)
         conn.commit()
     finally:
         cur.close()
@@ -210,137 +217,113 @@ def _generate_invoice_from_template(conn, tenant_id: str, tmpl: dict) -> int:
 
 @router.post("/templates")
 @limiter.limit("20/minute")
-def create_template(data: RecurringTemplateCreate, request: Request):
+async def create_template(data: RecurringTemplateCreate, request: Request):
     """Create a recurring invoice template."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    _ensure_table(conn)
-    cur = conn.cursor()
+    start = date.fromisoformat(data.start_date) if data.start_date else date.today()
     try:
-        start = date.fromisoformat(data.start_date) if data.start_date else date.today()
-        cur.execute("""
-            INSERT INTO recurring_invoice_templates (
-                tenant_id, name, frequency, next_run_date, active, auto_send,
-                invoice_type, seller_name, seller_inn, seller_address, seller_phone,
-                seller_bank, seller_swift, seller_account,
-                buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
-                due_days, line_items, comment
-            ) VALUES (
-                %s,%s,%s,%s,TRUE,%s,
-                %s,%s,%s,%s,%s,
-                %s,%s,%s,
-                %s,%s,%s,%s,%s,
-                %s,%s,%s
-            ) RETURNING id
-        """, (
-            tenant_id, data.name, data.frequency, start, data.auto_send,
-            data.invoice_type, data.seller_name, data.seller_inn,
-            data.seller_address, data.seller_phone,
-            data.seller_bank, data.seller_swift, data.seller_account,
-            data.buyer_inn, data.buyer_name, data.buyer_email,
-            data.buyer_address, data.buyer_phone,
-            data.due_days,
-            psycopg2.extras.Json([i.dict() for i in data.line_items]),
-            data.comment,
-        ))
-        new_id = cur.fetchone()[0]
-        conn.commit()
+        async with get_conn() as conn:
+            await _ensure_table_async(conn)
+            new_id = await conn.fetchval(_q("""
+                INSERT INTO recurring_invoice_templates (
+                    tenant_id, name, frequency, next_run_date, active, auto_send,
+                    invoice_type, seller_name, seller_inn, seller_address, seller_phone,
+                    seller_bank, seller_swift, seller_account,
+                    buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
+                    due_days, line_items, comment
+                ) VALUES (
+                    %s,%s,%s,%s,TRUE,%s,
+                    %s,%s,%s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,%s,%s,%s,
+                    %s,%s,%s
+                ) RETURNING id
+            """), tenant_id, data.name, data.frequency, start, data.auto_send,
+                data.invoice_type, data.seller_name, data.seller_inn,
+                data.seller_address, data.seller_phone,
+                data.seller_bank, data.seller_swift, data.seller_account,
+                data.buyer_inn, data.buyer_name, data.buyer_email,
+                data.buyer_address, data.buyer_phone,
+                data.due_days,
+                json.dumps([i.dict() for i in data.line_items]),
+                data.comment)
         log.info("recurring_template_created id=%s tenant=%s freq=%s", new_id, tenant_id, data.frequency)
         return ok_response("Template created", {"id": new_id, "next_run_date": str(start)})
     except Exception as e:
-        conn.rollback()
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
 
 @router.get("/templates")
 @limiter.limit("30/minute")
-def list_templates(request: Request, active_only: bool = Query(True)):
+async def list_templates(request: Request, active_only: bool = Query(True)):
     """List recurring invoice templates for this tenant."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    _ensure_table(conn)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cond = "tenant_id = %s" + (" AND active = TRUE" if active_only else "")
-        cur.execute(f"""
+    cond = "tenant_id = %s" + (" AND active = TRUE" if active_only else "")
+    async with get_conn() as conn:
+        await _ensure_table_async(conn)
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT id, name, frequency, next_run_date, last_run_date,
                    active, auto_send, invoice_type, buyer_name, buyer_email,
                    due_days, comment, created_at
             FROM recurring_invoice_templates
             WHERE {cond}
             ORDER BY next_run_date ASC
-        """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
-        for r in rows:
-            for f in ("next_run_date", "last_run_date", "created_at"):
-                if r.get(f):
-                    r[f] = str(r[f])[:10]
-        return ok_response("Templates", {"templates": rows, "count": len(rows)})
-    finally:
-        cur.close(); conn.close()
+        """), tenant_id)]
+    for r in rows:
+        for f in ("next_run_date", "last_run_date", "created_at"):
+            if r.get(f):
+                r[f] = str(r[f])[:10]
+    return ok_response("Templates", {"templates": rows, "count": len(rows)})
 
 
 @router.patch("/templates/{tmpl_id}")
-def update_template(tmpl_id: int, data: RecurringTemplateUpdate, request: Request):
+async def update_template(tmpl_id: int, data: RecurringTemplateUpdate, request: Request):
     """Update a recurring template (deactivate, change frequency, etc.)."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
+    fields, vals = [], []
+    if data.name is not None:        fields.append("name=%s");        vals.append(data.name)
+    if data.frequency is not None:   fields.append("frequency=%s");   vals.append(data.frequency)
+    if data.active is not None:      fields.append("active=%s");      vals.append(data.active)
+    if data.auto_send is not None:   fields.append("auto_send=%s");   vals.append(data.auto_send)
+    if data.buyer_email is not None: fields.append("buyer_email=%s"); vals.append(data.buyer_email)
+    if data.buyer_name is not None:  fields.append("buyer_name=%s");  vals.append(data.buyer_name)
+    if data.due_days is not None:    fields.append("due_days=%s");    vals.append(data.due_days)
+    if data.comment is not None:     fields.append("comment=%s");     vals.append(data.comment)
+    if data.line_items is not None:
+        fields.append("line_items=%s")
+        vals.append(json.dumps([i.dict() for i in data.line_items]))
+    if not fields:
+        return ok_response("No changes", {})
+    fields.append("updated_at=NOW()")
+    vals += [tmpl_id, tenant_id]
     try:
-        fields, vals = [], []
-        if data.name is not None:       fields.append("name=%s");        vals.append(data.name)
-        if data.frequency is not None:  fields.append("frequency=%s");   vals.append(data.frequency)
-        if data.active is not None:     fields.append("active=%s");      vals.append(data.active)
-        if data.auto_send is not None:  fields.append("auto_send=%s");   vals.append(data.auto_send)
-        if data.buyer_email is not None:fields.append("buyer_email=%s"); vals.append(data.buyer_email)
-        if data.buyer_name is not None: fields.append("buyer_name=%s");  vals.append(data.buyer_name)
-        if data.due_days is not None:   fields.append("due_days=%s");    vals.append(data.due_days)
-        if data.comment is not None:    fields.append("comment=%s");     vals.append(data.comment)
-        if data.line_items is not None:
-            fields.append("line_items=%s")
-            vals.append(psycopg2.extras.Json([i.dict() for i in data.line_items]))
-        if not fields:
-            return ok_response("No changes", {})
-        fields.append("updated_at=NOW()")
-        vals += [tmpl_id, tenant_id]
-        cur.execute(
-            f"UPDATE recurring_invoice_templates SET {','.join(fields)} WHERE id=%s AND tenant_id=%s",
-            vals,
-        )
-        if cur.rowcount == 0:
+        async with get_conn() as conn:
+            status = await conn.execute(
+                _q(f"UPDATE recurring_invoice_templates SET {','.join(fields)} WHERE id=%s AND tenant_id=%s"),
+                *vals,
+            )
+        if status == "UPDATE 0":
             return http_error(404, "Template not found", "NOT_FOUND")
-        conn.commit()
         return ok_response("Template updated", {"id": tmpl_id})
     except Exception as e:
-        conn.rollback()
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
 
 
 @router.delete("/templates/{tmpl_id}")
-def delete_template(tmpl_id: int, request: Request):
+async def delete_template(tmpl_id: int, request: Request):
     """Deactivate (soft-delete) a recurring template."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "UPDATE recurring_invoice_templates SET active=FALSE, updated_at=NOW() WHERE id=%s AND tenant_id=%s",
-            (tmpl_id, tenant_id),
-        )
-        if cur.rowcount == 0:
-            return http_error(404, "Template not found", "NOT_FOUND")
-        conn.commit()
-        return ok_response("Template deactivated", {"id": tmpl_id})
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        status = await conn.execute(_q(
+            "UPDATE recurring_invoice_templates SET active=FALSE, updated_at=NOW() WHERE id=%s AND tenant_id=%s"
+        ), tmpl_id, tenant_id)
+    if status == "UPDATE 0":
+        return http_error(404, "Template not found", "NOT_FOUND")
+    return ok_response("Template deactivated", {"id": tmpl_id})
 
 
 @router.post("/run")
@@ -360,15 +343,22 @@ def run_recurring(
 
     conn = get_db()
     _ensure_table(conn)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT * FROM recurring_invoice_templates
+            SELECT id, tenant_id, name, frequency, next_run_date, last_run_date,
+                   active, auto_send, invoice_type,
+                   seller_name, seller_inn, seller_address, seller_phone,
+                   seller_bank, seller_swift, seller_account,
+                   buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
+                   due_days, line_items, comment
+            FROM recurring_invoice_templates
             WHERE tenant_id = %s AND active = TRUE AND next_run_date <= %s
             ORDER BY next_run_date ASC
             LIMIT 50
         """, (tenant_id, today))
-        due = [dict(r) for r in cur.fetchall()]
+        cols = [d[0] for d in cur.description]
+        due = [dict(zip(cols, row)) for row in cur.fetchall()]
     finally:
         cur.close()
 
@@ -395,14 +385,12 @@ def run_recurring(
             conn.commit()
             cur2.close()
 
-            # auto-send email if configured
             if tmpl.get("auto_send") and tmpl.get("buyer_email"):
                 try:
                     from app.api.services.invoice_creator import _calc_totals
                     items = tmpl.get("line_items") or []
                     if isinstance(items, str):
-                        import json as _json
-                        items = _json.loads(items)
+                        items = json.loads(items)
                     totals = _calc_totals(items)
                     due_str = str(today + timedelta(days=int(tmpl.get("due_days") or 30)))
                     _send_invoice_email(

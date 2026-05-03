@@ -5,11 +5,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.api.authz import require_auth
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
 from app.api.services.totp_service import (
     generate_totp_secret, generate_qr_png, verify_totp,
-    enable_2fa, disable_2fa, get_user_totp,
 )
 import logging
 
@@ -26,7 +25,7 @@ class TOTPEnableRequest(BaseModel):
 
 
 @router.post("/setup")
-def setup_2fa(request: Request):
+async def setup_2fa(request: Request):
     """Step 1 — generate secret + QR code. User scans with Authenticator app."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
@@ -38,22 +37,15 @@ def setup_2fa(request: Request):
     qr_bytes = generate_qr_png(secret, email)
     qr_b64 = base64.b64encode(qr_bytes).decode()
 
-    # Store secret temporarily (not yet enabled — user must verify first)
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        await conn.execute("""
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS totp_secret TEXT,
                 ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE
         """)
-        cur.execute(
-            "UPDATE users SET totp_secret = %s, totp_enabled = FALSE WHERE id = %s",
-            (secret, user_id),
-        )
-        conn.commit()
-    finally:
-        cur.close(); conn.close()
+        await conn.execute(_q(
+            "UPDATE users SET totp_secret = %s, totp_enabled = FALSE WHERE id = %s"
+        ), secret, user_id)
 
     return ok_response("2FA setup initiated — scan QR code then call /auth/2fa/enable", {
         "secret": secret,
@@ -64,7 +56,7 @@ def setup_2fa(request: Request):
 
 
 @router.get("/qr.png")
-def get_qr_image(request: Request):
+async def get_qr_image(request: Request):
     """Return QR code as PNG image directly."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
@@ -72,9 +64,11 @@ def get_qr_image(request: Request):
     if not user_id:
         return http_error(401, "Not authenticated", "UNAUTHORIZED")
 
-    conn = get_db()
-    totp_info = get_user_totp(conn, user_id)
-    conn.close()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s"
+        ), user_id)
+    totp_info = {"enabled": bool(row[0]) if row else False, "secret": row[1] if row else None}
 
     if not totp_info.get("secret"):
         return http_error(404, "No 2FA setup found. Call /auth/2fa/setup first.", "NOT_FOUND")
@@ -84,68 +78,79 @@ def get_qr_image(request: Request):
 
 
 @router.post("/enable")
-def enable_2fa_endpoint(body: TOTPEnableRequest, request: Request):
+async def enable_2fa_endpoint(body: TOTPEnableRequest, request: Request):
     """Step 2 — verify code from Authenticator app → activate 2FA."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         return http_error(401, "Not authenticated", "UNAUTHORIZED")
 
-    conn = get_db()
-    totp_info = get_user_totp(conn, user_id)
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s"
+        ), user_id)
+    totp_info = {"enabled": bool(row[0]) if row else False, "secret": row[1] if row else None}
 
     if not totp_info.get("secret"):
-        conn.close()
         return http_error(400, "Run /auth/2fa/setup first", "SETUP_REQUIRED")
 
     if not verify_totp(totp_info["secret"], body.code):
-        conn.close()
         return http_error(400, "Invalid TOTP code", "INVALID_CODE")
 
-    enable_2fa(conn, user_id, totp_info["secret"])
-    conn.commit()
-    conn.close()
+    async with get_conn() as conn:
+        await conn.execute("""
+            ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS totp_secret TEXT,
+                ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE
+        """)
+        await conn.execute(_q(
+            "UPDATE users SET totp_secret = %s, totp_enabled = TRUE WHERE id = %s"
+        ), totp_info["secret"], user_id)
 
     return ok_response("2FA enabled successfully", {"enabled": True})
 
 
 @router.post("/disable")
-def disable_2fa_endpoint(body: TOTPVerifyRequest, request: Request):
+async def disable_2fa_endpoint(body: TOTPVerifyRequest, request: Request):
     """Disable 2FA — requires current valid code to confirm."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         return http_error(401, "Not authenticated", "UNAUTHORIZED")
 
-    conn = get_db()
-    totp_info = get_user_totp(conn, user_id)
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s"
+        ), user_id)
+    totp_info = {"enabled": bool(row[0]) if row else False, "secret": row[1] if row else None}
 
     if not totp_info.get("enabled"):
-        conn.close()
         return http_error(400, "2FA is not enabled", "NOT_ENABLED")
 
     if not verify_totp(totp_info["secret"], body.code):
-        conn.close()
         return http_error(400, "Invalid TOTP code", "INVALID_CODE")
 
-    disable_2fa(conn, user_id)
-    conn.commit()
-    conn.close()
+    async with get_conn() as conn:
+        await conn.execute(_q(
+            "UPDATE users SET totp_secret = NULL, totp_enabled = FALSE WHERE id = %s"
+        ), user_id)
 
     return ok_response("2FA disabled", {"enabled": False})
 
 
 @router.post("/verify")
-def verify_2fa_code(body: TOTPVerifyRequest, request: Request):
+async def verify_2fa_code(body: TOTPVerifyRequest, request: Request):
     """Verify a TOTP code — used during login flow when 2FA is enabled."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         return http_error(401, "Not authenticated", "UNAUTHORIZED")
 
-    conn = get_db()
-    totp_info = get_user_totp(conn, user_id)
-    conn.close()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s"
+        ), user_id)
+    totp_info = {"enabled": bool(row[0]) if row else False, "secret": row[1] if row else None}
 
     if not totp_info.get("enabled"):
         return ok_response("2FA not enabled for this user", {"valid": True, "required": False})
@@ -158,15 +163,17 @@ def verify_2fa_code(body: TOTPVerifyRequest, request: Request):
 
 
 @router.get("/status")
-def get_2fa_status(request: Request):
+async def get_2fa_status(request: Request):
     """Check if 2FA is enabled for current user."""
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         return http_error(401, "Not authenticated", "UNAUTHORIZED")
 
-    conn = get_db()
-    totp_info = get_user_totp(conn, user_id)
-    conn.close()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s"
+        ), user_id)
+    enabled = bool(row[0]) if row else False
 
-    return ok_response("2FA status", {"enabled": totp_info.get("enabled", False)})
+    return ok_response("2FA status", {"enabled": enabled})

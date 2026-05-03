@@ -8,8 +8,7 @@ from fastapi import APIRouter, Request, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/client", tags=["client-portal"])
@@ -26,17 +25,15 @@ class ClientUploadRequest(BaseModel):
 # ========== Client Dashboard ==========
 
 @router.get("/dashboard")
-def client_dashboard(request: Request):
+async def client_dashboard(request: Request):
     """
     კლიენტის მთავარი გვერდი — საკუთარი ტრანზაქციების შეჯამება.
     """
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        stats = dict(await conn.fetchrow(_q("""
             SELECT
                 COUNT(*) as total,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
@@ -45,45 +42,37 @@ def client_dashboard(request: Request):
                 COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
                 COALESCE(SUM(amount), 0) as total_amount
             FROM journal_drafts
-            WHERE tenant_id = %s
-              AND partner = %s
-        """, (tenant_id, client_id))
-        stats = dict(cur.fetchone())
+            WHERE tenant_id = %s AND partner = %s
+        """), tenant_id, client_id))
 
-        cur.execute("""
+        recent = [dict(r) for r in await conn.fetch(_q("""
             SELECT id, date, description, amount, status, created_at
             FROM journal_drafts
-            WHERE tenant_id = %s
-              AND partner = %s
-            ORDER BY created_at DESC
-            LIMIT 10
-        """, (tenant_id, client_id))
-        recent = [dict(r) for r in cur.fetchall()]
+            WHERE tenant_id = %s AND partner = %s
+            ORDER BY created_at DESC LIMIT 10
+        """), tenant_id, client_id)]
 
-        return {
-            "ok": True,
-            "client_id": client_id,
-            "tenant_id": tenant_id,
-            "stats": {
-                "total": stats["total"],
-                "approved": stats["approved"],
-                "auto_approved": stats["auto_approved"],
-                "pending": stats["pending"],
-                "rejected": stats["rejected"],
-                "total_amount": round(float(stats["total_amount"]), 2),
-            },
-            "recent_transactions": recent,
-            "generated_at": datetime.now().isoformat(),
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "stats": {
+            "total": stats["total"],
+            "approved": stats["approved"],
+            "auto_approved": stats["auto_approved"],
+            "pending": stats["pending"],
+            "rejected": stats["rejected"],
+            "total_amount": round(float(stats["total_amount"]), 2),
+        },
+        "recent_transactions": recent,
+        "generated_at": datetime.now().isoformat(),
+    }
 
 
 # ========== Client Transactions ==========
 
 @router.get("/transactions")
-def client_transactions(
+async def client_transactions(
     request: Request,
     status: Optional[str] = None,
     limit: int = 50,
@@ -95,42 +84,33 @@ def client_transactions(
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
+    async with get_conn() as conn:
         if status:
-            cur.execute("""
+            items = [dict(r) for r in await conn.fetch(_q("""
                 SELECT id, date, description, amount, status,
                        account_code, confidence, created_at, source_type
                 FROM journal_drafts
                 WHERE tenant_id = %s AND partner = %s AND status = %s
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-            """, (tenant_id, client_id, status, limit, offset))
+                ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """), tenant_id, client_id, status, limit, offset)]
         else:
-            cur.execute("""
+            items = [dict(r) for r in await conn.fetch(_q("""
                 SELECT id, date, description, amount, status,
                        account_code, confidence, created_at, source_type
                 FROM journal_drafts
                 WHERE tenant_id = %s AND partner = %s
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-            """, (tenant_id, client_id, limit, offset))
+                ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """), tenant_id, client_id, limit, offset)]
 
-        items = [dict(r) for r in cur.fetchall()]
-
-        return {
-            "ok": True,
-            "client_id": client_id,
-            "tenant_id": tenant_id,
-            "count": len(items),
-            "limit": limit,
-            "offset": offset,
-            "transactions": items,
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "count": len(items),
+        "limit": limit,
+        "offset": offset,
+        "transactions": items,
+    }
 
 
 # ========== Client Upload ==========
@@ -172,34 +152,23 @@ async def client_upload(
             source_type="client_upload",
         )
     else:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            cur.execute("""
-                INSERT INTO journal_drafts (
-                    date, description, partner, amount,
-                    debit_account, credit_account, account_code,
-                    reason, confidence, status, source_type, tenant_id, created_at
-                ) VALUES (
-                    NOW()::date, %s, %s, 0,
-                    '7100', '1210', '7100',
-                    'client_upload', 0.5, 'pending_approval',
-                    'client_upload', %s, NOW()
-                ) RETURNING id
-            """, (
-                f"Client upload: {file.filename}",
-                client_id,
-                tenant_id,
-            ))
-            draft_id = cur.fetchone()["id"]
-            conn.commit()
+            async with get_conn() as conn:
+                draft_id = await conn.fetchval(_q("""
+                    INSERT INTO journal_drafts (
+                        date, description, partner, amount,
+                        debit_account, credit_account, account_code,
+                        reason, confidence, status, source_type, tenant_id, created_at
+                    ) VALUES (
+                        NOW()::date, %s, %s, 0,
+                        '7100', '1210', '7100',
+                        'client_upload', 0.5, 'pending_approval',
+                        'client_upload', %s, NOW()
+                    ) RETURNING id
+                """), f"Client upload: {file.filename}", client_id, tenant_id)
             draft = {"ok": True, "draft_id": draft_id, "status": "pending_approval"}
         except Exception as e:
-            conn.rollback()
             draft = {"ok": False, "error": str(e)}
-        finally:
-            cur.close()
-            conn.close()
 
     return {
         "ok": True,
@@ -215,78 +184,64 @@ async def client_upload(
 # ========== Transaction Detail ==========
 
 @router.get("/transactions/{draft_id}")
-def client_transaction_detail(draft_id: int, request: Request):
+async def client_transaction_detail(draft_id: int, request: Request):
     """
     კლიენტი ხედავს ერთი ტრანზაქციის დეტალებს.
     """
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             SELECT id, date, description, amount, status,
                    account_code, confidence, created_at,
                    source_type, debit_account, credit_account
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s AND partner = %s
-        """, (draft_id, tenant_id, client_id))
+        """), draft_id, tenant_id, client_id)
 
-        row = cur.fetchone()
         if not row:
-            raise HTTPException(
-                status_code=404,
-                detail="ტრანზაქცია ვერ მოიძებნა"
-            )
+            raise HTTPException(status_code=404, detail="ტრანზაქცია ვერ მოიძებნა")
 
         comments = []
         try:
-            cur.execute("""
+            comments = [dict(r) for r in await conn.fetch(_q("""
                 SELECT author, comment_text, comment_type, created_at
                 FROM draft_comments
                 WHERE draft_id = %s AND tenant_id = %s
                 ORDER BY created_at ASC
-            """, (draft_id, tenant_id))
-            comments = [dict(r) for r in cur.fetchall()]
+            """), draft_id, tenant_id)]
         except Exception:
             pass
 
-        return {
-            "ok": True,
-            "transaction": dict(row),
-            "comments": comments,
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "transaction": dict(row),
+        "comments": comments,
+    }
 
 
 # ========== Invoices for client ==========
 
 @router.get("/invoices")
-def client_invoices(request: Request):
+async def client_invoices(request: Request):
     """Client sees their own invoices — amount, status, due date."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("""
-            SELECT id, invoice_number, issue_date, due_date,
-                   total, currency, status, notes
-            FROM invoices
-            WHERE tenant_id = %s
-            ORDER BY issue_date DESC LIMIT 100
-        """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(_q("""
+                SELECT id, invoice_number, issue_date, due_date,
+                       total, currency, status, notes
+                FROM invoices
+                WHERE tenant_id = %s
+                ORDER BY issue_date DESC LIMIT 100
+            """), tenant_id)]
         for r in rows:
             for f in ("issue_date", "due_date"):
                 if r.get(f):
                     r[f] = str(r[f])[:10]
-    except Exception as e:
+    except Exception:
         rows = []
-    finally:
-        cur.close(); conn.close()
 
     total_outstanding = sum(
         float(r.get("total") or 0) for r in rows
@@ -298,7 +253,7 @@ def client_invoices(request: Request):
 
 
 @router.get("/invoices/{invoice_id}/pdf")
-def client_invoice_pdf(invoice_id: int, request: Request):
+async def client_invoice_pdf(invoice_id: int, request: Request):
     """Download invoice as PDF."""
     from fastapi.responses import StreamingResponse
     from reportlab.lib.pagesizes import A4
@@ -309,15 +264,10 @@ def client_invoice_pdf(invoice_id: int, request: Request):
     import io as _io
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
-            SELECT * FROM invoices WHERE id = %s AND tenant_id = %s
-        """, (invoice_id, tenant_id))
-        inv = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        inv = await conn.fetchrow(_q(
+            "SELECT * FROM invoices WHERE id = %s AND tenant_id = %s"
+        ), invoice_id, tenant_id)
 
     if not inv:
         from app.api.response_utils import http_error
@@ -384,32 +334,28 @@ def client_invoice_pdf(invoice_id: int, request: Request):
 
 
 @router.get("/statement")
-def client_statement(request: Request):
+async def client_statement(request: Request):
     """Account statement — all transactions summary for client."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("""
-            SELECT DATE_TRUNC('month', created_at) AS month,
-                   COUNT(*) AS transactions,
-                   SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS total_income,
-                   SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS total_expense
-            FROM journal_drafts
-            WHERE tenant_id = %s AND status = 'approved'
-            GROUP BY 1 ORDER BY 1 DESC LIMIT 12
-        """, (tenant_id,))
-        rows = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(_q("""
+                SELECT DATE_TRUNC('month', created_at) AS month,
+                       COUNT(*) AS transactions,
+                       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS total_income,
+                       SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS total_expense
+                FROM journal_drafts
+                WHERE tenant_id = %s AND status = 'approved'
+                GROUP BY 1 ORDER BY 1 DESC LIMIT 12
+            """), tenant_id)]
         for r in rows:
             if r.get("month"):
-                r["month"] = r["month"].strftime("%Y-%m")
+                r["month"] = str(r["month"])[:7]
             for f in ("total_income", "total_expense"):
                 if r.get(f):
                     r[f] = float(r[f])
     except Exception:
         rows = []
-    finally:
-        cur.close(); conn.close()
 
     return {"ok": True, "statement": rows}
 

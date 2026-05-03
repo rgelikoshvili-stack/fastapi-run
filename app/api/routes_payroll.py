@@ -4,9 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import io
-import psycopg2.extras
-
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 
@@ -107,21 +105,16 @@ def payroll_rsge_xml(req: PayrollRequest, request: Request):
 # READ ENDPOINTS
 # ===============================
 @router.get("/history")
-def payroll_history(
+async def payroll_history(
     request: Request,
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     require_permission(request, "payroll:read")
-
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        items = [dict(r) for r in await conn.fetch(_q("""
             SELECT id, date, description, amount, status, created_at
             FROM journal_drafts
             WHERE tenant_id = %s
@@ -133,23 +126,9 @@ def payroll_history(
               )
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
-            """,
-            (
-                tenant_id,
-                "%salary%",
-                "%payroll%",
-                "%ხელფას%",
-                "%შრომის ანაზღაურ%",
-                limit,
-                offset,
-            ),
-        )
-        items = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM journal_drafts
+        """), tenant_id, "%salary%", "%payroll%", "%ხელფას%", "%შრომის ანაზღაურ%", limit, offset)]
+        total = await conn.fetchval(_q("""
+            SELECT COUNT(*) FROM journal_drafts
             WHERE tenant_id = %s
               AND (
                     description ILIKE %s
@@ -157,31 +136,17 @@ def payroll_history(
                  OR description ILIKE %s
                  OR description ILIKE %s
               )
-            """,
-            (
-                tenant_id,
-                "%salary%",
-                "%payroll%",
-                "%ხელფას%",
-                "%შრომის ანაზღაურ%",
-            ),
-        )
+        """), tenant_id, "%salary%", "%payroll%", "%ხელფას%", "%შრომის ანაზღაურ%") or 0
 
-        total = cur.fetchone()["total"]
-
-        return {
-            "ok": True,
-            "tenant_id": tenant_id,
-            "count": len(items),
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "items": items,
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "count": len(items),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
 
 
 @router.post("/payslip-pdf")

@@ -8,13 +8,38 @@ import logging
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response, http_error
 
 router = APIRouter(prefix="/fixed-assets", tags=["fixed-assets"])
 log = logging.getLogger(__name__)
 
 _METHODS = {"straight_line", "declining_balance"}
+
+_CREATE_TABLE = """
+    CREATE TABLE IF NOT EXISTS fixed_assets (
+        id SERIAL PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT DEFAULT 'equipment',
+        acquisition_date DATE NOT NULL,
+        cost NUMERIC(15,2) NOT NULL CHECK (cost > 0),
+        residual_value NUMERIC(15,2) DEFAULT 0 CHECK (residual_value >= 0),
+        useful_life_years INTEGER NOT NULL CHECK (useful_life_years > 0),
+        depreciation_method TEXT DEFAULT 'straight_line',
+        account_code TEXT DEFAULT '1510',
+        accumulated_account TEXT DEFAULT '1520',
+        expense_account TEXT DEFAULT '7610',
+        notes TEXT,
+        status TEXT DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+"""
+
+_CREATE_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_fixed_assets_tenant
+        ON fixed_assets(tenant_id, status)
+"""
 
 
 class AssetCreate(BaseModel):
@@ -29,32 +54,6 @@ class AssetCreate(BaseModel):
     accumulated_account: str = "1520"    # Cr account (accumulated dep.)
     expense_account: str = "7610"        # Dr account (dep. expense)
     notes: Optional[str] = None
-
-
-def _ensure_table(cur):
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS fixed_assets (
-            id SERIAL PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            category TEXT DEFAULT 'equipment',
-            acquisition_date DATE NOT NULL,
-            cost NUMERIC(15,2) NOT NULL CHECK (cost > 0),
-            residual_value NUMERIC(15,2) DEFAULT 0 CHECK (residual_value >= 0),
-            useful_life_years INTEGER NOT NULL CHECK (useful_life_years > 0),
-            depreciation_method TEXT DEFAULT 'straight_line',
-            account_code TEXT DEFAULT '1510',
-            accumulated_account TEXT DEFAULT '1520',
-            expense_account TEXT DEFAULT '7610',
-            notes TEXT,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_fixed_assets_tenant
-            ON fixed_assets(tenant_id, status)
-    """)
 
 
 def _depreciation_schedule(asset: dict) -> list[dict]:
@@ -93,56 +92,46 @@ def _depreciation_schedule(asset: dict) -> list[dict]:
 
 
 @router.post("/")
-def create_asset(body: AssetCreate, request: Request):
+async def create_asset(body: AssetCreate, request: Request):
     require_permission(request, "assets:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if body.depreciation_method not in _METHODS:
         return error_response(f"method must be one of {_METHODS}", "VALIDATION_ERROR")
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        _ensure_table(cur)
-        cur.execute("""
-            INSERT INTO fixed_assets
-                (tenant_id, name, category, acquisition_date, cost, residual_value,
-                 useful_life_years, depreciation_method, account_code,
-                 accumulated_account, expense_account, notes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-        """, (tenant_id, body.name, body.category, body.acquisition_date,
-              body.cost, body.residual_value, body.useful_life_years,
-              body.depreciation_method, body.account_code,
-              body.accumulated_account, body.expense_account, body.notes))
-        asset_id = cur.fetchone()[0]
-        conn.commit()
+        async with get_conn() as conn:
+            await conn.execute(_CREATE_TABLE)
+            await conn.execute(_CREATE_INDEX)
+            asset_id = await conn.fetchval(_q("""
+                INSERT INTO fixed_assets
+                    (tenant_id, name, category, acquisition_date, cost, residual_value,
+                     useful_life_years, depreciation_method, account_code,
+                     accumulated_account, expense_account, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+            """), tenant_id, body.name, body.category, body.acquisition_date,
+                body.cost, body.residual_value, body.useful_life_years,
+                body.depreciation_method, body.account_code,
+                body.accumulated_account, body.expense_account, body.notes)
     except Exception as e:
-        conn.rollback()
         return error_response("Asset create failed", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
     return ok_response("Asset created", {"id": asset_id})
 
 
 @router.get("/")
-def list_assets(request: Request, status: str = Query("active")):
+async def list_assets(request: Request, status: str = Query("active")):
     require_permission(request, "assets:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        _ensure_table(cur)
-        cur.execute("""
+    async with get_conn() as conn:
+        await conn.execute(_CREATE_TABLE)
+        await conn.execute(_CREATE_INDEX)
+        rows = [dict(r) for r in await conn.fetch(_q("""
             SELECT id, name, category, acquisition_date, cost, residual_value,
                    useful_life_years, depreciation_method, account_code,
                    accumulated_account, expense_account, notes, status, created_at
             FROM fixed_assets
             WHERE tenant_id = %s AND status = %s
             ORDER BY acquisition_date DESC
-        """, (tenant_id, status))
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
+        """), tenant_id, status)]
 
     for r in rows:
         if r.get("acquisition_date"):
@@ -153,28 +142,21 @@ def list_assets(request: Request, status: str = Query("active")):
 
 
 @router.get("/{asset_id}/schedule")
-def depreciation_schedule(asset_id: int = Path(...), request: Request = None):
+async def depreciation_schedule(asset_id: int = Path(...), request: Request = None):
     require_permission(request, "assets:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        _ensure_table(cur)
-        cur.execute("""
+    async with get_conn() as conn:
+        await conn.execute(_CREATE_TABLE)
+        row = await conn.fetchrow(_q("""
             SELECT id, name, cost, residual_value, useful_life_years,
                    depreciation_method, acquisition_date, expense_account, accumulated_account
             FROM fixed_assets WHERE id = %s AND tenant_id = %s
-        """, (asset_id, tenant_id))
-        row = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+        """), asset_id, tenant_id)
 
     if not row:
         return http_error(404, "Asset not found", "NOT_FOUND")
 
-    cols = ["id","name","cost","residual_value","useful_life_years",
-            "depreciation_method","acquisition_date","expense_account","accumulated_account"]
-    asset = dict(zip(cols, row))
+    asset = dict(row)
     asset["acquisition_date"] = str(asset["acquisition_date"])[:10]
     schedule = _depreciation_schedule(asset)
     total_dep = round(sum(s["depreciation"] for s in schedule), 2)
@@ -191,53 +173,40 @@ def depreciation_schedule(asset_id: int = Path(...), request: Request = None):
 
 
 @router.put("/{asset_id}")
-def update_asset(asset_id: int, body: AssetCreate, request: Request):
+async def update_asset(asset_id: int, body: AssetCreate, request: Request):
     require_permission(request, "assets:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if body.depreciation_method not in _METHODS:
         return error_response(f"method must be one of {_METHODS}", "VALIDATION_ERROR")
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        _ensure_table(cur)
-        cur.execute("""
-            UPDATE fixed_assets SET
-                name=%s, category=%s, acquisition_date=%s, cost=%s,
-                residual_value=%s, useful_life_years=%s, depreciation_method=%s,
-                account_code=%s, accumulated_account=%s, expense_account=%s, notes=%s
-            WHERE id=%s AND tenant_id=%s
-            RETURNING id
-        """, (body.name, body.category, body.acquisition_date, body.cost,
-              body.residual_value, body.useful_life_years, body.depreciation_method,
-              body.account_code, body.accumulated_account, body.expense_account,
-              body.notes, asset_id, tenant_id))
-        row = cur.fetchone()
-        conn.commit()
+        async with get_conn() as conn:
+            await conn.execute(_CREATE_TABLE)
+            row = await conn.fetchrow(_q("""
+                UPDATE fixed_assets SET
+                    name=%s, category=%s, acquisition_date=%s, cost=%s,
+                    residual_value=%s, useful_life_years=%s, depreciation_method=%s,
+                    account_code=%s, accumulated_account=%s, expense_account=%s, notes=%s
+                WHERE id=%s AND tenant_id=%s
+                RETURNING id
+            """), body.name, body.category, body.acquisition_date, body.cost,
+                body.residual_value, body.useful_life_years, body.depreciation_method,
+                body.account_code, body.accumulated_account, body.expense_account,
+                body.notes, asset_id, tenant_id)
     except Exception as e:
-        conn.rollback()
         return error_response("Asset update failed", "DB_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
     if not row:
         return http_error(404, "Asset not found", "NOT_FOUND")
     return ok_response("Asset updated", {"id": asset_id})
 
 
 @router.delete("/{asset_id}")
-def retire_asset(asset_id: int, request: Request):
+async def retire_asset(asset_id: int, request: Request):
     require_permission(request, "assets:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "UPDATE fixed_assets SET status='retired' WHERE id=%s AND tenant_id=%s RETURNING id",
-            (asset_id, tenant_id),
-        )
-        row = cur.fetchone()
-        conn.commit()
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "UPDATE fixed_assets SET status='retired' WHERE id=%s AND tenant_id=%s RETURNING id"
+        ), asset_id, tenant_id)
     if not row:
         return http_error(404, "Asset not found", "NOT_FOUND")
     return ok_response("Asset retired", {"id": asset_id})

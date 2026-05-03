@@ -3,8 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import httpx
 from app.api.response_utils import ok_response, error_response
-from app.api.db import get_db
-import psycopg2.extras
+from app.api.db import get_conn, _q
 from app.ai_systems.external_api_ai import (
     assess_human_gate,
     validate_before_posting,
@@ -46,21 +45,14 @@ async def test_connection(config: BalanceGeConfig):
 @router.post("/post-journals")
 async def post_journals(req: JournalPostRequest, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND status='approved' AND tenant_id=%s",
-            (req.draft_ids, tenant_id),
-        )
-        drafts = [dict(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        drafts = [dict(r) for r in await conn.fetch(_q(
+            "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND status='approved' AND tenant_id=%s"),
+            req.draft_ids, tenant_id)]
 
     if not drafts:
         return error_response("No approved drafts found", "NOT_FOUND", "")
 
-    # AI human gate + pre-posting validation
     gate_blocks = []
     for d in drafts:
         gate = assess_human_gate(d, "balance")
@@ -118,16 +110,10 @@ async def post_journals(req: JournalPostRequest, request: Request):
 @router.get("/export-format/{draft_id}")
 async def export_format(draft_id: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-            (draft_id, tenant_id),
-        )
-        d = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        d = await conn.fetchrow(_q(
+            "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s"),
+            draft_id, tenant_id)
 
     if not d:
         return error_response("Draft not found", "NOT_FOUND", "")

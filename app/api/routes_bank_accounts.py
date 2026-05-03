@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/bank-accounts", tags=["bank-accounts"])
@@ -27,18 +26,12 @@ class TransferRequest(BaseModel):
     note: Optional[str] = None
 
 @router.get("/list")
-def list_accounts(request: Request):
+async def list_accounts(request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM bank_accounts WHERE tenant_id::text = %s ORDER BY is_primary DESC, id",
-            (tenant_id,),
-        )
-        accounts = [dict(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
+    async with get_conn() as conn:
+        accounts = [dict(r) for r in await conn.fetch(_q(
+            "SELECT * FROM bank_accounts WHERE tenant_id::text = %s ORDER BY is_primary DESC, id"),
+            tenant_id)]
 
     total_gel = sum(float(a["balance"]) for a in accounts if a["currency"] == "GEL")
     return ok_response("Bank accounts", {
@@ -49,47 +42,32 @@ def list_accounts(request: Request):
     })
 
 @router.post("/create")
-def create_account(data: BankAccountCreate, request: Request):
+async def create_account(data: BankAccountCreate, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor()
     try:
-        cur.execute("""
-            INSERT INTO bank_accounts (tenant_id, name, bank_name, account_number, currency, balance, account_type, is_primary)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-        """, (tenant_id, data.name, data.bank_name, data.account_number, data.currency,
-              data.balance, data.account_type, data.is_primary))
-        new_id = cur.fetchone()[0]
-        conn.commit()
+        async with get_conn() as conn:
+            new_id = await conn.fetchval(_q("""
+                INSERT INTO bank_accounts (tenant_id, name, bank_name, account_number, currency, balance, account_type, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+            """), tenant_id, data.name, data.bank_name, data.account_number, data.currency,
+                data.balance, data.account_type, data.is_primary)
     except Exception as e:
-        conn.rollback()
         return error_response("Create failed", "CREATE_ERROR", str(e))
-    finally:
-        cur.close(); conn.close()
     return ok_response("Account created", {"id": new_id, "tenant_id": tenant_id, **data.dict()})
 
 @router.post("/{account_id}/update-balance")
-def update_balance(account_id: int, data: BalanceUpdate, request: Request):
+async def update_balance(account_id: int, data: BalanceUpdate, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
-            (account_id, tenant_id),
-        )
-        acc = cur.fetchone()
+    async with get_conn() as conn:
+        acc = await conn.fetchrow(_q(
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            account_id, tenant_id)
         if not acc:
             return error_response("Not found", "NOT_FOUND", "")
         old_balance = float(acc["balance"])
-        cur2 = conn.cursor()
-        cur2.execute(
-            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id::text = %s",
-            (data.balance, account_id, tenant_id),
-        )
-        conn.commit()
-    finally:
-        cur.close(); conn.close()
+        await conn.execute(_q(
+            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id::text = %s"),
+            data.balance, account_id, tenant_id)
     return ok_response("Balance updated", {
         "id": account_id,
         "old_balance": old_balance,
@@ -98,21 +76,15 @@ def update_balance(account_id: int, data: BalanceUpdate, request: Request):
     })
 
 @router.post("/transfer")
-def transfer(req: TransferRequest, request: Request):
+async def transfer(req: TransferRequest, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
-            (req.from_account_id, tenant_id),
-        )
-        from_acc = cur.fetchone()
-        cur.execute(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s",
-            (req.to_account_id, tenant_id),
-        )
-        to_acc = cur.fetchone()
+    async with get_conn() as conn:
+        from_acc = await conn.fetchrow(_q(
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            req.from_account_id, tenant_id)
+        to_acc = await conn.fetchrow(_q(
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            req.to_account_id, tenant_id)
 
         if not from_acc or not to_acc:
             return error_response("Account not found", "NOT_FOUND", "")
@@ -120,18 +92,13 @@ def transfer(req: TransferRequest, request: Request):
             return error_response("Insufficient balance", "BALANCE_ERROR",
                 f"Available: {from_acc['balance']} {from_acc['currency']}")
 
-        cur2 = conn.cursor()
-        cur2.execute(
-            "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id::text = %s",
-            (req.amount, req.from_account_id, tenant_id),
-        )
-        cur2.execute(
-            "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id::text = %s",
-            (req.amount, req.to_account_id, tenant_id),
-        )
-        conn.commit()
-    finally:
-        cur.close(); conn.close()
+        async with conn.transaction():
+            await conn.execute(_q(
+                "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id::text = %s"),
+                req.amount, req.from_account_id, tenant_id)
+            await conn.execute(_q(
+                "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id::text = %s"),
+                req.amount, req.to_account_id, tenant_id)
 
     return ok_response("Transfer complete", {
         "from": from_acc["name"],
@@ -143,27 +110,20 @@ def transfer(req: TransferRequest, request: Request):
     })
 
 @router.get("/summary")
-def account_summary(request: Request):
+async def account_summary(request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        by_currency = [dict(r) for r in await conn.fetch(_q("""
             SELECT currency,
                    COUNT(*) as account_count,
                    COALESCE(SUM(balance),0) as total_balance
             FROM bank_accounts
             WHERE tenant_id::text = %s
             GROUP BY currency ORDER BY total_balance DESC
-        """, (tenant_id,))
-        by_currency = [dict(r) for r in cur.fetchall()]
-        cur.execute(
-            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id::text = %s LIMIT 1",
-            (tenant_id,),
-        )
-        primary = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+        """), tenant_id)]
+        primary = await conn.fetchrow(_q(
+            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id::text = %s LIMIT 1"),
+            tenant_id)
 
     return ok_response("Account summary", {
         "tenant_id": tenant_id,

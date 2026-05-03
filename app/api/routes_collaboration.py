@@ -11,11 +11,10 @@ from app.api.services.collaboration_service import (
     add_comment, get_comments,
     assign_draft, get_assigned_drafts, unassign_draft,
 )
+from app.api.db import get_conn, _q
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
 
-
-# ========== Models ==========
 
 class CommentRequest(BaseModel):
     comment_text: str
@@ -29,8 +28,6 @@ class AssignRequest(BaseModel):
     assigned_by: Optional[str] = "system"
     priority: Optional[str] = "normal"
 
-
-# ========== Comments ==========
 
 @router.post("/drafts/{draft_id}/comments")
 def create_comment(draft_id: int, req: CommentRequest, request: Request):
@@ -51,8 +48,6 @@ def list_comments(draft_id: int, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_comments(draft_id=draft_id, tenant_id=tenant_id)
 
-
-# ========== Assignment ==========
 
 @router.post("/drafts/{draft_id}/assign")
 def assign(draft_id: int, req: AssignRequest, request: Request):
@@ -88,17 +83,11 @@ def get_assigned(accountant: str, request: Request, status: str = None):
     )
 
 
-# ========== Summary ==========
-
 @router.get("/summary")
-def collaboration_summary(request: Request):
+async def collaboration_summary(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    from app.api.db import get_db
-    import psycopg2.extras
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        assignments = [dict(r) for r in await conn.fetch(_q("""
             SELECT assigned_to, COUNT(*) as count, priority
             FROM journal_drafts
             WHERE tenant_id = %s
@@ -106,32 +95,21 @@ def collaboration_summary(request: Request):
               AND status = 'pending_approval'
             GROUP BY assigned_to, priority
             ORDER BY count DESC
-        """, (tenant_id,))
-        assignments = [dict(r) for r in cur.fetchall()]
+        """), tenant_id)]
 
-        cur.execute("""
-            SELECT COUNT(*) as total_comments
-            FROM draft_comments
-            WHERE tenant_id = %s
-        """, (tenant_id,))
-        total_comments = cur.fetchone()["total_comments"]
+        total_comments = await conn.fetchval(_q(
+            "SELECT COUNT(*) FROM draft_comments WHERE tenant_id = %s"
+        ), tenant_id) or 0
 
-        cur.execute("""
-            SELECT COUNT(*) as unassigned
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND assigned_to IS NULL
-              AND status = 'pending_approval'
-        """, (tenant_id,))
-        unassigned = cur.fetchone()["unassigned"]
+        unassigned = await conn.fetchval(_q("""
+            SELECT COUNT(*) FROM journal_drafts
+            WHERE tenant_id = %s AND assigned_to IS NULL AND status = 'pending_approval'
+        """), tenant_id) or 0
 
-        return {
-            "ok": True,
-            "tenant_id": tenant_id,
-            "total_comments": total_comments,
-            "unassigned_pending": unassigned,
-            "assignments": assignments,
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "total_comments": total_comments,
+        "unassigned_pending": unassigned,
+        "assignments": assignments,
+    }

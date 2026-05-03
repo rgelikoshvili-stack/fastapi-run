@@ -139,17 +139,36 @@ def _draft_to_posting_payload(draft: dict) -> dict:
     lines = _normalize_lines(
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
-    return {
-        "id": draft.get("id"),
-        "tenant_id": draft.get("tenant_id"),
-        "date": draft.get("date"),
+    currency = (draft.get("currency") or "GEL").upper()
+    amount   = float(draft.get("amount") or _derive_amount_from_lines(lines))
+
+    payload: dict = {
+        "id":          draft.get("id"),
+        "tenant_id":   draft.get("tenant_id"),
+        "date":        draft.get("date"),
         "description": draft.get("description", ""),
-        "partner": draft.get("partner", ""),
-        "amount": float(draft.get("amount") or _derive_amount_from_lines(lines)),
-        "currency": draft.get("currency", "GEL"),
-        "status": draft.get("status", ""),
-        "lines": lines,
+        "partner":     draft.get("partner", ""),
+        "amount":      amount,
+        "currency":    currency,
+        "status":      draft.get("status", ""),
+        "lines":       lines,
     }
+
+    if currency != "GEL":
+        try:
+            from app.api.services.currency_service import get_rate
+            from decimal import Decimal
+            rate = get_rate(currency, "GEL", draft.get("date"))
+            payload["amount_gel"]    = round(float(Decimal(str(amount)) * rate), 2)
+            payload["exchange_rate"] = float(rate)
+        except Exception:
+            payload["amount_gel"]    = amount
+            payload["exchange_rate"] = 1.0
+    else:
+        payload["amount_gel"]    = amount
+        payload["exchange_rate"] = 1.0
+
+    return payload
 
 
 def _fetch_draft(cur, draft_id: int, tenant_id: str):

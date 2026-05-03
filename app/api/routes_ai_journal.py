@@ -1,9 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Optional, List
-import psycopg2, psycopg2.extras
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.response_utils import ok_response, error_response
 
@@ -40,47 +39,17 @@ async def generate_journal(req: JournalRequest):
         desc = (req.description or "").lower()
 
         if any(x in desc for x in ["rent", "იჯარა"]):
-            result = {
-                "account_code": "7110",
-                "account_name": "იჯარის ხარჯი",
-                "confidence": 0.92,
-                "reason": "rent",
-            }
+            result = {"account_code": "7110", "account_name": "იჯარის ხარჯი", "confidence": 0.92, "reason": "rent"}
         elif any(x in desc for x in ["salary", "ხელფასი"]):
-            result = {
-                "account_code": "7210",
-                "account_name": "შრომის ანაზღაურება",
-                "confidence": 0.95,
-                "reason": "salary",
-            }
+            result = {"account_code": "7210", "account_name": "შრომის ანაზღაურება", "confidence": 0.95, "reason": "salary"}
         elif any(x in desc for x in ["utility", "communal", "კომუნალური"]):
-            result = {
-                "account_code": "7130",
-                "account_name": "კომუნალური ხარჯი",
-                "confidence": 0.90,
-                "reason": "utility",
-            }
+            result = {"account_code": "7130", "account_name": "კომუნალური ხარჯი", "confidence": 0.90, "reason": "utility"}
         elif any(x in desc for x in ["income", "revenue", "payment", "შემოსავალი"]):
-            result = {
-                "account_code": "6100",
-                "account_name": "გაყიდვების შემოსავალი",
-                "confidence": 0.88,
-                "reason": "income",
-            }
+            result = {"account_code": "6100", "account_name": "გაყიდვების შემოსავალი", "confidence": 0.88, "reason": "income"}
         elif any(x in desc for x in ["software", "license", "subscription"]):
-            result = {
-                "account_code": "7150",
-                "account_name": "ლიცენზიის ხარჯი",
-                "confidence": 0.91,
-                "reason": "software",
-            }
+            result = {"account_code": "7150", "account_name": "ლიცენზიის ხარჯი", "confidence": 0.91, "reason": "software"}
         else:
-            result = {
-                "account_code": "7190",
-                "account_name": "სხვა ხარჯი",
-                "confidence": 0.50,
-                "reason": "default",
-            }
+            result = {"account_code": "7190", "account_name": "სხვა ხარჯი", "confidence": 0.50, "reason": "default"}
 
         result["amount"] = req.amount
         result["vat"] = req.vat
@@ -89,12 +58,7 @@ async def generate_journal(req: JournalRequest):
         result["partner"] = req.partner
         result["description"] = req.description
 
-        log_event("journal_generated", {
-            "partner": req.partner,
-            "amount": req.amount,
-            "description": req.description
-        })
-
+        log_event("journal_generated", {"partner": req.partner, "amount": req.amount, "description": req.description})
         return ok_response("AI journal draft generated", {"draft": result})
     except Exception as e:
         return error_response("AI journal failed", "AI_JOURNAL_ERROR", str(e))
@@ -107,16 +71,12 @@ def get_coa():
         return error_response("COA load failed", "COA_ERROR", str(e))
 
 @router.get("/list")
-def list_journals():
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+async def list_journals():
     try:
-        cur.execute("SELECT * FROM journal_entries ORDER BY created_at DESC LIMIT 50")
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.close()
-        conn.close()
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(
+                "SELECT * FROM journal_entries ORDER BY created_at DESC LIMIT 50"
+            )]
         return ok_response("Journal list loaded", {"count": len(rows), "journals": rows})
     except Exception as e:
-        cur.close()
-        conn.close()
         return error_response("Journal list failed", "JOURNAL_LIST_ERROR", str(e))

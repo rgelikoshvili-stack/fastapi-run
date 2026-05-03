@@ -143,146 +143,114 @@ TOOLS = [
 
 # ── Tool executors ────────────────────────────────────────────────────────────
 
-def _tool_create_draft(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_db
-    conn = get_db()
+async def _tool_create_draft(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_conn, _q
     try:
-        cur = conn.cursor()
-        entry_date = inp.get("date") or date.today().isoformat()
-        cur.execute("""
-            INSERT INTO journal_drafts
-                (tenant_id, description, amount, debit_account, credit_account,
-                 date, source, status, account_code)
-            VALUES (%s, %s, %s, %s, %s, %s, 'chat', 'pending', %s)
-            RETURNING id, description, amount, debit_account, credit_account, date, status
-        """, (
-            tenant_id,
-            inp["description"],
-            float(inp["amount"]),
-            str(inp["debit_account"]),
-            str(inp["credit_account"]),
-            entry_date,
-            str(inp["debit_account"]),
-        ))
-        row = cur.fetchone()
-        conn.commit()
-        cur.close()
-        return {
-            "success": True,
-            "draft_id": row[0],
-            "description": row[1],
-            "amount": float(row[2] or 0),
-            "debit_account": row[3],
-            "credit_account": row[4],
-            "date": str(row[5]),
-            "status": row[6],
-            "message": f"გატარება #{row[0]} შეიქმნა — PENDING სტატუსით",
-        }
-    except Exception as e:
-        conn.rollback()
-        return {"success": False, "error": str(e)}
-    finally:
-        conn.close()
-
-
-def _tool_approve_draft(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_db
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        draft_id = int(inp["draft_id"])
-        cur.execute("""
-            UPDATE journal_drafts
-            SET status = 'approved', approved_by = 'chat_ai', approved_at = NOW()
-            WHERE id = %s AND tenant_id = %s AND status IN ('pending', 'PENDING')
-            RETURNING id, description, amount, status
-        """, (draft_id, tenant_id))
-        row = cur.fetchone()
-        conn.commit()
-        cur.close()
-        if row:
+        async with get_conn() as conn:
+            entry_date = inp.get("date") or date.today().isoformat()
+            row = await conn.fetchrow(_q("""
+                INSERT INTO journal_drafts
+                    (tenant_id, description, amount, debit_account, credit_account,
+                     date, source, status, account_code)
+                VALUES (%s, %s, %s, %s, %s, %s, 'chat', 'pending', %s)
+                RETURNING id, description, amount, debit_account, credit_account, date, status
+            """),
+                tenant_id, inp["description"], float(inp["amount"]),
+                str(inp["debit_account"]), str(inp["credit_account"]),
+                entry_date, str(inp["debit_account"]),
+            )
             return {
                 "success": True,
-                "draft_id": row[0],
-                "description": row[1],
-                "amount": float(row[2] or 0),
-                "status": row[3],
-                "message": f"გატარება #{row[0]} დამტკიცდა",
+                "draft_id": row["id"],
+                "description": row["description"],
+                "amount": float(row["amount"] or 0),
+                "debit_account": row["debit_account"],
+                "credit_account": row["credit_account"],
+                "date": str(row["date"]),
+                "status": row["status"],
+                "message": f"გატარება #{row['id']} შეიქმნა — PENDING სტატუსით",
             }
-        return {"success": False, "error": f"გატარება #{draft_id} ვერ მოიძებნა ან უკვე დამტკიცებულია"}
     except Exception as e:
-        conn.rollback()
         return {"success": False, "error": str(e)}
-    finally:
-        conn.close()
 
 
-def _tool_list_pending(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_db
-    import psycopg2.extras
-    conn = get_db()
+async def _tool_approve_draft(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_conn, _q
+    try:
+        draft_id = int(inp["draft_id"])
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q("""
+                UPDATE journal_drafts
+                SET status = 'approved', approved_by = 'chat_ai', approved_at = NOW()
+                WHERE id = %s AND tenant_id = %s AND status IN ('pending', 'PENDING')
+                RETURNING id, description, amount, status
+            """), draft_id, tenant_id)
+            if row:
+                return {
+                    "success": True,
+                    "draft_id": row["id"],
+                    "description": row["description"],
+                    "amount": float(row["amount"] or 0),
+                    "status": row["status"],
+                    "message": f"გატარება #{row['id']} დამტკიცდა",
+                }
+            return {"success": False, "error": f"გატარება #{draft_id} ვერ მოიძებნა ან უკვე დამტკიცებულია"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def _tool_list_pending(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_conn, _q
     try:
         limit = min(int(inp.get("limit", 10)), 50)
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT id, description, amount, debit_account, credit_account,
-                   TO_CHAR(date, 'YYYY-MM-DD') AS date, status,
-                   TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS created
-            FROM journal_drafts
-            WHERE tenant_id = %s AND status IN ('pending', 'PENDING')
-            ORDER BY created_at DESC LIMIT %s
-        """, (tenant_id, limit))
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.close()
+        async with get_conn() as conn:
+            rows = [dict(r) for r in await conn.fetch(_q("""
+                SELECT id, description, amount, debit_account, credit_account,
+                       TO_CHAR(date, 'YYYY-MM-DD') AS date, status,
+                       TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS created
+                FROM journal_drafts
+                WHERE tenant_id = %s AND status IN ('pending', 'PENDING')
+                ORDER BY created_at DESC LIMIT %s
+            """), tenant_id, limit)]
         return {"success": True, "count": len(rows), "drafts": rows}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        conn.close()
 
 
-def _tool_search(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_db
-    import psycopg2.extras
-    conn = get_db()
+async def _tool_search(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_conn, _q
     try:
         query = str(inp["query"])
         account_code = inp.get("account_code")
         limit = min(int(inp.get("limit", 10)), 50)
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if account_code:
-            cur.execute("""
-                SELECT id, description, amount, debit_account, credit_account,
-                       TO_CHAR(date, 'YYYY-MM-DD') AS date, status
-                FROM journal_drafts
-                WHERE tenant_id = %s AND (debit_account = %s OR credit_account = %s OR account_code = %s)
-                ORDER BY created_at DESC LIMIT %s
-            """, (tenant_id, account_code, account_code, account_code, limit))
-        else:
-            cur.execute("""
-                SELECT id, description, amount, debit_account, credit_account,
-                       TO_CHAR(date, 'YYYY-MM-DD') AS date, status
-                FROM journal_drafts
-                WHERE tenant_id = %s AND description ILIKE %s
-                ORDER BY created_at DESC LIMIT %s
-            """, (tenant_id, f"%{query}%", limit))
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.close()
+        async with get_conn() as conn:
+            if account_code:
+                rows = [dict(r) for r in await conn.fetch(_q("""
+                    SELECT id, description, amount, debit_account, credit_account,
+                           TO_CHAR(date, 'YYYY-MM-DD') AS date, status
+                    FROM journal_drafts
+                    WHERE tenant_id = %s AND (debit_account = %s OR credit_account = %s OR account_code = %s)
+                    ORDER BY created_at DESC LIMIT %s
+                """), tenant_id, account_code, account_code, account_code, limit)]
+            else:
+                rows = [dict(r) for r in await conn.fetch(_q("""
+                    SELECT id, description, amount, debit_account, credit_account,
+                           TO_CHAR(date, 'YYYY-MM-DD') AS date, status
+                    FROM journal_drafts
+                    WHERE tenant_id = %s AND description ILIKE %s
+                    ORDER BY created_at DESC LIMIT %s
+                """), tenant_id, f"%{query}%", limit)]
         return {"success": True, "count": len(rows), "transactions": rows}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        conn.close()
 
 
-def _tool_account_balance(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_db
-    conn = get_db()
+async def _tool_account_balance(inp: dict, tenant_id: str) -> dict:
+    from app.api.db import get_conn, _q
     try:
         account_code = str(inp["account_code"])
         date_from = inp.get("date_from")
         date_to = inp.get("date_to")
-        cur = conn.cursor()
         conds = [
             "tenant_id = %s",
             "(debit_account = %s OR credit_account = %s OR account_code = %s)",
@@ -293,33 +261,30 @@ def _tool_account_balance(inp: dict, tenant_id: str) -> dict:
             conds.append("date >= %s"); params.append(date_from)
         if date_to:
             conds.append("date <= %s"); params.append(date_to)
-        cur.execute(f"""
-            SELECT
-                COUNT(*) AS cnt,
-                COALESCE(SUM(CASE WHEN debit_account  = %s THEN amount ELSE 0 END), 0) AS debit_sum,
-                COALESCE(SUM(CASE WHEN credit_account = %s THEN amount ELSE 0 END), 0) AS credit_sum
-            FROM journal_drafts
-            WHERE {' AND '.join(conds)}
-        """, [account_code, account_code] + params)
-        row = cur.fetchone()
-        cur.close()
-        debit  = float(row[1] or 0)
-        credit = float(row[2] or 0)
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(f"""
+                SELECT
+                    COUNT(*) AS cnt,
+                    COALESCE(SUM(CASE WHEN debit_account  = %s THEN amount ELSE 0 END), 0) AS debit_sum,
+                    COALESCE(SUM(CASE WHEN credit_account = %s THEN amount ELSE 0 END), 0) AS credit_sum
+                FROM journal_drafts
+                WHERE {' AND '.join(conds)}
+            """), account_code, account_code, *params)
+        debit  = float(row["debit_sum"] or 0)
+        credit = float(row["credit_sum"] or 0)
         return {
             "success": True,
             "account_code": account_code,
-            "entry_count": int(row[0] or 0),
+            "entry_count": int(row["cnt"] or 0),
             "debit_total":  round(debit,  2),
             "credit_total": round(credit, 2),
             "balance":      round(debit - credit, 2),
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        conn.close()
 
 
-def _tool_classify(inp: dict, tenant_id: str) -> dict:
+async def _tool_classify(inp: dict, tenant_id: str) -> dict:
     try:
         from app.knowledge.journal_builder import classify_transaction
         result = classify_transaction(inp["description"], float(inp.get("amount", 0)), tenant_id)
@@ -328,7 +293,7 @@ def _tool_classify(inp: dict, tenant_id: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def _execute_tool(name: str, inp: dict, tenant_id: str) -> dict:
+async def _execute_tool(name: str, inp: dict, tenant_id: str) -> dict:
     dispatch = {
         "create_journal_draft": _tool_create_draft,
         "approve_draft":        _tool_approve_draft,
@@ -341,7 +306,7 @@ def _execute_tool(name: str, inp: dict, tenant_id: str) -> dict:
     if not fn:
         return {"error": f"Unknown tool: {name}"}
     try:
-        return fn(inp, tenant_id)
+        return await fn(inp, tenant_id)
     except Exception as e:
         log.error("tool %s error: %s", name, e)
         return {"error": str(e)}
@@ -371,92 +336,79 @@ def _fetch_knowledge_context(message: str) -> str:
     return "\n\n".join(parts)
 
 
-def _fetch_db_context(message: str, tenant_id: str) -> str:
+async def _fetch_db_context(message: str, tenant_id: str) -> str:
     try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        database_url = os.environ.get("DATABASE_URL")
-        if not database_url:
-            return ""
-        conn = psycopg2.connect(database_url)
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        from app.api.db import get_conn, _q
         parts = []
         msg_lower = message.lower()
-
-        try:
-            cur.execute("""
-                SELECT
-                    COUNT(*) AS total,
-                    COUNT(*) FILTER (WHERE status='approved' OR status='APPROVED') AS approved,
-                    COUNT(*) FILTER (WHERE status='pending'  OR status='PENDING')  AS pending,
-                    COUNT(*) FILTER (WHERE status='rejected' OR status='REJECTED') AS rejected,
-                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
-                    COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS outflow
-                FROM journal_drafts WHERE tenant_id = %s
-            """, (tenant_id,))
-            row = cur.fetchone()
-            if row:
-                parts.append(
-                    f"📊 სისტემის სტატისტიკა:\n"
-                    f"  სულ: {row['total']} | დამტკ: {row['approved']} | მოლოდინი: {row['pending']} | უარი: {row['rejected']}\n"
-                    f"  შემოსავალი: {float(row['inflow'] or 0):.2f}₾ | გასავალი: {abs(float(row['outflow'] or 0)):.2f}₾"
-                )
-        except Exception:
-            pass
-
-        if any(w in msg_lower for w in ["ტრანზაქცი", "დრაფტ", "დოკუმენტ", "ჩანაწერ", "გატარ", "ბოლო", "last", "recent"]):
+        async with get_conn() as conn:
             try:
-                cur.execute("""
-                    SELECT id, description, amount, debit_account, credit_account, status,
-                           TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS date
+                row = await conn.fetchrow(_q("""
+                    SELECT
+                        COUNT(*) AS total,
+                        COUNT(*) FILTER (WHERE status='approved' OR status='APPROVED') AS approved,
+                        COUNT(*) FILTER (WHERE status='pending'  OR status='PENDING')  AS pending,
+                        COUNT(*) FILTER (WHERE status='rejected' OR status='REJECTED') AS rejected,
+                        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
+                        COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS outflow
                     FROM journal_drafts WHERE tenant_id = %s
-                    ORDER BY created_at DESC LIMIT 15
-                """, (tenant_id,))
-                rows = cur.fetchall()
-                if rows:
-                    lines = [f"📋 ბოლო {len(rows)} ჩანაწერი:"]
-                    for r in rows:
-                        lines.append(f"  #{r['id']} [{r['date']}] {r['description'] or '-'} | {float(r['amount'] or 0):.2f}₾ | Dr:{r['debit_account']} Cr:{r['credit_account']} | {r['status']}")
-                    parts.append("\n".join(lines))
+                """), tenant_id)
+                if row:
+                    parts.append(
+                        f"📊 სისტემის სტატისტიკა:\n"
+                        f"  სულ: {row['total']} | დამტკ: {row['approved']} | მოლოდინი: {row['pending']} | უარი: {row['rejected']}\n"
+                        f"  შემოსავალი: {float(row['inflow'] or 0):.2f}₾ | გასავალი: {abs(float(row['outflow'] or 0)):.2f}₾"
+                    )
             except Exception:
                 pass
 
-        if any(w in msg_lower for w in ["ბანკ", "bank", "გადარ"]):
-            try:
-                cur.execute("""
-                    SELECT bank, date, amount, description FROM bank_transactions
-                    WHERE tenant_id = %s ORDER BY date DESC LIMIT 10
-                """, (tenant_id,))
-                rows = cur.fetchall()
-                if rows:
-                    lines = [f"🏦 ბანკის ბოლო {len(rows)} ოპ.:"]
-                    for r in rows:
-                        lines.append(f"  [{r['date']}] {r['bank']} | {float(r['amount'] or 0):.2f}₾ | {r['description'] or '-'}")
-                    parts.append("\n".join(lines))
-            except Exception:
-                pass
+            if any(w in msg_lower for w in ["ტრანზაქცი", "დრაფტ", "დოკუმენტ", "ჩანაწერ", "გატარ", "ბოლო", "last", "recent"]):
+                try:
+                    rows = [dict(r) for r in await conn.fetch(_q("""
+                        SELECT id, description, amount, debit_account, credit_account, status,
+                               TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS date
+                        FROM journal_drafts WHERE tenant_id = %s
+                        ORDER BY created_at DESC LIMIT 15
+                    """), tenant_id)]
+                    if rows:
+                        lines = [f"📋 ბოლო {len(rows)} ჩანაწერი:"]
+                        for r in rows:
+                            lines.append(f"  #{r['id']} [{r['date']}] {r['description'] or '-'} | {float(r['amount'] or 0):.2f}₾ | Dr:{r['debit_account']} Cr:{r['credit_account']} | {r['status']}")
+                        parts.append("\n".join(lines))
+                except Exception:
+                    pass
 
-        if any(w in msg_lower for w in ["თვ", "monthly", "report", "შემოსავ", "გასავ", "cashflow"]):
-            try:
-                cur.execute("""
-                    SELECT TO_CHAR(created_at,'YYYY-MM') AS month, COUNT(*) AS docs,
-                        COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS inflow,
-                        COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) AS outflow
-                    FROM journal_drafts WHERE tenant_id = %s
-                    GROUP BY 1 ORDER BY 1 DESC LIMIT 6
-                """, (tenant_id,))
-                rows = cur.fetchall()
-                if rows:
-                    lines = ["📅 ბოლო თვეები:"]
-                    for r in rows:
-                        net = float(r['inflow'] or 0) - float(r['outflow'] or 0)
-                        lines.append(f"  {r['month']}: {r['docs']} დოკ | +{float(r['inflow'] or 0):.0f}₾ / -{float(r['outflow'] or 0):.0f}₾ | net:{net:.0f}₾")
-                    parts.append("\n".join(lines))
-            except Exception:
-                pass
+            if any(w in msg_lower for w in ["ბანკ", "bank", "გადარ"]):
+                try:
+                    rows = [dict(r) for r in await conn.fetch(_q("""
+                        SELECT bank, date, amount, description FROM bank_transactions
+                        WHERE tenant_id = %s ORDER BY date DESC LIMIT 10
+                    """), tenant_id)]
+                    if rows:
+                        lines = [f"🏦 ბანკის ბოლო {len(rows)} ოპ.:"]
+                        for r in rows:
+                            lines.append(f"  [{r['date']}] {r['bank']} | {float(r['amount'] or 0):.2f}₾ | {r['description'] or '-'}")
+                        parts.append("\n".join(lines))
+                except Exception:
+                    pass
 
-        cur.close()
-        conn.close()
+            if any(w in msg_lower for w in ["თვ", "monthly", "report", "შემოსავ", "გასავ", "cashflow"]):
+                try:
+                    rows = [dict(r) for r in await conn.fetch(_q("""
+                        SELECT TO_CHAR(created_at,'YYYY-MM') AS month, COUNT(*) AS docs,
+                            COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS inflow,
+                            COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) AS outflow
+                        FROM journal_drafts WHERE tenant_id = %s
+                        GROUP BY 1 ORDER BY 1 DESC LIMIT 6
+                    """), tenant_id)]
+                    if rows:
+                        lines = ["📅 ბოლო თვეები:"]
+                        for r in rows:
+                            net = float(r['inflow'] or 0) - float(r['outflow'] or 0)
+                            lines.append(f"  {r['month']}: {r['docs']} დოკ | +{float(r['inflow'] or 0):.0f}₾ / -{float(r['outflow'] or 0):.0f}₾ | net:{net:.0f}₾")
+                        parts.append("\n".join(lines))
+                except Exception:
+                    pass
         return "\n\n".join(parts)
     except Exception as e:
         log.warning("db context fetch failed: %s", e)
@@ -514,7 +466,7 @@ async def claude_chat(
         except Exception:
             hist = []
 
-        db_context = _fetch_db_context(message, tenant_id)
+        db_context = await _fetch_db_context(message, tenant_id)
         kb_context = _fetch_knowledge_context(message)
 
         system = SYSTEM_PROMPT
@@ -561,7 +513,7 @@ async def claude_chat(
                 if block.type != "tool_use":
                     continue
                 log.info("chat tool_use: %s %s", block.name, block.input)
-                result = _execute_tool(block.name, block.input, tenant_id)
+                result = await _execute_tool(block.name, block.input, tenant_id)
                 tools_used.append({"tool": block.name, "result": result})
                 tool_results.append({
                     "type": "tool_result",

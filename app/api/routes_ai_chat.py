@@ -166,8 +166,6 @@ async def preview_action(request: Request, body: dict):
     Response: { "preview": {...}, "requires_human_approval": true, "action": "..." }
     """
     from app.api.response_utils import ok_response
-    from app.api.db import get_db
-    import psycopg2.extras
 
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     action = body.get("action", "")
@@ -194,17 +192,12 @@ async def preview_action(request: Request, body: dict):
         draft_id = params.get("draft_id")
         if not draft_id:
             raise HTTPException(400, "draft_id required")
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
+        from app.api.db import get_conn as _get_conn, _q
+        async with _get_conn() as conn:
+            row = await conn.fetchrow(_q(
                 "SELECT id, description, amount, partner, status, confidence "
-                "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-                (int(draft_id), tenant_id)
-            )
-            row = cur.fetchone()
-        finally:
-            cur.close(); conn.close()
+                "FROM journal_drafts WHERE id=%s AND tenant_id=%s"
+            ), int(draft_id), tenant_id)
         if not row:
             raise HTTPException(404, f"Draft #{draft_id} not found")
         d = dict(row)
@@ -230,17 +223,12 @@ async def preview_action(request: Request, body: dict):
         reason = params.get("reason", "")
         if not draft_id:
             raise HTTPException(400, "draft_id required")
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
+        from app.api.db import get_conn as _get_conn, _q
+        async with _get_conn() as conn:
+            row = await conn.fetchrow(_q(
                 "SELECT id, description, amount, partner, status "
-                "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-                (int(draft_id), tenant_id)
-            )
-            row = cur.fetchone()
-        finally:
-            cur.close(); conn.close()
+                "FROM journal_drafts WHERE id=%s AND tenant_id=%s"
+            ), int(draft_id), tenant_id)
         if not row:
             raise HTTPException(404, f"Draft #{draft_id} not found")
         d = dict(row)

@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Query, Request
 from typing import Optional
-import psycopg2
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.authz import require_permission
 from app.api.security import limiter
 from app.api.services.ledger_service import (
@@ -16,19 +14,13 @@ from app.api.services.ledger_service import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-# ===============================
-# MONTHLY REPORT
-# ===============================
 @router.get("/monthly")
-def monthly_report(request: Request):
+async def monthly_report(request: Request):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        rows = await conn.fetch("""
             SELECT DATE_TRUNC('month', created_at) as month,
                    COUNT(*) as total_docs,
                    SUM(CASE WHEN state='APPROVED' THEN 1 ELSE 0 END) as approved,
@@ -38,9 +30,7 @@ def monthly_report(request: Request):
             ORDER BY month DESC
             LIMIT 12
         """)
-        rows = cur.fetchall()
-
-        cur.execute("""
+        tx_rows = await conn.fetch(_q("""
             SELECT DATE_TRUNC('month', created_at) as month,
                    SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as inflow,
                    SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as outflow
@@ -49,87 +39,57 @@ def monthly_report(request: Request):
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY month DESC
             LIMIT 12
-        """, (tenant_id,))
-        tx_rows = {str(r["month"])[:7]: dict(r) for r in cur.fetchall()}
+        """), tenant_id)
 
-        result = []
-        for r in rows:
-            m = str(r["month"])[:7]
-            tx = tx_rows.get(m, {})
-            result.append({
-                "month": m,
-                "documents": {
-                    "total": r["total_docs"],
-                    "approved": r["approved"],
-                    "rejected": r["rejected"],
-                },
-                "financials": {
-                    "inflow": round(float(tx.get("inflow") or 0), 2),
-                    "outflow": round(float(tx.get("outflow") or 0), 2),
-                },
-            })
-
-        return {"ok": True, "monthly_reports": result}
-
-    finally:
-        cur.close()
-        conn.close()
+    tx_map = {str(r["month"])[:7]: dict(r) for r in tx_rows}
+    result = []
+    for r in rows:
+        m = str(r["month"])[:7]
+        tx = tx_map.get(m, {})
+        result.append({
+            "month": m,
+            "documents": {
+                "total": r["total_docs"],
+                "approved": r["approved"],
+                "rejected": r["rejected"],
+            },
+            "financials": {
+                "inflow": round(float(tx.get("inflow") or 0), 2),
+                "outflow": round(float(tx.get("outflow") or 0), 2),
+            },
+        })
+    return {"ok": True, "monthly_reports": result}
 
 
-# ===============================
-# ANNUAL REPORT
-# ===============================
 @router.get("/annual")
-def annual_report(request: Request):
+async def annual_report(request: Request):
     require_permission(request, "reports:read")
-
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        rows = await conn.fetch("""
             SELECT EXTRACT(YEAR FROM created_at) as year,
                    COUNT(*) as total
             FROM pipeline_runs
             GROUP BY year
             ORDER BY year DESC
         """)
-        return {"ok": True, "annual_reports": [dict(r) for r in cur.fetchall()]}
-
-    finally:
-        cur.close()
-        conn.close()
+    return {"ok": True, "annual_reports": [dict(r) for r in rows]}
 
 
-# ===============================
-# AUDIT TRAIL
-# ===============================
 @router.get("/audit-trail")
-def audit_trail(request: Request):
+async def audit_trail(request: Request):
     require_permission(request, "reports:read")
-
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    try:
-        cur.execute("""
+    async with get_conn() as conn:
+        rows = await conn.fetch("""
             SELECT run_id, filename, state, created_at
             FROM pipeline_runs
             ORDER BY created_at DESC
             LIMIT 50
         """)
-        return {"ok": True, "pipeline_runs": [dict(r) for r in cur.fetchall()]}
-
-    finally:
-        cur.close()
-        conn.close()
+    return {"ok": True, "pipeline_runs": [dict(r) for r in rows]}
 
 
-# ===============================
-# P&L
-# ===============================
 @router.get("/pnl")
-def pnl_report(
+async def pnl_report(
     request: Request,
     year: int | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
@@ -142,38 +102,32 @@ def pnl_report(
       COGS    (5xxx) = SUM where debit_account  LIKE '5%'
       OpEx    (7xxx) = SUM where debit_account  LIKE '7%'
     Only approved / auto_approved / posted drafts are counted.
-    Supports ?year=, ?year=&month=, ?date_from=&date_to=
     """
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    conditions = [
+        "tenant_id = %s",
+        "status IN ('approved','auto_approved','posted')",
+        "amount IS NOT NULL",
+        "amount > 0",
+    ]
+    params: list = [tenant_id]
 
-    try:
-        conditions = [
-            "tenant_id = %s",
-            "status IN ('approved','auto_approved','posted')",
-            "amount IS NOT NULL",
-            "amount > 0",
-        ]
-        params: list = [tenant_id]
+    if date_from:
+        conditions.append("date >= %s"); params.append(date_from)
+    elif year:
+        conditions.append("EXTRACT(YEAR FROM date::date) = %s"); params.append(year)
 
-        # date_from / date_to take priority over year/month
-        if date_from:
-            conditions.append("date >= %s"); params.append(date_from)
-        elif year:
-            conditions.append("EXTRACT(YEAR FROM date::date) = %s"); params.append(year)
+    if date_to:
+        conditions.append("date <= %s"); params.append(date_to)
+    elif year and month:
+        conditions.append("EXTRACT(MONTH FROM date::date) = %s"); params.append(month)
 
-        if date_to:
-            conditions.append("date <= %s"); params.append(date_to)
-        elif year and month:
-            conditions.append("EXTRACT(MONTH FROM date::date) = %s"); params.append(month)
+    where = " AND ".join(conditions)
 
-        where = " AND ".join(conditions)
-
-        # ── Revenue: credit_account starts with 6 ──────────────────────────
-        cur.execute(f"""
+    async with get_conn() as conn:
+        rev_rows = await conn.fetch(_q(f"""
             SELECT
                 COALESCE(LEFT(credit_account, 4), 'other') AS acc,
                 COALESCE(SUM(amount), 0)                    AS total
@@ -181,11 +135,9 @@ def pnl_report(
             WHERE {where}
               AND credit_account ~ '^6'
             GROUP BY 1 ORDER BY total DESC
-        """, params)
-        rev_rows = cur.fetchall()
+        """), *params)
 
-        # ── COGS: debit_account starts with 5 ─────────────────────────────
-        cur.execute(f"""
+        cogs_rows = await conn.fetch(_q(f"""
             SELECT
                 COALESCE(LEFT(debit_account, 4), 'other') AS acc,
                 COALESCE(SUM(amount), 0)                   AS total
@@ -193,11 +145,9 @@ def pnl_report(
             WHERE {where}
               AND debit_account ~ '^5'
             GROUP BY 1 ORDER BY total DESC
-        """, params)
-        cogs_rows = cur.fetchall()
+        """), *params)
 
-        # ── OpEx: debit_account starts with 7 ─────────────────────────────
-        cur.execute(f"""
+        opex_rows = await conn.fetch(_q(f"""
             SELECT
                 COALESCE(LEFT(debit_account, 4), 'other') AS acc,
                 COALESCE(SUM(amount), 0)                   AS total
@@ -205,10 +155,8 @@ def pnl_report(
             WHERE {where}
               AND debit_account ~ '^7'
             GROUP BY 1 ORDER BY total DESC
-        """, params)
-        opex_rows = cur.fetchall()
+        """), *params)
 
-        # ── COA names lookup ───────────────────────────────────────────────
         all_codes = (
             [r["acc"] for r in rev_rows] +
             [r["acc"] for r in cogs_rows] +
@@ -216,79 +164,70 @@ def pnl_report(
         )
         coa_names: dict[str, str] = {}
         if all_codes:
-            cur.execute("""
+            coa_rows = await conn.fetch("""
                 SELECT code, COALESCE(name_en, name_ka, code) AS name
-                FROM coa WHERE code = ANY(%s)
-            """, (list(set(all_codes)),))
-            coa_names = {r["code"]: r["name"] for r in cur.fetchall()}
+                FROM coa WHERE code = ANY($1)
+            """, list(set(all_codes)))
+            coa_names = {r["code"]: r["name"] for r in coa_rows}
 
-        def to_lines(rows) -> list[dict]:
-            return [
-                {
-                    "account_code": r["acc"],
-                    "name": coa_names.get(r["acc"], r["acc"]),
-                    "amount": round(float(r["total"]), 2),
-                }
-                for r in rows
-            ]
+    def to_lines(rows) -> list[dict]:
+        return [
+            {
+                "account_code": r["acc"],
+                "name": coa_names.get(r["acc"], r["acc"]),
+                "amount": round(float(r["total"]), 2),
+            }
+            for r in rows
+        ]
 
-        rev_lines  = to_lines(rev_rows)
-        cogs_lines = to_lines(cogs_rows)
-        opex_lines = to_lines(opex_rows)
+    rev_lines  = to_lines(rev_rows)
+    cogs_lines = to_lines(cogs_rows)
+    opex_lines = to_lines(opex_rows)
 
-        revenue  = round(sum(l["amount"] for l in rev_lines), 2)
-        cogs     = round(sum(l["amount"] for l in cogs_lines), 2)
-        opex     = round(sum(l["amount"] for l in opex_lines), 2)
-        expenses = round(cogs + opex, 2)
-        gross    = round(revenue - cogs, 2)
-        ebit     = round(gross - opex, 2)
-        margin   = round(ebit / revenue * 100, 1) if revenue else 0.0
+    revenue  = round(sum(l["amount"] for l in rev_lines), 2)
+    cogs     = round(sum(l["amount"] for l in cogs_lines), 2)
+    opex     = round(sum(l["amount"] for l in opex_lines), 2)
+    expenses = round(cogs + opex, 2)
+    gross    = round(revenue - cogs, 2)
+    ebit     = round(gross - opex, 2)
+    margin   = round(ebit / revenue * 100, 1) if revenue else 0.0
 
-        # Flat breakdown for the approval.html simple view
-        breakdown = (
-            [{"account_code": l["account_code"], "category": l["name"],
-              "amount": l["amount"], "type": "revenue"} for l in rev_lines] +
-            [{"account_code": l["account_code"], "category": l["name"],
-              "amount": l["amount"], "type": "cogs"} for l in cogs_lines] +
-            [{"account_code": l["account_code"], "category": l["name"],
-              "amount": l["amount"], "type": "opex"} for l in opex_lines]
-        )
+    breakdown = (
+        [{"account_code": l["account_code"], "category": l["name"],
+          "amount": l["amount"], "type": "revenue"} for l in rev_lines] +
+        [{"account_code": l["account_code"], "category": l["name"],
+          "amount": l["amount"], "type": "cogs"} for l in cogs_lines] +
+        [{"account_code": l["account_code"], "category": l["name"],
+          "amount": l["amount"], "type": "opex"} for l in opex_lines]
+    )
 
-        period_from = date_from or (f"{year}-{month:02d}-01" if year and month else (f"{year}-01-01" if year else None))
-        period_to   = date_to   or (None)
+    period_from = date_from or (f"{year}-{month:02d}-01" if year and month else (f"{year}-01-01" if year else None))
+    period_to   = date_to or None
 
-        return {
-            "ok": True,
-            "report": "pnl",
-            "data": {
-                "revenue":          revenue,
-                "expenses":         expenses,
-                "cogs":             cogs,
-                "opex":             opex,
-                "gross_profit":     gross,
-                "ebit":             ebit,
-                "net_profit":       ebit,
-                "profit_before_tax": ebit,
-                "profit_margin":    margin,
-                "breakdown":        breakdown,
-                # Structured format for financial_reports.html
-                "revenue_detail":   {"total": revenue, "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in rev_lines]},
-                "cogs_detail":      {"total": cogs,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in cogs_lines]},
-                "opex_detail":      {"total": opex,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in opex_lines]},
-                "period":           {"from": period_from, "to": period_to},
-            },
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "report": "pnl",
+        "data": {
+            "revenue":          revenue,
+            "expenses":         expenses,
+            "cogs":             cogs,
+            "opex":             opex,
+            "gross_profit":     gross,
+            "ebit":             ebit,
+            "net_profit":       ebit,
+            "profit_before_tax": ebit,
+            "profit_margin":    margin,
+            "breakdown":        breakdown,
+            "revenue_detail":   {"total": revenue, "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in rev_lines]},
+            "cogs_detail":      {"total": cogs,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in cogs_lines]},
+            "opex_detail":      {"total": opex,    "lines": [{"label": l["name"], "account_code": l["account_code"], "amount": l["amount"]} for l in opex_lines]},
+            "period":           {"from": period_from, "to": period_to},
+        },
+    }
 
 
-# ===============================
-# CASH FLOW
-# ===============================
 @router.get("/cashflow")
-def cashflow_report(
+async def cashflow_report(
     request: Request,
     year: int | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
@@ -296,57 +235,42 @@ def cashflow_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
+    params: list = [tenant_id]
 
-    try:
-        conditions = ["tenant_id = %s"]
-        params = [tenant_id]
+    if year:
+        conditions.append("EXTRACT(YEAR FROM date::date) = %s")
+        params.append(year)
+    if month:
+        conditions.append("EXTRACT(MONTH FROM date::date) = %s")
+        params.append(month)
 
-        conditions.append("date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'")
+    where_clause = " AND ".join(conditions)
 
-        if year:
-            conditions.append("EXTRACT(YEAR FROM date::date) = %s")
-            params.append(year)
-
-        if month:
-            conditions.append("EXTRACT(MONTH FROM date::date) = %s")
-            params.append(month)
-
-        where_clause = " AND ".join(conditions)
-
-        cur.execute(f"""
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(f"""
             SELECT
                 COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as cash_in,
                 COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as cash_out
             FROM bank_transactions
             WHERE {where_clause}
-        """, params)
+        """), *params)
 
-        row = cur.fetchone() or {}
+    cash_in  = round(float((row or {}).get("cash_in")  or 0), 2)
+    cash_out = round(float((row or {}).get("cash_out") or 0), 2)
 
-        cash_in = round(float(row.get("cash_in") or 0), 2)
-        cash_out = round(float(row.get("cash_out") or 0), 2)
-
-        return {
-            "ok": True,
-            "report": "cashflow",
-            "data": {
-                "cash_in": cash_in,
-                "cash_out": cash_out,
-                "net_cashflow": round(cash_in - cash_out, 2),
-            },
-            "note": "ეს არის მარტივი Cash Flow ვერსია bank_transactions-ზე დაყრდნობით.",
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "report": "cashflow",
+        "data": {
+            "cash_in": cash_in,
+            "cash_out": cash_out,
+            "net_cashflow": round(cash_in - cash_out, 2),
+        },
+        "note": "ეს არის მარტივი Cash Flow ვერსია bank_transactions-ზე დაყრდნობით.",
+    }
 
 
-# ===============================
-# ACCOUNT LEDGER
-# ===============================
 @limiter.limit("10/minute")
 @router.get("/ledger/{account_code}")
 def ledger_report(
@@ -361,9 +285,6 @@ def ledger_report(
     return {"ok": True, "report": "ledger", **data}
 
 
-# ===============================
-# TRIAL BALANCE
-# ===============================
 @limiter.limit("10/minute")
 @router.get("/trial-balance")
 def trial_balance_report(
@@ -377,9 +298,6 @@ def trial_balance_report(
     return {"ok": True, "report": "trial_balance", **data}
 
 
-# ===============================
-# COUNTERPARTY LEDGER
-# ===============================
 @limiter.limit("10/minute")
 @router.get("/counterparty/{inn}")
 def counterparty_ledger_report(
@@ -394,9 +312,6 @@ def counterparty_ledger_report(
     return {"ok": True, "report": "counterparty_ledger", **data}
 
 
-# ===============================
-# PAYROLL LEDGER
-# ===============================
 @limiter.limit("10/minute")
 @router.get("/payroll")
 def payroll_ledger_report(
@@ -410,9 +325,6 @@ def payroll_ledger_report(
     return {"ok": True, "report": "payroll_ledger", **data}
 
 
-# ===============================
-# JOURNAL
-# ===============================
 @limiter.limit("10/minute")
 @router.get("/journal")
 def journal_report(
@@ -427,11 +339,8 @@ def journal_report(
     return {"ok": True, "report": "journal", **data}
 
 
-# ===============================
-# DRILL-DOWN: P&L line → transactions
-# ===============================
 @router.get("/pnl/detail")
-def pnl_detail(
+async def pnl_detail(
     request: Request,
     account_code: Optional[str] = Query(None, description="e.g. 7100"),
     debit_account: Optional[str] = Query(None),
@@ -444,44 +353,35 @@ def pnl_detail(
     """Drill-down: click a P&L row → see individual journal drafts behind the number."""
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        conditions = ["tenant_id = %s", "status IN ('approved','auto_approved','posted')"]
-        params: list = [tenant_id]
-        if account_code:
-            conditions.append("account_code = %s")
-            params.append(account_code)
-        if debit_account:
-            conditions.append("debit_account = %s")
-            params.append(debit_account)
-        if credit_account:
-            conditions.append("credit_account = %s")
-            params.append(credit_account)
-        if date_from:
-            conditions.append("date >= %s")
-            params.append(date_from)
-        if date_to:
-            conditions.append("date <= %s")
-            params.append(date_to)
-        where = " AND ".join(conditions)
-        cur.execute(f"""
+
+    conditions = ["tenant_id = %s", "status IN ('approved','auto_approved','posted')"]
+    params: list = [tenant_id]
+    if account_code:
+        conditions.append("account_code = %s"); params.append(account_code)
+    if debit_account:
+        conditions.append("debit_account = %s"); params.append(debit_account)
+    if credit_account:
+        conditions.append("credit_account = %s"); params.append(credit_account)
+    if date_from:
+        conditions.append("date >= %s"); params.append(date_from)
+    if date_to:
+        conditions.append("date <= %s"); params.append(date_to)
+    where = " AND ".join(conditions)
+
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT id, date, description, partner, amount,
                    account_code, debit_account, credit_account, status, source_type, created_at
             FROM journal_drafts
             WHERE {where}
             ORDER BY date DESC, id DESC
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"""
+        """), *params, limit, offset)]
+        agg = dict(await conn.fetchrow(_q(f"""
             SELECT COUNT(*) AS total, COALESCE(SUM(amount), 0) AS total_amount
             FROM journal_drafts WHERE {where}
-        """, params)
-        agg = dict(cur.fetchone())
-    finally:
-        cur.close()
-        conn.close()
+        """), *params))
+
     return {
         "ok": True,
         "filters": {"account_code": account_code, "debit_account": debit_account,
@@ -491,12 +391,9 @@ def pnl_detail(
     }
 
 
-# ===============================
-# BALANCE SHEET SUMMARY
-# ===============================
 @router.get("/balance-sheet")
 @limiter.limit("30/minute")
-def balance_sheet(
+async def balance_sheet(
     request: Request,
     as_of: Optional[str] = Query(None, description="YYYY-MM-DD, default today"),
 ):
@@ -505,19 +402,16 @@ def balance_sheet(
       Assets      (1xxx) = net debit balances
       Liabilities (3xxx) = net credit balances
       Equity      (5xxx) = net credit balances
-    Source: approved/auto_approved/posted journal_drafts.
     """
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    try:
-        date_filter = f"AND date::date <= '{as_of}'" if as_of else ""
+    date_filter = f"AND date::date <= '{as_of}'" if as_of else ""
 
-        def fetch_group(pattern: str, side: str) -> list:
+    async with get_conn() as conn:
+        async def fetch_group(pattern: str, side: str) -> list:
             col = "debit_account" if side == "debit" else "credit_account"
-            cur.execute(f"""
+            return await conn.fetch(_q(f"""
                 SELECT
                     LEFT({col}, 4)                              AS acc,
                     COALESCE(SUM(amount), 0)                    AS total
@@ -528,66 +422,58 @@ def balance_sheet(
                   AND {col} ~ %s
                   {date_filter}
                 GROUP BY 1 ORDER BY total DESC
-            """, (tenant_id, pattern))
-            return cur.fetchall()
+            """), tenant_id, pattern)
 
-        asset_rows   = fetch_group(r'^1', 'debit')
-        liab_rows    = fetch_group(r'^3', 'credit')
-        equity_rows  = fetch_group(r'^5', 'credit')
+        asset_rows  = await fetch_group(r'^1', 'debit')
+        liab_rows   = await fetch_group(r'^3', 'credit')
+        equity_rows = await fetch_group(r'^5', 'credit')
 
         all_codes = [r["acc"] for r in list(asset_rows) + list(liab_rows) + list(equity_rows)]
         coa_names: dict = {}
         if all_codes:
-            cur.execute(
-                "SELECT code, COALESCE(name_en, name_ka, code) AS name FROM coa WHERE code = ANY(%s)",
-                (list(set(all_codes)),)
+            coa_rows = await conn.fetch(
+                "SELECT code, COALESCE(name_en, name_ka, code) AS name FROM coa WHERE code = ANY($1)",
+                list(set(all_codes))
             )
-            coa_names = {r["code"]: r["name"] for r in cur.fetchall()}
+            coa_names = {r["code"]: r["name"] for r in coa_rows}
 
-        def to_lines(rows) -> list:
-            return [{"account_code": r["acc"], "name": coa_names.get(r["acc"], r["acc"]),
-                     "amount": round(float(r["total"]), 2)} for r in rows]
+    def to_lines(rows) -> list:
+        return [{"account_code": r["acc"], "name": coa_names.get(r["acc"], r["acc"]),
+                 "amount": round(float(r["total"]), 2)} for r in rows]
 
-        asset_lines  = to_lines(asset_rows)
-        liab_lines   = to_lines(liab_rows)
-        equity_lines = to_lines(equity_rows)
+    asset_lines  = to_lines(asset_rows)
+    liab_lines   = to_lines(liab_rows)
+    equity_lines = to_lines(equity_rows)
 
-        total_assets      = round(sum(l["amount"] for l in asset_lines), 2)
-        total_liabilities = round(sum(l["amount"] for l in liab_lines), 2)
-        total_equity      = round(sum(l["amount"] for l in equity_lines), 2)
-        balanced          = abs(total_assets - total_liabilities - total_equity) < 0.02
+    total_assets      = round(sum(l["amount"] for l in asset_lines), 2)
+    total_liabilities = round(sum(l["amount"] for l in liab_lines), 2)
+    total_equity      = round(sum(l["amount"] for l in equity_lines), 2)
+    balanced          = abs(total_assets - total_liabilities - total_equity) < 0.02
 
-        import logging as _log
-        if not balanced:
-            _log.getLogger(__name__).warning(
-                "balance_sheet_unbalanced tenant=%s assets=%.2f liab=%.2f eq=%.2f diff=%.2f",
-                tenant_id, total_assets, total_liabilities, total_equity,
-                total_assets - total_liabilities - total_equity,
-            )
+    import logging as _log
+    if not balanced:
+        _log.getLogger(__name__).warning(
+            "balance_sheet_unbalanced tenant=%s assets=%.2f liab=%.2f eq=%.2f diff=%.2f",
+            tenant_id, total_assets, total_liabilities, total_equity,
+            total_assets - total_liabilities - total_equity,
+        )
 
-        return {
-            "ok": True,
-            "report": "balance_sheet",
-            "data": {
-                "as_of": as_of or "today",
-                "assets":      {"total": total_assets,      "lines": asset_lines},
-                "liabilities": {"total": total_liabilities, "lines": liab_lines},
-                "equity":      {"total": total_equity,      "lines": equity_lines},
-                "balanced":    balanced,
-                "check":       round(total_assets - total_liabilities - total_equity, 2),
-            },
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "ok": True,
+        "report": "balance_sheet",
+        "data": {
+            "as_of": as_of or "today",
+            "assets":      {"total": total_assets,      "lines": asset_lines},
+            "liabilities": {"total": total_liabilities, "lines": liab_lines},
+            "equity":      {"total": total_equity,      "lines": equity_lines},
+            "balanced":    balanced,
+            "check":       round(total_assets - total_liabilities - total_equity, 2),
+        },
+    }
 
 
-# ===============================
-# DRILL-DOWN: Balance Sheet account
-# ===============================
 @router.get("/bs/detail")
-def bs_detail(
+async def bs_detail(
     request: Request,
     account_code: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -598,38 +484,32 @@ def bs_detail(
     """Drill-down: Balance Sheet account → individual transactions."""
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        conditions = ["tenant_id = %s"]
-        params: list = [tenant_id]
-        if account_code:
-            conditions.append("(debit_account = %s OR credit_account = %s OR account_code = %s)")
-            params += [account_code, account_code, account_code]
-        if date_from:
-            conditions.append("date >= %s")
-            params.append(date_from)
-        if date_to:
-            conditions.append("date <= %s")
-            params.append(date_to)
-        where = " AND ".join(conditions)
-        cur.execute(f"""
+
+    conditions = ["tenant_id = %s"]
+    params: list = [tenant_id]
+    if account_code:
+        conditions.append("(debit_account = %s OR credit_account = %s OR account_code = %s)")
+        params += [account_code, account_code, account_code]
+    if date_from:
+        conditions.append("date >= %s"); params.append(date_from)
+    if date_to:
+        conditions.append("date <= %s"); params.append(date_to)
+    where = " AND ".join(conditions)
+
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT id, date, description, partner, amount,
                    account_code, debit_account, credit_account, status, created_at
             FROM journal_drafts
             WHERE {where}
             ORDER BY date DESC, id DESC
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"""
+        """), *params, limit, offset)]
+        agg = dict(await conn.fetchrow(_q(f"""
             SELECT COUNT(*) AS total, COALESCE(SUM(amount), 0) AS total_amount
             FROM journal_drafts WHERE {where}
-        """, params)
-        agg = dict(cur.fetchone())
-    finally:
-        cur.close()
-        conn.close()
+        """), *params))
+
     return {
         "ok": True,
         "account_code": account_code,
@@ -638,11 +518,8 @@ def bs_detail(
     }
 
 
-# ===============================
-# DRILL-DOWN: Cash Flow detail
-# ===============================
 @router.get("/cashflow/detail")
-def cashflow_detail(
+async def cashflow_detail(
     request: Request,
     direction: Optional[str] = Query(None, description="in | out"),
     date_from: Optional[str] = Query(None),
@@ -653,38 +530,32 @@ def cashflow_detail(
     """Drill-down: Cash Flow in/out → individual bank transactions."""
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
-        params: list = [tenant_id]
-        if direction == "in":
-            conditions.append("amount > 0")
-        elif direction == "out":
-            conditions.append("amount < 0")
-        if date_from:
-            conditions.append("date::date >= %s")
-            params.append(date_from)
-        if date_to:
-            conditions.append("date::date <= %s")
-            params.append(date_to)
-        where = " AND ".join(conditions)
-        cur.execute(f"""
+
+    conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
+    params: list = [tenant_id]
+    if direction == "in":
+        conditions.append("amount > 0")
+    elif direction == "out":
+        conditions.append("amount < 0")
+    if date_from:
+        conditions.append("date::date >= %s"); params.append(date_from)
+    if date_to:
+        conditions.append("date::date <= %s"); params.append(date_to)
+    where = " AND ".join(conditions)
+
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
             SELECT id, date, description, amount, currency, created_at
             FROM bank_transactions
             WHERE {where}
             ORDER BY date DESC, id DESC
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.execute(f"""
+        """), *params, limit, offset)]
+        agg = dict(await conn.fetchrow(_q(f"""
             SELECT COUNT(*) AS total, COALESCE(SUM(ABS(amount)), 0) AS total_amount
             FROM bank_transactions WHERE {where}
-        """, params)
-        agg = dict(cur.fetchone())
-    finally:
-        cur.close()
-        conn.close()
+        """), *params))
+
     return {
         "ok": True,
         "direction": direction,

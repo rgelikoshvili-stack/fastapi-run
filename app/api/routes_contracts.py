@@ -69,7 +69,7 @@ async def get_contract(contract_id: int, request: Request):
         if not row:
             return error_response("Not found", "NOT_FOUND", "")
         milestones = [dict(r) for r in await conn.fetch(_q(
-            "SELECT * FROM contract_milestones WHERE contract_id=%s ORDER BY due_date"), contract_id)]
+            "SELECT * FROM contract_milestones WHERE contract_id=%s AND tenant_id=%s ORDER BY due_date"), contract_id, tenant_id)]
     return ok_response("Contract", {**dict(row), "milestones": milestones})
 
 @router.post("/{contract_id}/status")

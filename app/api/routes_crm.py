@@ -58,8 +58,8 @@ async def get_customer(customer_id: int, request: Request):
         if not row:
             return error_response("Not found", "NOT_FOUND", "")
         interactions = [dict(r) for r in await conn.fetch(_q("""
-            SELECT * FROM customer_interactions WHERE customer_id=%s ORDER BY created_at DESC LIMIT 20
-        """), customer_id)]
+            SELECT * FROM customer_interactions WHERE customer_id=%s AND tenant_id=%s ORDER BY created_at DESC LIMIT 20
+        """), customer_id, tenant_id)]
     return ok_response("Customer", {**dict(row), "interactions": interactions})
 
 @router.post("/customers/{customer_id}/interaction")

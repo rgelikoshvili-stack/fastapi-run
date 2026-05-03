@@ -1,24 +1,40 @@
 from fastapi import APIRouter, HTTPException
 from app.api.db import get_conn, _q
+from app.api.services.cache_service import cache_get, cache_set, cache_delete, CACHE_TTL
 
 router = APIRouter(prefix="/coa", tags=["coa"])
 
+
 @router.get("/list")
 async def coa_list(category: str = None):
+    cache_key = f"coa:list:{category or 'all'}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     async with get_conn() as conn:
         if category:
             rows = await conn.fetch(_q("SELECT * FROM coa WHERE category=%s AND is_active=TRUE ORDER BY code"), category)
         else:
             rows = await conn.fetch("SELECT * FROM coa WHERE is_active=TRUE ORDER BY code")
-    return {"ok": True, "count": len(rows), "accounts": [dict(r) for r in rows]}
+    result = {"ok": True, "count": len(rows), "accounts": [dict(r) for r in rows]}
+    cache_set(cache_key, result, CACHE_TTL["coa_list"])
+    return result
+
 
 @router.get("/get/{code}")
 async def coa_get(code: str):
+    cache_key = f"coa:code:{code}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT * FROM coa WHERE code=%s"), code)
     if not row:
         raise HTTPException(404, f"Account {code} not found")
-    return {"ok": True, "account": dict(row)}
+    result = {"ok": True, "account": dict(row)}
+    cache_set(cache_key, result, CACHE_TTL["coa_list"])
+    return result
+
 
 @router.get("/search")
 async def coa_search(q: str):
@@ -29,15 +45,26 @@ async def coa_search(q: str):
         )
     return {"ok": True, "count": len(rows), "accounts": [dict(r) for r in rows]}
 
+
 @router.get("/categories")
 async def coa_categories():
+    cache_key = "coa:categories"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     async with get_conn() as conn:
         rows = await conn.fetch("SELECT DISTINCT category, COUNT(*) as count FROM coa WHERE is_active=TRUE GROUP BY category ORDER BY category")
-    return {"ok": True, "categories": [dict(r) for r in rows]}
+    result = {"ok": True, "categories": [dict(r) for r in rows]}
+    cache_set(cache_key, result, CACHE_TTL["coa_list"])
+    return result
 
 
 @router.get("/summary")
 async def coa_summary():
+    cache_key = "coa:summary"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     async with get_conn() as conn:
         total_row = await conn.fetchrow("SELECT COUNT(*) as total FROM coa WHERE is_active=TRUE")
         total = (total_row or {}).get("total", 0)
@@ -60,4 +87,6 @@ async def coa_summary():
             ORDER BY 1
         """)
     breakdown = {r["type"]: int(r["count"]) for r in breakdown_rows}
-    return {"ok": True, "total": total, "breakdown": breakdown}
+    result = {"ok": True, "total": total, "breakdown": breakdown}
+    cache_set(cache_key, result, CACHE_TTL["coa_list"])
+    return result

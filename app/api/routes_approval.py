@@ -8,6 +8,7 @@ from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
+from app.api.services.cache_service import cache_get, cache_set, cache_clear_prefix, CACHE_TTL
 
 log = logging.getLogger(__name__)
 from app.api.services.approval_service import (
@@ -125,6 +126,8 @@ def approve_draft(draft_id: int, request: Request):
     result = _check_locked(result) or result
     if idem_key:
         idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
+    cache_clear_prefix(f"approval_stats:{tenant_id}")
+    cache_clear_prefix(f"dashboard_live:{tenant_id}")
     return result
 
 
@@ -144,6 +147,8 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     result = _check_locked(result) or result
     if idem_key:
         idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
+    cache_clear_prefix(f"approval_stats:{tenant_id}")
+    cache_clear_prefix(f"dashboard_live:{tenant_id}")
     return result
 
 
@@ -248,6 +253,10 @@ def preview_draft(payload: dict, request: Request):
 async def get_stats(request: Request):
     """Real-time approval queue statistics."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    cache_key = f"approval_stats:{tenant_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q("""
@@ -260,7 +269,7 @@ async def get_stats(request: Request):
                 FROM journal_drafts
                 WHERE tenant_id::text = %s
             """), tenant_id)
-        return {
+        result = {
             "ok": True,
             "pending_count": int(row["pending_count"] or 0),
             "auto_approved": int(row["auto_approved"] or 0),
@@ -269,6 +278,8 @@ async def get_stats(request: Request):
             "confidence": round(float(row["avg_confidence"] or 0), 4),
             "tenant_id": tenant_id,
         }
+        cache_set(cache_key, result, CACHE_TTL["approval_stats"])
+        return result
     except Exception as e:
         log.error("get_stats error: %s", e)
         return error_response("Stats failed", "STATS_ERROR", str(e))

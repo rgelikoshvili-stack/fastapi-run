@@ -4319,15 +4319,30 @@ async function loadHealth() {
 }
 
 /* ═════════ CURRENCY ═════════ */
+const RATES_CACHE_KEY = 'bh_rates_cache';
+const RATES_TTL = 86400000; // 24 hours
+
 async function loadCurrencyRates() {
   const box = document.getElementById('currency-rates-body');
   if (!box) return;
+  try {
+    const cached = sessionStorage.getItem(RATES_CACHE_KEY);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < RATES_TTL) { _renderRates(box, data); return; }
+    }
+  } catch (_) {}
   box.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
   const d = await api('/currency/rates');
+  try { if (d && d.ok) sessionStorage.setItem(RATES_CACHE_KEY, JSON.stringify({ data: d, ts: Date.now() })); } catch (_) {}
   if (!d || !d.ok) {
     box.innerHTML = `<div class="empty"><div class="empty-txt">კურსები ვერ ჩაიტვირთა</div></div>`;
     return;
   }
+  _renderRates(box, d);
+}
+
+function _renderRates(box, d) {
   const rates = d.data?.rates || d.rates || d.data || {};
   const entries = Array.isArray(rates) ? rates.map(r => [r.code || r.currency, r]) : Object.entries(rates);
   if (!entries.length) {

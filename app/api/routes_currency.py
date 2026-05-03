@@ -8,6 +8,7 @@ from app.api.db import get_conn, get_db, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
 from app.api.services.currency_service import get_rate, convert
+from app.api.services.cache_service import cache_get, cache_set, CACHE_TTL
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,11 @@ class RateUpdate(BaseModel):
 @router.get("/rates")
 async def get_rates(date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today")):
     """Get all exchange rates to GEL, optionally for a specific date."""
+    from datetime import date as _date
+    cache_key = f"rates:{date or str(_date.today())}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     try:
         async with get_conn() as conn:
             if date:
@@ -63,13 +69,15 @@ async def get_rates(date: Optional[str] = Query(None, description="YYYY-MM-DD; d
         rates_dict = DEFAULT_RATES
         updated_at = None
 
-    return ok_response("Exchange rates (to GEL)", {
+    result = ok_response("Exchange rates (to GEL)", {
         "base": "GEL",
         "date": date or "latest",
         "rates": rates_dict,
         "updated_at": str(updated_at) if updated_at else None,
         "source": "NBG",
     })
+    cache_set(cache_key, result, CACHE_TTL["exchange_rates"])
+    return result
 
 
 @router.post("/convert")

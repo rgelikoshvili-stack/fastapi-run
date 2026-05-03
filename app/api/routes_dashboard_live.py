@@ -7,6 +7,7 @@ from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
 from app.api.tenant_context import resolve_tenant_id
+from app.api.services.cache_service import cache_get, cache_set, CACHE_TTL
 
 router = APIRouter(prefix="/dashboard/live", tags=["dashboard-live"])
 
@@ -17,6 +18,10 @@ _EMPTY_COUNTS = {"total": 0, "approved": 0, "pending": 0}
 @router.get("/pnl")
 async def get_pnl(request: Request, period: str = "month"):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    cache_key = f"dashboard_live:{tenant_id}:pnl:{period}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q("""
@@ -46,7 +51,7 @@ async def get_pnl(request: Request, period: str = "month"):
                 income = float(est["estimated_income"]) if est else 0
 
         profit = income - expenses
-        return {
+        result = {
             "ok": True,
             "period": period,
             "tenant_id": tenant_id,
@@ -63,6 +68,8 @@ async def get_pnl(request: Request, period: str = "month"):
             },
             "generated_at": datetime.now().isoformat(),
         }
+        cache_set(cache_key, result, CACHE_TTL["dashboard_live"])
+        return result
     except Exception as e:
         return {
             "ok": False,
@@ -79,6 +86,10 @@ async def get_pnl(request: Request, period: str = "month"):
 @router.get("/cashflow")
 async def get_cashflow(request: Request, days: int = 30):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    cache_key = f"dashboard_live:{tenant_id}:cashflow:{days}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     try:
         async with get_conn() as conn:
             rows = [dict(r) for r in await conn.fetch(_q("""
@@ -100,7 +111,7 @@ async def get_cashflow(request: Request, days: int = 30):
         total_inflow = sum(inflows)
         total_outflow = sum(outflows)
 
-        return {
+        result = {
             "ok": True,
             "period_days": days,
             "tenant_id": tenant_id,
@@ -112,6 +123,8 @@ async def get_cashflow(request: Request, days: int = 30):
             "chart": {"labels": labels, "inflow": inflows, "outflow": outflows},
             "generated_at": datetime.now().isoformat(),
         }
+        cache_set(cache_key, result, CACHE_TTL["dashboard_live"])
+        return result
     except Exception as e:
         return {
             "ok": False,
@@ -128,6 +141,10 @@ async def get_cashflow(request: Request, days: int = 30):
 @router.get("/kpi")
 async def get_kpi(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    cache_key = f"dashboard_live:{tenant_id}:kpi"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q("""
@@ -157,7 +174,7 @@ async def get_kpi(request: Request):
         auto_rate = round((row["auto_approved"] or 0) / total * 100, 1)
         approval_rate = round(((row["approved"] or 0) + (row["auto_approved"] or 0)) / total * 100, 1)
 
-        return {
+        result = {
             "ok": True,
             "tenant_id": tenant_id,
             "kpi": {
@@ -175,6 +192,8 @@ async def get_kpi(request: Request):
             },
             "generated_at": datetime.now().isoformat(),
         }
+        cache_set(cache_key, result, CACHE_TTL["dashboard_kpis"])
+        return result
     except Exception as e:
         return error_response("KPI query failed", "KPI_ERROR", str(e))
 
@@ -204,11 +223,16 @@ async def get_activity(request: Request, limit: int = 10):
 @router.get("/summary")
 async def get_summary(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    pnl     = await get_pnl(request, "month")
-    kpi     = await get_kpi(request)
+    cache_key = f"dashboard_live:{tenant_id}:summary"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    pnl      = await get_pnl(request, "month")
+    kpi      = await get_kpi(request)
     activity = await get_activity(request, 5)
 
-    return {
+    result = {
         "ok": True,
         "tenant_id": tenant_id,
         "pnl": pnl.get("pnl"),
@@ -216,3 +240,5 @@ async def get_summary(request: Request):
         "recent_activity": activity.get("activity"),
         "generated_at": datetime.now().isoformat(),
     }
+    cache_set(cache_key, result, CACHE_TTL["dashboard_live"])
+    return result

@@ -94,6 +94,21 @@ app = FastAPI(
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# --- REACT SPA ---
+# Serve React build from /app/* — must come after API routes
+# The SPA index.html handles client-side routing for all /app/* paths
+_react_build = os.path.join("static", "react")
+if os.path.isdir(_react_build):
+    from fastapi.responses import FileResponse as _FileResponse
+    from fastapi import Request as _Request
+
+    @app.get("/app/{full_path:path}", include_in_schema=False)
+    async def serve_react(full_path: str):
+        file_path = os.path.join(_react_build, full_path)
+        if os.path.isfile(file_path):
+            return _FileResponse(file_path)
+        return _FileResponse(os.path.join(_react_build, "index.html"))
+
 
 # --- ROOT ---
 @app.get("/")

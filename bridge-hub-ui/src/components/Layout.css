@@ -1,0 +1,44 @@
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.layout__main {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.layout-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg);
+}
+
+/* Page wrapper used by all pages */
+.page {
+  padding: 28px 32px;
+  max-width: 1400px;
+}
+
+.page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.page__title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.page__subtitle {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}

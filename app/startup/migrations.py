@@ -542,3 +542,39 @@ def _run_remaining_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # ── FIX 4: Idempotency — entry_hash on posting_logs ──────────────────────
+    for idm_sql in [
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS entry_hash VARCHAR(16)",
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS source_draft_id INTEGER",
+    ]:
+        try:
+            cur.execute(idm_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+    try:
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_posting_logs_entry_hash
+                ON posting_logs(entry_hash)
+                WHERE entry_hash IS NOT NULL
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # ── FIX 5: Missing performance indexes ────────────────────────────────────
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_expenses_tenant_id      ON expenses(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_contracts_tenant_id     ON contracts(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_customers_tenant_id     ON customers(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_acct  ON bank_transactions(account_id)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant   ON journal_drafts(tenant_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_drafts_created  ON journal_drafts(created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_posting_logs_draft      ON posting_logs(draft_id, tenant_id)",
+    ]:
+        try:
+            cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

@@ -229,12 +229,18 @@ def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
     return None
 
 
-def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, response, status, error_message):
+def _compute_entry_hash(draft_id: int, tenant_id: str, amount: float, date: str, target: str) -> str:
+    raw = f"{draft_id}:{tenant_id}:{amount}:{date}:{target}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, response, status, error_message, entry_hash=None):
     cur.execute(
         """
         INSERT INTO posting_logs
-        (tenant_id, draft_id, target_system, payload_json, response_json, status, error_message)
-        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
+        (tenant_id, draft_id, target_system, payload_json, response_json, status, error_message, entry_hash, source_draft_id)
+        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+        ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
         RETURNING id
         """,
         (
@@ -245,9 +251,12 @@ def _insert_posting_log(cur, tenant_id, draft_id, target_system, payload, respon
             json.dumps(response, ensure_ascii=False),
             status,
             error_message,
+            entry_hash,
+            draft_id,
         ),
     )
-    return cur.fetchone()["id"]
+    row = cur.fetchone()
+    return row["id"] if row else None
 
 
 def _find_successful_post(cur, tenant_id: str, draft_id: int, target_system: str):
@@ -652,6 +661,14 @@ def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"
 
                 payload = _draft_to_posting_payload(draft)
 
+                # Compute idempotency hash before any external call
+                entry_hash = _compute_entry_hash(
+                    draft_id, tenant_id,
+                    draft.get("amount", 0),
+                    draft.get("date", ""),
+                    target_normalized,
+                )
+
                 log_event(
                     "posting_attempt_started",
                     {
@@ -682,6 +699,7 @@ def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"
                     response=response,
                     status=status,
                     error_message=error_message,
+                    entry_hash=entry_hash,
                 )
 
                 if success:

@@ -492,6 +492,98 @@ def pnl_detail(
 
 
 # ===============================
+# BALANCE SHEET SUMMARY
+# ===============================
+@router.get("/balance-sheet")
+@limiter.limit("30/minute")
+def balance_sheet(
+    request: Request,
+    as_of: Optional[str] = Query(None, description="YYYY-MM-DD, default today"),
+):
+    """
+    Balance Sheet as of a given date using Georgian CoA:
+      Assets      (1xxx) = net debit balances
+      Liabilities (3xxx) = net credit balances
+      Equity      (5xxx) = net credit balances
+    Source: approved/auto_approved/posted journal_drafts.
+    """
+    require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        date_filter = f"AND date::date <= '{as_of}'" if as_of else ""
+
+        def fetch_group(pattern: str, side: str) -> list:
+            col = "debit_account" if side == "debit" else "credit_account"
+            cur.execute(f"""
+                SELECT
+                    LEFT({col}, 4)                              AS acc,
+                    COALESCE(SUM(amount), 0)                    AS total
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND status IN ('approved','auto_approved','posted')
+                  AND amount IS NOT NULL AND amount > 0
+                  AND {col} ~ %s
+                  {date_filter}
+                GROUP BY 1 ORDER BY total DESC
+            """, (tenant_id, pattern))
+            return cur.fetchall()
+
+        asset_rows   = fetch_group(r'^1', 'debit')
+        liab_rows    = fetch_group(r'^3', 'credit')
+        equity_rows  = fetch_group(r'^5', 'credit')
+
+        all_codes = [r["acc"] for r in list(asset_rows) + list(liab_rows) + list(equity_rows)]
+        coa_names: dict = {}
+        if all_codes:
+            cur.execute(
+                "SELECT code, COALESCE(name_en, name_ka, code) AS name FROM coa WHERE code = ANY(%s)",
+                (list(set(all_codes)),)
+            )
+            coa_names = {r["code"]: r["name"] for r in cur.fetchall()}
+
+        def to_lines(rows) -> list:
+            return [{"account_code": r["acc"], "name": coa_names.get(r["acc"], r["acc"]),
+                     "amount": round(float(r["total"]), 2)} for r in rows]
+
+        asset_lines  = to_lines(asset_rows)
+        liab_lines   = to_lines(liab_rows)
+        equity_lines = to_lines(equity_rows)
+
+        total_assets      = round(sum(l["amount"] for l in asset_lines), 2)
+        total_liabilities = round(sum(l["amount"] for l in liab_lines), 2)
+        total_equity      = round(sum(l["amount"] for l in equity_lines), 2)
+        balanced          = abs(total_assets - total_liabilities - total_equity) < 0.02
+
+        import logging as _log
+        if not balanced:
+            _log.getLogger(__name__).warning(
+                "balance_sheet_unbalanced tenant=%s assets=%.2f liab=%.2f eq=%.2f diff=%.2f",
+                tenant_id, total_assets, total_liabilities, total_equity,
+                total_assets - total_liabilities - total_equity,
+            )
+
+        return {
+            "ok": True,
+            "report": "balance_sheet",
+            "data": {
+                "as_of": as_of or "today",
+                "assets":      {"total": total_assets,      "lines": asset_lines},
+                "liabilities": {"total": total_liabilities, "lines": liab_lines},
+                "equity":      {"total": total_equity,      "lines": equity_lines},
+                "balanced":    balanced,
+                "check":       round(total_assets - total_liabilities - total_equity, 2),
+            },
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ===============================
 # DRILL-DOWN: Balance Sheet account
 # ===============================
 @router.get("/bs/detail")

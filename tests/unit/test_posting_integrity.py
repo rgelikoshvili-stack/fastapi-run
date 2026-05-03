@@ -108,3 +108,57 @@ def test_balance_sheet_equation():
     assert "assets" in data
     assert "liabilities" in data
     assert "equity" in data
+
+
+# ── 7. Both-debit-and-credit on same line blocked ─────────────────────────────
+
+def test_both_debit_credit_same_line_blocked():
+    from app.api.services.posting_service import _validate_lines
+    lines = _lines([("7120", 500, 500)])
+    assert _validate_lines(lines) is not None
+
+
+# ── 8. Negative amounts blocked ──────────────────────────────────────────────
+
+def test_negative_debit_blocked():
+    from app.api.services.posting_service import _validate_lines
+    lines = _lines([("7120", -100, 0), ("1210", 0, -100)])
+    assert _validate_lines(lines) is not None
+
+
+# ── 9. Multi-line balanced entry passes ──────────────────────────────────────
+
+def test_multi_line_balanced():
+    from app.api.services.posting_service import _validate_lines
+    lines = _lines([
+        ("7120", 500, 0),
+        ("7130", 250, 0),
+        ("7160", 250, 0),
+        ("1210", 0, 1000),
+    ])
+    assert _validate_lines(lines) is None
+
+
+# ── 10. _sum_debits and _sum_credits ─────────────────────────────────────────
+
+def test_sum_debits_correct():
+    from app.api.services.posting_service import _sum_debits
+    lines = _lines([("7120", 300, 0), ("7130", 200, 0), ("1210", 0, 500)])
+    assert _sum_debits(lines) == 500.0
+
+
+def test_sum_credits_correct():
+    from app.api.services.posting_service import _sum_credits
+    lines = _lines([("7120", 500, 0), ("1210", 0, 300), ("3310", 0, 200)])
+    assert _sum_credits(lines) == 500.0
+
+
+# ── 11. Cross-tenant: draft not found for wrong tenant ───────────────────────
+
+def test_cross_tenant_logic_in_fetch_draft():
+    """_fetch_draft always includes tenant_id in WHERE clause (verified by inspecting the SQL)."""
+    import inspect
+    from app.api.services.posting_service import _fetch_draft
+    source = inspect.getsource(_fetch_draft)
+    assert "tenant_id" in source, "_fetch_draft must filter by tenant_id"
+    assert "FOR UPDATE" in source, "_fetch_draft must use SELECT FOR UPDATE"

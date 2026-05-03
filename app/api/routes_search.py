@@ -2,6 +2,8 @@ from fastapi import APIRouter, Query, Request
 import psycopg2
 import psycopg2.extras
 from app.api.db import get_db
+from app.api.security import limiter
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -37,8 +39,8 @@ def _run_search(tenant_id: str, q: str = "", state: str = "", min_amount: float 
         ensure_tables(cur)
         conn.commit()
 
-        conditions = ["1=1"]
-        params = []
+        conditions = ["tenant_id = %s"]
+        params = [tenant_id]
 
         if q:
             conditions.append("(p.filename ILIKE %s)")
@@ -50,14 +52,17 @@ def _run_search(tenant_id: str, q: str = "", state: str = "", min_amount: float 
 
         where = " AND ".join(conditions)
 
-        cur.execute(f"""
-            SELECT p.run_id, p.filename, p.state, p.created_at
-            FROM pipeline_runs p
-            WHERE {where}
-            ORDER BY p.created_at DESC
-            LIMIT 50
-        """, params)
-        docs = [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute(f"""
+                SELECT p.run_id, p.filename, p.state, p.created_at
+                FROM pipeline_runs p
+                WHERE {where}
+                ORDER BY p.created_at DESC
+                LIMIT 50
+            """, params)
+            docs = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            docs = []
 
         tx_results = []
         if q:
@@ -91,11 +96,21 @@ def _run_search(tenant_id: str, q: str = "", state: str = "", min_amount: float 
 
         total_results = len(docs) + len(tx_results) + len(coa_results)
 
-        cur.execute(
-            "INSERT INTO search_history (query, results_count) VALUES (%s, %s)",
-            (q, total_results)
-        )
-        conn.commit()
+        try:
+            cur.execute(
+                "INSERT INTO search_history (query, results_count, tenant_id) VALUES (%s, %s, %s)",
+                (q, total_results, tenant_id)
+            )
+            conn.commit()
+        except Exception:
+            try:
+                cur.execute(
+                    "INSERT INTO search_history (query, results_count) VALUES (%s, %s)",
+                    (q, total_results)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
         return {
             "ok": True,
@@ -115,6 +130,7 @@ def _run_search(tenant_id: str, q: str = "", state: str = "", min_amount: float 
 
 
 @router.get("")
+@limiter.limit("30/minute")
 def search_alias(
     request: Request,
     q: str = Query("", description="Search query"),
@@ -122,11 +138,12 @@ def search_alias(
     min_amount: float = Query(0, ge=0),
     max_amount: float = Query(999999999, ge=0),
 ):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return _run_search(tenant_id=tenant_id, q=q, state=state, min_amount=min_amount, max_amount=max_amount)
 
 
 @router.post("/query")
+@limiter.limit("30/minute")
 def search_query(
     request: Request,
     q: str = "",
@@ -134,13 +151,14 @@ def search_query(
     min_amount: float = 0,
     max_amount: float = 999999999,
 ):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return _run_search(tenant_id=tenant_id, q=q, state=state, min_amount=min_amount, max_amount=max_amount)
 
 
 @router.get("/filters")
+@limiter.limit("30/minute")
 def get_filters(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -149,7 +167,10 @@ def get_filters(request: Request):
         conn.commit()
 
         try:
-            cur.execute("SELECT DISTINCT state FROM pipeline_runs WHERE state IS NOT NULL")
+            cur.execute(
+                "SELECT DISTINCT state FROM pipeline_runs WHERE state IS NOT NULL AND tenant_id = %s",
+                (tenant_id,),
+            )
             states = [r["state"] for r in cur.fetchall()]
         except Exception:
             states = []
@@ -182,7 +203,9 @@ def get_filters(request: Request):
 
 
 @router.get("/recent")
-def recent_searches():
+@limiter.limit("30/minute")
+def recent_searches(request: Request):
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -190,13 +213,23 @@ def recent_searches():
         ensure_tables(cur)
         conn.commit()
 
-        cur.execute("""
-            SELECT query, results_count, created_at
-            FROM search_history
-            ORDER BY created_at DESC
-            LIMIT 20
-        """)
-        rows = [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute("""
+                SELECT query, results_count, created_at
+                FROM search_history
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, (tenant_id,))
+            rows = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            cur.execute("""
+                SELECT query, results_count, created_at
+                FROM search_history
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+            rows = [dict(r) for r in cur.fetchall()]
 
         return {
             "ok": True,
@@ -209,8 +242,9 @@ def recent_searches():
 
 
 @router.get("/stats")
+@limiter.limit("30/minute")
 def search_stats(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -219,13 +253,19 @@ def search_stats(request: Request):
         conn.commit()
 
         try:
-            cur.execute("SELECT COUNT(*) as total FROM pipeline_runs")
+            cur.execute(
+                "SELECT COUNT(*) as total FROM pipeline_runs WHERE tenant_id = %s",
+                (tenant_id,),
+            )
             total_docs = cur.fetchone()["total"]
         except Exception:
             total_docs = 0
 
         try:
-            cur.execute("SELECT COUNT(*) as total FROM bank_transactions WHERE tenant_id = %s", (tenant_id,))
+            cur.execute(
+                "SELECT COUNT(*) as total FROM bank_transactions WHERE tenant_id = %s",
+                (tenant_id,),
+            )
             total_txs = cur.fetchone()["total"]
         except Exception:
             total_txs = 0
@@ -236,8 +276,14 @@ def search_stats(request: Request):
         except Exception:
             total_coa = 0
 
-        cur.execute("SELECT COUNT(*) as total FROM search_history")
-        total_searches = cur.fetchone()["total"]
+        try:
+            cur.execute(
+                "SELECT COUNT(*) as total FROM search_history WHERE tenant_id = %s",
+                (tenant_id,),
+            )
+            total_searches = cur.fetchone()["total"]
+        except Exception:
+            total_searches = 0
 
         return {
             "ok": True,

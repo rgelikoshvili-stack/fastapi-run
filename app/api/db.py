@@ -19,7 +19,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         from app.config.secrets import get_secret
         db_url = get_secret("DATABASE_URL") or os.environ["DATABASE_URL"]
         min_conn = int(os.environ.get("DB_POOL_MIN", "2"))
-        max_conn = int(os.environ.get("DB_POOL_MAX", "10"))
+        max_conn = int(os.environ.get("DB_POOL_MAX", "16"))
         _pool = psycopg2.pool.ThreadedConnectionPool(min_conn, max_conn, db_url)
         log.info("DB connection pool created min=%d max=%d", min_conn, max_conn)
     return _pool

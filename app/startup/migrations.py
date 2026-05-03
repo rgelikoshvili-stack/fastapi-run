@@ -469,3 +469,29 @@ def _run_remaining_migrations(cur):
         log.info("action=auto_classify_drafts count=%d", len(rows))
     except Exception as e:
         log.warning("auto_classify_drafts skipped: %s", e)
+
+    # ── Tenant isolation: add tenant_id to global tables ─────────────────────
+    for tbl_col in [
+        ("pipeline_runs",  "tenant_id TEXT NOT NULL DEFAULT 'default'"),
+        ("search_history", "tenant_id TEXT NOT NULL DEFAULT 'default'"),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE {tbl_col[0]} ADD COLUMN IF NOT EXISTS {tbl_col[1]}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # ── Missing performance indexes (from audit) ──────────────────────────────
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_expenses_tenant_id ON expenses(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_contracts_tenant_id ON contracts(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_customers_tenant_id ON customers(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_account_id ON bank_transactions(account_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_id ON pipeline_runs(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_search_history_tenant_id ON search_history(tenant_id)",
+    ]:
+        try:
+            cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

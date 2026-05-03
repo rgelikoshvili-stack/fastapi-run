@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any, List, Optional
 
@@ -167,6 +168,7 @@ def _fetch_draft(cur, draft_id: int, tenant_id: str):
         FROM journal_drafts
         WHERE id = %s
           AND tenant_id = %s
+        FOR UPDATE
         """,
         (draft_id, tenant_id),
     )

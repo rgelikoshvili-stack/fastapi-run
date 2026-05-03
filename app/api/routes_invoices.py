@@ -102,7 +102,7 @@ async def get_invoice(invoice_id: int, request: Request):
         inv = await conn.fetchrow(_q("SELECT * FROM invoices WHERE id=%s AND tenant_id=%s"), invoice_id, tenant_id)
         if not inv:
             return error_response("Not found", "NOT_FOUND", "")
-        items = [dict(r) for r in await conn.fetch(_q("SELECT * FROM invoice_items WHERE invoice_id=%s"), invoice_id)]
+        items = [dict(r) for r in await conn.fetch(_q("SELECT * FROM invoice_items WHERE invoice_id=%s AND tenant_id=%s"), invoice_id, tenant_id)]
     return ok_response("Invoice", {**dict(inv), "items": items})
 
 @router.post("/{invoice_id}/status")

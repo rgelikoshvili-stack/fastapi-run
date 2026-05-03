@@ -578,3 +578,15 @@ def _run_remaining_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # ── FIX 1 (cleanup): audit_log + outgoing_invoices tenant indexes ──────────
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_id       ON audit_log(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created  ON audit_log(tenant_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_outgoing_invoices_tenant  ON outgoing_invoices(tenant_id)",
+    ]:
+        try:
+            cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

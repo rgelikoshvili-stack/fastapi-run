@@ -50,8 +50,27 @@ def _calc_totals(line_items: list) -> dict:
     }
 
 
+def _ensure_outgoing_columns(conn) -> None:
+    """Idempotent: add new columns to outgoing_invoices if they don't exist yet."""
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            ALTER TABLE outgoing_invoices
+              ADD COLUMN IF NOT EXISTS due_date       DATE,
+              ADD COLUMN IF NOT EXISTS currency       TEXT DEFAULT 'GEL',
+              ADD COLUMN IF NOT EXISTS exchange_rate  NUMERIC(18,6),
+              ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cur.close()
+
+
 def create_draft(conn, tenant_id: str, data: dict) -> dict:
     """Insert a new outgoing invoice draft. Returns the created row."""
+    _ensure_outgoing_columns(conn)
     invoice_type = data.get("invoice_type", "service")
     if invoice_type not in ("goods", "service"):
         raise ValueError("invoice_type must be 'goods' or 'service'")
@@ -67,13 +86,14 @@ def create_draft(conn, tenant_id: str, data: dict) -> dict:
              seller_name, seller_inn, seller_address, seller_phone,
              seller_bank, seller_swift, seller_account,
              buyer_inn, buyer_name, buyer_email, buyer_address, buyer_phone,
-             invoice_date, delivery_date,
+             invoice_date, delivery_date, due_date,
              transport_from, transport_to, vehicle_number, driver_name,
              line_items, subtotal, vat_amount, total_amount, comment,
+             currency, exchange_rate,
              created_by)
-        VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id, invoice_type, status, buyer_inn, buyer_name,
-                  subtotal, vat_amount, total_amount, comment, created_at
+                  subtotal, vat_amount, total_amount, comment, currency, exchange_rate, created_at
         """,
         (
             tenant_id, invoice_type,
@@ -83,11 +103,14 @@ def create_draft(conn, tenant_id: str, data: dict) -> dict:
             data.get("buyer_inn"), data.get("buyer_name"), data.get("buyer_email"),
             data.get("buyer_address"), data.get("buyer_phone"),
             data.get("invoice_date") or None, data.get("delivery_date") or None,
+            data.get("due_date") or None,
             data.get("transport_from"), data.get("transport_to"),
             data.get("vehicle_number"), data.get("driver_name"),
             json.dumps(line_items),
             totals["subtotal"], totals["vat_amount"], totals["total_amount"],
             data.get("comment"),
+            data.get("currency") or "GEL",
+            data.get("exchange_rate"),
             data.get("created_by"),
         ),
     )
@@ -115,9 +138,9 @@ def update_draft(conn, tenant_id: str, invoice_id: int, data: dict) -> dict:
         "seller_name", "seller_inn", "seller_address", "seller_phone",
         "seller_bank", "seller_swift", "seller_account",
         "buyer_inn", "buyer_name", "buyer_email", "buyer_address", "buyer_phone",
-        "invoice_date", "delivery_date",
+        "invoice_date", "delivery_date", "due_date",
         "transport_from", "transport_to", "vehicle_number", "driver_name",
-        "line_items", "comment",
+        "line_items", "comment", "currency", "exchange_rate",
     ]
     sets = []
     params = []

@@ -48,6 +48,10 @@ ACCOUNT_MAP = {
     "transfer":            "1211",
     "currency_conversion": "1220",
 
+    # კრედიტორები
+    "accounts_payable":    "3310",
+    "creditors":           "3310",
+
     # საგადასახადო
     "vat_payable":         "3310",
     "vat_receivable":      "2210",

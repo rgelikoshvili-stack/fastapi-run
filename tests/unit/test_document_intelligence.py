@@ -131,13 +131,54 @@ def test_analyse_document_taxes_shps_no_pit():
 
 # ── document_extractor ───────────────────────────────────────────────────────
 
-from app.api.services.document_extractor import _regex_extract
+from app.api.services.document_extractor import _regex_extract, _extract_tax_invoice_inns
 
 
 def test_extract_tax_invoice():
     text = "ანგარიშ-ფაქტურა №AA-123 2024-01-15\nგამყიდველი: შპს ტექს 123456789\nმყიდველი: 987654321\nთანხა: 1180.00"
     doc = _regex_extract(text)
     assert doc.document_type == "tax_invoice"
+
+
+# ── Fix 1: field-number INN extraction ───────────────────────────────────────
+
+def test_tax_invoice_inn_extraction_field_numbers():
+    """ეა-85 ფაქტურა: seller=5.1, buyer=6.1 field pattern."""
+    text = (
+        "საქართველოს საგადასახადო ანგარიშ-ფაქტურა\n"
+        "სერია ეა-85 4878150\n"
+        "5.1 საიდ.ნომერი: 406039950\n"
+        "5.2 გამყიდველი: Net Sky LLC\n"
+        "6.1 საიდ.ნომერი: 202192643\n"
+        "6.2 მყიდველი: ალტე შპს\n"
+        "სულ დასარიცხი დღგ: 540.00\n"
+    )
+    seller, buyer, series, vat, _ = _extract_tax_invoice_inns(text)
+    assert seller == "406039950", f"Expected seller 406039950, got {seller}"
+    assert buyer == "202192643", f"Expected buyer 202192643, got {buyer}"
+    assert series is not None and "4878150" in series
+    assert vat == pytest.approx(540.0, abs=0.01)
+
+
+def test_tax_invoice_inn_extraction_via_regex_extract():
+    """_regex_extract should use field-number patterns for tax invoices."""
+    text = (
+        "ანგარიშ-ფაქტურა\n"
+        "5.1  406039950\n"
+        "6.1  202192643\n"
+        "თანხა: 1180.00\n"
+    )
+    doc = _regex_extract(text)
+    assert doc.seller_inn == "406039950"
+    assert doc.buyer_inn == "202192643"
+
+
+def test_tax_invoice_inn_fallback_keyword():
+    """Georgian keyword fallback: 'მყიდველი' must not match inside 'გამყიდველი'."""
+    text = "ანგარიშ-ფაქტურა\nგამყიდველი: 123456789\nმყიდველი: 987654321\nთანხა: 590.00"
+    doc = _regex_extract(text)
+    assert doc.seller_inn == "123456789"
+    assert doc.buyer_inn == "987654321"
 
 
 def test_extract_waybill():

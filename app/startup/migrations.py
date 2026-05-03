@@ -46,6 +46,7 @@ def run_db_migrations():
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ",
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS signature_b64 TEXT",
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stamp_b64 TEXT",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS submit_token TEXT",
         ]:
             try:
                 cur.execute(_t_col)
@@ -53,6 +54,18 @@ def run_db_migrations():
             except Exception as _e:
                 conn.rollback()
                 log.debug("tenants col migration skipped: %s", _e)
+
+        # Populate submit_token for tenants that don't have one yet
+        try:
+            cur.execute("""
+                UPDATE tenants
+                SET submit_token = substring(md5(id::text || random()::text) from 1 for 10)
+                WHERE submit_token IS NULL
+            """)
+            conn.commit()
+        except Exception as _e:
+            conn.rollback()
+            log.debug("submit_token populate skipped: %s", _e)
 
         # Fix tenant_id UUID → TEXT for tables created with wrong type
         for tbl in ("expenses", "invoices", "contracts", "customers"):
@@ -102,6 +115,8 @@ def run_db_migrations():
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS tax_detail           JSONB",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS triangle_match_id    INTEGER",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS completeness_alerts  JSONB",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS journal_entries      JSONB",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS raw_extraction       JSONB",
         ]:
             try:
                 cur.execute(_jd_col)

@@ -268,7 +268,7 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
             try:
                 # classify transaction
                 try:
-                    from bridge_hub_knowledge import classify_transaction
+                    from app.knowledge.journal_builder import classify_transaction
                     desc = tx.get("description", "")
                     cls = classify_transaction(desc, tenant_id)
                     acc_code = cls.get("account", "7910")

@@ -1,6 +1,10 @@
-"""app/api/routes_aging.py — AR/AP Aging Reports (receivables + payables)."""
+"""app/api/routes_aging.py — AR/AP Aging Reports (receivables + payables) + overdue reminders."""
 import logging
+import os
+import smtplib
 from datetime import date
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Optional
 
 import psycopg2.extras
@@ -8,7 +12,8 @@ from fastapi import APIRouter, Request, Query
 
 from app.api.authz import require_permission
 from app.api.db import get_db
-from app.api.response_utils import ok_response
+from app.api.response_utils import ok_response, error_response
+from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 
 log = logging.getLogger(__name__)
@@ -251,4 +256,155 @@ def aging_summary(
             "total_count": int(ap[0] or 0),
             "total_outstanding": round(float(ap[1] or 0), 2),
         },
+    })
+
+
+# ── Overdue Reminders ─────────────────────────────────────────────────────────
+
+def _send_reminder_email(to_email: str, buyer_name: str, invoice_number: str,
+                         total: float, due_date: str, days_overdue: int,
+                         seller_name: str) -> None:
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    if not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP not configured")
+
+    subject = f"გადახდის შეხსენება — ინვოისი {invoice_number}"
+    html = f"""
+    <div style="font-family:Georgia,serif;max-width:520px;margin:40px auto;
+                background:#f3ecdc;padding:32px;border-radius:8px">
+      <h2 style="color:#8c3c2d;margin:0 0 8px">Bridge Hub</h2>
+      <p style="color:#4a3728;margin:0 0 20px">გამარჯობა, <strong>{buyer_name or 'კლიენტო'}</strong>,</p>
+      <p style="color:#4a3728;margin:0 0 16px">
+        გეხსენებათ, რომ <strong>{seller_name}</strong>-ის ინვოისი
+        <strong>#{invoice_number}</strong> ჯერ გადაუხდელია.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin:0 0 20px">
+        <tr><td style="padding:8px;color:#4a3728">ინვოისი №</td>
+            <td style="padding:8px;font-weight:bold;color:#8c3c2d">{invoice_number}</td></tr>
+        <tr style="background:#fff8f0"><td style="padding:8px;color:#4a3728">გადახდის ვადა</td>
+            <td style="padding:8px;color:#8c3c2d"><strong>{due_date}</strong></td></tr>
+        <tr><td style="padding:8px;color:#4a3728">ვადაგადაცილება</td>
+            <td style="padding:8px;color:#c0392b"><strong>{days_overdue} დღე</strong></td></tr>
+        <tr style="background:#fff8f0"><td style="padding:8px;color:#4a3728">დასაფარი თანხა</td>
+            <td style="padding:8px;font-weight:bold;font-size:16px;color:#8c3c2d">₾{total:,.2f}</td></tr>
+      </table>
+      <p style="color:#888;font-size:13px;margin:0">
+        გთხოვთ, განახორციელოთ გადახდა რაც შეიძლება მალე.<br>
+        კითხვების შემთხვევაში დაგვიკავშირდით.
+      </p>
+    </div>
+    """
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = to_email
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(smtp_user, smtp_pass)
+        s.sendmail(smtp_user, to_email, msg.as_string())
+
+
+@router.post("/send-reminders")
+@limiter.limit("5/minute")
+def send_overdue_reminders(
+    request: Request,
+    min_days_overdue: int = Query(1, ge=1, description="Minimum days overdue to trigger reminder"),
+    resend_after_days: int = Query(7, ge=1, description="Re-send if last reminder was N+ days ago"),
+    dry_run: bool = Query(False, description="If true, return list without sending emails"),
+):
+    """
+    Send reminder emails for all overdue outgoing invoices (status='sent',
+    due_date < today, buyer_email present).
+    Skips invoices that received a reminder within `resend_after_days` days.
+    Updates status='overdue' and reminder_sent_at after sending.
+    """
+    require_permission(request, "reports:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    today = date.today()
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Ensure columns exist (idempotent migration)
+    try:
+        cur.execute("""
+            ALTER TABLE outgoing_invoices
+              ADD COLUMN IF NOT EXISTS due_date DATE,
+              ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    try:
+        cur.execute("""
+            SELECT id, invoice_number, buyer_name, buyer_email,
+                   total_amount, due_date, reminder_sent_at, seller_name
+            FROM outgoing_invoices
+            WHERE tenant_id = %s
+              AND status IN ('sent', 'overdue')
+              AND due_date IS NOT NULL
+              AND due_date < %s
+              AND buyer_email IS NOT NULL AND buyer_email != ''
+              AND (%s - due_date) >= %s
+              AND (
+                  reminder_sent_at IS NULL
+                  OR reminder_sent_at < NOW() - (%s || ' days')::INTERVAL
+              )
+            ORDER BY due_date ASC
+            LIMIT 100
+        """, (tenant_id, today, today, min_days_overdue, resend_after_days))
+        invoices = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        log.error("send_reminders query failed: %s", e)
+        cur.close(); conn.close()
+        return error_response("Query failed", "DB_ERROR", str(e))
+
+    sent, skipped, errors = [], [], []
+
+    for inv in invoices:
+        inv_id = inv["id"]
+        inv_num = inv["invoice_number"] or str(inv_id)
+        buyer_email = inv["buyer_email"]
+        days_overdue = (today - inv["due_date"]).days
+
+        if dry_run:
+            sent.append({"id": inv_id, "invoice": inv_num,
+                         "email": buyer_email, "days_overdue": days_overdue})
+            continue
+
+        try:
+            _send_reminder_email(
+                to_email=buyer_email,
+                buyer_name=inv.get("buyer_name") or "",
+                invoice_number=inv_num,
+                total=float(inv.get("total_amount") or 0),
+                due_date=str(inv["due_date"]),
+                days_overdue=days_overdue,
+                seller_name=inv.get("seller_name") or tenant_id,
+            )
+            cur.execute("""
+                UPDATE outgoing_invoices
+                SET status = 'overdue', reminder_sent_at = NOW()
+                WHERE id = %s AND tenant_id = %s
+            """, (inv_id, tenant_id))
+            conn.commit()
+            sent.append({"id": inv_id, "invoice": inv_num,
+                         "email": buyer_email, "days_overdue": days_overdue})
+            log.info("reminder_sent invoice=%s tenant=%s email=%s days_overdue=%s",
+                     inv_num, tenant_id, buyer_email, days_overdue)
+        except Exception as e:
+            log.error("reminder_failed invoice=%s: %s", inv_num, e)
+            errors.append({"id": inv_id, "invoice": inv_num, "error": str(e)})
+
+    cur.close(); conn.close()
+
+    return ok_response("Reminders processed", {
+        "dry_run": dry_run,
+        "sent_count": len(sent),
+        "error_count": len(errors),
+        "sent": sent,
+        "errors": errors,
     })

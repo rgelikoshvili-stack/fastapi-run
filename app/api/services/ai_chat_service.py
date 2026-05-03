@@ -44,7 +44,7 @@ except ImportError:
 # Knowledge Base
 # ─────────────────────────────────────────────────────────────
 try:
-    from bridge_hub_knowledge import (
+    from app.knowledge import (
         calculate_vat,
         calculate_payroll,
         calculate_cit,

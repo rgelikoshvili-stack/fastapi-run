@@ -44,7 +44,8 @@ def email_status():
 
 @router.get("/inbox")
 def get_inbox(request: Request, limit: int = 20):
-    return fetch_all_emails(limit=limit)
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return fetch_all_emails(limit=limit, tenant_id=tenant_id)
 
 
 @router.get("/fetch")
@@ -101,31 +102,58 @@ async def manual_upload(request: Request, file: UploadFile = File(...)):
 
 @router.get("/preview/{message_id}/{filename}")
 async def preview_attachment(message_id: str, filename: str, request: Request):
-    """
-    PDF preview — ბრაუზერში გასახსნელად.
-    მომხმარებელი ნახავს invoice-ს დადასტურებამდე.
-    """
-    if not IMAP_USER or not IMAP_PASS:
+    """PDF preview — authenticated fetch → blob URL in browser."""
+    from app.api.services.email_invoice_service import _get_tenant_imap_creds
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    imap_user, imap_pass = _get_tenant_imap_creds(tenant_id)
+    if not imap_user or not imap_pass:
         return Response(content=b"IMAP not configured", status_code=503)
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
-        mail.login(IMAP_USER, IMAP_PASS)
-        mail.select("INBOX")
-        _, msg_data = mail.fetch(message_id.encode(), "(RFC822)")
+        imap_host = os.getenv("IMAP_HOST", "imap.gmail.com")
+        imap_port = int(os.getenv("IMAP_PORT", "993"))
+        import socket
+        socket.setdefaulttimeout(60)
+        mail = imaplib.IMAP4_SSL(imap_host, imap_port)
+        mail.login(imap_user, imap_pass)
+        try:
+            mail.select("INBOX")
+        except IndexError:
+            pass
+        # message_id is a UID — use uid("FETCH") not fetch() which uses sequence numbers
+        _, msg_data = mail.uid("FETCH", message_id.encode(), "(RFC822)")
+
+        # Guard against malformed IMAP response
+        if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple) or not msg_data[0][1]:
+            mail.logout()
+            return Response(content=b"Message not found or empty", status_code=404)
+
         msg = emaillib.message_from_bytes(msg_data[0][1])
         mail.logout()
+
+        from app.api.services.email_invoice_service import _get_part_filename
         for part in msg.walk():
-            if part.get_filename() == filename:
+            fn = _get_part_filename(part)
+            if not fn:
+                continue
+            # Match decoded filename, case-insensitive, ignoring whitespace
+            if fn.strip().lower() == filename.strip().lower():
                 data = part.get_payload(decode=True)
+                if not data:
+                    return Response(content=b"Attachment data empty", status_code=404)
                 ct = part.get_content_type() or "application/octet-stream"
                 disp = "inline" if ct == "application/pdf" else "attachment"
+                from urllib.parse import quote
+                encoded_name = quote(filename, safe="")
                 return Response(
                     content=data, media_type=ct,
-                    headers={"Content-Disposition": f"{disp}; filename={filename}"}
+                    headers={"Content-Disposition": f"{disp}; filename*=UTF-8''{encoded_name}"}
                 )
-        return Response(content=b"Not found", status_code=404)
+        return Response(content=f"Attachment '{filename}' not found in message".encode(), status_code=404)
     except Exception as e:
-        return Response(content=str(e).encode(), status_code=500)
+        import traceback
+        msg = f"Error: {e}\n{traceback.format_exc()}"
+        return Response(content=msg.encode("utf-8"), status_code=500,
+                        media_type="text/plain; charset=utf-8")
 
 
 @router.get("/pipeline-info")

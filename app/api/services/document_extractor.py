@@ -207,17 +207,80 @@ async def _llm_extract(text: str, llm_service) -> ExtractedDocument:
 
 
 def _extract_inn_near(text: str, keywords: list[str], window: int = 400) -> str | None:
-    """Return first valid INN found within `window` chars after any of the keywords."""
+    """Return first valid INN found within `window` chars after any of the keywords.
+    Uses whole-word matching for Georgian keywords: keyword must not be preceded
+    by a Georgian letter (prevents 'მყიდველი' matching inside 'გამყიდველი').
+    """
     import re
     inn_pat = re.compile(r'\b(\d{9}|\d{11})\b')
+    # Negative lookbehind for Georgian letters (U+10D0–U+10FF)
+    _geo_lb = r'(?<![ა-ჰა-ჿ])'
     for kw in keywords:
-        idx = text.lower().find(kw.lower())
-        if idx >= 0:
-            section = text[idx: idx + window]
-            m = inn_pat.search(section)
-            if m:
-                return m.group(1)
+        pattern = re.compile(_geo_lb + re.escape(kw.lower()), re.IGNORECASE)
+        m = pattern.search(text.lower())
+        if m:
+            section = text[m.start(): m.start() + window]
+            inn_m = inn_pat.search(section)
+            if inn_m:
+                return inn_m.group(1)
     return None
+
+
+def _extract_tax_invoice_inns(text: str) -> tuple[str | None, str | None, str | None, float | None, str | None]:
+    """
+    Georgian tax invoice field-number extraction.
+    Returns (seller_inn, buyer_inn, series_number, total_vat, linked_waybill).
+    Fields: 5.1 = seller INN, 6.1 = buyer INN.
+    """
+    import re
+
+    # seller INN — field 5.1
+    seller_inn = None
+    for pat in [
+        r'5[\.\s]*1[\s\S]{0,30}?(\d{9})',
+        r'გამყიდველ[\s\S]{0,50}?(\d{9})',
+        r'საიდენტიფ[^\n]{0,30}(\d{9})[^\n]{0,30}5[\.\s]*[12]',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            seller_inn = m.group(1)
+            break
+
+    # buyer INN — field 6.1
+    buyer_inn = None
+    for pat in [
+        r'6[\.\s]*1[\s\S]{0,30}?(\d{9})',
+        r'მყიდველ[\s\S]{0,50}?(\d{9})',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            cand = m.group(1)
+            if cand != seller_inn:
+                buyer_inn = cand
+                break
+
+    # series number (e.g. ეა-85 4878150)
+    series_number = None
+    m = re.search(r'(ეა[-\s]*\d{2}[\s\-]\d{7,8})', text)
+    if m:
+        series_number = m.group(1)
+
+    # total VAT — "სულ დასარიცხი X.XX"
+    total_vat = None
+    m = re.search(r'სულ\s+დასარიცხ[^\d]*(\d+[\.,]\d{2})', text)
+    if m:
+        try:
+            total_vat = float(m.group(1).replace(",", "."))
+        except Exception:
+            pass
+
+    # linked waybill number (10–11 digit starting with 0)
+    linked_waybill = None
+    m = re.search(r'\b(0\d{9,10})\b', text)
+    if m:
+        linked_waybill = m.group(1)
+
+    return seller_inn, buyer_inn, series_number, total_vat, linked_waybill
 
 
 def _regex_extract(text: str) -> ExtractedDocument:
@@ -278,6 +341,15 @@ def _regex_extract(text: str) -> ExtractedDocument:
     doc_type = "unknown"
     text_lower = text.lower()
 
+    # Detect tax_invoice early so we can apply field-number extraction
+    if any(kw in text_lower for kw in ["ანგარიშ-ფაქტურა", "tax invoice"]):
+        doc_type = "tax_invoice"
+        ti_seller, ti_buyer, ti_series, ti_vat, ti_waybill = _extract_tax_invoice_inns(text)
+        if ti_seller:
+            seller_inn = ti_seller
+        if ti_buyer:
+            buyer_inn = ti_buyer
+
     # More specific matching — order matters (most specific first)
     if any(kw in text_lower for kw in ["ანგარიშ-ფაქტურა", "tax invoice"]):
         doc_type = "tax_invoice"
@@ -332,22 +404,29 @@ def _regex_extract(text: str) -> ExtractedDocument:
     from app.api.services.contract_classifier import classify_provider_type
     p_type = classify_provider_type(None, validated_seller)
 
+    # For tax invoices, prefer field-number extracted values
+    _ti_series = None
+    _ti_vat = None
+    _ti_waybill = None
+    if doc_type == "tax_invoice":
+        _, _, _ti_series, _ti_vat, _ti_waybill = _extract_tax_invoice_inns(text)
+
     return ExtractedDocument(
         document_type=doc_type,
-        document_number=doc_number,
+        document_number=_ti_series or doc_number,
         issue_date=issue_date,
         seller=ExtractedParty(inn=validated_seller),
         buyer=ExtractedParty(inn=validated_buyer),
-        total_with_vat=total,
+        total_with_vat=_ti_vat or total,
         net_amount=net_amount,
         notes=text[:500],
         # flat aliases
         waybill_number=waybill_number if doc_type == "waybill" else None,
         waybill_date=issue_date if doc_type == "waybill" else None,
-        invoice_number=doc_number if doc_type in ("invoice", "tax_invoice") else None,
+        invoice_number=_ti_series or (doc_number if doc_type in ("invoice", "tax_invoice") else None),
         invoice_date=issue_date if doc_type in ("invoice", "tax_invoice") else None,
-        related_waybill_number=related_wb,
-        total_amount=total,
+        related_waybill_number=_ti_waybill or related_wb,
+        total_amount=_ti_vat or total,
         seller_inn=validated_seller,
         buyer_inn=validated_buyer,
         provider_type=p_type.value,

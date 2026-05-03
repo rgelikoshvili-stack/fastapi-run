@@ -103,17 +103,47 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .ri-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
 .ri-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-ghost)}
 
-/* EMAIL LIST */
-.email-list{display:flex;flex-direction:column;gap:1px}
-.email-row{padding:12px 16px;background:var(--card);border:1px solid var(--line-soft);border-radius:var(--r);margin-bottom:4px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.1s}
+/* EMAIL INBOX */
+.inbox-wrap{display:flex;gap:0;height:calc(100vh - 220px);min-height:400px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card)}
+.inbox-list-col{width:360px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.inbox-toolbar{padding:10px 14px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px;background:var(--paper-soft)}
+.inbox-toolbar-sel{font-family:var(--mono);font-size:11px;color:var(--ink-dim);flex:1}
+.inbox-list{flex:1;overflow-y:auto;padding:6px}
+.email-row{padding:10px 12px;background:transparent;border-radius:8px;margin-bottom:2px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;transition:.1s;position:relative}
 .email-row:hover{background:var(--card-hover)}
-.email-row .em-icon{width:32px;height:32px;border-radius:7px;background:var(--blue-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.email-row .em-icon svg{width:15px;height:15px;stroke:var(--blue);stroke-width:1.8;fill:none}
-.em-subject{font-size:13px;font-weight:500;color:var(--ink)}
-.em-from{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
-.em-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10.5px;font-family:var(--mono);margin-left:4px}
-.chip-new{background:var(--amber-bg);color:var(--amber)}
-.chip-done{background:var(--green-bg);color:var(--green)}
+.email-row.active{background:var(--ink)!important}
+.email-row.active .em-subject,.email-row.active .em-from,.email-row.active .em-snippet{color:var(--paper)!important}
+.email-row.active .em-chip-new,.email-row.active .em-chip-done{background:rgba(255,255,255,.15);color:var(--paper)}
+.email-chk{margin-top:3px;flex-shrink:0;accent-color:var(--ink);width:14px;height:14px;cursor:pointer}
+.em-icon{width:30px;height:30px;border-radius:6px;background:var(--blue-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.em-icon svg{width:14px;height:14px;stroke:var(--blue);stroke-width:1.8;fill:none}
+.email-row.active .em-icon{background:rgba(255,255,255,.15)}
+.email-row.active .em-icon svg{stroke:var(--paper)}
+.em-subject{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.email-row.unread .em-subject{font-weight:700}
+.em-from{font-size:11px;color:var(--ink-dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
+.em-snippet{font-size:11px;color:var(--ink-mute);margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.em-chip{display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;font-size:10px;font-family:var(--mono);margin-left:4px;vertical-align:middle}
+.em-chip-new{background:var(--amber-bg);color:var(--amber)}
+.em-chip-done{background:var(--green-bg);color:var(--green)}
+.em-date{font-family:var(--mono);font-size:10px;color:var(--ink-ghost);white-space:nowrap;margin-left:auto;padding-left:6px;padding-top:1px}
+.inbox-detail{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--paper)}
+.detail-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--ink-dim);gap:10px;padding:40px}
+.detail-empty svg{width:36px;height:36px;stroke:var(--line-strong);stroke-width:1.5;fill:none}
+.detail-head{padding:18px 22px 14px;border-bottom:1px solid var(--line-soft)}
+.detail-subject{font-size:16px;font-weight:600;color:var(--ink);line-height:1.3;margin-bottom:8px}
+.detail-meta{display:flex;flex-wrap:wrap;gap:6px 20px;font-size:11.5px;color:var(--ink-dim)}
+.detail-meta strong{color:var(--ink);font-weight:500}
+.detail-body{flex:1;overflow-y:auto;padding:18px 22px}
+.detail-body-text{font-size:13px;color:var(--ink-soft);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.attach-list{margin-top:18px;border-top:1px solid var(--line-soft);padding-top:14px}
+.attach-title{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);margin-bottom:10px}
+.attach-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.attach-item .att-icon{width:28px;height:28px;border-radius:6px;background:var(--red-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.attach-item .att-icon svg{width:13px;height:13px;stroke:var(--red);stroke-width:2;fill:none}
+.att-name{font-size:12px;font-weight:500;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-actions{padding:14px 22px;border-top:1px solid var(--line-soft);display:flex;gap:10px;align-items:center;background:var(--paper-soft)}
+.process-tag{font-family:var(--mono);font-size:11px;color:var(--green);background:var(--green-bg);padding:4px 10px;border-radius:6px}
 
 /* OCR result */
 .ocr-result{margin-top:20px}
@@ -218,18 +248,81 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 
     <!-- TAB 3: EMAIL -->
     <div class="tab-panel" id="panel-email">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <!-- Submit address banner -->
+      <div id="submitAddressBanner" style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px">
+        <div style="background:var(--blue-soft);border-radius:8px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:var(--blue);stroke-width:1.8;fill:none"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);margin-bottom:3px">თქვენი ინვოისის Submit Email</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <code id="submitEmailAddr" style="font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--paper-sunk);padding:3px 10px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px">იტვირთება...</code>
+            <button class="btn btn-outline" onclick="copySubmitEmail()" style="padding:4px 10px;font-size:11px;flex-shrink:0">
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+            </button>
+          </div>
+          <div style="font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--ink-dim);margin-top:4px">მომწოდებელი გამოაგზავნის ამ მისამართზე — PDF/Excel ავტომატურად გატარდება</div>
+        </div>
+        <button onclick="loadSubmitAddress()" title="განახლება" style="color:var(--ink-ghost);padding:4px;border-radius:6px;flex-shrink:0">
+          <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+        </button>
+      </div>
+
+      <!-- Top bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div>
           <div style="font-size:15px;font-weight:600;color:var(--ink)">Email Inbox</div>
           <div style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:2px">ფოსტიდან შემოსული ფინანსური დოკუმენტები</div>
         </div>
-        <button class="btn btn-outline" onclick="loadEmail()">
-          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
-          განახლება
-        </button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outline" id="btnSendToAccounting" onclick="sendToAccounting()" style="display:none">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            ბუღალტრიაში გადაცემა (<span id="selCount">0</span>)
+          </button>
+          <button class="btn btn-outline" onclick="loadEmail()">
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+            განახლება
+          </button>
+        </div>
       </div>
-      <div id="emailList">
-        <div class="loading-box"><span class="spinner"></span></div>
+
+      <!-- Two-panel inbox -->
+      <div class="inbox-wrap">
+        <!-- Left: list -->
+        <div class="inbox-list-col">
+          <div class="inbox-toolbar">
+            <input type="checkbox" id="chkAll" class="email-chk" onclick="toggleSelectAll()" title="ყველა">
+            <span class="inbox-toolbar-sel" id="toolbarInfo">იტვირთება...</span>
+          </div>
+          <div class="inbox-list" id="emailList">
+            <div class="loading-box"><span class="spinner"></span></div>
+          </div>
+        </div>
+        <!-- Right: detail -->
+        <div class="inbox-detail" id="emailDetail">
+          <div class="detail-empty">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+            <span style="font-family:var(--serif);font-style:italic">აირჩიეთ ელფოსტა</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Processing result toast area -->
+      <div id="processResult" style="margin-top:14px"></div>
+
+      <!-- Gmail credentials panel -->
+      <div style="margin-top:20px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+        <div style="padding:12px 18px;background:var(--paper-soft);border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:13px;font-weight:600">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;vertical-align:-2px;margin-right:6px"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+            Gmail IMAP კავშირი
+          </div>
+          <span id="gmailStatus" style="font-family:var(--mono);font-size:11px;color:var(--ink-ghost)">იტვირთება...</span>
+        </div>
+        <div style="padding:16px 18px" id="gmailConfigBody">
+          <div class="loading-box"><span class="spinner"></span></div>
+        </div>
       </div>
     </div>
 
@@ -254,7 +347,7 @@ function switchTab(name, el){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('panel-'+name).classList.add('active');
-  if(name==='email') loadEmail();
+  if(name==='email'){ loadEmail(); loadSubmitAddress(); loadGmailStatus(); }
 }
 
 function handleDrop(ev){
@@ -340,31 +433,402 @@ async function doOCR(inp){
   }catch(e){box.innerHTML=`<div class="result-card"><div class="result-body" style="color:var(--red)">კავშირის შეცდომა</div></div>`;}
 }
 
+/* ===== SUBMIT EMAIL ADDRESS ===== */
+let _submitEmail = '';
+
+async function loadSubmitAddress(){
+  try{
+    const r=await fetch(BASE+'/email-invoice/submit-address',{headers:H()});
+    const d=await r.json();
+    const addr=d?.data?.submit_email||'';
+    _submitEmail=addr;
+    const el=document.getElementById('submitEmailAddr');
+    if(el) el.textContent=addr||'კონფიგურაცია საჭიროა';
+  }catch(e){
+    const el=document.getElementById('submitEmailAddr');
+    if(el) el.textContent='ჩატვირთვის შეცდომა';
+  }
+}
+
+function copySubmitEmail(){
+  if(!_submitEmail) return;
+  navigator.clipboard.writeText(_submitEmail).then(()=>{
+    const el=document.getElementById('submitEmailAddr');
+    const orig=el.textContent;
+    el.textContent='✓ კოპირებულია!';
+    setTimeout(()=>{el.textContent=orig;},1500);
+  }).catch(()=>{
+    window.prompt('Copy:',_submitEmail);
+  });
+}
+
+/* ===== EMAIL INBOX STATE ===== */
+// Use array INDICES as keys everywhere — Gmail message IDs contain <> chars
+// that break HTML attribute string interpolation.
+let _emails=[];
+let _selectedIdxs=new Set();  // Set<number>
+let _openIdx=-1;
+
+function _msgId(m){ return m.message_id||m.id||m.uid||''; }
+
+// Decode RFC 2047 encoded subjects like =?UTF-8?B?...?= or =?UTF-8?Q?...?=
+function _decodeSubject(str){
+  if(!str) return '(No subject)';
+  try{
+    return str.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (_,charset,enc,text)=>{
+      try{
+        if(enc.toUpperCase()==='B'){
+          const raw=atob(text.replace(/\s/g,''));
+          const bytes=new Uint8Array([...raw].map(c=>c.charCodeAt(0)));
+          return new TextDecoder(charset||'utf-8').decode(bytes);
+        } else {
+          const qp=text.replace(/_/g,' ').replace(/=([0-9A-Fa-f]{2})/g,(_,h)=>String.fromCharCode(parseInt(h,16)));
+          const bytes=new Uint8Array([...qp].map(c=>c.charCodeAt(0)));
+          return new TextDecoder(charset||'utf-8').decode(bytes);
+        }
+      }catch(e){return text;}
+    }).trim();
+  }catch(e){return str;}
+}
+
 async function loadEmail(){
   const box=document.getElementById('emailList');
   box.innerHTML='<div class="loading-box"><span class="spinner"></span></div>';
+  _selectedIdxs.clear(); _openIdx=-1;
+  _updateToolbar(0,0);
+  document.getElementById('emailDetail').innerHTML='<div class="detail-empty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><span style="font-family:var(--serif);font-style:italic">აირჩიეთ ელფოსტა</span></div>';
   try{
     const r=await fetch(BASE+'/email-invoice/inbox',{headers:H()});
+    if(r.status===401){window.location.href='/static/login.html';return;}
     const d=await r.json();
-    const items=d?.data?.items||d?.items||d?.emails||[];
-    document.getElementById('emailBadge').textContent=items.length;
-    if(!items.length){
-      box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><p>ახალი ფოსტა არ არის</p></div>';
-      return;
-    }
-    box.innerHTML=items.map(m=>`
-      <div class="email-row">
-        <div class="em-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg></div>
-        <div style="flex:1;min-width:0">
-          <div class="em-subject">${esc(m.subject||'(No subject)')}
-            ${m.attachment_count?`<span class="em-chip chip-new">📎 ${m.attachment_count}</span>`:''}
-            <span class="em-chip ${m.processed?'chip-done':'chip-new'}">${m.processed?'processed':'new'}</span>
-          </div>
-          <div class="em-from">${esc(m.from||m.sender||'unknown')} · ${esc((m.date||m.received_at||'—').toString().slice(0,16))}</div>
-          ${m.snippet?`<div style="font-size:11.5px;color:var(--ink-mute);margin-top:4px">${esc(m.snippet)}</div>`:''}
+    _emails=d?.data?.items||d?.items||d?.emails||[];
+    document.getElementById('emailBadge').textContent=_emails.length;
+    _renderEmailList();
+  }catch(e){
+    box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><p>ჩატვირთვის შეცდომა</p></div>';
+  }
+}
+
+function _renderEmailList(){
+  const box=document.getElementById('emailList');
+  if(!_emails.length){
+    box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><p>ახალი ფოსტა არ არის</p></div>';
+    _updateToolbar(0,0);
+    return;
+  }
+  _updateToolbar(_emails.length, _selectedIdxs.size);
+  box.innerHTML=_emails.map((m,i)=>{
+    const isActive=i===_openIdx;
+    const isChk=_selectedIdxs.has(i);
+    const attCount=m.attachment_count||(m.attachments||[]).length||0;
+    const dateStr=((m.date||m.received_at||'').toString()).slice(5,16).replace('T',' ');
+    const subject=_decodeSubject(m.subject);
+    return `<div class="email-row${isActive?' active':''}${!m.processed?' unread':''}" onclick="_onRowClick(${i},event)">
+      <input type="checkbox" class="email-chk" ${isChk?'checked':''} onclick="_onChkClick(${i},event)" title="მონიშვნა">
+      <div class="em-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg></div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:baseline;gap:4px">
+          <div class="em-subject" style="flex:1">${esc(subject)}${attCount?`<span class="em-chip em-chip-new">📎${attCount}</span>`:''}</div>
+          <div class="em-date">${esc(dateStr)}</div>
         </div>
-      </div>`).join('');
-  }catch(e){box.innerHTML='<div class="empty-state"><p>ჩატვირთვის შეცდომა</p></div>';}
+        <div class="em-from">${esc(m.from||m.sender||'unknown')}</div>
+        ${m.snippet?`<div class="em-snippet">${esc(m.snippet)}</div>`:''}
+        <div style="margin-top:4px">
+          ${m.processed?`<span class="em-chip em-chip-done">✓ გატარებული</span>`:`<span class="em-chip em-chip-new">ახალი</span>`}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _onRowClick(i, ev){
+  if(ev&&(ev.target.type==='checkbox'||ev.target.classList.contains('email-chk'))) return;
+  _openIdx=i;
+  _renderEmailList();
+  _renderDetail(i);
+}
+
+function _onChkClick(i, ev){
+  if(ev) ev.stopPropagation();
+  if(_selectedIdxs.has(i)) _selectedIdxs.delete(i);
+  else _selectedIdxs.add(i);
+  const row=document.querySelectorAll('.email-row')[i];
+  if(row){const chk=row.querySelector('.email-chk');if(chk)chk.checked=_selectedIdxs.has(i);}
+  _updateToolbar(_emails.length, _selectedIdxs.size);
+}
+
+function toggleSelectAll(){
+  const allChk=document.getElementById('chkAll');
+  if(allChk.checked){_emails.forEach((_,i)=>_selectedIdxs.add(i));}
+  else {_selectedIdxs.clear();}
+  _renderEmailList();
+  document.getElementById('chkAll').checked=allChk.checked;
+  _updateToolbar(_emails.length, _selectedIdxs.size);
+}
+
+function _updateToolbar(total, sel){
+  const info=document.getElementById('toolbarInfo');
+  const btn=document.getElementById('btnSendToAccounting');
+  const cnt=document.getElementById('selCount');
+  if(info) info.textContent=sel>0?`${sel} მონიშნული / ${total}`:`${total} ელფოსტა`;
+  if(cnt) cnt.textContent=sel;
+  if(btn) btn.style.display=sel>0?'inline-flex':'none';
+  const allChk=document.getElementById('chkAll');
+  if(allChk) allChk.checked=total>0&&sel===total;
+}
+
+function _renderDetail(i){
+  const m=_emails[i];
+  if(!m) return;
+  const attachments=m.attachments||[];
+  const attCount=m.attachment_count||attachments.length||0;
+  const dateStr=(m.date||m.received_at||'—').toString().replace('T',' ').slice(0,19);
+  const subject=_decodeSubject(m.subject);
+  const detail=document.getElementById('emailDetail');
+  // Use data-idx on buttons — no string interpolation of IDs in onclick
+  detail.innerHTML=`
+    <div class="detail-head">
+      <div class="detail-subject">${esc(subject)}</div>
+      <div class="detail-meta">
+        <span><strong>From:</strong> ${esc(m.from||m.sender||'?')}</span>
+        <span><strong>To:</strong> ${esc(m.to||m.recipient||'—')}</span>
+        <span><strong>Date:</strong> ${esc(dateStr)}</span>
+        ${attCount?`<span>📎 ${attCount} დანართი</span>`:''}
+        ${m.processed?`<span class="process-tag">✓ გატარებული</span>`:''}
+      </div>
+    </div>
+    <div class="detail-body">
+      ${m.body||m.body_text||m.snippet
+        ?`<div class="detail-body-text">${esc(m.body||m.body_text||m.snippet||'')}</div>`
+        :'<div style="font-family:var(--serif);font-style:italic;color:var(--ink-dim)">ტექსტი არ არის</div>'}
+      ${(attachments.length>0||attCount>0)?`
+        <div class="attach-list">
+          <div class="attach-title">📎 დანართები</div>
+          ${attachments.length>0
+            ? attachments.map((a,ai)=>`
+              <div class="attach-item">
+                <div class="att-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                <span class="att-name">${esc(a.filename||a.name||'file')}</span>
+                <button class="btn btn-outline" data-eidx="${i}" data-aidx="${ai}" onclick="_onPreview(this)" style="padding:4px 10px;font-size:11px">
+                  <svg viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Preview
+                </button>
+              </div>`).join('')
+            :`<div style="font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim)">📎 ${attCount} დანართი</div>`}
+        </div>`:''
+      }
+    </div>
+    <div class="detail-actions">
+      ${m.processed
+        ?`<span class="process-tag">✓ უკვე გატარებულია ბუღალტრიაში</span>`
+        :`<button class="btn btn-primary" data-idx="${i}" onclick="_onProcessSingle(this)">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            ბუღალტრიაში გადაცემა
+          </button>`}
+      <button class="btn btn-outline" data-idx="${i}" onclick="_onToggleChkDetail(this)">
+        ${_selectedIdxs.has(i)?'მონიშვნის გაუქმება':'მონიშვნა'}
+      </button>
+    </div>`;
+}
+
+function _onProcessSingle(btn){
+  const i=parseInt(btn.dataset.idx);
+  const m=_emails[i];
+  if(!m||m.processed) return;
+  _processEmails([i]);
+}
+
+function _onToggleChkDetail(btn){
+  const i=parseInt(btn.dataset.idx);
+  _onChkClick(i,null);
+  _renderDetail(i);
+}
+
+async function _onPreview(btn){
+  const m=_emails[parseInt(btn.dataset.eidx)];
+  if(!m) return;
+  const a=(m.attachments||[])[parseInt(btn.dataset.aidx)];
+  if(!a) return;
+  const mid=_msgId(m);
+  const fn=a.filename||a.name||'';
+  const origHTML=btn.innerHTML;
+  btn.disabled=true; btn.textContent='...';
+  try{
+    const r=await fetch(`${BASE}/email-invoice/preview/${encodeURIComponent(mid)}/${encodeURIComponent(fn)}`,{headers:H()});
+    if(!r.ok){btn.innerHTML=origHTML;btn.disabled=false;const errText=await r.text().catch(()=>'');alert('Preview ვერ ჩაიტვირთა: '+r.status+'\n'+errText.slice(0,300));return;}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const w=window.open(url,'_blank');
+    // revoke after a minute to free memory
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    if(!w) alert('Pop-up დაბლოკილია — გახსენი pop-up ბრაუზერში');
+  }catch(e){alert('შეცდომა: '+e.message);}
+  btn.innerHTML=origHTML; btn.disabled=false;
+}
+
+async function sendToAccounting(){
+  if(!_selectedIdxs.size) return;
+  await _processEmails([..._selectedIdxs]);
+}
+
+async function _processEmails(idxs){
+  const resultBox=document.getElementById('processResult');
+  resultBox.innerHTML=`<div class="loading-box"><span class="spinner"></span> ${idxs.length} ელფოსტა მუშავდება...</div>`;
+  const results=[];
+  for(const i of idxs){
+    const m=_emails[i];
+    if(!m) continue;
+    const mid=_msgId(m);
+    try{
+      const r=await fetch(BASE+'/email-invoice/confirm-process',{
+        method:'POST',
+        headers:{...H(),'Content-Type':'application/json'},
+        body:JSON.stringify({message_id:mid})
+      });
+      const d=await r.json().catch(()=>({ok:false,error:'სერვერის პასუხი ვერ წაიკითხა ('+r.status+')'}));
+      // treat as ok if HTTP ok AND (d.ok is true OR draft was created)
+      const wasOk=r.ok&&(d.ok===true||(d.processed>0)||Boolean(d.draft_id));
+      results.push({i,ok:wasOk,data:d});
+    }catch(e){
+      results.push({i,ok:false,data:{message:'კავშირის შეცდომა'}});
+    }
+  }
+  const ok=results.filter(r=>r.ok);
+  const fail=results.filter(r=>!r.ok);
+  ok.forEach(r=>{if(_emails[r.i]) _emails[r.i].processed=true; _selectedIdxs.delete(r.i);});
+  _openIdx=-1;
+  _renderEmailList();
+  document.getElementById('emailDetail').innerHTML='<div class="detail-empty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg><span style="font-family:var(--serif);font-style:italic">დასრულებულია</span></div>';
+  const draftLinks=ok.map(r=>{
+    // server returns draft_id at top level, or nested in results[].draft.draft_id
+    const d=r.data;
+    const draftId=d?.draft_id||d?.data?.draft_id||d?.results?.[0]?.draft?.draft_id||d?.results?.[0]?.draft?.id||d?.id;
+    return draftId?`<a href="/static/approval.html" class="btn btn-outline" style="font-size:12px;padding:5px 12px">Draft #${draftId} → Approval</a>`:'';
+  }).filter(Boolean).join('');
+  resultBox.innerHTML=`<div class="result-card">
+    <div class="result-head"><span class="result-head-title">${ok.length?'✓ გადაცემა წარმატებულია':'⚠ გადაცემა ვერ მოხდა'}</span></div>
+    <div class="result-body" style="display:flex;flex-direction:column;gap:10px">
+      ${ok.length?`<div style="color:var(--green);font-size:13px">✓ ${ok.length} ელფოსტა გადაეცა ბუღალტრიას</div>`:''}
+      ${fail.length?`<div style="color:var(--red);font-size:13px">✗ ${fail.length}: ${esc(fail.map(r=>{const d=r.data;const msg=d?.error||d?.failed?.[0]?.error||d?.message||'error';const tb=d?.traceback?'\n'+d.traceback:'';return msg+tb;}).join('\n---\n'))}</div>`:''}
+      ${ok.length&&ok.some(r=>r.data?.failed?.length)?`<div style="color:var(--amber);font-size:12px">⚠ ზოგი attachment-ი ვერ დამუშავდა — ${esc(ok.flatMap(r=>r.data?.failed||[]).map(f=>f.error).join(', '))}</div>`:''}
+      ${draftLinks?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">${draftLinks}</div>`:''}
+      ${ok.length&&!draftLinks?`<a href="/static/approval.html" class="btn btn-outline" style="font-size:12px;padding:5px 12px;text-decoration:none">Approval Queue →</a>`:''}
+    </div>
+  </div>`;
+}
+
+/* ===== GMAIL CONFIG ===== */
+async function loadGmailStatus(){
+  try{
+    const r=await fetch(BASE+'/email-collector/status',{headers:H()});
+    const d=await r.json();
+    const statusEl=document.getElementById('gmailStatus');
+    const bodyEl=document.getElementById('gmailConfigBody');
+    if(d.configured){
+      if(statusEl) statusEl.innerHTML=`<span style="color:var(--green)">✓ ${esc(d.email)}</span>`;
+      if(bodyEl) bodyEl.innerHTML=`
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="font-size:13px;color:var(--ink)">კავშირი: <strong>${esc(d.email)}</strong></div>
+          <button class="btn btn-outline" onclick="triggerPoll()" style="font-size:12px;padding:5px 12px">
+            <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg>
+            ახლა შეამოწმე
+          </button>
+          <button class="btn btn-outline" onclick="showGmailForm()" style="font-size:12px;padding:5px 12px">შეცვლა</button>
+        </div>`;
+    } else {
+      if(statusEl) statusEl.innerHTML='<span style="color:var(--amber)">არ არის კონფიგურირებული</span>';
+      if(bodyEl) showGmailForm();
+    }
+  }catch(e){}
+}
+
+function showGmailForm(){
+  const bodyEl=document.getElementById('gmailConfigBody');
+  if(!bodyEl) return;
+  bodyEl.innerHTML=`
+    <div style="max-width:480px">
+      <div style="font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-dim);margin-bottom:14px">
+        Gmail → Security → 2-Step Verification → App Passwords → "Bridge Hub" → 16-სიმბოლოიანი პაროლი
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <input id="gmailEmail" type="email" placeholder="email@gmail.com" value="r.gelikoshvili@gmail.com"
+          style="padding:9px 12px;border:1px solid var(--line-strong);border-radius:8px;font-family:var(--font);font-size:13px;background:var(--paper);color:var(--ink);outline:none">
+        <input id="gmailPass" type="password" placeholder="App Password (16 სიმბოლო)"
+          style="padding:9px 12px;border:1px solid var(--line-strong);border-radius:8px;font-family:var(--mono);font-size:13px;background:var(--paper);color:var(--ink);outline:none;letter-spacing:.08em">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="saveGmailCreds()" id="btnSaveCreds">
+            <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none"><path d="M20 6L9 17l-5-5"/></svg>
+            შენახვა + შემოწმება
+          </button>
+          <button class="btn btn-outline" onclick="loadGmailStatus()" style="font-size:12px">გაუქმება</button>
+        </div>
+        <div id="gmailSaveResult" style="font-size:12px"></div>
+      </div>
+    </div>`;
+}
+
+async function saveGmailCreds(){
+  const email=document.getElementById('gmailEmail')?.value?.trim();
+  const pass=document.getElementById('gmailPass')?.value?.trim();
+  const res=document.getElementById('gmailSaveResult');
+  const btn=document.getElementById('btnSaveCreds');
+  if(!email||!pass){res.innerHTML='<span style="color:var(--red)">შეავსეთ ორივე ველი</span>';return;}
+  if(btn){btn.disabled=true;btn.textContent='მოწმდება...';}
+  try{
+    const r=await fetch(BASE+'/email-collector/credentials',{
+      method:'POST',
+      headers:{...H(),'Content-Type':'application/json'},
+      body:JSON.stringify({email,app_password:pass})
+    });
+    const d=await r.json();
+    if(d.ok){
+      await loadGmailStatus();
+      const bodyEl=document.getElementById('gmailConfigBody');
+      if(bodyEl){
+        const note=document.createElement('div');
+        note.style.cssText='color:var(--green);font-size:12px;margin-top:8px';
+        note.textContent='✓ Gmail კავშირი დადასტურებულია';
+        bodyEl.appendChild(note);
+        setTimeout(()=>note.remove(),3000);
+      }
+    } else {
+      if(res) res.innerHTML=`<span style="color:var(--red)">${esc(d.error||'შეცდომა')}</span>`;
+      if(btn){btn.disabled=false;btn.textContent='შენახვა + შემოწმება';}
+    }
+  }catch(e){
+    if(res) res.innerHTML='<span style="color:var(--red)">კავშირის შეცდომა</span>';
+    if(btn){btn.disabled=false;btn.textContent='შენახვა + შემოწმება';}
+  }
+}
+
+async function triggerPoll(){
+  const btn=event.target.closest('button');
+  if(btn){btn.disabled=true;btn.textContent='შეამოწმება...';}
+  try{
+    const r=await fetch(BASE+'/email-collector/poll',{method:'POST',headers:H()});
+    const d=await r.json();
+    const processed=d.processed||0;
+    const errors=d.errors||0;
+    const msg=processed>0
+      ?`✓ ${processed} ახალი დოკუმენტი დამუშავდა${errors?' ('+errors+' შეცდომა)':''}`
+      :errors?`⚠ შეცდომები: ${errors}`:'ახალი ფოსტა არ არის';
+    const bodyEl=document.getElementById('gmailConfigBody');
+    if(bodyEl){
+      const note=document.createElement('div');
+      note.style.cssText=`color:var(--${processed>0?'green':'ink-dim'});font-size:12px;margin-top:8px`;
+      note.textContent=msg;
+      bodyEl.appendChild(note);
+      setTimeout(()=>note.remove(),4000);
+    }
+    if(processed>0) await loadEmail();
+  }catch(e){}
+  if(btn){btn.disabled=false;btn.innerHTML='<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.6-6.6L23 10"/></svg> ახლა შეამოწმე';}
+}
+
+async function previewAttachment(mid, filename){
+  if(!filename) return;
+  const url=`${BASE}/email-invoice/preview/${encodeURIComponent(mid)}/${encodeURIComponent(filename)}`;
+  window.open(url,'_blank');
 }
 
 function fmtM(n){return n!=null?Number(n).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}

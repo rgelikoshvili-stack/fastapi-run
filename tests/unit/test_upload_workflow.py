@@ -73,3 +73,25 @@ def test_both_sides_ours_is_internal():
     doc = _make_doc(buyer_inn=OUR_INN, seller_inn=OUR_INN)
     result = resolve_party(doc, "default")
     assert result.our_role == OurRole.INTERNAL
+
+
+# ── Fix 2: graduated FOREIGN confidence ──────────────────────────────────────
+def test_foreign_confidence_both_inns():
+    doc = _make_doc(buyer_inn="111222333", seller_inn="444555666")
+    result = resolve_party(doc, "default")
+    assert result.our_role == OurRole.FOREIGN
+    assert result.confidence == pytest.approx(0.50)
+
+
+def test_foreign_confidence_one_inn():
+    doc = _make_doc(buyer_inn="111222333", seller_inn=None)
+    result = resolve_party(doc, "default")
+    assert result.our_role == OurRole.FOREIGN
+    assert result.confidence == pytest.approx(0.35)
+
+
+def test_foreign_confidence_no_inns():
+    doc = _make_doc(buyer_inn=None, seller_inn=None)
+    result = resolve_party(doc, "default")
+    assert result.our_role == OurRole.FOREIGN
+    assert result.confidence == pytest.approx(0.10)

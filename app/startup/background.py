@@ -1,6 +1,7 @@
 """app/startup/background.py — Supervised background task loops."""
 import asyncio
 import logging
+from app.api.metrics import WORKER_ERRORS
 
 _TASK_MAX_FAILURES = 5
 
@@ -23,6 +24,7 @@ async def _monitored_loop(name: str, fn, interval: int, max_failures: int = _TAS
             sleep_for = interval
         except Exception as exc:
             consecutive_failures += 1
+            WORKER_ERRORS.labels(worker=name).inc()
             if consecutive_failures >= max_failures:
                 log.error(
                     "task=%s REPEATED_FAILURE consecutive=%d error=%s — backing off %ds",

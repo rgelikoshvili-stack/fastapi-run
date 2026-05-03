@@ -321,7 +321,7 @@ def _tool_account_balance(inp: dict, tenant_id: str) -> dict:
 
 def _tool_classify(inp: dict, tenant_id: str) -> dict:
     try:
-        from bridge_hub_knowledge import classify_transaction
+        from app.knowledge.journal_builder import classify_transaction
         result = classify_transaction(inp["description"], float(inp.get("amount", 0)), tenant_id)
         return {"success": True, "classification": result}
     except Exception as e:

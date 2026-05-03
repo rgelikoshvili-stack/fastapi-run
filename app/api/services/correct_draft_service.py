@@ -7,6 +7,7 @@ from app.api.db import get_db
 from app.api.audit_service import log_event
 from app.api.services.learning_service import apply_correct_learning
 from app.api.services.transaction_memory_service import save_transaction_memory
+from app.api.metrics import APPROVAL_ACTIONS
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +235,7 @@ def correct_draft(draft_id: int, payload: dict, user: str = "human", tenant_id: 
         except Exception as _ae:
             log.debug("ai_suggest_pattern skipped: %s", _ae)
 
+        APPROVAL_ACTIONS.labels(action="correct", tenant=tenant_id).inc()
         return {
             "ok": True,
             "message": "Draft corrected and learning updated",

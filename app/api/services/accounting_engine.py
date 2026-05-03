@@ -2,7 +2,7 @@ import os
 from typing import Dict, Any
 
 from app.api.services.ocr_service import extract_text
-from bridge_hub_knowledge import build_journal_from_text
+from app.knowledge.journal_builder import build_journal_from_text
 
 
 def detect_document_type(text: str) -> str:

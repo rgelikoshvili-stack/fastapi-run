@@ -42,11 +42,14 @@ class InvoiceCreateRequest(BaseModel):
     # invoice meta
     invoice_date: Optional[str] = None
     delivery_date: Optional[str] = None
+    due_date: Optional[str] = None  # payment due date for reminder system
     # transport
     transport_from: Optional[str] = None
     transport_to: Optional[str] = None
     vehicle_number: Optional[str] = None
     driver_name: Optional[str] = None
+    currency: str = Field("GEL", pattern="^(GEL|USD|EUR|GBP|TRY|RUB|CHF)$")
+    exchange_rate: Optional[float] = Field(None, gt=0)  # GEL per 1 unit; auto-filled if None
     line_items: List[LineItem] = []
     comment: Optional[str] = Field(None, max_length=500)
 
@@ -66,10 +69,13 @@ class InvoiceUpdateRequest(BaseModel):
     buyer_phone: Optional[str] = None
     invoice_date: Optional[str] = None
     delivery_date: Optional[str] = None
+    due_date: Optional[str] = None
     transport_from: Optional[str] = None
     transport_to: Optional[str] = None
     vehicle_number: Optional[str] = None
     driver_name: Optional[str] = None
+    currency: Optional[str] = Field(None, pattern="^(GEL|USD|EUR|GBP|TRY|RUB|CHF)$")
+    exchange_rate: Optional[float] = Field(None, gt=0)
     line_items: Optional[List[LineItem]] = None
     comment: Optional[str] = Field(None, max_length=500)
 
@@ -439,7 +445,7 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
     c.drawCentredString(cx[1] + COL_DESC / 2, th_y + 4, "დასახელება")
     c.drawRightString(cx[2] + COL_QTY - 4, th_y + 4, "რაოდ.")
     c.drawRightString(cx[3] + COL_PRICE - 4, th_y + 4, "ერთ. ფასი")
-    c.drawRightString(cx[4] + COL_AMT - 4, th_y + 4, "თანხა (₾)")
+    c.drawRightString(cx[4] + COL_AMT - 4, th_y + 4, "თანხა")
     c.setStrokeColor(colors.HexColor("#4a7ab5"))
     c.setLineWidth(0.4)
     for xi in cx[1:]:
@@ -484,6 +490,18 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
             c.line(xi, row_y, xi, row_y + ROW_H)
         row_y -= ROW_H
 
+    # ── Currency symbol ───────────────────────────────────────────────────
+    _CURRENCY_SYMBOLS = {
+        "GEL": "₾", "USD": "$", "EUR": "€",
+        "GBP": "£", "TRY": "₺", "RUB": "₽", "CHF": "Fr",
+    }
+    currency = (inv.get("currency") or "GEL").upper()
+    csym = _CURRENCY_SYMBOLS.get(currency, currency)
+    exchange_rate = inv.get("exchange_rate")
+
+    # Update table header to show currency
+    c.drawRightString(cx[4] + COL_AMT - 4, th_y + 4, f"თანხა ({csym})")
+
     # ── Totals block ──────────────────────────────────────────────────────
     subtotal = float(inv.get("subtotal") or 0)
     vat      = float(inv.get("vat_amount") or 0)
@@ -499,17 +517,20 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
         c.drawRightString(MR, tot_y, txt)
         tot_y -= 14
 
-    _trow("ფასი:", f"{subtotal:.2f} ₾")
-    _trow("ფასდაკლება:", "0.00 ₾")
-    _trow("სხვაობა:", f"{subtotal:.2f} ₾")
-    _trow("დღგ (18%):", f"{vat:.2f} ₾")
+    _trow("ფასი:", f"{subtotal:.2f} {csym}")
+    _trow("ფასდაკლება:", f"0.00 {csym}")
+    _trow("სხვაობა:", f"{subtotal:.2f} {csym}")
+    _trow("დღგ (18%):", f"{vat:.2f} {csym}")
+    if currency != "GEL" and exchange_rate:
+        _trow(f"კურსი ({currency}/GEL):", f"{exchange_rate:.4f}")
+        _trow("ჯამი GEL:", f"{total * exchange_rate:.2f} ₾")
     c.setStrokeColor(NAVY)
     c.setLineWidth(0.8)
     c.line(tx, tot_y + 11, MR, tot_y + 11)
     # Total row with background
     c.setFillColor(TOTAL_BG)
     c.rect(tx, tot_y - 3, MR - tx, 16, fill=1, stroke=0)
-    _trow("ჯ ა მ ი:", f"{total:.2f} ₾", bold=True)
+    _trow("ჯ ა მ ი:", f"{total:.2f} {csym}", bold=True)
 
     # ── Signature + stamp area ────────────────────────────────────────────────
     import io as _io

@@ -8,6 +8,7 @@ import time
 import logging
 from typing import Optional
 from openai import OpenAI
+from app.api.metrics import AI_CLASSIFICATION_TOTAL, AI_CLASSIFICATION_DURATION
  
 logger = logging.getLogger(__name__)
  
@@ -96,6 +97,8 @@ Balance.ge COA: 7510=საბანკო საკომ., 7410=კავშ�
         else:
             result = {"account_code": "9999", "confidence": 0.5}
  
+        AI_CLASSIFICATION_TOTAL.labels(tenant=tenant_id, result="success").inc()
+        AI_CLASSIFICATION_DURATION.labels(model=model).observe(elapsed)
         return {
             "ok": True,
             "model": model,
@@ -103,9 +106,10 @@ Balance.ge COA: 7510=საბანკო საკომ., 7410=კავშ�
             "elapsed": elapsed,
             **result,
         }
- 
+
     except Exception as e:
         logger.error(f"AI classify error: {e}")
+        AI_CLASSIFICATION_TOTAL.labels(tenant=tenant_id, result="failure").inc()
         # fallback — rule-based
         return _rule_based_classify(description, amount)
  

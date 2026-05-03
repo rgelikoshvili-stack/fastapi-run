@@ -231,10 +231,12 @@ from app.api.routes_employee_portal import router as employee_portal_router
 from app.api.routes_employee_portal import pension_router as pension_transfer_router
 from app.api.routes_integrations import router as integrations_router
 from app.api.routes_aging import router as aging_router
+from app.api.routes_recurring import router as recurring_router
 from app.api.routes_period_lock import router as period_lock_router
 from app.api.routes_closing import router as closing_router
 from app.api.routes_cost_center import router as cost_center_router
 from app.api.routes_worker import router as worker_router
+from app.api.routes_email_inbound import router as email_inbound_router
 
 
 # --- INCLUDE ROUTERS ---
@@ -250,8 +252,10 @@ app.include_router(employee_portal_router)
 app.include_router(pension_transfer_router)
 app.include_router(integrations_router)
 app.include_router(aging_router)
+app.include_router(recurring_router)
 app.include_router(period_lock_router)
 app.include_router(worker_router)
+app.include_router(email_inbound_router)
 app.include_router(closing_router)
 app.include_router(cost_center_router)
 app.include_router(routes_debug.router)
@@ -399,7 +403,7 @@ async def start_background_tasks():
         print(f"⚠️ Balance credentials table migration (non-fatal): {e}")
     # JSON → DB one-time migration
     try:
-        from bridge_hub_knowledge import migrate_json_to_db
+        from app.knowledge.knowledge_loader import migrate_json_to_db
         await loop.run_in_executor(None, migrate_json_to_db)
     except Exception as e:
         print(f"⚠️ KB migration error (non-fatal): {e}")
@@ -426,7 +430,7 @@ async def start_background_tasks():
         print(f"⚠️ NBG rate sync (non-fatal): {e}")
     # Knowledge Base preload
     try:
-        from bridge_hub_knowledge import _load_files as _kb_load
+        from app.knowledge.knowledge_loader import _load_files as _kb_load
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _kb_load)
         print("✅ Knowledge Base loaded!")

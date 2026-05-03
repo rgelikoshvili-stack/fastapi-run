@@ -8,6 +8,7 @@ from app.api.db import get_db
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.services.entity_audit_service import log_entity_change
+from app.api.metrics import APPROVAL_ACTIONS, APPROVAL_DURATION
 
 log = logging.getLogger(__name__)
 
@@ -430,6 +431,7 @@ def approve_draft_service(draft_id: int, tenant_id: str):
     )
 
     _ws_notify(tenant_id, "draft_approved", draft_id, "approved")
+    APPROVAL_ACTIONS.labels(action="approve", tenant=tenant_id).inc()
 
     return ok_response(
         "Draft approved",
@@ -577,6 +579,7 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
     )
 
     _ws_notify(tenant_id, "draft_rejected", draft_id, "rejected")
+    APPROVAL_ACTIONS.labels(action="reject", tenant=tenant_id).inc()
 
     return ok_response(
         "Draft rejected",

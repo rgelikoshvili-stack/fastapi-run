@@ -63,23 +63,53 @@ def _extract_invoice_number(text: str) -> Optional[str]:
     return None
 
 
+def _strip_financial_noise(text: str) -> str:
+    """Remove IBANs, phone numbers with country code, and ID codes
+    so they don't pollute amount extraction."""
+    # Georgian/international IBAN: GExxTBxxxxxxx or GExx...
+    text = re.sub(r'\bGE\d{2}[A-Z0-9]{2,30}\b', '', text)
+    # Phone numbers: +995..., 995..., +7..., +44... etc.
+    text = re.sub(r'\+?\d{1,3}[\s\-]?\d{3}[\s\-]?\d{2,3}[\s\-]?\d{2,3}[\s\-]?\d{2,4}', '', text)
+    # Bank SWIFT codes (8-11 char all-caps alphanum, often TBCBGE22 etc.)
+    text = re.sub(r'\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b', '', text)
+    # Long numeric ID codes (identification numbers ≥ 9 pure digits not near a currency symbol)
+    text = re.sub(r'(?<![.,₾$€])\b\d{9,}\b(?![.,₾$€\d])', '', text)
+    return text
+
+
 def _extract_partner(text: str) -> Optional[str]:
-    patterns = [
-        r"\b(შპს\s+[^\n,]{2,80})",
-        r"\b(სს\s+[^\n,]{2,80})",
-        r"\b(LLC\s+[^\n,]{2,80})",
-        r"\b(Ltd\.?\s+[^\n,]{2,80})",
-        r"\b(Inc\.?\s+[^\n,]{2,80})",
-        r"\b(GmbH\s+[^\n,]{2,80})",
-        r"\b(ООО\s+[^\n,]{2,80})",
+    # Split at buyer/customer section marker to find SELLER (before marker)
+    # Georgian invoices: "მომხმარებელი:" or "Buyer:" marks start of buyer section
+    buyer_markers = r'(?:მომხმარებელი|buyer|bill\s*to|გადამხდელი|შემსყიდველი)\s*[:\-]'
+    seller_text = text
+    buyer_split = re.search(buyer_markers, text, re.IGNORECASE)
+    if buyer_split:
+        seller_text = text[:buyer_split.start()]
+
+    entity_patterns = [
+        r'\b(შპს\s+[^\n,]{2,60})',
+        r'\b(სს\s+[^\n,]{2,60})',
+        r'\b(ი/პ\s+[^\n,]{2,60})',
+        r'\b(LLC\s+[^\n,]{2,60})',
+        r'\b(Ltd\.?\s+[^\n,]{2,60})',
+        r'\b(Inc\.?\s+[^\n,]{2,60})',
+        r'\b(GmbH\s+[^\n,]{2,60})',
+        r'\b(ООО\s+[^\n,]{2,60})',
     ]
 
-    for pattern in patterns:
+    # First: look in seller portion only (before buyer section)
+    for pattern in entity_patterns:
+        m = re.search(pattern, seller_text, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+
+    # Fallback: full text
+    for pattern in entity_patterns:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             return m.group(1).strip()
 
-    alte = re.search(r"(სს\s*ალტე\s*ბანკი)", text, re.IGNORECASE)
+    alte = re.search(r'(სს\s*ალტე\s*ბანკი)', text, re.IGNORECASE)
     if alte:
         return alte.group(1).strip()
 
@@ -129,17 +159,26 @@ def _extract_all_amounts(text: str) -> list[float]:
 
 
 def _guess_total_amount(text: str) -> Optional[float]:
+    # Remove IBANs, phones, ID codes before any numeric extraction
+    clean = _strip_financial_noise(text)
+
+    # Try "სულ:" / "total:" labels first — most reliable
     total = _extract_labeled_amount(
-        text,
-        ["total", "amount due", "grand total", "სულ", "ჯამი", "გადასახდელი"],
+        clean,
+        ["სულ", "total", "amount due", "grand total", "გადასახდელი", "to pay"],
     )
-    if total is not None:
+    if total is not None and 0 < total < 10_000_000:
         return total
 
-    amounts = [a for a in _extract_all_amounts(text) if a > 0]
+    # "ჯამი:" is subtotal — only use if no "სულ:" found
+    subtotal = _extract_labeled_amount(clean, ["ჯამი", "subtotal", "sub total"])
+    if subtotal is not None and 0 < subtotal < 10_000_000:
+        return subtotal
+
+    # Last resort: max of all decimal amounts in clean text
+    amounts = [a for a in _extract_all_amounts(clean) if 0 < a < 500_000]
     if not amounts:
         return None
-
     return max(amounts)
 
 
@@ -203,8 +242,10 @@ def parse_invoice_pdf(content: bytes) -> dict:
     result["partner"] = _extract_partner(normalized_text)
     result["currency"] = _extract_currency(normalized_text)
 
-    total_amount = _guess_total_amount(normalized_text)
-    vat_amount = _guess_vat_amount(normalized_text, total_amount)
+    # Strip noise before numeric extraction (phones, IBANs, ID codes)
+    clean_text = _strip_financial_noise(normalized_text)
+    total_amount = _guess_total_amount(clean_text)
+    vat_amount = _guess_vat_amount(clean_text, total_amount)
 
     # VAT sanity check
     if vat_amount and total_amount and vat_amount > total_amount:

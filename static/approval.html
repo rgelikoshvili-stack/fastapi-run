@@ -2859,18 +2859,34 @@ function loadPage() {
 window.loadPage = loadPage;
 
 /* ═════════ KPI ═════════ */
-async function loadKPI() {
-  const d = await api('/dashboard/live/kpi');
-  if (!d || !d.ok) return;
-  const k = d.kpi || {};
+const KPI_CACHE_KEY = 'bh_kpi_cache';
+const KPI_TTL = 60000; // 60 seconds
+
+function _renderKPIs(k) {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set('kpi-pending', k.pending ?? '—');
   set('kpi-approved', k.approved ?? '—');
   set('kpi-auto', k.auto_approved ?? '—');
   set('kpi-conf', Math.round((k.avg_confidence || 0) * 100) + '%');
-  // sidebar badge
   const sb = document.getElementById('sb-pending');
   if (sb) { sb.textContent = k.pending ?? 0; sb.classList.toggle('hidden', !k.pending); }
+}
+
+async function loadKPI(forceRefresh) {
+  if (!forceRefresh) {
+    try {
+      const cached = sessionStorage.getItem(KPI_CACHE_KEY);
+      if (cached) {
+        const { data, ts } = JSON.parse(cached);
+        if (Date.now() - ts < KPI_TTL) { _renderKPIs(data); return; }
+      }
+    } catch (_) {}
+  }
+  const d = await api('/dashboard/live/kpi');
+  if (!d || !d.ok) return;
+  const k = d.kpi || {};
+  try { sessionStorage.setItem(KPI_CACHE_KEY, JSON.stringify({ data: k, ts: Date.now() })); } catch (_) {}
+  _renderKPIs(k);
 }
 
 /* ═════════ DOC MATRIX ═════════ */
@@ -3021,7 +3037,7 @@ async function loadPending(page = 1) {
 async function reclassifyAll() {
   toast('⏳ კლასიფიცირება...', 'info');
   try {
-    const d = await api('/approval/reclassify', { method: 'POST' });
+    const d = await api('/approval/reclassify', 'POST');
     if (d?.ok) {
       toast(`✓ ${d.reclassified} ჩანაწერი კლასიფიცირდა`, 'ok');
       loadPending(1);
@@ -3078,7 +3094,7 @@ async function approve(id) {
   const d = await api('/approval/approve/' + id, 'POST');
   if (d) {
     toast('✓ დამტკიცდა #' + id, 'ok');
-    loadKPI(); loadPending();
+    loadKPI(true); loadPending();
     showPostingPreview(id);
   } else toast('დამტკიცება ვერ მოხერხდა', 'err');
 }
@@ -3088,7 +3104,7 @@ async function reject(id) {
   const reason = prompt('უარყოფის მიზეზი:');
   if (reason === null) return;
   const d = await api('/approval/reject/' + id, 'POST', { reason: reason || 'no reason' });
-  if (d) { toast('✕ უარყოფილი #' + id, 'warn'); loadKPI(); loadPending(); }
+  if (d) { toast('✕ უარყოფილი #' + id, 'warn'); loadKPI(true); loadPending(); }
   else toast('უარყოფა ვერ მოხერხდა', 'err');
 }
 window.reject = reject;
@@ -5004,6 +5020,20 @@ async function showDraftDocument(draftId) {
     srcDocId = j?.draft?.source_document_id;
   } catch(e) {}
 
+  // 1b. Email-created drafts use attached_file_path — try that first
+  if (!srcDocId) {
+    try {
+      const attR = await fetch(BASE + '/approval/draft/' + draftId + '/attachment', {
+        headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}
+      });
+      if (attR.ok) {
+        const attJ = await attR.json();
+        const signedUrl = attJ?.data?.signed_url;
+        if (signedUrl) { window.open(signedUrl, '_blank'); return; }
+      }
+    } catch(e) {}
+  }
+
   if (!srcDocId) {
     toast('ამ გატარებაზე დოკუმენტი არ არის მიბმული', 'warning');
     return;
@@ -5697,62 +5727,10 @@ async function init() {
   setInterval(() => { loadPending(); }, 10000);
 }
 
-/* ═════════ LIVE WebSocket ═════════ */
-let _ws = null;
-let _wsRetry = 0;
-
+/* ═════════ LIVE — polling mode (Cloud Run doesn't support WebSocket) ═════════ */
 function connectLiveWS() {
-  if (!TOKEN || !TENANT) return;
-  const wsBase = BASE.replace('https://', 'wss://').replace('http://', 'ws://');
-  const url = `${wsBase}/notifications/ws/live?tenant_id=${encodeURIComponent(TENANT)}&token=${encodeURIComponent(TOKEN)}`;
-
-  try {
-    _ws = new WebSocket(url);
-  } catch (e) {
-    return;
-  }
-
-  _ws.onopen = () => {
-    _wsRetry = 0;
-    const dot = document.getElementById('ws-dot');
-    if (dot) { dot.style.background = '#4a7c3a'; dot.title = 'Live — დაკავშირებულია'; }
-  };
-
-  _ws.onmessage = (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch { return; }
-
-    if (msg.type === 'new_draft') {
-      // New AI draft arrived — refresh queue and show toast
-      const conf = Math.round((msg.confidence || 0) * 100);
-      toast(`📥 ახალი AI draft #${msg.draft_id} — ${esc(msg.description || '')} (${conf}%)`, 'info');
-      loadKPI();
-      loadPending();
-      // sidebar badge bump
-      const sb = document.getElementById('sb-pending');
-      if (sb) { const n = parseInt(sb.textContent || '0') + 1; sb.textContent = n; sb.classList.remove('hidden'); }
-    } else if (msg.type === 'draft_approved') {
-      loadKPI(); loadPending();
-    } else if (msg.type === 'draft_rejected') {
-      loadKPI(); loadPending();
-    } else if (msg.type === 'stats_update' && msg.data) {
-      const sb = document.getElementById('sb-pending');
-      if (sb) {
-        const n = msg.data.pending_approval || 0;
-        sb.textContent = n; sb.classList.toggle('hidden', !n);
-      }
-    }
-  };
-
-  _ws.onclose = () => {
-    const dot = document.getElementById('ws-dot');
-    if (dot) { dot.style.background = '#b57d1a'; dot.title = 'Offline — კავშირი გაწყდა'; }
-    _wsRetry++;
-    const delay = Math.min(30000, 2000 * _wsRetry);
-    setTimeout(() => connectLiveWS(), delay);
-  };
-
-  _ws.onerror = () => { _ws.close(); };
+  const dot = document.getElementById('ws-dot');
+  if (dot) { dot.style.background = '#4a7c3a'; dot.title = 'Live — polling რეჟიმი'; }
 }
 
 document.addEventListener('DOMContentLoaded', init);

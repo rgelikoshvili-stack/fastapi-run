@@ -28,8 +28,10 @@ from app.api.services.doc_journal_builder import build_journal
 from app.api.services.triangle_matcher import compute_match_score, find_candidates, upsert_triangle_match
 from app.api.services.correction_detector import detect_corrections, save_corrections
 from app.api.services.storage_service import upload_file as gcs_upload, download_file as gcs_download, safe_download
+from app.api.metrics import FILE_PREVIEW_DURATION, FILE_UPLOAD_TOTAL
 from app.api.services.completeness_checker import check_document_set
 from app.api.services.contract_classifier import classify_provider_type
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 log = logging.getLogger(__name__)
@@ -164,6 +166,7 @@ def _upsert_counterparty(tenant_id: str, inn: str, name: str, cp_type: str) -> N
 @router.post("/upload")
 @limiter.limit("10/minute")
 async def upload_document(file: UploadFile = File(...), request: Request = None):
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
 
     file_bytes = await file.read()
@@ -815,6 +818,7 @@ def _also_queue_for_pipeline(tenant_id: str, file_bytes: bytes, mime_type: str, 
 @limiter.limit("20/minute")
 async def upload_waybill(file: UploadFile = File(...), request: Request = None):
     """Upload a waybill (ზედნადები). Extracts fields + attempts triangle match."""
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
 
     file_bytes = await file.read()
@@ -891,6 +895,7 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
 @limiter.limit("20/minute")
 async def upload_tax_invoice(file: UploadFile = File(...), request: Request = None):
     """Upload a tax invoice (საგადასახადო ანგარიშ-ფაქტურა)."""
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
 
     file_bytes = await file.read()
@@ -968,6 +973,7 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
 @limiter.limit("20/minute")
 async def upload_commercial_invoice(file: UploadFile = File(...), request: Request = None):
     """Upload a commercial invoice (ანგარიში)."""
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
 
     file_bytes = await file.read()
@@ -1208,6 +1214,7 @@ class _TIEmailReq(_BaseModel):
 @limiter.limit("10/minute")
 def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Request):
     """Generate a PDF for a tax invoice and email it."""
+    require_permission(request, "ocr:write")
     import io, os, smtplib, json as _json
     from email.mime.multipart import MIMEMultipart
     from email.mime.base import MIMEBase
@@ -1354,6 +1361,7 @@ async def get_document_meta(doc_id: int, request: Request = None):
 @router.get("/{doc_id}/file")
 async def get_document_file(doc_id: int, request: Request = None):
     """Serve the original uploaded file bytes for invoice/document preview."""
+    import time
     from fastapi.responses import Response
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
     conn = get_db(tenant_id)
@@ -1374,7 +1382,11 @@ async def get_document_file(doc_id: int, request: Request = None):
 
     file_name, mime_type, gcs_path, file_content = row
 
+    _t0 = time.time()
     content = safe_download(gcs_path, file_content)
+    method = "gcs" if gcs_path else "db"
+    FILE_PREVIEW_DURATION.labels(method=method).observe(time.time() - _t0)
+
     if not content:
         return http_error(404, "File not available — please re-upload", "NOT_FOUND")
 
@@ -1410,7 +1422,10 @@ async def get_document_signed_url(doc_id: int, request: Request = None):
     file_name, mime_type, gcs_path = row
 
     if gcs_path:
+        import time as _time
+        _t0 = _time.time()
         signed_url = generate_signed_url(gcs_path, expires_in=900)
+        FILE_PREVIEW_DURATION.labels(method="signed_url").observe(_time.time() - _t0)
         if signed_url:
             return ok_response({"signed_url": signed_url, "file_name": file_name, "fallback": False})
 

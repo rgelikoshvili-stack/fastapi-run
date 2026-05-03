@@ -142,7 +142,13 @@ def resolve_party(doc: ExtractedDocument, tenant_id: str) -> PartyResolution:
         role = OurRole.FOREIGN
         cp_inn = None
         cp_name = None
-        confidence = 0.85
+        # Graduated confidence: higher when both INNs extracted (document was readable)
+        if doc.seller.inn and doc.buyer.inn:
+            confidence = 0.50   # both INNs extracted — system understood doc, just not our tenant
+        elif doc.seller.inn or doc.buyer.inn:
+            confidence = 0.35   # one INN extracted
+        else:
+            confidence = 0.10   # no INNs — likely unreadable or wrong doc
         owner_id = tenant.get("owner_personal_id")
         if owner_id and (doc.buyer.inn == owner_id or doc.seller.inn == owner_id):
             warnings.append(

@@ -415,7 +415,7 @@ def hybrid_search(query: str, top_k: int = 5) -> list[dict]:
     semantic_results = semantic_search(query, top_k=top_k)
 
     # 2. Keyword ძიება Python rules-იდან
-    from bridge_hub_knowledge import search_knowledge
+    from app.knowledge.journal_builder import search_knowledge
     keyword_results = search_knowledge(query, top_k=top_k)
 
     # 3. შეერთება და დუბლიკატების გამორიცხვა
@@ -527,7 +527,7 @@ def learn_from_correction(
 
     # Python rules-შიც ვამატებთ სწრაფი ძიებისთვის
     try:
-        from bridge_hub_knowledge import learn_new_rule
+        from app.knowledge.knowledge_loader import learn_new_rule
         learn_new_rule(original_text, correct_account, tenant_id=tenant_id, note=note)
     except Exception:
         pass

@@ -180,6 +180,22 @@ td.dim{color:var(--ink-dim)}
 #toast.ok{background:var(--green)}
 #toast.warn{background:var(--amber)}
 #toast.err{background:var(--red)}
+
+/* POSTING PREVIEW OVERLAY */
+.overlay{display:none;position:fixed;inset:0;background:rgba(26,21,18,.52);z-index:200;align-items:center;justify-content:center;padding:16px}
+.overlay.show{display:flex}
+.pp-modal{background:var(--card);border-radius:16px;max-width:620px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.38)}
+.pp-header{padding:18px 22px 14px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--card);border-radius:16px 16px 0 0;z-index:1}
+.pp-body{padding:20px 22px;overflow-y:auto;flex:1}
+.pp-footer{padding:14px 22px;border-top:1px solid var(--line-soft);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:var(--card);border-radius:0 0 16px 16px}
+.mf-k{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+.mf-v{font-size:13px;font-weight:500;margin-top:2px}
+.kpi-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:var(--paper-sunk);color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;border:1px solid var(--line)}
+.a-green{background:var(--green-bg);color:var(--green);border-color:transparent}
+.a-red{background:var(--red-bg);color:var(--red);border-color:transparent}
+.a-amber{background:var(--amber-bg);color:var(--amber);border-color:transparent}
+.a-purple{background:#f3e8ff;color:#7c3aed;border-color:transparent}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
@@ -345,6 +361,20 @@ td.dim{color:var(--ink-dim)}
           <tbody id="rejected-rows"><tr><td colspan="8"><div class="loading-row"><span class="spinner"></span></div></td></tr></tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- POSTING PREVIEW OVERLAY -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="pp-modal">
+    <div class="pp-header">
+      <div style="font-size:16px;font-weight:600;letter-spacing:-.01em" id="modal-title">Draft Preview</div>
+      <button style="width:30px;height:30px;border-radius:50%;background:var(--paper-sunk);border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center" onclick="closeModal()">✕</button>
+    </div>
+    <div class="pp-body" id="modal-body"></div>
+    <div class="pp-footer" id="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
     </div>
   </div>
 </div>
@@ -538,8 +568,8 @@ async function loadAll() {
     const id = getId(r);
     const text = [id, r.date||'', getDesc(r), r.amount||'', getCat(r), r.status||''].join(' ');
     const pct = Math.round(getConfV(r)*100);
-    return `<tr data-text="${esc(text)}" data-conf="${pct}">
-      <td><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
+    return `<tr style="cursor:pointer" data-text="${esc(text)}" data-conf="${pct}" onclick="showPostingPreview('${id}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
       <td class="mono">#${String(id).slice(-6)}</td>
       <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
       <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
@@ -547,7 +577,10 @@ async function loadAll() {
       <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
       <td>${fmtConf(getConfV(r))}</td>
       <td>${fmtStatus(r.status)}</td>
-      <td class="dim" style="font-size:11.5px;font-family:var(--mono)">${esc(getSource(r))}</td>
+      <td onclick="event.stopPropagation()">
+        <button onclick="showRowMenu(event,'${id}','${esc(getDesc(r))}','${esc(String(r.amount||0))}','${esc(getCat(r))}')" title="მოქმედებები"
+          style="background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(111,66,193,.3)">⋯</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -574,19 +607,20 @@ async function loadPending() {
     const id = getId(r);
     const pct = Math.round(getConfV(r)*100);
     const text = [id, r.date||'', getDesc(r), r.amount||'', getCat(r)].join(' ');
-    return `<tr data-text="${esc(text)}" data-conf="${pct}">
-      <td><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
-      <td class="mono">#${String(id).slice(-6)}</td>
+    return `<tr style="cursor:pointer" data-text="${esc(text)}" data-conf="${pct}" onclick="showPostingPreview('${id}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" data-id="${esc(String(id))}" onchange="toggleRow('${esc(String(id))}',this.checked)"/></td>
+      <td class="mono">#${id}</td>
       <td class="mono dim">${fmtDate(r.date||r.created_at)}</td>
       <td class="desc" title="${esc(getDesc(r))}">${esc(getDesc(r))}</td>
       <td class="num">${fmtAmt(r.amount)}</td>
       <td><span class="chip chip-draft" style="font-size:10px">${esc(getCat(r))}</span></td>
       <td>${fmtConf(getConfV(r))}</td>
       <td>${fmtStatus(r.status)}</td>
-      <td><div class="act-wrap">
-        <button class="act act-ok" title="Approve" onclick="doApprove('${esc(String(id))}')">✓</button>
-        <button class="act act-no" title="Reject" onclick="openReject('${esc(String(id))}')">✕</button>
-        <button class="act act-view" title="Draft detail" onclick="location.href='/static/draft_detail.html?id=${esc(String(id))}'">👁</button>
+      <td><div class="act-wrap" style="gap:8px">
+        <button onclick="event.stopPropagation();showDraftDocument('${id}')" title="ორიგინალი დოკუმენტის ნახვა"
+          style="background:linear-gradient(135deg,#17a2b8,#138496);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(23,162,184,.35)">👁</button>
+        <button onclick="event.stopPropagation();showRowMenu(event,'${id}','${esc(getDesc(r))}','${esc(String(r.amount||0))}','${esc(getCat(r))}')" title="მოქმედებები"
+          style="background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(111,66,193,.35)">⋯</button>
       </div></td>
     </tr>`;
   }).join('');
@@ -638,6 +672,343 @@ async function loadRejected() {
     <td>${fmtStatus(r.status)}</td>
   </tr>`).join('');
 }
+
+// ── POSTING PREVIEW MODAL ──
+const BASE = '';
+let TOKEN = getToken();
+let _modalToken = 0;
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+async function showPostingPreview(id) {
+  const myToken = ++_modalToken;
+  document.getElementById('modal-title').innerHTML = `Draft <em>#${esc(id)}</em>`;
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `<div style="text-align:center;padding:32px"><span class="spinner"></span><div style="margin-top:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim)">Loading…</div></div>`;
+  document.getElementById('modal-footer').innerHTML = `<button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>`;
+  document.getElementById('overlay').classList.add('show');
+  try {
+    const r = await fetch('/posting/preview/' + id, { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    const j = await r.json();
+    if (_modalToken !== myToken) return;
+    if (!r.ok || !j.ok) {
+      body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r);border-left:3px solid var(--red)">✕ ${esc(j.error?.details || j.message || 'Preview ვერ მოიძებნა')}</div>`;
+      return;
+    }
+    const dr = j.draft || {};
+    const imp = j.impact || {};
+    const cur = imp.currency || dr.currency || 'GEL';
+    const amt = dr.amount || 0;
+    const confPct = dr.confidence != null ? Math.round(dr.confidence * 100) : null;
+    const confColor = confPct == null ? 'var(--ink-dim)' : confPct >= 85 ? 'var(--green)' : confPct >= 60 ? 'var(--amber)' : 'var(--red)';
+
+    const sA = `<div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Draft Summary</div>
+      <div style="background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:var(--r);padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;font-size:13px">
+        <div><div class="mf-k" style="margin-bottom:3px">Draft ID</div><div style="font-family:var(--mono);font-weight:600">#${esc(j.draft_id)}</div></div>
+        <div><div class="mf-k" style="margin-bottom:3px">Status</div><div>${fmtStatus(dr.status)}</div></div>
+        <div style="grid-column:1/-1"><div class="mf-k" style="margin-bottom:3px">Description</div><div style="font-weight:500">${esc(dr.description)}</div></div>
+        <div style="grid-column:1/-1"><div class="mf-k" style="margin-bottom:3px">Partner</div><div>${esc(dr.partner||'—')}</div></div>
+        <div><div class="mf-k" style="margin-bottom:3px">Amount</div><div style="font-weight:600;font-size:15px">${fmtMoney(amt)} ${esc(cur)}</div></div>
+        <div><div class="mf-k" style="margin-bottom:3px">Confidence</div><div style="font-weight:600;color:${confColor}">${confPct != null ? confPct + '%' : '—'}</div></div>
+        ${dr.date ? `<div><div class="mf-k" style="margin-bottom:3px">Date</div><div style="font-family:var(--mono)">${esc(dr.date)}</div></div>` : ''}
+      </div></div>`;
+
+    const catL = {expense:'ხარჯი',income:'შემოსავალი',asset:'აქტივი',liability:'ვალდებულება',vat:'დღგ',tax:'გადასახადი',other:'სხვა'};
+    const drCat = catL[imp.debit_category] || imp.debit_category || '';
+    const crCat = catL[imp.credit_category] || imp.credit_category || '';
+
+    // Multi-line journal entries if present
+    let journalLines = '';
+    let jeArr = [];
+    try { jeArr = dr.journal_entries ? (typeof dr.journal_entries === 'string' ? JSON.parse(dr.journal_entries) : dr.journal_entries) : []; } catch(e){}
+    if (jeArr.length > 1) {
+      journalLines = jeArr.map(e => {
+        const side = e.debit_account ? 'Dr' : 'Cr';
+        const acc = e.debit_account || e.credit_account || '—';
+        const color = side === 'Dr' ? 'var(--green)' : 'var(--red)';
+        const bg = side === 'Dr' ? 'var(--green-soft)' : 'var(--red-soft)';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${bg};border-left:3px solid ${color}">
+          <span><span style="font-weight:800;color:${color};min-width:22px;display:inline-block;font-family:var(--mono)">${side}</span>
+          <span style="font-weight:600;font-family:var(--mono)">${esc(acc)}</span>
+          ${e.description ? `<span style="color:var(--ink-dim);font-size:11px;margin-left:8px">${esc(e.description)}</span>` : ''}</span>
+          <span style="font-weight:700;font-family:var(--mono)">${fmtMoney(e.amount)}</span></div>`;
+      }).join('');
+    } else {
+      journalLines = `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--green-soft);border-left:3px solid var(--green)">
+          <span><span style="font-weight:800;color:var(--green);min-width:22px;display:inline-block;font-family:var(--mono)">Dr</span>
+          <span style="font-weight:600;font-family:var(--mono)">${esc(dr.debit_account||'—')}</span>
+          ${drCat ? `<span style="color:var(--ink-dim);font-size:11px;margin-left:8px">${esc(drCat)}</span>` : ''}</span>
+          <span style="font-weight:700;font-family:var(--mono)">${fmtMoney(amt)}</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--red-soft);border-left:3px solid var(--red)">
+          <span><span style="font-weight:800;color:var(--red);min-width:22px;display:inline-block;font-family:var(--mono)">Cr</span>
+          <span style="font-weight:600;font-family:var(--mono)">${esc(dr.credit_account||'—')}</span>
+          ${crCat ? `<span style="color:var(--ink-dim);font-size:11px;margin-left:8px">${esc(crCat)}</span>` : ''}</span>
+          <span style="font-weight:700;font-family:var(--mono)">${fmtMoney(amt)}</span></div>`;
+    }
+    const sB = `<div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Journal Lines</div>
+      <div style="border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden;font-family:var(--mono);font-size:13px">${journalLines}</div></div>`;
+
+    const plSign = imp.pl_direction === 'increase' ? '+' : imp.pl_direction === 'decrease' ? '−' : '';
+    const plCls = imp.pl_direction === 'increase' ? 'a-green' : imp.pl_direction === 'decrease' ? 'a-red' : '';
+    const sC = `<div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Impact</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="kpi-pill ${plCls}">P&L: <b>${imp.pl_impact != null ? plSign + fmtMoney(Math.abs(imp.pl_impact)) : '—'}</b></span>
+        <span class="kpi-pill a-amber">VAT: <b>${imp.vat_change != null ? (imp.vat_change > 0 ? '+' : '') + fmtMoney(imp.vat_change) : '—'}</b></span>
+        <span class="kpi-pill a-purple">TAX: <b>${imp.tax_impact != null ? fmtMoney(imp.tax_impact) : '—'}</b></span>
+      </div></div>`;
+
+    const notes = imp.notes?.length ? imp.notes : imp.summary ? [imp.summary] : [];
+    const sD = notes.length ? `<div style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Explanation</div>
+      <div style="background:var(--blue-soft);border-radius:var(--r);padding:12px 14px;border-left:3px solid var(--blue)">
+        <ul style="padding-left:18px;margin:0;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-soft);line-height:1.7">${notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>
+      </div></div>` : '';
+
+    const attFile = dr.attached_file_name;
+    const sF = `<div style="margin-bottom:10px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">დამხმარე ფაილი</div>
+      <div style="border:1px solid var(--line-soft);border-radius:var(--r);padding:10px 14px;background:var(--paper-soft);display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="font-size:16px">📎</span>
+          <span style="color:${attFile ? 'var(--ink)' : 'var(--ink-dim)'}">${attFile ? esc(attFile) : 'ფაილი არ არის მიბმული'}</span></span>
+        ${attFile ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="viewDraftAttachment(${id})">👁 ნახვა</button>` : ''}
+      </div></div>`;
+
+    body.innerHTML = sA + sB + sC + sD + sF;
+    document.getElementById('modal-footer').innerHTML = `
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">დახურვა</button>
+      <button class="btn btn-danger btn-sm" onclick="closeModal();openReject('${id}')">✕ უარყოფა</button>
+      <button class="btn btn-success btn-sm" onclick="closeModal();doApprove('${id}')">✓ დამტკიცება</button>`;
+  } catch(e) {
+    body.innerHTML = `<div style="background:var(--red-soft);color:var(--red);padding:14px 16px;border-radius:var(--r)">✕ ${esc(e.message)}</div>`;
+  }
+}
+
+// ── DOCUMENT VIEWER ──
+async function showDraftDocument(draftId) {
+  let srcDocId = null;
+  try {
+    const r = await fetch('/posting/preview/' + draftId, { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    const j = await r.json();
+    srcDocId = j?.draft?.source_document_id;
+  } catch(e) {}
+  if (!srcDocId) {
+    try {
+      const ar = await fetch('/approval/draft/' + draftId + '/attachment', { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+      if (ar.ok) {
+        const aj = await ar.json();
+        const su = aj?.data?.signed_url;
+        if (su) { window.open(su, '_blank'); return; }
+      }
+    } catch(e) {}
+  }
+  if (!srcDocId) { toast('ამ გატარებაზე დოკუმენტი არ არის მიბმული', 'warn'); return; }
+  try {
+    const ur = await fetch('/documents/' + srcDocId + '/url', { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    if (ur.ok) { const ud = await ur.json(); if (ud?.data?.signed_url) { window.open(ud.data.signed_url, '_blank'); return; } }
+  } catch(e) {}
+  try {
+    const resp = await fetch('/documents/' + srcDocId + '/file', { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    if (!resp.ok) { toast('დოკუმენტი ვერ მოიძებნა', 'err'); return; }
+    const blob = await resp.blob();
+    window.open(URL.createObjectURL(blob), '_blank');
+  } catch(e) { toast('ჩამოტვირთვის შეცდომა: ' + e.message, 'err'); }
+}
+
+async function viewDraftAttachment(draftId) {
+  try {
+    const r = await fetch('/approval/draft/' + draftId + '/attachment', { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {} });
+    const j = await r.json();
+    const su = j?.data?.signed_url;
+    if (su) { window.open(su, '_blank'); return; }
+  } catch(e) {}
+  toast('ფაილი ვერ გაიხსნა', 'err');
+}
+
+// ── ROW MENU ──
+function showRowMenu(event, id, desc, amount, cat) {
+  event.stopPropagation();
+  document.getElementById('_rowMenu')?.remove();
+  const menu = document.createElement('div');
+  menu.id = '_rowMenu';
+  menu.style.cssText = 'position:fixed;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.22);padding:8px;z-index:9999;min-width:200px;animation:fadeIn .15s ease';
+  const rect = event.currentTarget.getBoundingClientRect();
+  let left = rect.left - 180;
+  if (left < 8) left = 8;
+  menu.style.left = left + 'px';
+  menu.style.top = (rect.bottom + 6) + 'px';
+  const items = [
+    { icon:'👁', label:'დეტალები', color:'#3a5a8c', fn: ()=> showPostingPreview(id) },
+    { icon:'✏️', label:'კორექტირება', color:'#fd7e14', fn: ()=> openEditModal(id) },
+    { icon:'📄', label:'ფაილის ნახვა', color:'#17a2b8', fn: ()=> showDraftDocument(id) },
+    { sep: true },
+    { icon:'✅', label:'დამტკიცება', color:'#28a745', fn: ()=> doApprove(id) },
+    { icon:'❌', label:'უარყოფა', color:'#dc3545', fn: ()=> openReject(id) },
+    { sep: true },
+    { icon:'🗑️', label:'წაშლა', color:'#6b7280', fn: ()=> deleteDraft(id) },
+  ];
+  items.forEach(item => {
+    if (item.sep) { const hr = document.createElement('div'); hr.style.cssText = 'height:1px;background:#f0f0f0;margin:4px 0'; menu.appendChild(hr); return; }
+    const el = document.createElement('div');
+    el.style.cssText = 'padding:9px 14px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;transition:background .15s';
+    el.innerHTML = `<span style="font-size:16px">${item.icon}</span><span style="color:${item.color}">${item.label}</span>`;
+    el.onmouseenter = ()=> el.style.background = '#f8f9fa';
+    el.onmouseleave = ()=> el.style.background = '';
+    el.onclick = ()=> { menu.remove(); item.fn(); };
+    menu.appendChild(el);
+  });
+  document.body.appendChild(menu);
+  setTimeout(()=> document.addEventListener('click', function _c(){ menu.remove(); document.removeEventListener('click',_c); }, { once:true }), 50);
+}
+
+// ── CORRECTION MODAL ──
+async function openEditModal(draftId) {
+  ++_modalToken;
+  const headers = TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
+  let draft = {}, docMeta = null, srcDocId = null;
+  try {
+    const prev = await fetch('/posting/preview/' + draftId, { headers });
+    const pj = await prev.json();
+    draft = pj?.draft || {};
+    srcDocId = draft.source_document_id;
+  } catch(e) {}
+  if (srcDocId) {
+    try {
+      const dm = await fetch('/documents/' + srcDocId, { headers });
+      const dj = await dm.json();
+      if (dj?.ok) docMeta = dj;
+    } catch(e) {}
+  }
+  let rawExt = {};
+  if (draft.raw_extraction) { try { rawExt = typeof draft.raw_extraction === 'string' ? JSON.parse(draft.raw_extraction) : draft.raw_extraction; } catch(e) {} }
+  const _docExt = docMeta?.extracted || {};
+  const ext = Object.keys(_docExt).length ? _docExt : rawExt;
+  const invNum  = ext.document_number || ext.invoice_number || ext.number || '—';
+  const supplier = ext.seller?.name || ext.counterparty_name || draft.partner || '—';
+  const supplierInn = ext.seller?.inn || ext.seller_inn || draft.counterparty_inn || '';
+  const invDate = ext.issue_date || draft.date || '—';
+  const debit   = draft.debit_account  || '';
+  const credit  = draft.credit_account || '';
+  const amt     = draft.amount || 0;
+  const fileUrl = srcDocId ? '/documents/' + srcDocId + '/file' : null;
+
+  // also check for email attachment
+  let attFile = draft.attached_file_name || '';
+  if (!srcDocId && !attFile) {
+    try {
+      const ar = await fetch('/approval/draft/' + draftId + '/attachment', { headers });
+      if (ar.ok) { const aj = await ar.json(); attFile = aj?.data?.file_name || ''; }
+    } catch(e) {}
+  }
+
+  const docCard = `<div style="margin-bottom:18px;border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--paper-soft);border-bottom:1px solid var(--line-soft)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">📄</span>
+        <div>
+          <div style="font-weight:600;font-size:13px">${srcDocId ? esc(docMeta?.file_name || 'დოკუმენტი') : attFile ? esc(attFile) : 'დოკუმენტი არ არის მიბმული'}</div>
+          ${srcDocId ? `<div style="font-size:11px;color:var(--ink-dim)">ID #${srcDocId}</div>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${(srcDocId || attFile) ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showDraftDocument(${draftId})">👁 ნახვა</button>` : ''}
+        ${srcDocId ? `<a class="btn btn-ghost btn-sm" style="font-size:11px;text-decoration:none" href="${fileUrl}" target="_blank" download>⬇ გადმოწ.</a>` : ''}
+      </div>
+    </div>
+    <div style="padding:12px 14px;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px">
+      ${invNum !== '—' ? `<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">ინვოისი #</span><span style="font-weight:700;font-family:var(--mono);margin-left:6px">${esc(invNum)}</span></div>` : ''}
+      ${invDate !== '—' ? `<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">თარიღი</span><span style="font-weight:500;margin-left:6px">${esc(String(invDate))}</span></div>` : ''}
+      ${supplier !== '—' ? `<div style="grid-column:1/-1"><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">მომwODEBELI</span><span style="font-weight:700;margin-left:6px;font-size:14px">${esc(supplier)}</span></div>` : ''}
+      ${supplierInn ? `<div><span style="color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em">INN</span><span style="font-family:var(--mono);margin-left:6px">${esc(supplierInn)}</span></div>` : ''}
+    </div></div>`;
+
+  const _lr = (side, idAcc, val, idNote, color) => `
+    <div style="display:grid;grid-template-columns:36px 120px 1fr auto;align-items:center;gap:8px;padding:10px 14px;background:${side==='Dr'?'var(--green-soft)':'var(--red-soft)'};border-left:4px solid ${color}">
+      <span style="font-weight:800;color:${color};font-family:var(--mono);font-size:14px">${side}</span>
+      <input id="${idAcc}" value="${esc(val)}" placeholder="ანგარიში…"
+        style="border:none;border-bottom:2px solid ${color};padding:3px 4px;font-size:14px;font-weight:700;font-family:var(--mono);background:transparent;outline:none;width:100%;color:inherit">
+      <input id="${idNote}" placeholder="ხარჯის მუხლის შინარსი…"
+        style="border:none;border-bottom:1px solid var(--line-strong);padding:3px 6px;font-size:12px;background:transparent;outline:none;width:100%;color:var(--ink-soft);font-family:var(--serif)">
+      <span style="font-weight:600;font-family:var(--mono);white-space:nowrap;font-size:13px;color:var(--ink-dim)">${fmtMoney(amt)}</span>
+    </div>`;
+
+  const journalSection = `<div style="margin-bottom:16px">
+    <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Journal Lines — კორექტირება</div>
+    <div id="edit-journal-lines" style="border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden">
+      ${_lr('Dr','edit-debit',debit,'edit-debit-note','var(--green)')}
+      ${_lr('Cr','edit-credit',credit,'edit-credit-note','var(--red)')}
+      <div id="edit-extra-lines"></div>
+      <div style="padding:8px 14px;background:var(--paper-soft);border-top:1px solid var(--line-soft)">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="_addEditLine()">+ მუხლის დამატება</button>
+      </div>
+    </div></div>`;
+
+  const commentSection = `<div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px">კომენტარი / მიზეზი</div>
+    <textarea id="edit-reason" rows="3" placeholder="კორექტირების მიზეზი…"
+      style="width:100%;border:1px solid var(--line-soft);border-radius:var(--r);padding:8px 12px;font-size:13px;font-family:var(--serif);resize:vertical;box-sizing:border-box"></textarea>
+  </div>`;
+
+  document.getElementById('modal-title').innerHTML = `კორექტირება <em>#${esc(String(draftId))}</em>`;
+  document.getElementById('modal-body').innerHTML = docCard + journalSection + commentSection;
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="closeModal()">გაუქმება</button>
+    <button class="btn btn-success btn-sm" onclick="_submitCorrection(${draftId})">💾 შენახვა და დამტკიცება</button>`;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function _addEditLine() {
+  const wrap = document.getElementById('edit-extra-lines');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:36px 120px 1fr auto 24px;align-items:center;gap:8px;padding:9px 14px;border-top:1px solid var(--line-soft);background:var(--paper-soft)';
+  row.innerHTML = `
+    <select data-extra-side style="border:1px solid var(--line-soft);border-radius:5px;padding:3px 5px;font-size:12px;font-family:var(--mono);font-weight:700"><option>Dr</option><option>Cr</option></select>
+    <input placeholder="ანგარიში…" data-extra-acc style="border:none;border-bottom:2px solid var(--line-strong);padding:3px 4px;font-size:13px;font-weight:700;font-family:var(--mono);background:transparent;outline:none">
+    <input placeholder="ხარჯის მუხლი…" data-extra-note style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 6px;font-size:12px;background:transparent;outline:none;font-family:var(--serif)">
+    <input placeholder="თანხა" type="number" data-extra-amt style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 4px;font-size:12px;font-family:var(--mono);background:transparent;outline:none;width:80px;text-align:right">
+    <span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--red);font-size:16px;line-height:1;text-align:center">✕</span>`;
+  wrap.appendChild(row);
+}
+
+async function _submitCorrection(draftId) {
+  const debit  = document.getElementById('edit-debit')?.value?.trim();
+  const credit = document.getElementById('edit-credit')?.value?.trim();
+  const reason = document.getElementById('edit-reason')?.value?.trim();
+  if (!debit || !credit) { toast('Dr და Cr ანგარიშები სავალდებულოა', 'warn'); return; }
+  try {
+    const r = await fetch('/approval/correct/' + draftId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}) },
+      body: JSON.stringify({ debit_account: debit, credit_account: credit, reason: reason || null, user: 'human' }),
+    });
+    const j = await r.json();
+    if (j?.ok) {
+      toast('✓ კორექტირება შენახდა #' + draftId, 'ok');
+      closeModal();
+      setTimeout(() => { loadPending(); loadAll(); }, 500);
+    } else {
+      toast('შეცდომა: ' + (j?.error?.details || j?.message || 'unknown'), 'err');
+    }
+  } catch(e) { toast('Network error: ' + e.message, 'err'); }
+}
+
+async function deleteDraft(id) {
+  if (!confirm(`Draft #${id} წაიშლება. გაგრძელება?`)) return;
+  const d = await api('/approval/draft/' + id, 'DELETE');
+  if (d?.ok || d?.deleted) {
+    toast('🗑 Draft #' + id + ' წაშლილია', 'warn');
+    setTimeout(() => { loadPending(); loadAll(); }, 500);
+  } else toast('წაშლა ვერ მოხერხდა', 'err');
+}
+
+// aliases used by showRowMenu and modal footer
+function approve(id) { return doApprove(id); }
+function reject(id)  { return openReject(id); }
 
 // ── APPROVE / REJECT ACTIONS ──
 async function doApprove(id) {

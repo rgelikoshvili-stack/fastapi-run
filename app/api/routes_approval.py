@@ -6,6 +6,7 @@ from typing import Optional, List
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 from app.api.db import get_db
 import psycopg2.extras
 
@@ -120,6 +121,7 @@ def _check_locked(result):
 @router.post("/approve/{draft_id}")
 @limiter.limit("30/minute")
 def approve_draft(draft_id: int, request: Request):
+    require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     idem_key = request.headers.get("X-Idempotent-Key")
@@ -138,6 +140,7 @@ def approve_draft(draft_id: int, request: Request):
 @router.post("/reject/{draft_id}")
 @limiter.limit("30/minute")
 def reject_draft(draft_id: int, req: RejectRequest, request: Request):
+    require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     idem_key = request.headers.get("X-Idempotent-Key")
@@ -156,6 +159,7 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
 @router.post("/correct/{draft_id}")
 @limiter.limit("30/minute")
 def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
+    require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     log.info("action=correct draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
@@ -173,6 +177,7 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
 @limiter.limit("30/minute")
 def delete_draft(draft_id: int, request: Request):
     """Permanently delete a journal draft (tenant-scoped)."""
+    require_permission(request, "approval:write")
     user_id = resolve_tenant_id(getattr(request.state, "user_id", "anon") if request else "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     from app.api.db import get_db
@@ -199,6 +204,7 @@ def delete_draft(draft_id: int, request: Request):
 @router.patch("/draft/{draft_id}")
 def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
     """Save draft edits without changing status (no auto-approve)."""
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     from app.api.db import get_db
     import psycopg2.extras, logging as _log
@@ -240,6 +246,7 @@ def get_audit_log(request: Request, limit: int = 50, offset: int = 0):
 
 @router.post("/autopilot")
 def run_autopilot(request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return autopilot_approve_service(tenant_id=tenant_id)
 
@@ -298,6 +305,7 @@ def get_stats(request: Request):
 @router.post("/reclassify")
 def reclassify_unclassified(request: Request):
     """Re-run classification on drafts with NULL debit_account/credit_account."""
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         from app.knowledge.journal_builder import classify_transaction
@@ -352,6 +360,7 @@ def reclassify_unclassified(request: Request):
 @limiter.limit("30/minute")
 def batch_action(body: BatchActionRequest, request: Request):
     """Execute approve/reject/correct on multiple drafts at once."""
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.draft_ids:
         return error_response("No drafts selected", "BATCH_ERROR", "draft_ids is empty")
@@ -390,6 +399,7 @@ def batch_action(body: BatchActionRequest, request: Request):
 @router.post("/draft/{draft_id}/attach")
 async def attach_file_to_draft(draft_id: int, request: Request, file=None):
     """Attach a file to an existing journal draft."""
+    require_permission(request, "approval:write")
     from fastapi import UploadFile, File
     from app.api.services.storage_service import upload_file as gcs_upload, generate_signed_url
     import uuid as _uuid
@@ -484,6 +494,7 @@ def get_draft_attachment(draft_id: int, request: Request):
 @router.delete("/draft/{draft_id}/attachment")
 def delete_draft_attachment(draft_id: int, request: Request):
     """Remove attachment from a draft."""
+    require_permission(request, "approval:write")
     from app.api.services.storage_service import delete_file
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
@@ -522,7 +533,6 @@ def delete_draft_attachment(draft_id: int, request: Request):
 @router.post("/cfo-approve/{draft_id}")
 def cfo_approve(draft_id: int, request: Request):
     """CFO second-level approval for high-value drafts (≥ ₾10,000)."""
-    from app.api.authz import require_permission
     require_permission(request, "approval:cfo")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     user = getattr(request.state, "user_email", "cfo")
@@ -562,7 +572,6 @@ def cfo_approve(draft_id: int, request: Request):
 @router.get("/awaiting-cfo")
 def list_awaiting_cfo(request: Request):
     """List all drafts awaiting CFO second approval."""
-    from app.api.authz import require_permission
     require_permission(request, "approval:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 

@@ -59,40 +59,105 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .btn-run:disabled{opacity:.5;cursor:not-allowed}
 
 /* journal cards */
-.j-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
-.j-card-head{padding:14px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;transition:.1s}
+.j-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden;transition:.15s}
+.j-card:hover{border-color:var(--accent-soft);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.j-card-head{padding:14px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;transition:.1s;position:relative}
 .j-card-head:hover{background:var(--card-hover)}
 .j-date{font-family:var(--mono);font-size:11px;color:var(--ink-dim);white-space:nowrap;margin-top:2px;min-width:82px}
-.j-meta{flex:1}
-.j-desc{font-size:14px;font-weight:500;color:var(--ink);line-height:1.4}
+.j-meta{flex:1;min-width:0}
+.j-desc{font-size:14px;font-weight:500;color:var(--ink);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .j-sub{display:flex;gap:10px;margin-top:5px;flex-wrap:wrap}
 .j-tag{font-size:11.5px;color:var(--ink-dim);display:flex;align-items:center;gap:4px}
 .j-tag b{font-family:var(--mono);font-size:11px;background:var(--paper-sunk);padding:1px 6px;border-radius:4px;color:var(--ink-mute)}
 .j-amount{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);white-space:nowrap}
-.j-toggle{font-size:11px;color:var(--ink-ghost);align-self:center;padding:4px 8px;border-radius:6px;background:var(--paper-sunk)}
-.j-entries{display:none;padding:0 18px 14px;border-top:1px solid var(--line-soft)}
-.entry-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
-.entry-row:last-child{border-bottom:none}
-.dr-chip{font-family:var(--mono);font-size:11.5px;font-weight:600;background:var(--green-bg);color:var(--green);padding:3px 9px;border-radius:5px}
-.cr-chip{font-family:var(--mono);font-size:11.5px;font-weight:600;background:var(--red-bg);color:var(--red);padding:3px 9px;border-radius:5px}
-.entry-arrow{color:var(--ink-ghost);font-size:13px}
-.entry-amt{font-family:var(--mono);font-size:12.5px;font-weight:600;margin-left:auto}
-.entry-note{font-size:12px;color:var(--ink-dim);flex:1;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.j-actions{display:flex;align-items:center;gap:6px;align-self:center}
+.j-btn{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;transition:.1s;border:1px solid transparent}
+.j-btn:hover{background:var(--paper-sunk);border-color:var(--line)}
 
 .pagination{display:flex;align-items:center;gap:8px;margin-top:20px;justify-content:center}
 .pag-btn{height:34px;padding:0 14px;background:var(--card);border:1px solid var(--line);border-radius:7px;font-size:13px;color:var(--ink);transition:.1s}
 .pag-btn:hover:not(:disabled){background:var(--card-hover)}
 .pag-btn:disabled{opacity:.4;cursor:not-allowed}
 .pag-info{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
-
 .empty{text-align:center;padding:52px;color:var(--ink-dim);font-family:var(--serif);font-style:italic;font-size:15px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── overlay modal ── */
+.overlay{position:fixed;inset:0;background:rgba(26,21,18,.45);backdrop-filter:blur(3px);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.overlay.show{display:flex;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(26,21,18,.35)}
+.modal-header{padding:20px 24px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:var(--card);z-index:2}
+.modal-title{flex:1;font-family:var(--serif);font-size:19px;color:var(--ink)}
+.modal-title em{font-style:italic;color:var(--accent);margin-left:4px}
+.modal-close{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink-dim);transition:.1s;border:1px solid transparent}
+.modal-close:hover{background:var(--paper-sunk);border-color:var(--line);color:var(--ink)}
+.modal-body{padding:20px 24px;flex:1}
+.modal-footer{padding:14px 24px;border-top:1px solid var(--line-soft);display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:var(--card)}
+
+/* info card inside modal */
+.info-card{background:var(--paper-soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.mf-row{display:flex;gap:10px;margin-bottom:6px;font-size:12.5px}
+.mf-row:last-child{margin-bottom:0}
+.mf-k{color:var(--ink-dim);min-width:80px;font-weight:500}
+.mf-v{color:var(--ink);font-family:var(--mono);font-size:12px}
+
+/* journal lines section */
+.jl-section{margin-bottom:16px}
+.jl-title{font-size:10.5px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.jl-row{display:grid;grid-template-columns:36px 90px 1fr auto;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line-soft);font-size:13px}
+.jl-row:first-child{border-top:1px solid var(--line-soft);background:var(--paper-soft);border-radius:8px 8px 0 0}
+.jl-row:last-child{border-bottom:none;border-radius:0 0 8px 8px}
+.jl-side-dr{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--green);background:var(--green-bg);padding:3px 7px;border-radius:5px}
+.jl-side-cr{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--red);background:var(--red-bg);padding:3px 7px;border-radius:5px}
+.jl-acc{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink)}
+.jl-note{color:var(--ink-dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jl-amt{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap}
+
+/* correction form inside modal */
+.edit-section{margin-bottom:16px}
+.edit-section-title{font-size:10.5px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.1em;padding:8px 14px;background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:8px 8px 0 0}
+.edit-lines-wrap{border:1px solid var(--line-soft);border-top:none;border-radius:0 0 8px 8px;overflow:hidden}
+.edit-row{display:grid;grid-template-columns:36px 120px 1fr auto 24px;align-items:center;gap:8px;padding:9px 14px;border-top:1px solid var(--line-soft);background:var(--paper-soft)}
+.edit-row:first-child{border-top:none}
+.edit-row select,.edit-row input{font-family:var(--font)}
+.add-line-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;font-size:12.5px;color:var(--ink-mute);border-top:1px solid var(--line-soft);background:var(--paper-soft);cursor:pointer;transition:.1s}
+.add-line-btn:hover{background:var(--paper-sunk);color:var(--ink)}
+
+/* btn variants */
+.btn{height:36px;padding:0 18px;border-radius:8px;font-size:13px;font-weight:500;transition:.15s;display:inline-flex;align-items:center;gap:6px;cursor:pointer;border:none}
+.btn-ghost{background:var(--paper-sunk);color:var(--ink-mute);border:1px solid var(--line)}
+.btn-ghost:hover{background:var(--paper-soft);color:var(--ink)}
+.btn-primary{background:var(--ink);color:var(--paper)}
+.btn-primary:hover{background:var(--accent)}
+.btn-edit{background:#2d5fa8;color:#fff}
+.btn-edit:hover{background:#244d8c}
+.btn-success{background:var(--green);color:#fff}
+.btn-success:hover{background:#1d3d07}
+
+/* toast */
+.toast{position:fixed;bottom:24px;right:24px;padding:10px 18px;border-radius:10px;font-size:13.5px;font-weight:500;z-index:9999;animation:fadeIn .2s ease;pointer-events:none;max-width:340px}
+.toast-ok{background:var(--green);color:#fff}
+.toast-warn{background:#7a5a1a;color:#fff}
+.toast-err{background:var(--red);color:#fff}
 </style>
 </head>
 <body>
 
 <aside class="sidebar" id="sidebar-mount"></aside>
+
+<!-- overlay modal -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">დეტალები</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
 
 <div class="main">
   <div class="topbar">
@@ -103,7 +168,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 
     <div class="filters">
       <div class="fld">
-        <label>თარიღი (სრულ. სურვ.)</label>
+        <label>თარიღი (სურვ.)</label>
         <input id="fDate" type="date">
       </div>
       <button class="btn-run" id="btnRun" onclick="load(0)">
@@ -126,20 +191,15 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 </div>
 
 <script>
+const BASE = '';
 const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-try {
-  const pl = JSON.parse(atob(token().split('.')[1]));
-  document.getElementById('footName').textContent = pl.sub || pl.email || '—';
-  document.getElementById('footRole').textContent = pl.role || '—';
-  document.getElementById('avLetter').textContent = (pl.sub||pl.email||'U')[0].toUpperCase();
-} catch(_){}
-
 const PAGE = 50;
 let currentOffset = 0;
 let totalItems = 0;
+let ITEMS = [];
 
 async function load(offset){
   currentOffset = offset;
@@ -157,9 +217,10 @@ async function load(offset){
     const d = await res.json();
     if(!d.ok) throw new Error(d.detail || 'შეცდომა');
     totalItems = d.total;
+    ITEMS = d.items || [];
     renderList(d);
   } catch(e){
-    alert('შეცდომა: ' + e.message);
+    toast('შეცდომა: ' + e.message, 'err');
   } finally {
     document.getElementById('btnTxt').textContent = 'ჩვენება';
     btn.disabled = false;
@@ -179,44 +240,36 @@ function renderList(d){
     document.getElementById('pag').style.display = 'none';
     return;
   }
-
   document.getElementById('emptyMsg').style.display = 'none';
 
   d.items.forEach((item, i) => {
     const card = document.createElement('div');
     card.className = 'j-card';
-    const hasEntries = item.entries && item.entries.length > 0;
 
-    const entriesHtml = hasEntries ? item.entries.map(e => `
-      <div class="entry-row">
-        <span class="dr-chip">Dr ${esc(e.dr)}</span>
-        <span class="entry-arrow">→</span>
-        <span class="cr-chip">Cr ${esc(e.cr)}</span>
-        <span class="entry-note">${esc(e.note||'')}</span>
-        <span class="entry-amt">${fmt(e.amount)}</span>
-      </div>
-    `).join('') : '';
+    const drAcc = item.debit_account || item.account_code || '—';
+    const crAcc = item.credit_account || '—';
+    const partner = item.partner || item.counterparty_name || '';
 
     card.innerHTML = `
-      <div class="j-card-head" onclick="toggleCard(${i})">
+      <div class="j-card-head" onclick="openDetail(${i})">
         <div class="j-date">${esc(item.date||'—')}</div>
         <div class="j-meta">
           <div class="j-desc">${esc(item.description||'—')}</div>
           <div class="j-sub">
-            ${item.account_code ? `<span class="j-tag">ანგ. <b>${esc(item.account_code)}</b></span>` : ''}
-            ${item.counterparty_name ? `<span class="j-tag">კონტ. <b>${esc(item.counterparty_name)}</b></span>` : ''}
-            ${item.reason ? `<span class="j-tag"><b>${esc(item.reason)}</b></span>` : ''}
+            <span class="j-tag">Dr <b>${esc(drAcc)}</b></span>
+            <span class="j-tag">Cr <b>${esc(crAcc)}</b></span>
+            ${partner ? `<span class="j-tag">კომ. <b>${esc(partner.length > 20 ? partner.slice(0,20)+'…' : partner)}</b></span>` : ''}
           </div>
         </div>
-        <div class="j-amount">${fmt(item.amount)}</div>
-        ${hasEntries ? `<div class="j-toggle">${item.entries.length} პრ.</div>` : ''}
-      </div>
-      ${hasEntries ? `<div class="j-entries" id="entries-${i}">${entriesHtml}</div>` : ''}
-    `;
+        <div class="j-amount">${fmt(item.amount)} ₾</div>
+        <div class="j-actions" onclick="event.stopPropagation()">
+          <button class="j-btn" title="დეტალები" onclick="openDetail(${i})">👁</button>
+          <button class="j-btn" title="კორექტირება" onclick="openCorrection(${i})" style="color:#2d5fa8">✏️</button>
+        </div>
+      </div>`;
     list.appendChild(card);
   });
 
-  // pagination
   const pag = document.getElementById('pag');
   if(d.total > PAGE){
     pag.style.display = '';
@@ -230,16 +283,181 @@ function renderList(d){
   }
 }
 
-function toggleCard(i){
-  const el = document.getElementById(`entries-${i}`);
-  if(!el) return;
-  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+// ── Detail modal ─────────────────────────────────────────────────────────────
+
+function openDetail(idx) {
+  const item = ITEMS[idx];
+  if (!item) return;
+
+  const drAcc = item.debit_account || item.account_code || '—';
+  const crAcc = item.credit_account || '—';
+  const partner = item.partner || item.counterparty_name || '—';
+
+  // Build journal lines from journal_entries JSONB or fallback to simple Dr/Cr
+  let linesHtml = '';
+  const entries = item.entries;
+  if (Array.isArray(entries) && entries.length > 0) {
+    linesHtml = entries.map(e => {
+      const side = e.debit_account ? 'Dr' : 'Cr';
+      const acc  = e.debit_account || e.credit_account || '—';
+      const cls  = side === 'Dr' ? 'jl-side-dr' : 'jl-side-cr';
+      return `<div class="jl-row">
+        <span class="${cls}">${side}</span>
+        <span class="jl-acc">${esc(acc)}</span>
+        <span class="jl-note">${esc(e.description||e.note||'')}</span>
+        <span class="jl-amt">${fmt(e.amount||0)}</span>
+      </div>`;
+    }).join('');
+  } else {
+    linesHtml = `
+      <div class="jl-row">
+        <span class="jl-side-dr">Dr</span>
+        <span class="jl-acc">${esc(drAcc)}</span>
+        <span class="jl-note">${esc(item.reason||item.description||'')}</span>
+        <span class="jl-amt">${fmt(item.amount)}</span>
+      </div>
+      <div class="jl-row">
+        <span class="jl-side-cr">Cr</span>
+        <span class="jl-acc">${esc(crAcc)}</span>
+        <span class="jl-note">—</span>
+        <span class="jl-amt">${fmt(item.amount)}</span>
+      </div>`;
+  }
+
+  document.getElementById('modal-title').innerHTML = `დეტალები <em>#${item.id}</em>`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="info-card">
+      <div class="mf-row"><span class="mf-k">კომპანია</span><span class="mf-v">${esc(partner)}</span></div>
+      ${item.counterparty_inn ? `<div class="mf-row"><span class="mf-k">INN</span><span class="mf-v">${esc(item.counterparty_inn)}</span></div>` : ''}
+      <div class="mf-row"><span class="mf-k">თარიღი</span><span class="mf-v">${esc(item.date||'—')}</span></div>
+      <div class="mf-row"><span class="mf-k">თანხა</span><span class="mf-v" style="font-weight:700;color:var(--ink)">${fmt(item.amount)} ₾</span></div>
+      ${item.status ? `<div class="mf-row"><span class="mf-k">სტატუსი</span><span class="mf-v">${esc(item.status)}</span></div>` : ''}
+    </div>
+    <div class="jl-section">
+      <div class="jl-title">Journal Lines</div>
+      <div style="border:1px solid var(--line-soft);border-radius:8px;overflow:hidden">${linesHtml}</div>
+    </div>
+    ${item.description ? `<div style="font-size:12.5px;color:var(--ink-dim);margin-top:4px"><b style="color:var(--ink-mute)">აღწერა:</b> ${esc(item.description)}</div>` : ''}`;
+
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">დახურვა</button>
+    <button class="btn btn-edit" onclick="closeModal();setTimeout(()=>openCorrection(${idx}),80)">✏️ კორექტირება</button>`;
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+// ── Correction modal ──────────────────────────────────────────────────────────
+
+function openCorrection(idx) {
+  const item = ITEMS[idx];
+  if (!item) return;
+
+  const drAcc = item.debit_account || item.account_code || '';
+  const crAcc = item.credit_account || '';
+  const partner = item.partner || item.counterparty_name || '';
+
+  const docCard = `
+    <div class="info-card" style="margin-bottom:16px">
+      <div class="mf-row"><span class="mf-k">კომპანია</span><span class="mf-v">${esc(partner||'—')}</span></div>
+      ${item.counterparty_inn ? `<div class="mf-row"><span class="mf-k">INN</span><span class="mf-v">${esc(item.counterparty_inn)}</span></div>` : ''}
+      <div class="mf-row"><span class="mf-k">თარიღი</span><span class="mf-v">${esc(item.date||'—')}</span></div>
+      <div class="mf-row"><span class="mf-k">თანხა</span><span class="mf-v" style="font-weight:700">${fmt(item.amount)} ₾</span></div>
+    </div>`;
+
+  const journalSection = `
+    <div class="edit-section">
+      <div class="edit-section-title">JOURNAL LINES — კორექტირება</div>
+      <div class="edit-lines-wrap">
+        <div class="edit-row" style="background:rgba(39,80,10,.04)">
+          <span class="jl-side-dr">Dr</span>
+          <input id="edit-debit" value="${esc(drAcc)}" placeholder="ანგარიში"
+            style="border:none;border-bottom:2px solid var(--green);padding:3px 4px;font-size:13px;font-weight:700;font-family:var(--mono);background:transparent;outline:none;width:100%">
+          <input id="edit-debit-note" placeholder="მუხლი…"
+            style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 6px;font-size:12px;background:transparent;outline:none;font-family:var(--serif);width:100%">
+          <span style="font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap">${fmt(item.amount)}</span>
+          <span></span>
+        </div>
+        <div class="edit-row" style="background:rgba(121,31,31,.04)">
+          <span class="jl-side-cr">Cr</span>
+          <input id="edit-credit" value="${esc(crAcc)}" placeholder="ანგარიში"
+            style="border:none;border-bottom:2px solid var(--red);padding:3px 4px;font-size:13px;font-weight:700;font-family:var(--mono);background:transparent;outline:none;width:100%">
+          <input id="edit-credit-note" placeholder="მუხლი…"
+            style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 6px;font-size:12px;background:transparent;outline:none;font-family:var(--serif);width:100%">
+          <span style="font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap">${fmt(item.amount)}</span>
+          <span></span>
+        </div>
+        <div id="edit-extra-lines"></div>
+        <div class="add-line-btn" onclick="_addEditLine()">+ მუხლის დამატება</div>
+      </div>
+    </div>`;
+
+  const commentSection = `
+    <div style="margin-bottom:12px">
+      <div style="font-size:10.5px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">კომენტარი / მიზეზი</div>
+      <textarea id="edit-reason" rows="3" placeholder="კორექტირების მიზეზი…"
+        style="width:100%;border:1px solid var(--line-soft);border-radius:var(--r);padding:8px 12px;font-size:13px;font-family:var(--serif);resize:vertical;box-sizing:border-box"></textarea>
+    </div>`;
+
+  document.getElementById('modal-title').innerHTML = `კორექტირება <em>#${item.id}</em>`;
+  document.getElementById('modal-body').innerHTML = docCard + journalSection + commentSection;
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">გაუქმება</button>
+    <button class="btn btn-success" onclick="_submitCorrection(${item.id})">💾 შენახვა და დამტკიცება</button>`;
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+function _addEditLine() {
+  const wrap = document.getElementById('edit-extra-lines');
+  const row = document.createElement('div');
+  row.className = 'edit-row';
+  row.style.cssText = 'display:grid;grid-template-columns:36px 120px 1fr auto 24px;align-items:center;gap:8px;padding:9px 14px;border-top:1px solid var(--line-soft);background:var(--paper-soft)';
+  row.innerHTML = `
+    <select data-extra-side style="border:1px solid var(--line-soft);border-radius:5px;padding:3px 5px;font-size:12px;font-family:var(--mono);font-weight:700"><option>Dr</option><option>Cr</option></select>
+    <input placeholder="ანგარიში…" data-extra-acc style="border:none;border-bottom:2px solid var(--line-strong);padding:3px 4px;font-size:13px;font-weight:700;font-family:var(--mono);background:transparent;outline:none">
+    <input placeholder="ხარჯის მუხლი…" data-extra-note style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 6px;font-size:12px;background:transparent;outline:none;font-family:var(--serif)">
+    <input placeholder="თანხა" type="number" data-extra-amt style="border:none;border-bottom:1px solid var(--line-soft);padding:3px 4px;font-size:12px;font-family:var(--mono);background:transparent;outline:none;width:80px;text-align:right">
+    <span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--red);font-size:16px;line-height:1;text-align:center">✕</span>`;
+  wrap.appendChild(row);
+}
+
+async function _submitCorrection(draftId) {
+  const debit  = document.getElementById('edit-debit')?.value?.trim();
+  const credit = document.getElementById('edit-credit')?.value?.trim();
+  const reason = document.getElementById('edit-reason')?.value?.trim();
+  if (!debit || !credit) { toast('Dr და Cr ანგარიშები სავალდებულოა', 'warn'); return; }
+  try {
+    const r = await fetch('/approval/correct/' + draftId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token() ? { Authorization: 'Bearer ' + token() } : {}) },
+      body: JSON.stringify({ debit_account: debit, credit_account: credit, reason: reason || null, user: 'human' }),
+    });
+    const j = await r.json();
+    if (j?.ok) {
+      toast('✓ კორექტირება შენახდა #' + draftId, 'ok');
+      closeModal();
+      setTimeout(() => load(currentOffset), 500);
+    } else {
+      toast('შეცდომა: ' + (j?.error?.details || j?.message || 'unknown'), 'err');
+    }
+  } catch(e) { toast('Network error: ' + e.message, 'err'); }
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('show');
 }
 
 function prevPage(){ if(currentOffset > 0) load(Math.max(0, currentOffset - PAGE)); }
 function nextPage(){ if(currentOffset + PAGE < totalItems) load(currentOffset + PAGE); }
 
-// auto-load on page open
+function toast(msg, type='ok') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
 load(0);
 </script>
 

@@ -52,6 +52,18 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "❌ GCP_SA_KEY secret is not set. Add it in GitHub → Settings → Secrets → Actions."
+            exit 1
+          fi
+          if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
+            echo "❌ GCP_PROJECT_ID secret is not set."
+            exit 1
+          fi
+          echo "✅ Secrets present"
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:

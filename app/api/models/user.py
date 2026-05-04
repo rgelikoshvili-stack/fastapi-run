@@ -1,4 +1,4 @@
-﻿import os, psycopg2
+import os, psycopg2
 import bcrypt
 from psycopg2.extras import RealDictCursor
 

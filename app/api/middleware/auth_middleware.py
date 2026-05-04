@@ -1,4 +1,4 @@
-﻿from fastapi import Request
+from fastapi import Request
 from app.api.services.auth_service import verify_token
 
 PUBLIC_PATH_PREFIXES = (

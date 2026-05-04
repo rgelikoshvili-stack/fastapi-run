@@ -1,4 +1,4 @@
-﻿import os
+import os
 import jwt
 from datetime import datetime, timezone, timedelta
 from app.api.models.user import get_user, verify_password, update_last_login, has_permission

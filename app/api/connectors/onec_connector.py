@@ -1,4 +1,4 @@
-﻿"""app/api/connectors/onec_connector.py"""
+"""app/api/connectors/onec_connector.py"""
 import os, logging, requests
 from datetime import datetime, timezone
 from app.api.connectors.base_connector import BaseConnector

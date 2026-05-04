@@ -1,4 +1,4 @@
-﻿from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional
 from app.api.connectors.balance_connector import BalanceConnector
 from app.api.connectors.onec_connector import OneCConnector
 from app.api.services.erp_import_service import import_erp_history

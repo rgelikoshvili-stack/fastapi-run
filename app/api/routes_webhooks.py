@@ -57,13 +57,6 @@ class WebhookUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.get("/events")
-def list_supported_events(request: Request):
-    """List all supported webhook event types."""
-    require_permission(request, "tenants:manage")
-    return ok_response("Supported events", sorted(_SUPPORTED_EVENTS))
-
-
 @router.post("/")
 async def create_webhook(body: WebhookCreate, request: Request):
     """Register a new webhook endpoint."""

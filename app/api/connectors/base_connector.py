@@ -1,4 +1,4 @@
-﻿"""app/api/connectors/base_connector.py"""
+"""app/api/connectors/base_connector.py"""
 from abc import ABC, abstractmethod
 
 class BaseConnector(ABC):

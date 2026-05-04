@@ -1,4 +1,4 @@
-﻿from fastapi import Request
+from fastapi import Request
 from app.api.audit import log_event
 
 SKIP_PREFIXES = (

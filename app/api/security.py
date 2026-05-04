@@ -1,4 +1,4 @@
-﻿import os
+import os
 import logging
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded

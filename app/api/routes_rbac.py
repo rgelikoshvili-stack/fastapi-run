@@ -19,7 +19,7 @@ class UserCreate(BaseModel):
     role: str = "accountant"
     tenant_id: Optional[int] = None
 
-@router.get("/me")
+@router.get("/me-apikey")
 async def get_me(x_api_key: Optional[str] = Header(None)):
     if not x_api_key:
         return error_response("API key required", "AUTH_ERROR", "Pass X-Api-Key header")

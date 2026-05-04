@@ -47,6 +47,7 @@ _setup_logging()
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -341,6 +342,21 @@ app.include_router(routes_ai_recommend)
 app.include_router(routes_claude_chat)
 app.include_router(decision_engine_router)
 
+
+# --- CORS ---
+_cors_env = os.getenv("ALLOWED_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "https://fastapi-run-226875230147.europe-west1.run.app",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- RATE LIMITING ---
 app.state.limiter = limiter

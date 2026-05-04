@@ -3,8 +3,22 @@ tests/integration/test_comprehensive_upgrade.py
 Verifies all Phase 1-5 upgrade changes work correctly.
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
+
+
+def _make_get_conn(fetch_result=None, fetchrow_result=None, execute_result="UPDATE 0"):
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=fetch_result or [])
+    conn.fetchrow = AsyncMock(return_value=fetchrow_result)
+    conn.execute = AsyncMock(return_value=execute_result)
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -24,14 +38,7 @@ def test_bank_accounts_list_no_uuid_error():
     """GET /bank-accounts/list must not 500 when tenant_id is 'default'."""
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_bank_accounts.get_db") as mock_db:
-        mock_cur = MagicMock()
-        mock_cur.__enter__ = lambda s: s
-        mock_cur.__exit__ = MagicMock(return_value=False)
-        mock_cur.fetchall.return_value = []
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-        mock_db.return_value = mock_conn
+    with patch("app.api.routes_bank_accounts.get_conn", _make_get_conn()):
         r = client.get("/bank-accounts/list")
     assert r.status_code != 500, f"Expected non-500, got {r.status_code}: {r.text[:200]}"
 
@@ -40,14 +47,7 @@ def test_budget_list_no_uuid_error():
     """GET /budget/list/{year} must not 500 when tenant_id is 'default'."""
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_budget.get_db") as mock_db:
-        mock_cur = MagicMock()
-        mock_cur.__enter__ = lambda s: s
-        mock_cur.__exit__ = MagicMock(return_value=False)
-        mock_cur.fetchall.return_value = []
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-        mock_db.return_value = mock_conn
+    with patch("app.api.routes_budget.get_conn", _make_get_conn()):
         r = client.get("/budget/list/2026")
     assert r.status_code != 500, f"Expected non-500, got {r.status_code}: {r.text[:200]}"
 
@@ -127,16 +127,12 @@ _MOCK_TOKEN_PAYLOAD = {"sub": "test-user", "role": "admin", "tenant_id": "defaul
 def test_approval_stats_endpoint_exists():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_approval.get_db") as mock_db, \
-         patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
-        mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = {
-            "pending_count": 3, "auto_approved": 5,
-            "manual_approved": 10, "rejected": 1, "avg_confidence": 0.85
-        }
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-        mock_db.return_value = mock_conn
+    stats_row = {"pending_count": 3, "auto_approved": 5,
+                 "manual_approved": 10, "rejected": 1, "avg_confidence": 0.85}
+    with patch("app.api.routes_approval.get_conn",
+               _make_get_conn(fetchrow_result=stats_row)), \
+         patch("app.api.middleware.auth_middleware.verify_token",
+               return_value=_MOCK_TOKEN_PAYLOAD):
         r = client.get("/approval/stats", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
@@ -148,13 +144,10 @@ def test_approval_stats_endpoint_exists():
 def test_batch_action_approve():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
-    with patch("app.api.routes_approval.get_db") as mock_db, \
-         patch("app.api.middleware.auth_middleware.verify_token", return_value=_MOCK_TOKEN_PAYLOAD):
-        mock_cur = MagicMock()
-        mock_cur.rowcount = 2
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-        mock_db.return_value = mock_conn
+    with patch("app.api.routes_approval.get_conn",
+               _make_get_conn(execute_result="UPDATE 2")), \
+         patch("app.api.middleware.auth_middleware.verify_token",
+               return_value=_MOCK_TOKEN_PAYLOAD):
         r = client.post("/approval/batch-action",
                         json={"action": "approve", "draft_ids": [1, 2]},
                         headers={"Authorization": "Bearer test-token"})

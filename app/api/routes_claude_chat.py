@@ -459,7 +459,7 @@ async def claude_chat(
 
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.AsyncAnthropic(api_key=api_key)
 
         try:
             hist = json.loads(history) if history else []
@@ -491,7 +491,7 @@ async def claude_chat(
         messages.append({"role": "user", "content": content_parts})
 
         # ── First call (may return tool_use) ─────────────────────────────
-        resp = client.messages.create(
+        resp = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4000,
             system=system,
@@ -525,7 +525,7 @@ async def claude_chat(
             messages.append({"role": "assistant", "content": resp.content})
             messages.append({"role": "user",      "content": tool_results})
 
-            resp = client.messages.create(
+            resp = await client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
                 system=system,

@@ -104,7 +104,7 @@ async def _claude_analyze(text: str, context: dict) -> dict:
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     context_str = json.dumps({
         "chart_of_accounts": context.get("chart_of_accounts", {}),
@@ -114,8 +114,8 @@ async def _claude_analyze(text: str, context: dict) -> dict:
 
     user_text = f"კონტექსტი:\n{context_str}\n\nდოკუმენტი:\n{text[:6000]}"
 
-    resp = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+    resp = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
         max_tokens=1000,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_text}],
@@ -126,7 +126,7 @@ async def _claude_analyze(text: str, context: dict) -> dict:
         if raw.startswith("json"):
             raw = raw[4:]
     result = json.loads(raw)
-    result["_model"] = "claude-3-5-sonnet-20241022"
+    result["_model"] = "claude-haiku-4-5-20251001"
     return result
 
 

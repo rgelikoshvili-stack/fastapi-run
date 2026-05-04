@@ -61,7 +61,7 @@ def _extract_with_claude_vision(file_bytes: bytes, filename: str) -> Optional[di
         client = anthropic.Anthropic(api_key=api_key)
         _t0 = time.time()
         resp = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=512,
             messages=[{
                 "role": "user",
@@ -106,7 +106,7 @@ def _extract_with_claude_vision(file_bytes: bytes, filename: str) -> Optional[di
         # Validate at least one numeric field
         if data.get("total_amount") or data.get("net_amount"):
             AI_CLASSIFICATION_TOTAL.labels(tenant="ocr", result="success").inc()
-            AI_CLASSIFICATION_DURATION.labels(model="claude-sonnet-4-6").observe(elapsed)
+            AI_CLASSIFICATION_DURATION.labels(model="claude-haiku-4-5-20251001").observe(elapsed)
             return data
         AI_CLASSIFICATION_TOTAL.labels(tenant="ocr", result="fallback").inc()
         return None

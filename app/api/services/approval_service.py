@@ -261,8 +261,8 @@ def approve_draft_service(draft_id: int, tenant_id: str):
             )
 
         draft = dict(draft)
-        draft["confidence"] = float(draft.get("confidence") or 0.0)
-        draft["amount"] = float(draft.get("amount") or 0.0)
+        draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
+        draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 
         # Period lock check
         try:
@@ -479,8 +479,8 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
             )
 
         draft = dict(draft)
-        draft["confidence"] = float(draft.get("confidence") or 0.0)
-        draft["amount"] = float(draft.get("amount") or 0.0)
+        draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
+        draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 
         if draft["status"] == "rejected":
             return error_response(

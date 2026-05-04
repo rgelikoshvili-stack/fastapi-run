@@ -1,5 +1,6 @@
 import hashlib
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, List, Optional
 
 import psycopg2.extras
@@ -51,18 +52,28 @@ def _normalize_target(target: str) -> str:
     return t
 
 
-def _sum_debits(lines: List[dict]) -> float:
-    return round(sum(float(x.get("debit", 0) or 0) for x in lines), 2)
+def _to_decimal(v) -> Decimal:
+    """Safely convert any numeric value to Decimal for financial calculations."""
+    if isinstance(v, Decimal):
+        return v
+    if v is None:
+        return Decimal("0")
+    try:
+        return Decimal(str(v))
+    except Exception:
+        return Decimal("0")
 
 
-def _sum_credits(lines: List[dict]) -> float:
-    return round(sum(float(x.get("credit", 0) or 0) for x in lines), 2)
+def _sum_debits(lines: List[dict]) -> Decimal:
+    return sum((_to_decimal(x.get("debit", 0)) for x in lines), Decimal("0"))
 
 
-def _derive_amount_from_lines(lines: List[dict]) -> float:
-    debit_total = _sum_debits(lines)
-    credit_total = _sum_credits(lines)
-    return max(debit_total, credit_total)
+def _sum_credits(lines: List[dict]) -> Decimal:
+    return sum((_to_decimal(x.get("credit", 0)) for x in lines), Decimal("0"))
+
+
+def _derive_amount_from_lines(lines: List[dict]) -> Decimal:
+    return max(_sum_debits(lines), _sum_credits(lines))
 
 
 def _normalize_lines(lines: Any) -> List[dict]:
@@ -88,8 +99,8 @@ def _normalize_lines(lines: Any) -> List[dict]:
                     {
                         "account_code": str(line.get("account_code", "")).strip(),
                         "label": line.get("label", ""),
-                        "debit": round(float(line.get("debit", 0) or 0), 2),
-                        "credit": round(float(line.get("credit", 0) or 0), 2),
+                        "debit": float(_to_decimal(line.get("debit", 0) or 0).quantize(Decimal("0.01"), ROUND_HALF_UP)),
+                        "credit": float(_to_decimal(line.get("credit", 0) or 0).quantize(Decimal("0.01"), ROUND_HALF_UP)),
                     }
                 )
             elif isinstance(line, (list, tuple)) and len(line) >= 3:
@@ -98,8 +109,8 @@ def _normalize_lines(lines: Any) -> List[dict]:
                     {
                         "account_code": str(account_code).strip(),
                         "label": "",
-                        "debit": round(float(debit or 0), 2),
-                        "credit": round(float(credit or 0), 2),
+                        "debit": float(_to_decimal(debit or 0).quantize(Decimal("0.01"), ROUND_HALF_UP)),
+                        "credit": float(_to_decimal(credit or 0).quantize(Decimal("0.01"), ROUND_HALF_UP)),
                     }
                 )
 
@@ -114,8 +125,8 @@ def _validate_lines(lines: List[dict]) -> Optional[str]:
         if not line.get("account_code"):
             return f"line #{idx}: account_code აკლია"
 
-        debit = float(line.get("debit", 0) or 0)
-        credit = float(line.get("credit", 0) or 0)
+        debit = _to_decimal(line.get("debit", 0) or 0)
+        credit = _to_decimal(line.get("credit", 0) or 0)
 
         if debit < 0 or credit < 0:
             return f"line #{idx}: debit/credit უარყოფითი ვერ იქნება"
@@ -129,8 +140,10 @@ def _validate_lines(lines: List[dict]) -> Optional[str]:
     debit_total = _sum_debits(lines)
     credit_total = _sum_credits(lines)
 
-    if round(debit_total, 2) != round(credit_total, 2):
-        return f"დებეტი და კრედიტი არ ემთხვევა (Dr={debit_total}, Cr={credit_total})"
+    dt = debit_total.quantize(Decimal("0.01"), ROUND_HALF_UP)
+    ct = credit_total.quantize(Decimal("0.01"), ROUND_HALF_UP)
+    if dt != ct:
+        return f"დებეტი და კრედიტი არ ემთხვევა (Dr={dt}, Cr={ct})"
 
     return None
 
@@ -140,7 +153,7 @@ def _draft_to_posting_payload(draft: dict) -> dict:
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
     currency = (draft.get("currency") or "GEL").upper()
-    amount   = float(draft.get("amount") or _derive_amount_from_lines(lines))
+    amount   = _to_decimal(draft.get("amount") or _derive_amount_from_lines(lines))
 
     payload: dict = {
         "id":          draft.get("id"),
@@ -148,7 +161,7 @@ def _draft_to_posting_payload(draft: dict) -> dict:
         "date":        draft.get("date"),
         "description": draft.get("description", ""),
         "partner":     draft.get("partner", ""),
-        "amount":      amount,
+        "amount":      float(amount.quantize(Decimal("0.01"), ROUND_HALF_UP)),
         "currency":    currency,
         "status":      draft.get("status", ""),
         "lines":       lines,
@@ -157,15 +170,15 @@ def _draft_to_posting_payload(draft: dict) -> dict:
     if currency != "GEL":
         try:
             from app.api.services.currency_service import get_rate
-            from decimal import Decimal
-            rate = get_rate(currency, "GEL", draft.get("date"))
-            payload["amount_gel"]    = round(float(Decimal(str(amount)) * rate), 2)
-            payload["exchange_rate"] = float(rate)
+            rate = _to_decimal(get_rate(currency, "GEL", draft.get("date")))
+            amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            payload["amount_gel"]    = float(amount_gel)
+            payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
         except Exception:
-            payload["amount_gel"]    = amount
+            payload["amount_gel"]    = float(amount)
             payload["exchange_rate"] = 1.0
     else:
-        payload["amount_gel"]    = amount
+        payload["amount_gel"]    = float(amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
         payload["exchange_rate"] = 1.0
 
     return payload

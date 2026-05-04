@@ -125,10 +125,12 @@ def metrics():
 # --- EXCEPTION HANDLERS ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import logging as _log
+    _log.getLogger(__name__).exception("Unhandled error: %s %s", request.method, request.url.path)
     return GeorgianJSONResponse(
         status_code=500,
         content={"ok": False, "message": "Internal server error", "data": None,
-                 "error": {"code": "INTERNAL_ERROR", "details": str(exc)}},
+                 "error": {"code": "INTERNAL_ERROR", "details": "სისტემური შეცდომა. გთხოვთ სცადოთ თავიდან."}},
     )
 
 @app.exception_handler(RequestValidationError)
@@ -168,7 +170,6 @@ from app.api import routes_erp_import
 from app.api import routes_erp_connectors
 from app.api import routes_auth
 from app.api import routes_balance_ge
-# from app.api import routes_chat
 from app.api import routes_1c
 from app.api import routes_notifications
 from app.api import routes_tax
@@ -279,7 +280,6 @@ app.include_router(routes_erp_import.router)
 app.include_router(routes_erp_connectors.router)
 app.include_router(routes_auth.router)
 app.include_router(routes_balance_ge.router)
-# app.include_router(routes_chat.router)
 app.include_router(routes_1c.router)
 app.include_router(routes_notifications.router)
 app.include_router(routes_tax.router)

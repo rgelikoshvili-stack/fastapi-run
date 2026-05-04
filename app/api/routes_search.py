@@ -6,29 +6,6 @@ from app.api.tenant_context import resolve_tenant_id
 router = APIRouter(prefix="/search", tags=["search"])
 
 
-async def _ensure_tables(conn):
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS search_index (
-            id SERIAL PRIMARY KEY,
-            doc_id VARCHAR(100),
-            doc_type VARCHAR(50),
-            filename VARCHAR(300),
-            amount FLOAT,
-            state VARCHAR(50),
-            tags TEXT[],
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS search_history (
-            id SERIAL PRIMARY KEY,
-            query TEXT,
-            results_count INT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-
-
 async def _run_search(tenant_id: str, q: str = "", state: str = "",
                       min_amount: float = 0, max_amount: float = 999999999):
     async with get_conn() as conn:

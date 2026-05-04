@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
-from app.api.db import get_conn, _q, get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.services.fx_service import (
     get_rate, calculate_fx_difference, revalue_open_items, build_fx_journal_entry,
@@ -31,42 +31,31 @@ class FXRevaluationRequest(BaseModel):
 
 
 @router.post("/calculate")
-def calculate_fx(body: FXCalcRequest, request: Request):
+async def calculate_fx(body: FXCalcRequest, request: Request):
     """Calculate FX gain/loss for a single foreign-currency amount."""
     require_permission(request, "reports:read")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     revalue_date = date.fromisoformat(body.revalue_date) if body.revalue_date else date.today()
-    conn = get_db()
-    try:
-        current_rate = get_rate(conn, body.currency, revalue_date)
-        if not current_rate:
-            return http_error(404, f"No NBG rate for {body.currency} on {revalue_date}", "RATE_NOT_FOUND")
+    current_rate = await get_rate(body.currency, revalue_date)
+    if not current_rate:
+        return http_error(404, f"No NBG rate for {body.currency} on {revalue_date}", "RATE_NOT_FOUND")
 
-        fx = calculate_fx_difference(
-            Decimal(str(body.amount)),
-            body.currency,
-            Decimal(str(body.original_rate)),
-            current_rate,
-        )
-    finally:
-        conn.close()
-
+    fx = calculate_fx_difference(
+        Decimal(str(body.amount)),
+        body.currency,
+        Decimal(str(body.original_rate)),
+        current_rate,
+    )
     return ok_response("FX calculation", {**fx, "revalue_date": revalue_date.isoformat()})
 
 
 @router.get("/rates/{currency}")
-def get_currency_rate(currency: str, request: Request,
-                      rate_date: Optional[str] = Query(None)):
+async def get_currency_rate(currency: str, request: Request,
+                            rate_date: Optional[str] = Query(None)):
     """Get NBG rate for a currency on a given date."""
     require_permission(request, "reports:read")
     d = date.fromisoformat(rate_date) if rate_date else date.today()
-    conn = get_db()
-    try:
-        rate = get_rate(conn, currency.upper(), d)
-    finally:
-        conn.close()
-
+    rate = await get_rate(currency.upper(), d)
     if not rate:
         return http_error(404, f"No rate for {currency} on {d}", "RATE_NOT_FOUND")
 
@@ -78,7 +67,7 @@ def get_currency_rate(currency: str, request: Request,
 
 
 @router.post("/revalue")
-def revalue_positions(body: FXRevaluationRequest, request: Request):
+async def revalue_positions(body: FXRevaluationRequest, request: Request):
     """
     Re-measure all open foreign-currency items at current NBG rates.
     Returns FX journal entries. Optionally posts them to journal_drafts.
@@ -87,39 +76,33 @@ def revalue_positions(body: FXRevaluationRequest, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     revalue_date = date.fromisoformat(body.revalue_date) if body.revalue_date else date.today()
 
-    conn = get_db()
     try:
-        fx_results = revalue_open_items(conn, tenant_id, revalue_date)
+        fx_results = await revalue_open_items(tenant_id, revalue_date)
         journal_entries = [build_fx_journal_entry(r, tenant_id, revalue_date) for r in fx_results]
 
         posted_count = 0
         if body.post_entries and journal_entries:
-            cur = conn.cursor()
-            for entry in journal_entries:
-                try:
-                    cur.execute("""
-                        INSERT INTO journal_drafts
-                            (tenant_id, description, amount, currency, status,
-                             source_type, account_code, created_at)
-                        VALUES (%s, %s, %s, 'GEL', 'auto_approved',
-                                'fx_revaluation', %s, NOW())
-                    """, (
-                        tenant_id,
-                        entry["description"],
-                        entry["lines"][0]["debit"] or entry["lines"][1]["credit"],
-                        entry["lines"][0]["account_code"],
-                    ))
-                    posted_count += 1
-                except Exception as e:
-                    log.warning("FX draft insert failed: %s", e)
-            conn.commit()
-            cur.close()
+            async with get_conn() as conn:
+                for entry in journal_entries:
+                    try:
+                        await conn.execute(_q("""
+                            INSERT INTO journal_drafts
+                                (tenant_id, description, amount, currency, status,
+                                 source_type, account_code, created_at)
+                            VALUES (%s, %s, %s, 'GEL', 'auto_approved',
+                                    'fx_revaluation', %s, NOW())
+                        """),
+                            tenant_id,
+                            entry["description"],
+                            entry["lines"][0]["debit"] or entry["lines"][1]["credit"],
+                            entry["lines"][0]["account_code"],
+                        )
+                        posted_count += 1
+                    except Exception as e:
+                        log.warning("FX draft insert failed: %s", e)
 
     except Exception as e:
-        conn.rollback()
         return error_response("Revaluation failed", "FX_ERROR", str(e))
-    finally:
-        conn.close()
 
     total_gain = sum(r["difference_gel"] for r in fx_results if r["is_gain"])
     total_loss = sum(abs(r["difference_gel"]) for r in fx_results if not r["is_gain"])

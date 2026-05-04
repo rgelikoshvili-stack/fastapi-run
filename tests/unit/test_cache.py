@@ -65,3 +65,49 @@ def test_expired_entry_removed_from_cache():
     _cache["cleanup"]["expires"] = time.time() - 1
     cache_get("cleanup")  # triggers deletion
     assert "cleanup" not in _cache
+
+
+def test_cache_ttl_constants_present():
+    from app.api.services.cache_service import CACHE_TTL
+    assert "dashboard_live" in CACHE_TTL
+    assert "dashboard_kpis" in CACHE_TTL
+    assert "coa_list" in CACHE_TTL
+    assert "exchange_rates" in CACHE_TTL
+    assert "approval_stats" in CACHE_TTL
+    assert CACHE_TTL["exchange_rates"] == 86400
+    assert CACHE_TTL["coa_list"] == 300
+
+
+# ── health endpoint structural tests ─────────────────────────────────────────
+
+def test_health_fast_endpoint_has_no_db_calls():
+    """Fast /health must not call DB — keep it sub-50ms."""
+    import inspect
+    import app.api.routes_health as mod
+    src = inspect.getsource(mod.health_check)
+    assert "get_conn" not in src
+    assert "fetchrow" not in src
+    assert "fetchval" not in src
+
+
+def test_deep_health_endpoint_exists():
+    import app.api.routes_health as mod
+    assert callable(getattr(mod, "health_check_deep", None))
+
+
+def test_health_ping_endpoint_exists():
+    import app.api.routes_health as mod
+    assert callable(getattr(mod, "ping", None))
+
+
+def test_health_has_uptime():
+    import inspect
+    import app.api.routes_health as mod
+    assert "uptime" in inspect.getsource(mod.health_check)
+
+
+def test_deep_health_calls_db():
+    import inspect
+    import app.api.routes_health as mod
+    src = inspect.getsource(mod.health_check_deep)
+    assert "get_conn" in src or "_check_db_deep" in src

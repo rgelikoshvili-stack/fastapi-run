@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reports", tags=["financial-statements"])
 
 
 @router.get("/pnl")
-def profit_and_loss(
+async def profit_and_loss(
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
     date_to:   Optional[str] = Query(None, description="YYYY-MM-DD"),
@@ -24,22 +24,22 @@ def profit_and_loss(
     """IAS 1 — Statement of Profit or Loss."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return build_profit_and_loss(tenant_id, date_from, date_to)
+    return await build_profit_and_loss(tenant_id, date_from, date_to)
 
 
 @router.get("/balance-sheet")
-def balance_sheet(
+async def balance_sheet(
     request: Request,
     as_of: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     """IAS 1 — Statement of Financial Position."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return build_balance_sheet(tenant_id, as_of)
+    return await build_balance_sheet(tenant_id, as_of)
 
 
 @router.get("/pl")
-def profit_and_loss_by_month(
+async def profit_and_loss_by_month(
     request: Request,
     year:  int = Query(..., description="e.g. 2026"),
     month: int = Query(..., ge=1, le=12, description="1-12"),
@@ -50,7 +50,7 @@ def profit_and_loss_by_month(
     last_day = calendar.monthrange(year, month)[1]
     date_from = date(year, month, 1).isoformat()
     date_to   = date(year, month, last_day).isoformat()
-    return build_profit_and_loss(tenant_id, date_from, date_to)
+    return await build_profit_and_loss(tenant_id, date_from, date_to)
 
 
 @router.get("/gl-reconciliation")

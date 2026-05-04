@@ -1,8 +1,22 @@
 """tests/unit/test_posting_integrity.py
 Posting integrity: balanced entries, idempotency, financial statement structure.
 """
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _make_get_conn(rows=None):
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=rows or [])
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -72,13 +86,9 @@ def test_idempotent_posting():
 def test_pl_report_structure():
     from app.api.services.financial_statements_service import build_profit_and_loss
 
-    mock_conn = MagicMock()
-    mock_cur = MagicMock()
-    mock_cur.fetchall.return_value = []
-    mock_conn.cursor.return_value = mock_cur
-
-    with patch("app.api.services.financial_statements_service.get_db", return_value=mock_conn):
-        result = build_profit_and_loss("tenant_a", "2026-01-01", "2026-01-31")
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
+        result = asyncio.run(build_profit_and_loss("tenant_a", "2026-01-01", "2026-01-31"))
 
     # ok_response wraps payload under "data"
     assert result.get("ok") is True
@@ -94,13 +104,9 @@ def test_pl_report_structure():
 def test_balance_sheet_equation():
     from app.api.services.financial_statements_service import build_balance_sheet
 
-    mock_conn = MagicMock()
-    mock_cur = MagicMock()
-    mock_cur.fetchall.return_value = []
-    mock_conn.cursor.return_value = mock_cur
-
-    with patch("app.api.services.financial_statements_service.get_db", return_value=mock_conn):
-        result = build_balance_sheet("tenant_a", "2026-01-31")
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
+        result = asyncio.run(build_balance_sheet("tenant_a", "2026-01-31"))
 
     assert result.get("ok") is True
     data = result["data"]

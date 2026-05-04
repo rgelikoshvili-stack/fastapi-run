@@ -15,6 +15,8 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
+from app.api.db import get_conn, _q
+
 log = logging.getLogger(__name__)
 
 FX_GAIN_ACCOUNT = "8310"   # Foreign currency gain
@@ -22,21 +24,20 @@ FX_LOSS_ACCOUNT = "8320"   # Foreign currency loss
 ROUNDING = Decimal("0.01")
 
 
-def get_rate(conn, currency: str, rate_date: date) -> Optional[Decimal]:
-    """Fetch NBG rate from exchange_rates table. Returns GEL per 1 unit of currency."""
+async def _get_rate_conn(conn, currency: str, rate_date: date) -> Optional[Decimal]:
+    """Fetch rate using an existing asyncpg conn (no extra pool checkout)."""
     if currency.upper() == "GEL":
         return Decimal("1")
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            SELECT rate FROM exchange_rates
-            WHERE currency = %s
-            ORDER BY updated_at DESC LIMIT 1
-        """, (currency.upper(),))
-        row = cur.fetchone()
-        return Decimal(str(row[0])) if row else None
-    finally:
-        cur.close()
+    row = await conn.fetchrow(_q(
+        "SELECT rate FROM exchange_rates WHERE currency = %s ORDER BY updated_at DESC LIMIT 1"
+    ), currency.upper())
+    return Decimal(str(row["rate"])) if row else None
+
+
+async def get_rate(currency: str, rate_date: date) -> Optional[Decimal]:
+    """Fetch NBG rate for a currency. Opens own pool connection."""
+    async with get_conn() as conn:
+        return await _get_rate_conn(conn, currency, rate_date)
 
 
 def calculate_fx_difference(
@@ -75,55 +76,55 @@ def calculate_fx_difference(
     }
 
 
-def revalue_open_items(conn, tenant_id: str, revalue_date: date) -> list[dict]:
+async def revalue_open_items(tenant_id: str, revalue_date: date) -> list[dict]:
     """
     Re-measure all open foreign-currency items (unpaid invoices, open payables)
     at the given date's NBG rate. Returns list of FX journal entries to post.
     """
-    cur = conn.cursor()
     results = []
-
     try:
-        # Find invoices in foreign currency that are unpaid
-        cur.execute("""
-            SELECT id, currency, total, original_rate, account_code
-            FROM invoices
-            WHERE tenant_id = %s
-              AND currency != 'GEL'
-              AND status NOT IN ('paid', 'cancelled')
-              AND original_rate IS NOT NULL
-              AND original_rate > 0
-        """, (tenant_id,))
-        invoices = cur.fetchall()
+        async with get_conn() as conn:
+            rows = await conn.fetch(_q("""
+                SELECT id, currency, total, original_rate, account_code
+                FROM invoices
+                WHERE tenant_id = %s
+                  AND currency != 'GEL'
+                  AND status NOT IN ('paid', 'cancelled')
+                  AND original_rate IS NOT NULL
+                  AND original_rate > 0
+            """), tenant_id)
 
-        for inv_id, currency, total, orig_rate, acct in invoices:
-            current_rate = get_rate(conn, currency, revalue_date)
-            if not current_rate:
-                log.warning("No rate for %s on %s", currency, revalue_date)
-                continue
+            for row in rows:
+                inv_id   = row["id"]
+                currency = row["currency"]
+                total    = row["total"]
+                orig_rate = row["original_rate"]
+                acct     = row["account_code"]
 
-            fx = calculate_fx_difference(
-                Decimal(str(total)), currency,
-                Decimal(str(orig_rate)), current_rate,
-            )
-            if abs(fx["difference_gel"]) < 0.01:
-                continue
+                current_rate = await _get_rate_conn(conn, currency, revalue_date)
+                if not current_rate:
+                    log.warning("No rate for %s on %s", currency, revalue_date)
+                    continue
 
-            results.append({
-                "source": "invoice",
-                "source_id": inv_id,
-                "description": f"FX {'gain' if fx['is_gain'] else 'loss'} revaluation — {currency} invoice #{inv_id}",
-                "debit_account": fx["account"] if not fx["is_gain"] else acct,
-                "credit_account": fx["account"] if fx["is_gain"] else acct,
-                "amount_gel": abs(fx["difference_gel"]),
-                "currency": currency,
-                **fx,
-            })
+                fx = calculate_fx_difference(
+                    Decimal(str(total)), currency,
+                    Decimal(str(orig_rate)), current_rate,
+                )
+                if abs(fx["difference_gel"]) < 0.01:
+                    continue
 
+                results.append({
+                    "source": "invoice",
+                    "source_id": inv_id,
+                    "description": f"FX {'gain' if fx['is_gain'] else 'loss'} revaluation — {currency} invoice #{inv_id}",
+                    "debit_account":  fx["account"] if not fx["is_gain"] else acct,
+                    "credit_account": fx["account"] if fx["is_gain"] else acct,
+                    "amount_gel": abs(fx["difference_gel"]),
+                    "currency": currency,
+                    **fx,
+                })
     except Exception as e:
         log.warning("revalue_open_items failed: %s", e)
-    finally:
-        cur.close()
 
     return results
 

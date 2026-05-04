@@ -2,9 +2,9 @@
 from fastapi import APIRouter, Request, Query
 from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
-from app.api.db import get_conn, _q, get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
-from app.api.services.entity_audit_service import get_entity_history
+from app.api.services.entity_audit_service import get_entity_history_async
 import logging
 
 router = APIRouter(prefix="/audit-trail", tags=["audit-trail"])
@@ -18,19 +18,16 @@ _VALID_ENTITIES = {
 
 
 @router.get("/{entity_type}/{entity_id}")
-def get_history(entity_type: str, entity_id: int, request: Request,
-                limit: int = Query(50, ge=1, le=200)):
+async def get_history(entity_type: str, entity_id: int, request: Request,
+                      limit: int = Query(50, ge=1, le=200)):
     """Full immutable change history for any entity — who changed what, when."""
     require_permission(request, "audit:read")
     if entity_type not in _VALID_ENTITIES:
         return http_error(400, f"Unknown entity type: {entity_type}", "VALIDATION_ERROR")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db()
-    try:
-        history = get_entity_history(conn, entity_type, entity_id, tenant_id, limit)
-    finally:
-        conn.close()
+    async with get_conn() as conn:
+        history = await get_entity_history_async(conn, entity_type, entity_id, tenant_id, limit)
 
     return ok_response(f"History for {entity_type}/{entity_id}", {
         "entity_type": entity_type,

@@ -120,6 +120,35 @@ def log_entity_change(conn, entity_type: str, entity_id,
                  old_data, new_data, actor, tenant_id, details)
 
 
+async def get_entity_history_async(conn, entity_type: str, entity_id,
+                                   tenant_id: str, limit: int = 50) -> list:
+    """asyncpg version — pass an asyncpg connection from get_conn()."""
+    from app.api.db import _q
+    try:
+        rows = await conn.fetch(_q("""
+            SELECT id, actor, action, old_value, new_value, details, created_at
+            FROM audit_log
+            WHERE resource = %s AND resource_id = %s AND tenant_id::text = %s
+            ORDER BY created_at DESC LIMIT %s
+        """), entity_type, str(entity_id), tenant_id, limit)
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("created_at"):
+                d["created_at"] = d["created_at"].isoformat()
+            for field in ("old_value", "new_value"):
+                if isinstance(d.get(field), str):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except Exception:
+                        pass
+            result.append(d)
+        return result
+    except Exception as e:
+        log.warning("get_entity_history_async failed: %s", e)
+        return []
+
+
 def get_entity_history(conn, entity_type: str, entity_id,
                        tenant_id: str, limit: int = 50) -> list:
     """Fetch full audit history for a single entity."""

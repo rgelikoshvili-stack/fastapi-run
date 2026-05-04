@@ -590,3 +590,33 @@ def _run_remaining_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # ── Search tables (previously in routes_search._ensure_tables hot path) ────
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS search_index (
+                id         SERIAL PRIMARY KEY,
+                doc_id     VARCHAR(100),
+                doc_type   VARCHAR(50),
+                filename   VARCHAR(300),
+                amount     FLOAT,
+                state      VARCHAR(50),
+                tags       TEXT[],
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # ── Speed Phase 1: learning_patterns + journal_entries indexes ────────────
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_learning_patterns_tenant  ON learning_patterns(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_entries_tenant    ON journal_entries(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_entries_tenant_dt ON journal_entries(tenant_id, entry_date DESC)",
+    ]:
+        try:
+            cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

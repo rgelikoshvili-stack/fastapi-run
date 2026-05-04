@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 from datetime import date
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 log = logging.getLogger(__name__)
@@ -89,7 +89,11 @@ _PNL = {
 }
 
 
-def _get_trial_balance(tenant_id: str, date_from: Optional[str], date_to: Optional[str]) -> dict:
+async def _get_trial_balance(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> dict:
     """Return {account_code: net_balance} from approved journal_drafts."""
     params: list = [tenant_id]
     date_filter = ""
@@ -100,7 +104,7 @@ def _get_trial_balance(tenant_id: str, date_from: Optional[str], date_to: Option
         date_filter += " AND jd.date <= %s"
         params.append(date_to)
 
-    sql = f"""
+    sql = _q(f"""
         SELECT
             COALESCE(entry->>'dr', entry->>'cr') AS account_code,
             CASE WHEN entry->>'dr' IS NOT NULL THEN 'debit' ELSE 'credit' END AS side,
@@ -113,33 +117,33 @@ def _get_trial_balance(tenant_id: str, date_from: Optional[str], date_to: Option
           AND (entry->>'dr' IS NOT NULL OR entry->>'cr' IS NOT NULL)
         GROUP BY COALESCE(entry->>'dr', entry->>'cr'),
                  CASE WHEN entry->>'dr' IS NOT NULL THEN 'debit' ELSE 'credit' END
-    """
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close()
-    finally:
-        conn.close()
+    """)
+
+    async with get_conn() as conn:
+        rows = await conn.fetch(sql, *params)
 
     balances: dict[str, float] = {}
-    for code, side, total in rows:
+    for row in rows:
+        code = row["account_code"]
         if not code:
             continue
-        val = float(total or 0)
+        val = float(row["total"] or 0)
         if code not in balances:
             balances[code] = 0.0
-        if side == "debit":
+        if row["side"] == "debit":
             balances[code] += val
         else:
             balances[code] -= val
     return balances  # positive = net debit balance
 
 
-def build_profit_and_loss(tenant_id: str, date_from: Optional[str] = None, date_to: Optional[str] = None) -> dict:
+async def build_profit_and_loss(
+    tenant_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict:
     try:
-        tb = _get_trial_balance(tenant_id, date_from, date_to)
+        tb = await _get_trial_balance(tenant_id, date_from, date_to)
     except Exception as e:
         log.error("P&L trial balance failed: %s", e)
         return error_response("P&L build failed", "DB_ERROR", str(e))
@@ -150,7 +154,6 @@ def build_profit_and_loss(tenant_id: str, date_from: Optional[str] = None, date_
         net = tb.get(code, 0.0)
         if net == 0.0:
             continue
-        # Revenue accounts: normal credit balance → positive revenue = negative net_debit
         amount = -net if section == "revenue" else net
         line = {"account_code": code, "label": label, "amount": round(amount, 2)}
         if section == "revenue":
@@ -177,9 +180,9 @@ def build_profit_and_loss(tenant_id: str, date_from: Optional[str] = None, date_
     })
 
 
-def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> dict:
+async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> dict:
     try:
-        tb = _get_trial_balance(tenant_id, None, as_of)
+        tb = await _get_trial_balance(tenant_id, None, as_of)
     except Exception as e:
         log.error("Balance Sheet trial balance failed: %s", e)
         return error_response("Balance Sheet build failed", "DB_ERROR", str(e))
@@ -194,12 +197,7 @@ def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> dict:
         net = tb.get(code, 0.0)
         if net == 0.0:
             continue
-        # Assets/contra: positive net_debit = positive asset balance
-        # Liabilities/equity: negative net_debit = positive L/E balance
-        if group == "assets":
-            amount = net  # debit-normal
-        else:
-            amount = -net  # credit-normal
+        amount = net if group == "assets" else -net
 
         sections[group][sub].append({
             "account_code": code,

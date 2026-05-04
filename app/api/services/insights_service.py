@@ -5,39 +5,29 @@ Bridge Hub — Dashboard Insights (read-only aggregates)
 import logging
 from decimal import Decimal
 
-import psycopg2.extras
-
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
-# Expense account prefix
 _EXPENSE_PREFIX = "7"
 _INCOME_PREFIX = "6"
 
 
-def _detect_duplicates(cur, tenant_id: str) -> list:
-    """
-    Find possible duplicate transactions within last 24 hours:
-    same amount + fuzzy description similarity ≥ 80.
-    """
+async def _detect_duplicates(conn, tenant_id: str) -> list:
+    """Find possible duplicate transactions within last 24 hours."""
     try:
         from rapidfuzz import fuzz as _rff
     except ImportError:
         return []
 
-    cur.execute(
-        """
+    rows = [dict(r) for r in await conn.fetch(_q("""
         SELECT id, description, amount, created_at
         FROM journal_drafts
         WHERE tenant_id = %s
           AND created_at >= NOW() - INTERVAL '24 hours'
         ORDER BY created_at DESC
         LIMIT 200
-        """,
-        (tenant_id,),
-    )
-    rows = [dict(r) for r in cur.fetchall()]
+    """), tenant_id)]
 
     seen = set()
     duplicates = []
@@ -67,40 +57,27 @@ def _detect_duplicates(cur, tenant_id: str) -> list:
     return duplicates
 
 
-def _calculate_runway(cur, tenant_id: str) -> dict:
-    """
-    Estimate cash runway based on last 30 days expense burn rate.
-    Returns runway_days (int | None).
-    """
+async def _calculate_runway(conn, tenant_id: str) -> dict:
+    """Estimate cash runway based on last 30 days expense burn rate."""
     try:
-        cur.execute(
-            """
+        row = await conn.fetchrow(_q("""
             SELECT COALESCE(SUM(amount), 0) / 30.0 AS daily_burn
             FROM journal_drafts
             WHERE tenant_id = %s
               AND status = 'approved'
               AND account_code LIKE '7%%'
               AND date >= CURRENT_DATE - INTERVAL '30 days'
-            """,
-            (tenant_id,),
-        )
-        daily_burn = float(cur.fetchone()["daily_burn"] or 0)
+        """), tenant_id)
+        daily_burn = float(row["daily_burn"] or 0) if row else 0
 
-        cur.execute(
-            """
+        row2 = await conn.fetchrow(_q("""
             SELECT COALESCE(SUM(
-                CASE
-                    WHEN account_code IN ('1110','1120') THEN amount
-                    ELSE 0
-                END
+                CASE WHEN account_code IN ('1110','1120') THEN amount ELSE 0 END
             ), 0) AS cash_balance
             FROM journal_drafts
-            WHERE tenant_id = %s
-              AND status = 'approved'
-            """,
-            (tenant_id,),
-        )
-        cash_balance = float(cur.fetchone()["cash_balance"] or 0)
+            WHERE tenant_id = %s AND status = 'approved'
+        """), tenant_id)
+        cash_balance = float(row2["cash_balance"] or 0) if row2 else 0
 
         runway_days = int(cash_balance / daily_burn) if daily_burn > 0 else None
         return {
@@ -114,11 +91,8 @@ def _calculate_runway(cur, tenant_id: str) -> dict:
         return {"daily_burn_gel": None, "estimated_cash_balance": None, "runway_days": None, "warning": False}
 
 
-def _add_anomaly_flags(anomalies: list, cur, tenant_id: str) -> list:
-    """
-    Flag anomalies where amount > 1.5× historical average for that account_code.
-    Adds is_anomaly: bool | None and historical_avg fields.
-    """
+async def _add_anomaly_flags(anomalies: list, conn, tenant_id: str) -> list:
+    """Flag anomalies where amount > 1.5× historical average for that account_code."""
     if not anomalies:
         return anomalies
 
@@ -128,20 +102,17 @@ def _add_anomaly_flags(anomalies: list, cur, tenant_id: str) -> list:
 
     avgs = {}
     try:
-        cur.execute(
-            """
+        rows = await conn.fetch(_q("""
             SELECT account_code, AVG(amount) AS avg_amount
             FROM journal_drafts
             WHERE tenant_id = %s
               AND status = 'approved'
               AND account_code = ANY(%s)
             GROUP BY account_code
-            """,
-            (tenant_id, account_codes),
-        )
-        avgs = {r["account_code"]: float(r["avg_amount"] or 0) for r in cur.fetchall()}
+        """), tenant_id, account_codes)
+        avgs = {r["account_code"]: float(r["avg_amount"] or 0) for r in rows}
     except Exception:
-        pass  # avgs stays {}; fields added as None below
+        pass
 
     result = []
     for a in anomalies:
@@ -157,129 +128,90 @@ def _add_anomaly_flags(anomalies: list, cur, tenant_id: str) -> list:
     return result
 
 
-def get_dashboard_insights(tenant_id: str) -> dict:
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+async def get_dashboard_insights(tenant_id: str) -> dict:
     try:
-        # --- Top expenses (approved, grouped by account_code) ---
-        cur.execute(
-            """
-            SELECT account_code,
-                   COUNT(*) AS count,
-                   COALESCE(SUM(amount), 0) AS total
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND status = 'approved'
-              AND account_code LIKE '7%%'
-            GROUP BY account_code
-            ORDER BY total DESC
-            LIMIT 10
-            """,
-            (tenant_id,),
-        )
-        top_expenses = [dict(r) for r in cur.fetchall()]
+        async with get_conn() as conn:
+            top_expenses = [dict(r) for r in await conn.fetch(_q("""
+                SELECT account_code,
+                       COUNT(*) AS count,
+                       COALESCE(SUM(amount), 0) AS total
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND status = 'approved'
+                  AND account_code LIKE '7%%'
+                GROUP BY account_code
+                ORDER BY total DESC
+                LIMIT 10
+            """), tenant_id)]
 
-        # --- Revenue vs Expense summary (approved) ---
-        cur.execute(
-            """
-            SELECT
-                COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '6%%'), 0) AS total_revenue,
-                COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS total_expenses
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND status = 'approved'
-            """,
-            (tenant_id,),
-        )
-        rev_exp = dict(cur.fetchone())
-        total_revenue = float(rev_exp["total_revenue"] or 0)
-        total_expenses = float(rev_exp["total_expenses"] or 0)
-        net = round(total_revenue - total_expenses, 2)
+            rev_exp = dict(await conn.fetchrow(_q("""
+                SELECT
+                    COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '6%%'), 0) AS total_revenue,
+                    COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS total_expenses
+                FROM journal_drafts
+                WHERE tenant_id = %s AND status = 'approved'
+            """), tenant_id) or {})
+            total_revenue = float(rev_exp.get("total_revenue") or 0)
+            total_expenses = float(rev_exp.get("total_expenses") or 0)
+            net = round(total_revenue - total_expenses, 2)
 
-        # --- Approval queue summary ---
-        cur.execute(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE status = 'pending_approval') AS pending_approval,
-                COUNT(*) FILTER (WHERE status = 'drafted') AS drafted,
-                COUNT(*) FILTER (WHERE review_required = TRUE AND status = 'drafted') AS needs_review
-            FROM journal_drafts
-            WHERE tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        queue = dict(cur.fetchone())
+            queue = dict(await conn.fetchrow(_q("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'pending_approval') AS pending_approval,
+                    COUNT(*) FILTER (WHERE status = 'drafted') AS drafted,
+                    COUNT(*) FILTER (WHERE review_required = TRUE AND status = 'drafted') AS needs_review
+                FROM journal_drafts WHERE tenant_id = %s
+            """), tenant_id) or {})
 
-        # --- Anomaly summary: high-value pending (>=5000) ---
-        cur.execute(
-            """
-            SELECT id, description, amount, date, account_code, status
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND amount >= 5000
-              AND status IN ('drafted', 'pending_approval')
-            ORDER BY amount DESC
-            LIMIT 10
-            """,
-            (tenant_id,),
-        )
-        anomalies = [dict(r) for r in cur.fetchall()]
+            anomalies = [dict(r) for r in await conn.fetch(_q("""
+                SELECT id, description, amount, date, account_code, status
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND amount >= 5000
+                  AND status IN ('drafted', 'pending_approval')
+                ORDER BY amount DESC
+                LIMIT 10
+            """), tenant_id)]
 
-        # --- Recent trends: last 6 months approved totals ---
-        cur.execute(
-            """
-            SELECT
-                TO_CHAR(DATE_TRUNC('month', date::date), 'YYYY-MM') AS month,
-                COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '6%%'), 0) AS revenue,
-                COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS expenses
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND status = 'approved'
-              AND date::date >= CURRENT_DATE - INTERVAL '6 months'
-            GROUP BY DATE_TRUNC('month', date::date)
-            ORDER BY DATE_TRUNC('month', date::date)
-            """,
-            (tenant_id,),
-        )
-        trends = [dict(r) for r in cur.fetchall()]
+            trends = [dict(r) for r in await conn.fetch(_q("""
+                SELECT
+                    TO_CHAR(DATE_TRUNC('month', date::date), 'YYYY-MM') AS month,
+                    COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '6%%'), 0) AS revenue,
+                    COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS expenses
+                FROM journal_drafts
+                WHERE tenant_id = %s
+                  AND status = 'approved'
+                  AND date::date >= CURRENT_DATE - INTERVAL '6 months'
+                GROUP BY DATE_TRUNC('month', date::date)
+                ORDER BY DATE_TRUNC('month', date::date)
+            """), tenant_id)]
 
-        # --- Additive: duplicate detection, runway, anomaly flags ---
-        possible_duplicates = _detect_duplicates(cur, tenant_id)
-        runway = _calculate_runway(cur, tenant_id)
+            possible_duplicates = await _detect_duplicates(conn, tenant_id)
+            runway = await _calculate_runway(conn, tenant_id)
 
-        raw_anomalies = [
-            {
-                "id": r["id"],
-                "description": r["description"],
-                "amount": float(r["amount"] or 0),
-                "date": str(r["date"]) if r["date"] else None,
-                "account_code": r["account_code"],
-                "status": r["status"],
-                "alert": "high_value",
-            }
-            for r in anomalies
-        ]
-        flagged_anomalies = _add_anomaly_flags(raw_anomalies, cur, tenant_id)
+            raw_anomalies = [
+                {
+                    "id": r["id"],
+                    "description": r["description"],
+                    "amount": float(r["amount"] or 0),
+                    "date": str(r["date"]) if r["date"] else None,
+                    "account_code": r["account_code"],
+                    "status": r["status"],
+                    "alert": "high_value",
+                }
+                for r in anomalies
+            ]
+            flagged_anomalies = await _add_anomaly_flags(raw_anomalies, conn, tenant_id)
 
     except Exception as e:
         log.error("insights_service tenant=%s: %s", tenant_id, e)
-        return {
-            "ok": False,
-            "error": {"code": "INSIGHTS_ERROR", "details": str(e)},
-        }
-    finally:
-        cur.close()
-        conn.close()
+        return {"ok": False, "error": {"code": "INSIGHTS_ERROR", "details": str(e)}}
 
     return {
         "ok": True,
         "tenant_id": tenant_id,
         "top_expenses": [
-            {
-                "account_code": r["account_code"],
-                "count": r["count"],
-                "total": float(r["total"]),
-            }
+            {"account_code": r["account_code"], "count": r["count"], "total": float(r["total"])}
             for r in top_expenses
         ],
         "revenue_vs_expenses": {
@@ -289,9 +221,9 @@ def get_dashboard_insights(tenant_id: str) -> dict:
             "profitable": net >= 0,
         },
         "approval_queue": {
-            "pending_approval": queue["pending_approval"],
-            "drafted": queue["drafted"],
-            "needs_review": queue["needs_review"],
+            "pending_approval": queue.get("pending_approval", 0),
+            "drafted": queue.get("drafted", 0),
+            "needs_review": queue.get("needs_review", 0),
         },
         "anomalies": flagged_anomalies,
         "trends": [

@@ -1,18 +1,29 @@
 """tests/unit/test_reports_routes.py
 Financial reports structural unit tests.
 """
+import asyncio
 import inspect
-from unittest.mock import MagicMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 
-def _mock_db(rows=None):
-    """Return a mock psycopg2 connection that returns `rows` from fetchall."""
-    cur = MagicMock()
-    cur.fetchall.return_value = rows or []
-    cur.fetchone.return_value = None
-    conn = MagicMock()
-    conn.cursor.return_value = cur
+def _mock_conn(rows=None):
+    """Return a mock asyncpg connection."""
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=rows or [])
+    conn.fetchrow = AsyncMock(return_value=None)
     return conn
+
+
+def _make_get_conn(rows=None):
+    """Factory: returns a callable that behaves like get_conn() async ctx mgr."""
+    conn = _mock_conn(rows)
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx
 
 
 # ── 1. P&L endpoint exists in financial_statements router ────────────────────
@@ -26,9 +37,10 @@ def test_pnl_endpoint_exists():
 # ── 2. P&L service returns ok=True with mocked empty DB ──────────────────────
 
 def test_pnl_service_returns_ok_with_empty_db():
-    with patch("app.api.services.financial_statements_service.get_db", return_value=_mock_db()):
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
         from app.api.services.financial_statements_service import build_profit_and_loss
-        result = build_profit_and_loss("test_tenant", None, None)
+        result = asyncio.run(build_profit_and_loss("test_tenant", None, None))
     assert result.get("ok") is True
     data = result.get("data", {})
     assert "revenue" in data
@@ -38,9 +50,10 @@ def test_pnl_service_returns_ok_with_empty_db():
 # ── 3. Balance Sheet returns balanced flag with empty DB ──────────────────────
 
 def test_balance_sheet_has_balanced_flag_with_empty_db():
-    with patch("app.api.services.financial_statements_service.get_db", return_value=_mock_db()):
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
         from app.api.services.financial_statements_service import build_balance_sheet
-        result = build_balance_sheet("test_tenant", None)
+        result = asyncio.run(build_balance_sheet("test_tenant", None))
     assert result.get("ok") is True
     data = result.get("data", {})
     assert "balanced" in data
@@ -52,9 +65,10 @@ def test_balance_sheet_has_balanced_flag_with_empty_db():
 # ── 4. Balance Sheet: empty DB → all zero → balanced ─────────────────────────
 
 def test_balance_sheet_zero_is_balanced():
-    with patch("app.api.services.financial_statements_service.get_db", return_value=_mock_db()):
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
         from app.api.services.financial_statements_service import build_balance_sheet
-        result = build_balance_sheet("test_tenant", None)
+        result = asyncio.run(build_balance_sheet("test_tenant", None))
     data = result.get("data", {})
     assets = data.get("assets", {}).get("total", 0)
     le = data.get("total_liabilities_and_equity", 0)
@@ -81,9 +95,10 @@ def test_balance_sheet_uses_trial_balance():
 # ── 7. P&L line items structure with empty DB ────────────────────────────────
 
 def test_pnl_line_items_structure_empty():
-    with patch("app.api.services.financial_statements_service.get_db", return_value=_mock_db()):
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
         from app.api.services.financial_statements_service import build_profit_and_loss
-        result = build_profit_and_loss("test_tenant", None, None)
+        result = asyncio.run(build_profit_and_loss("test_tenant", None, None))
     data = result.get("data", {})
     rev = data.get("revenue", {})
     assert "lines" in rev
@@ -94,9 +109,10 @@ def test_pnl_line_items_structure_empty():
 # ── 8. Balance Sheet sub-sections with empty DB ──────────────────────────────
 
 def test_balance_sheet_subsections_empty():
-    with patch("app.api.services.financial_statements_service.get_db", return_value=_mock_db()):
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
         from app.api.services.financial_statements_service import build_balance_sheet
-        result = build_balance_sheet("test_tenant", None)
+        result = asyncio.run(build_balance_sheet("test_tenant", None))
     data = result.get("data", {})
     assets = data.get("assets", {})
     assert "current" in assets

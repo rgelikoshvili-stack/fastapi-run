@@ -128,15 +128,21 @@ async def update_rate(data: RateUpdate):
 
 
 @router.post("/rates/sync-nbg")
-def sync_nbg_rates():
+async def sync_nbg_rates():
     """Fetch live rates from National Bank of Georgia and store in DB."""
+    import asyncio
     try:
         from app.integrations.nbg_api import sync_rates_to_db
-        conn = get_db()
-        try:
-            updated = sync_rates_to_db(conn)
-        finally:
-            conn.close()
+
+        def _sync():
+            conn = get_db()
+            try:
+                return sync_rates_to_db(conn)
+            finally:
+                conn.close()
+
+        loop = asyncio.get_event_loop()
+        updated = await loop.run_in_executor(None, _sync)
         return ok_response("NBG rates synced", {"updated": updated})
     except Exception as e:
         log.error("action=nbg_sync_error: %s", e)

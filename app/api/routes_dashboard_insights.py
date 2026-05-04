@@ -7,7 +7,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/insights")
-def dashboard_insights(request: Request):
+async def dashboard_insights(request: Request):
     require_permission(request, "dashboard:view")
     tenant_id = getattr(request.state, "tenant_id", "default") or "default"
-    return get_dashboard_insights(tenant_id)
+    return await get_dashboard_insights(tenant_id)

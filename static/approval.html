@@ -4124,8 +4124,27 @@ async function loadLearning() {
 }
 
 /* ═════════ INSIGHTS ═════════ */
+const INSIGHTS_CACHE_KEY = 'bh_insights_cache';
+const INSIGHTS_TTL = 60000; // 60 seconds
+
 async function loadInsights() {
+  try {
+    const cached = sessionStorage.getItem(INSIGHTS_CACHE_KEY);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < INSIGHTS_TTL) { _renderInsights(data); return; }
+    }
+  } catch (_) {}
+  ['ins-body','ins-rev-exp','ins-queue-detail','ins-anomalies','ins-trends'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `<div class="loading-row"><span class="spinner"></span></div>`;
+  });
   const d = await api('/dashboard/insights');
+  try { if (d && d.ok) sessionStorage.setItem(INSIGHTS_CACHE_KEY, JSON.stringify({ data: d, ts: Date.now() })); } catch (_) {}
+  _renderInsights(d);
+}
+
+function _renderInsights(d) {
   if (!d || !d.ok) {
     ['ins-body','ins-rev-exp','ins-queue-detail','ins-anomalies','ins-trends'].forEach(id => {
       const el = document.getElementById(id);

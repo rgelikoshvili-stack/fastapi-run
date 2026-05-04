@@ -240,3 +240,25 @@ def test_generate_payroll_drafts_creates_employer_pension_entry(monkeypatch):
     assert employer_params[3] == 60.0
     assert employer_params[4] == "7220"
     assert employer_params[5] == "3335"
+
+
+def test_payroll_journal_entries_each_balanced(monkeypatch):
+    """Each payroll draft must have a positive amount with distinct Dr/Cr accounts (balanced entry)."""
+    from app.api.services import payroll_service
+
+    fake_conn = _FakePayrollConn()
+    monkeypatch.setattr(payroll_service, "get_db", lambda: fake_conn)
+    payroll = payroll_service.calculate_payroll([{"gross_salary": 3000, "name": "Nino"}], period="2026-05")
+    payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a")
+
+    # Each INSERT: (date, desc, partner, amount, dr_account, cr_account, account_code, reason, ...)
+    for _, params in fake_conn.cursor_obj.calls:
+        amount, dr_account, cr_account = params[3], params[4], params[5]
+        assert amount > 0, f"Draft amount must be positive, got {amount}"
+        assert dr_account != cr_account, f"Dr and Cr must differ; both were '{dr_account}'"
+
+    # Amounts must cover all four components of the payroll
+    amounts = sorted(params[3] for _, params in fake_conn.cursor_obj.calls)
+    assert amounts == sorted([3000.0, 60.0, 600.0, 60.0]), (
+        f"Expected [60, 60, 600, 3000], got {amounts}"
+    )

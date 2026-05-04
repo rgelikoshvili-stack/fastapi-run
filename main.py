@@ -334,6 +334,7 @@ _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
     "http://localhost:3000",
     "http://localhost:8000",
     "https://fastapi-run-226875230147.europe-west1.run.app",
+    "https://bridge-hub-ui-j3dm.vercel.app",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -350,7 +351,8 @@ app.add_middleware(SlowAPIMiddleware)
 
 
 # --- MIDDLEWARE ---
-app.middleware("http")(correlation_middleware)  # outermost: attach X-Correlation-ID first
+# Starlette executes HTTP middleware in reverse registration order.
+app.middleware("http")(correlation_middleware)  # registered first; Starlette wraps later middleware outside it
 app.middleware("http")(audit_log_middleware)
 app.middleware("http")(rbac_middleware)
 app.middleware("http")(auth_middleware)

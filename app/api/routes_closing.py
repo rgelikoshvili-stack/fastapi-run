@@ -13,7 +13,7 @@ from app.api.tenant_context import resolve_tenant_id
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/accounting", tags=["accounting"])
 
-RETAINED_EARNINGS = "3600"   # განუაწილებელი მოგება
+RETAINED_EARNINGS = "4210"   # განუაწილებელი მოგება (Retained Earnings — Georgian COA standard)
 CLOSING_PREFIX    = "CLOSING"
 
 
@@ -63,11 +63,11 @@ async def preview_close(
                    - COALESCE(SUM(CASE WHEN debit_account = account_code THEN amount ELSE 0 END), 0) AS net
             FROM (
                 SELECT credit_account AS account_code, amount, debit_account FROM journal_drafts
-                WHERE {date_filter} AND status IN ('approved','auto_approved','posted')
+                WHERE {date_filter} AND status = 'posted'
                   AND credit_account LIKE '6%'
                 UNION ALL
                 SELECT debit_account AS account_code, amount, credit_account FROM journal_drafts
-                WHERE {date_filter} AND status IN ('approved','auto_approved','posted')
+                WHERE {date_filter} AND status = 'posted'
                   AND debit_account LIKE '6%'
             ) t
             GROUP BY account_code
@@ -81,11 +81,11 @@ async def preview_close(
                    - COALESCE(SUM(CASE WHEN credit_account = account_code THEN amount ELSE 0 END), 0) AS net
             FROM (
                 SELECT debit_account AS account_code, amount, credit_account FROM journal_drafts
-                WHERE {date_filter} AND status IN ('approved','auto_approved','posted')
+                WHERE {date_filter} AND status = 'posted'
                   AND debit_account LIKE '7%'
                 UNION ALL
                 SELECT credit_account AS account_code, amount, debit_account FROM journal_drafts
-                WHERE {date_filter} AND status IN ('approved','auto_approved','posted')
+                WHERE {date_filter} AND status = 'posted'
                   AND credit_account LIKE '7%'
             ) t
             GROUP BY account_code
@@ -117,7 +117,7 @@ async def close_period(request: Request, payload: dict):
     Execute period closing:
     1. Dr each 6xxx account (zero out revenue)
     2. Cr each 7xxx account (zero out expenses)
-    3. Net difference → 3600 (retained earnings)
+    3. Net difference → 4210 (retained earnings)
     All entries get status='posted', source_type='closing'.
     """
     require_permission(request, "settings:write")
@@ -150,7 +150,7 @@ async def close_period(request: Request, payload: dict):
                     COALESCE(SUM(CASE WHEN credit_account LIKE '6%' THEN amount ELSE -amount END), 0) AS net
                 FROM journal_drafts
                 WHERE {date_filter}
-                  AND status IN ('approved','auto_approved','posted')
+                  AND status = 'posted'
                   AND (credit_account LIKE '6%' OR debit_account LIKE '6%')
                 GROUP BY 1
                 HAVING ABS(SUM(CASE WHEN credit_account LIKE '6%' THEN amount ELSE -amount END)) > 0.001
@@ -162,7 +162,7 @@ async def close_period(request: Request, payload: dict):
                     COALESCE(SUM(CASE WHEN debit_account LIKE '7%' THEN amount ELSE -amount END), 0) AS net
                 FROM journal_drafts
                 WHERE {date_filter}
-                  AND status IN ('approved','auto_approved','posted')
+                  AND status = 'posted'
                   AND (debit_account LIKE '7%' OR credit_account LIKE '7%')
                 GROUP BY 1
                 HAVING ABS(SUM(CASE WHEN debit_account LIKE '7%' THEN amount ELSE -amount END)) > 0.001

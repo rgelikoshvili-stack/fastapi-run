@@ -143,3 +143,100 @@ def test_cit_journal_entries_present():
     assert r["journal_step1"]["debit"]  == "4210"
     assert r["journal_step1"]["credit"] == "3370"
     assert len(r["journal_step2"]) == 2
+
+# --- API-level tax endpoint regression tests ---
+
+def test_tax_salary_endpoint_uses_2pct_employee_and_2pct_employer_pension():
+    from app.api.routes_tax import SalaryRequest, calculate_salary
+
+    result = calculate_salary(SalaryRequest(gross_salary=3000, include_pension=True))
+    data = result["data"]
+
+    assert data["income_tax_20pct"] == 600
+    assert data["pension_employee_2pct"] == 60
+    assert data["pension_employee_4pct"] == 60  # compatibility alias, value is now 2%
+    assert data["pension_employer_2pct"] == 60
+    assert data["net_salary"] == 2340
+    assert data["total_employer_cost"] == 3060
+
+
+def test_tax_corporate_endpoint_uses_georgian_gross_up():
+    from app.api.routes_tax import CorporateRequest, calculate_corporate
+
+    result = calculate_corporate(CorporateRequest(profit=100000, distributed=True))
+    data = result["data"]
+
+    assert data["tax_base"] == 117647.06
+    assert data["corporate_tax"] == 17647.06
+    assert data["net_after_tax"] == 82352.94
+    assert data["calculation_method"] == "georgian_estonian_model_gross_up"
+
+
+def test_payroll_service_includes_employer_pension_in_totals():
+    from app.api.services.payroll_service import calculate_payroll
+
+    result = calculate_payroll([{"gross_salary": 3000, "name": "Nino"}], period="2026-05")
+    emp = result["employees"][0]
+
+    assert emp["payg_2pct"] == 60.0
+    assert emp["pit_20pct"] == 600.0
+    assert emp["employer_pension_2pct"] == 60.0
+    assert emp["net_salary"] == 2340.0
+    assert emp["total_employer_cost"] == 3060.0
+    assert result["totals"]["employer_pension"] == 60.0
+    assert result["totals"]["total_employer_cost"] == 3060.0
+
+
+class _FakePayrollCursor:
+    def __init__(self):
+        self.calls = []
+        self.next_id = 0
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params or ()))
+
+    def fetchone(self):
+        self.next_id += 1
+        return {"id": self.next_id}
+
+    def close(self):
+        pass
+
+
+class _FakePayrollConn:
+    def __init__(self):
+        self.cursor_obj = _FakePayrollCursor()
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self, *args, **kwargs):
+        return self.cursor_obj
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        pass
+
+
+def test_generate_payroll_drafts_creates_employer_pension_entry(monkeypatch):
+    from app.api.services import payroll_service
+
+    fake_conn = _FakePayrollConn()
+    monkeypatch.setattr(payroll_service, "get_db", lambda: fake_conn)
+    payroll = payroll_service.calculate_payroll([{"gross_salary": 3000, "name": "Nino"}], period="2026-05")
+
+    result = payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a")
+
+    assert result["ok"] is True
+    assert result["drafts_created"] == 4
+    assert fake_conn.committed is True
+    reasons = [params[7] for _, params in fake_conn.cursor_obj.calls]
+    assert "payroll_employer_pension" in reasons
+    employer_params = [params for _, params in fake_conn.cursor_obj.calls if params[7] == "payroll_employer_pension"][0]
+    assert employer_params[3] == 60.0
+    assert employer_params[4] == "7220"
+    assert employer_params[5] == "3335"

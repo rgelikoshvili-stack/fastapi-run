@@ -7,11 +7,17 @@ georgia_pack.py-ს გამოიყენებს.
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from typing import Optional
+import logging
 import psycopg2.extras
 from app.api.db import get_db
 from app.policy.localization.georgia_pack import (
     calculate_payg, get_account, VAT_RATE, PAYG_RATE, PIT_RATE
 )
+
+log = logging.getLogger(__name__)
+EMPLOYER_PENSION_RATE = PAYG_RATE
+EMPLOYER_PENSION_EXPENSE_ACCOUNT = "7220"
+EMPLOYER_PENSION_PAYABLE_ACCOUNT = "3335"
 
 
 # ========== Payroll Calculation ==========
@@ -31,6 +37,7 @@ def calculate_employee_payroll(
 
     payg = calculate_payg(gross)
     pit = (gross * PIT_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    employer_pension = (gross * EMPLOYER_PENSION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     net = gross - Decimal(str(payg["payg"])) - pit
 
     return {
@@ -40,12 +47,16 @@ def calculate_employee_payroll(
         "gross_salary": float(gross),
         "payg_2pct": float(payg["payg"]),
         "pit_20pct": float(pit),
+        "employer_pension_2pct": float(employer_pension),
         "total_deductions": float(payg["payg"]) + float(pit),
         "net_salary": float(net),
+        "total_employer_cost": float(gross + employer_pension),
         "accounts": {
             "salary_expense": get_account("salary"),
             "payg_payable": "3120",
             "pit_payable": "3320",
+            "employer_pension_expense": EMPLOYER_PENSION_EXPENSE_ACCOUNT,
+            "employer_pension_payable": EMPLOYER_PENSION_PAYABLE_ACCOUNT,
             "bank": get_account("bank"),
         }
     }
@@ -60,6 +71,7 @@ def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
     total_gross = Decimal("0")
     total_payg = Decimal("0")
     total_pit = Decimal("0")
+    total_employer_pension = Decimal("0")
     total_net = Decimal("0")
 
     for emp in employees:
@@ -73,6 +85,7 @@ def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
         total_gross += Decimal(str(result["gross_salary"]))
         total_payg += Decimal(str(result["payg_2pct"]))
         total_pit += Decimal(str(result["pit_20pct"]))
+        total_employer_pension += Decimal(str(result["employer_pension_2pct"]))
         total_net += Decimal(str(result["net_salary"]))
 
     return {
@@ -84,8 +97,10 @@ def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
             "gross": float(total_gross),
             "payg": float(total_payg),
             "pit": float(total_pit),
+            "employer_pension": float(total_employer_pension),
             "net": float(total_net),
             "total_deductions": float(total_payg + total_pit),
+            "total_employer_cost": float(total_gross + total_employer_pension),
         }
     }
 
@@ -98,10 +113,11 @@ def generate_payroll_drafts(
 ) -> dict:
     """
     Payroll-იდან journal drafts-ის შექმნა.
-    ყოველი თანამშრომლისთვის 3 entry:
+    ყოველი თანამშრომლისთვის 4 entry:
     1. ხელფასის ხარჯი
     2. PAYG გადახდა
     3. საშემოსავლო გადახდა
+    4. დამსაქმებლის 2% საპენსიო ხარჯი
     """
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -185,6 +201,34 @@ def generate_payroll_drafts(
             ))
             created_ids.append(cur.fetchone()["id"])
 
+            employer_pension = emp.get("employer_pension_2pct")
+            if employer_pension is None:
+                employer_pension = round(float(emp.get("gross_salary", 0)) * float(EMPLOYER_PENSION_RATE), 2)
+
+            # 4. დამსაქმებლის საპენსიო შენატანი (2%)
+            cur.execute("""
+                INSERT INTO journal_drafts (
+                    date, description, partner, amount,
+                    debit_account, credit_account, account_code,
+                    reason, confidence, status, source_type, tenant_id, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                RETURNING id
+            """, (
+                date,
+                f"დამსაქმებლის საპენსიო 2% — {name} ({period})",
+                name,
+                employer_pension,
+                EMPLOYER_PENSION_EXPENSE_ACCOUNT,
+                EMPLOYER_PENSION_PAYABLE_ACCOUNT,
+                EMPLOYER_PENSION_EXPENSE_ACCOUNT,
+                "payroll_employer_pension",
+                0.95,
+                "pending_approval",
+                "payroll",
+                tenant_id,
+            ))
+            created_ids.append(cur.fetchone()["id"])
+
         conn.commit()
         return {
             "ok": True,
@@ -193,9 +237,10 @@ def generate_payroll_drafts(
             "draft_ids": created_ids,
             "tenant_id": tenant_id,
         }
-    except Exception as e:
+    except Exception:
         conn.rollback()
-        return {"ok": False, "error": str(e)}
+        log.exception("Payroll draft generation failed tenant=%s period=%s", tenant_id, period)
+        return {"ok": False, "error": "Payroll draft generation failed"}
     finally:
         cur.close()
         conn.close()

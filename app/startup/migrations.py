@@ -614,6 +614,9 @@ def _run_remaining_migrations(cur):
         "CREATE INDEX IF NOT EXISTS idx_learning_patterns_tenant  ON learning_patterns(tenant_id)",
         "CREATE INDEX IF NOT EXISTS idx_journal_entries_tenant    ON journal_entries(tenant_id)",
         "CREATE INDEX IF NOT EXISTS idx_journal_entries_tenant_dt ON journal_entries(tenant_id, entry_date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant_created ON journal_drafts(tenant_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_journal_drafts_tenant_status ON journal_drafts(tenant_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_created ON audit_events(tenant_id, created_at DESC)",
     ]:
         try:
             cur.execute(idx_sql)

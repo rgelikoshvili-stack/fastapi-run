@@ -1,6 +1,7 @@
 import hashlib
 import json
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import date as _date
 from typing import Any, List, Optional
 
 import psycopg2.extras
@@ -609,6 +610,27 @@ def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]
     return None
 
 
+
+def _is_period_locked_sync(cur, tenant_id: str, entry_date) -> bool:
+    if not entry_date:
+        return False
+    if isinstance(entry_date, _date):
+        d = entry_date
+    else:
+        d = _date.fromisoformat(str(entry_date)[:10])
+    cur.execute(
+        """
+        SELECT 1 FROM period_locks
+        WHERE tenant_id = %s
+          AND unlocked_at IS NULL
+          AND period_year = %s
+          AND (period_month = 0 OR period_month = %s)
+        LIMIT 1
+        """,
+        (tenant_id, d.year, d.month),
+    )
+    return cur.fetchone() is not None
+
 def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
     target_normalized = _normalize_target(target)
 
@@ -623,6 +645,13 @@ def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"
                 err = _validate_approved_draft(draft, draft_id, tenant_id)
                 if err:
                     return err
+
+                if _is_period_locked_sync(cur, tenant_id, draft.get("date")):
+                    return error_response(
+                        "accounting period is locked",
+                        code="PERIOD_LOCKED",
+                        details={"date": str(draft.get("date")), "tenant_id": tenant_id},
+                    )
 
                 if not force:
                     dup = _check_duplicate_invoice(cur, draft, tenant_id)

@@ -67,3 +67,6 @@ knowledge_files/archive/*.docx
 # React app — node_modules excluded, build output (static/react/) is committed
 bridge-hub-ui/node_modules/
 bridge-hub-ui/.env.local
+
+# Generated local audit/document scripts
+generate_*.py

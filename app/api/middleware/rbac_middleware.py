@@ -35,8 +35,12 @@ async def rbac_middleware(request: Request, call_next):
     if path == "/" or path.startswith(public_prefixes):
         return await call_next(request)
 
-    # Fallback: ?token= query param (e.g. PDF download in new tab)
-    if not getattr(request.state, "authenticated", False):
+    # ?token= fallback is intentionally restricted to PDF/file download paths only.
+    # Using a token in the URL is unsafe for general API calls because Cloud Run
+    # access logs record the full URL including query params, which exposes tokens
+    # to anyone with log access.  All other API paths must use Authorization header.
+    _DOWNLOAD_PREFIXES = ("/api/documents/download/", "/api/reports/export/", "/api/payroll/slip/")
+    if not getattr(request.state, "authenticated", False) and path.startswith(_DOWNLOAD_PREFIXES):
         _qt = request.query_params.get("token")
         if _qt:
             try:

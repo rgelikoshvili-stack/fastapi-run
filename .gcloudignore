@@ -51,3 +51,6 @@ RUNBOOK.txt
 *.xml
 *.csv
 *.jsonl
+
+# Generated local audit/document scripts
+generate_*.py

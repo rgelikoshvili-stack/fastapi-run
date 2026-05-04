@@ -86,8 +86,16 @@ def _rate_to_gel(currency: str, for_date: Optional[str] = None) -> Decimal:
     except Exception as e:
         log.warning("currency_service._rate_to_gel db error: %s", e)
 
-    fallback = _DEFAULT_RATES.get(currency, 0.0)
-    return Decimal(str(fallback))
+    fallback = _DEFAULT_RATES.get(currency)
+    if fallback:
+        log.warning(
+            "currency_service: no DB rate for %s — using hardcoded fallback %.4f. "
+            "Journal FX amounts may be inaccurate until NBG sync runs.",
+            currency, fallback,
+        )
+        return Decimal(str(fallback))
+    log.error("currency_service: no rate found for %s in DB or fallback table", currency)
+    return Decimal("0")
 
 
 def convert(amount: Decimal, from_code: str, to_code: str,

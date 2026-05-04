@@ -20,16 +20,17 @@ async def monthly_report(request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
 
     async with get_conn() as conn:
-        rows = await conn.fetch("""
+        rows = await conn.fetch(_q("""
             SELECT DATE_TRUNC('month', created_at) as month,
                    COUNT(*) as total_docs,
                    SUM(CASE WHEN state='APPROVED' THEN 1 ELSE 0 END) as approved,
                    SUM(CASE WHEN state='REJECTED' THEN 1 ELSE 0 END) as rejected
             FROM pipeline_runs
+            WHERE tenant_id = %s
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY month DESC
             LIMIT 12
-        """)
+        """), tenant_id)
         tx_rows = await conn.fetch(_q("""
             SELECT DATE_TRUNC('month', created_at) as month,
                    SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as inflow,

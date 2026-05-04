@@ -119,3 +119,37 @@ def test_balance_sheet_subsections_empty():
     assert "non_current" in assets
     assert "total" in assets
     assert assets["total"] == 0.0
+
+
+def test_financial_statements_use_posted_entries_only():
+    from app.api.services import financial_statements_service as mod
+    src = inspect.getsource(mod._get_trial_balance)
+    assert "FROM journal_drafts" in src
+    assert "jd.status = 'posted'" in src
+    assert "approved" not in src
+    assert "auto_approved" not in src
+
+
+def test_monthly_report_filters_pipeline_runs_by_tenant():
+    from types import SimpleNamespace
+    import app.api.routes_reports as mod
+
+    conn = _mock_conn()
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(authenticated=True, role="admin", tenant_id="tenant-a")
+    )
+    with patch("app.api.routes_reports.get_conn", _ctx):
+        result = asyncio.run(mod.monthly_report(request))
+
+    assert result["ok"] is True
+    first_call = conn.fetch.await_args_list[0]
+    sql = first_call.args[0]
+    args = first_call.args[1:]
+    assert "FROM pipeline_runs" in sql
+    assert "tenant_id" in sql
+    assert args == ("tenant-a",)

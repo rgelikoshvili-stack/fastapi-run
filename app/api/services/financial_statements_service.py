@@ -1,5 +1,5 @@
 """app/api/services/financial_statements_service.py
-IAS 1-compliant P&L and Balance Sheet from journal_drafts trial balance.
+IAS 1-compliant P&L and Balance Sheet from posted journal entries only.
 """
 from __future__ import annotations
 import logging
@@ -94,7 +94,7 @@ async def _get_trial_balance(
     date_from: Optional[str],
     date_to: Optional[str],
 ) -> dict:
-    """Return {account_code: net_balance} from approved journal_drafts."""
+    """Return {account_code: net_balance} from posted journal entries only."""
     params: list = [tenant_id]
     date_filter = ""
     if date_from:
@@ -112,7 +112,7 @@ async def _get_trial_balance(
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'posted')
+          AND jd.status = 'posted'
           {date_filter}
           AND (entry->>'dr' IS NOT NULL OR entry->>'cr' IS NOT NULL)
         GROUP BY COALESCE(entry->>'dr', entry->>'cr'),

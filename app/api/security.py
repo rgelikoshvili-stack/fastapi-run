@@ -46,6 +46,8 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
+# TODO(security): legacy static HTML still uses inline scripts/styles.
+# Move it to nonces/hashes before removing 'unsafe-inline' globally.
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
@@ -63,5 +65,4 @@ SECURITY_HEADERS = {
         "frame-src 'self' blob:; "
         "object-src 'self' blob:;"
     ),
-    "X-Powered-By": "BridgeHub/1.0",
 }

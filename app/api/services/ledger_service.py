@@ -1,6 +1,7 @@
 """
 Ledger queries — reads from journal_drafts.journal_entries JSONB.
-All functions work only with approved drafts (status IN ('approved','auto_approved')).
+All functions work only with posted drafts (status = 'posted') to show
+committed accounting data only.
 """
 from __future__ import annotations
 
@@ -56,7 +57,7 @@ def get_account_ledger(
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           AND (entry->>'dr' = %s OR entry->>'cr' = %s)
           {period}
         ORDER BY
@@ -134,7 +135,7 @@ def get_trial_balance(
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           {period}
         GROUP BY entry->>'dr'
 
@@ -147,7 +148,7 @@ def get_trial_balance(
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           {period}
         GROUP BY entry->>'cr'
         ORDER BY account_code, side
@@ -224,7 +225,7 @@ def get_counterparty_ledger(
         FROM journal_drafts jd
         WHERE jd.tenant_id = %s
           AND jd.counterparty_inn = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           {period}
         ORDER BY
             CASE WHEN jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
@@ -306,7 +307,7 @@ def get_payroll_ledger(
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           AND (entry->>'dr' = ANY(%s) OR entry->>'cr' = ANY(%s))
           {year_filter}
           {emp_filter}
@@ -391,7 +392,7 @@ def get_journal_entries(
             jd.journal_entries
         FROM journal_drafts jd
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           {date_filter}
         ORDER BY
             CASE WHEN jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
@@ -409,7 +410,7 @@ def get_journal_entries(
     count_sql = f"""
         SELECT COUNT(*) AS total FROM journal_drafts jd
         WHERE jd.tenant_id = %s
-          AND jd.status IN ('approved', 'auto_approved')
+          AND jd.status = 'posted'
           {count_date}
     """
 

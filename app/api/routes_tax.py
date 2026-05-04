@@ -4,10 +4,12 @@ Bridge Hub — Tax Routes V2
 + accounting_rules integration (GEL format, VAT posting, Dividend 2-step)
 """
 from fastapi import APIRouter, Request
+from decimal import Decimal
 from pydantic import BaseModel
 from typing import Optional, List
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
+from app.policy.localization.georgia_pack import calculate_cit as calculate_georgian_cit
  
 # ── Accounting Rules ──────────────────────────────────────────────────────────
 try:
@@ -27,7 +29,7 @@ GEO_TAX_RATES = {
     "vat": 18.0,
     "income_tax": 20.0,
     "corporate_tax": 15.0,
-    "pension": 4.0,
+    "pension": 2.0,
     "pension_employer": 2.0,
     "property_tax": 1.0,
     "dividend_tax": 5.0,
@@ -165,7 +167,8 @@ def calculate_salary(req: SalaryRequest):
         "gross_formatted": format_gel(req.gross_salary),
         "income_tax_20pct": income_tax,
         "income_tax_formatted": format_gel(income_tax),
-        "pension_employee_4pct": pension_employee,
+        "pension_employee_2pct": pension_employee,
+        "pension_employee_4pct": pension_employee,  # deprecated alias kept for API compatibility
         "pension_employee_formatted": format_gel(pension_employee),
         "pension_employer_2pct": pension_employer,
         "net_salary": net_salary,
@@ -179,16 +182,21 @@ def calculate_salary(req: SalaryRequest):
 @router.post("/corporate")
 def calculate_corporate(req: CorporateRequest):
     if req.distributed:
-        tax = round(req.profit * GEO_TAX_RATES["corporate_tax"] / 100, 2)
-        net = round(req.profit - tax, 2)
+        cit = calculate_georgian_cit(Decimal(str(req.profit)))
+        tax = round(float(cit["cit"]), 2)
+        tax_base = round(float(cit["tax_base"]), 2)
+        net = round(float(cit["net_dividend"]), 2)
         return ok_response("Corporate tax (distributed profit)", {
             "profit": req.profit,
             "profit_formatted": format_gel(req.profit),
-            "tax_rate": "15%",
+            "tax_rate": "15% gross-up",
+            "tax_base": tax_base,
+            "tax_base_formatted": format_gel(tax_base),
             "corporate_tax": tax,
             "corporate_tax_formatted": format_gel(tax),
             "net_after_tax": net,
             "net_formatted": format_gel(net),
+            "calculation_method": "georgian_estonian_model_gross_up",
             "note": "საქართველო: გადასახადი მხოლოდ განაწილებულ მოგებაზე",
         })
     else:
@@ -225,7 +233,7 @@ def calculate_invoice_tax(req: InvoiceTaxRequest):
 @router.post("/annual-summary")
 def annual_tax_summary(req: AnnualTaxRequest):
     profit = req.annual_revenue - req.annual_expenses
-    corporate_tax = round(profit * GEO_TAX_RATES["corporate_tax"] / 100, 2) if profit > 0 else 0
+    corporate_tax = round(float(calculate_georgian_cit(Decimal(str(profit)))["cit"]), 2) if profit > 0 else 0
     vat_payable = round(req.annual_revenue * GEO_TAX_RATES["vat"] / 100, 2)
     salary_total = req.employee_count * req.avg_salary * 12
     income_tax_total = round(salary_total * GEO_TAX_RATES["income_tax"] / 100, 2)

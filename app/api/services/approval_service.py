@@ -40,6 +40,11 @@ from app.api.engines.pattern_engine import (
     mark_pattern_success,
     mark_pattern_failure,
 )
+from app.api.services.approval_patterns import (
+    _get_pattern_value_for_draft,
+    _mark_success_for_draft,
+    _mark_failure_for_draft,
+)
 
 AUTOPILOT_MIN_CONFIDENCE = 0.80
 AUTOPILOT_MIN_USAGE_COUNT = 5
@@ -148,71 +153,6 @@ async def get_queue_service(status: str, limit: int, offset: int, tenant_id: str
             "tenant_id": tenant_id,
         },
     )
-
-
-def _get_pattern_value_for_draft(draft: dict):
-    matched_on = draft.get("pattern_matched_on")
-    if matched_on in ("description_exact", "description_fuzzy"):
-        return draft.get("pattern_value_used") or draft.get("description")
-    if matched_on in ("partner_exact", "partner_fuzzy"):
-        return draft.get("pattern_value_used") or draft.get("partner")
-    return None
-
-
-def _mark_success_for_draft(draft: dict, tenant_id: str, weight: float = 1.0):
-    matched_on = draft.get("pattern_matched_on")
-    account_code = draft.get("account_code")
-    pattern_value = _get_pattern_value_for_draft(draft)
-
-    if not pattern_value or not account_code:
-        return {"updated": 0}
-
-    if matched_on == "description_exact":
-        return mark_pattern_success(
-            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "partner_exact":
-        return mark_pattern_success(
-            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "description_fuzzy":
-        return mark_pattern_success(
-            "description_fuzzy", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "partner_fuzzy":
-        return mark_pattern_success(
-            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-
-    return {"updated": 0}
-
-
-def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
-    matched_on = draft.get("pattern_matched_on")
-    account_code = draft.get("account_code")
-    pattern_value = _get_pattern_value_for_draft(draft)
-
-    if not pattern_value or not account_code:
-        return {"updated": 0}
-
-    if matched_on == "description_exact":
-        return mark_pattern_failure(
-            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "partner_exact":
-        return mark_pattern_failure(
-            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "description_fuzzy":
-        return mark_pattern_failure(
-            "description_fuzzy", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-    if matched_on == "partner_fuzzy":
-        return mark_pattern_failure(
-            "partner", pattern_value, account_code, tenant_id=tenant_id, weight=weight
-        )
-
-    return {"updated": 0}
 
 
 async def approve_draft_service(draft_id: int, tenant_id: str):

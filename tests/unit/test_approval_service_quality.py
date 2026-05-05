@@ -24,7 +24,7 @@ def test_mark_success_uses_description_fuzzy_for_fuzzy_match():
         calls_recorded.append(pattern_type)
         return {"updated": 1}
 
-    with patch("app.api.services.approval_service.mark_pattern_success", side_effect=fake_mark):
+    with patch("app.api.services.approval_patterns.mark_pattern_success", side_effect=fake_mark):
         _mark_success_for_draft(draft, tenant_id="tenant-a", weight=1.0)
 
     assert calls_recorded, "mark_pattern_success was never called"
@@ -49,7 +49,7 @@ def test_mark_success_uses_description_exact_for_exact_match():
         calls_recorded.append(pattern_type)
         return {"updated": 1}
 
-    with patch("app.api.services.approval_service.mark_pattern_success", side_effect=fake_mark):
+    with patch("app.api.services.approval_patterns.mark_pattern_success", side_effect=fake_mark):
         _mark_success_for_draft(draft, tenant_id="tenant-a", weight=1.0)
 
     assert calls_recorded[0] == "description_exact", (
@@ -73,7 +73,7 @@ def test_mark_failure_uses_description_fuzzy_for_fuzzy_match():
         calls_recorded.append(pattern_type)
         return {"updated": 1}
 
-    with patch("app.api.services.approval_service.mark_pattern_failure", side_effect=fake_mark):
+    with patch("app.api.services.approval_patterns.mark_pattern_failure", side_effect=fake_mark):
         _mark_failure_for_draft(draft, tenant_id="tenant-a", weight=1.5)
 
     assert calls_recorded, "mark_pattern_failure was never called"
@@ -97,7 +97,7 @@ def test_mark_failure_uses_description_exact_for_exact_match():
         calls_recorded.append(pattern_type)
         return {"updated": 1}
 
-    with patch("app.api.services.approval_service.mark_pattern_failure", side_effect=fake_mark):
+    with patch("app.api.services.approval_patterns.mark_pattern_failure", side_effect=fake_mark):
         _mark_failure_for_draft(draft, tenant_id="tenant-a", weight=1.5)
 
     assert calls_recorded[0] == "description_exact"
@@ -118,7 +118,7 @@ def test_partner_fuzzy_still_uses_partner_type():
         calls_recorded.append(pattern_type)
         return {"updated": 1}
 
-    with patch("app.api.services.approval_service.mark_pattern_success", side_effect=fake_mark):
+    with patch("app.api.services.approval_patterns.mark_pattern_success", side_effect=fake_mark):
         _mark_success_for_draft(draft, tenant_id="tenant-a", weight=1.0)
 
     assert calls_recorded[0] == "partner"

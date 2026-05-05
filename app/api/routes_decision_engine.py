@@ -111,8 +111,8 @@ async def get_de_queue(request: Request, limit: int = 50, offset: int = 0):
                 if row.get("engine_metadata") and isinstance(row["engine_metadata"], str):
                     try:
                         row["engine_metadata"] = json.loads(row["engine_metadata"])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning("unexpected error: %s", e)
                 rows.append(row)
 
             total = await conn.fetchval(_q("""

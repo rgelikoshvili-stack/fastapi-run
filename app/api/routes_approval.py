@@ -324,8 +324,8 @@ async def reclassify_unclassified(request: Request):
                            WHERE id=%s AND tenant_id=%s"""),
                         dr, cr, acc, d["id"], tenant_id)
                     updated += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
         return ok_response("Reclassification complete", {"reclassified": updated, "total_unclassified": len(drafts)})
     except Exception as e:
         return error_response("Reclassify failed", "RECLASSIFY_ERROR", str(e))

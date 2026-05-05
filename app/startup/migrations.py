@@ -470,8 +470,8 @@ def _run_remaining_migrations(cur):
                     "UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s WHERE id=%s",
                     (dr, cr, acc, row_id),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
         log.info("action=auto_classify_drafts count=%d", len(rows))
     except Exception as e:
         log.warning("auto_classify_drafts skipped: %s", e)

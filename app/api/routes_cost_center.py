@@ -38,8 +38,8 @@ async def _ensure_tables(conn):
             ALTER TABLE expenses
                 ADD COLUMN IF NOT EXISTS cost_center_id INTEGER REFERENCES cost_centers(id) ON DELETE SET NULL
         """)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
 
 @router.get("")

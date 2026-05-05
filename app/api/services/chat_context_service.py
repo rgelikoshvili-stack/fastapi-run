@@ -707,8 +707,8 @@ def _safe_dict(row) -> dict:
                 d[k] = float(v)
             elif hasattr(v, "isoformat"):
                 d[k] = str(v)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
     return d
 
 

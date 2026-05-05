@@ -1,7 +1,10 @@
-﻿from fastapi import Request
+import logging
+from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.api.authz import ROLE_PERMISSIONS
 from app.api.policy.permission_map import match_permission
+log = logging.getLogger(__name__)
+
 
 
 
@@ -45,8 +48,8 @@ async def rbac_middleware(request: Request, call_next):
                     request.state.role = _pl.get("role")
                     if _pl.get("tenant_id"):
                         request.state.tenant_id = _pl.get("tenant_id")
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
     if not getattr(request.state, "authenticated", False):
         return JSONResponse(

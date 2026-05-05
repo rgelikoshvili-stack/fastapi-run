@@ -70,8 +70,8 @@ def fire_event(conn, tenant_id: str, event: str, data: dict):
 
     try:
         _ensure_table(conn)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
     cur = conn.cursor()
     try:

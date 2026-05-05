@@ -323,8 +323,8 @@ async def _process_document_background(
         try:
             from app.api.services.llm_service import llm_service as _llm
             llm_service = _llm
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
         parsed = await parse_document(file_bytes, mime_type, llm_service)
         extracted = await extract_document(parsed.get("text", ""), llm_service)
@@ -711,8 +711,8 @@ def _parse_date(val) -> str | None:
         try:
             from datetime import datetime
             return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
+        except ValueError as e:
+            log.warning("unexpected error: %s", e)
     m = re.search(r"(\d{4}-\d{2}-\d{2})", s)
     return m.group(1) if m else None
 

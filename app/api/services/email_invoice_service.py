@@ -1,3 +1,4 @@
+import logging
 """
 app/api/services/email_invoice_service.py
 Bridge Hub — Email → Invoice Service
@@ -11,6 +12,8 @@ import socket
 import os
 from datetime import datetime
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+log = logging.getLogger(__name__)
+
 
 IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
 IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
@@ -38,15 +41,15 @@ def _imap_uid_fetch(mail, uid: str):
         status, data = mail.uid("FETCH", uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
         if status == "OK" and data and data[0] and isinstance(data[0], tuple) and data[0][1]:
             return data[0][1]
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("UID fetch failed: %s", e)
     # Fallback: sequence number fetch
     try:
         status2, data2 = mail.fetch(uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
         if status2 == "OK" and data2 and data2[0] and isinstance(data2[0], tuple) and data2[0][1]:
             return data2[0][1]
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("sequence fetch failed: %s", e)
     return None
 
 ALLOWED = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx")
@@ -60,8 +63,8 @@ def _get_tenant_imap_creds(tenant_id: str = None):
             creds = get_tenant_email_credentials(tenant_id)
             if creds:
                 return creds["email"], creds["app_password"]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("tenant creds failed: %s", e)
     return IMAP_USER, IMAP_PASS
 
 
@@ -77,15 +80,15 @@ def _extract_body(msg) -> str:
                     charset = part.get_content_charset() or "utf-8"
                     body = part.get_payload(decode=True).decode(charset, errors="replace")
                     break
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("decode failed: %s", e)
     else:
         if msg.get_content_type() == "text/plain":
             try:
                 charset = msg.get_content_charset() or "utf-8"
                 body = msg.get_payload(decode=True).decode(charset, errors="replace")
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("decode failed: %s", e)
     return body.strip()[:2000]  # cap at 2000 chars
 
 
@@ -143,8 +146,8 @@ def fetch_all_emails(limit: int = 20, folder: str = "INBOX", tenant_id: str = No
         try:
             if mail:
                 mail.logout()
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("mail logout failed: %s", e)
 
 
 def fetch_invoice_emails(limit: int = 10, folder: str = "INBOX") -> dict:
@@ -261,8 +264,8 @@ def process_email_by_id(
         try:
             if mail:
                 mail.logout()
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("mail logout failed: %s", e)
 
 
 def process_email_invoices(
@@ -436,8 +439,8 @@ def _attach_file_to_draft(draft_id: int, filename: str, data: bytes, tenant_id: 
         finally:
             cur.close()
             conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("DB write failed: %s", e)
 
 
 def get_email_status() -> dict:

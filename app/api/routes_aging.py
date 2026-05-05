@@ -298,8 +298,8 @@ async def send_overdue_reminders(
                       ADD COLUMN IF NOT EXISTS due_date DATE,
                       ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP
                 """)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
             invoices = [dict(r) for r in await conn.fetch(_q("""
                 SELECT id, invoice_number, buyer_name, buyer_email,

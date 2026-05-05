@@ -242,7 +242,7 @@ def _ws_notify_new_draft(tenant_id: str, draft_id: int, ai_result: dict):
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(manager.send_to_tenant(tenant_id, msg))
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            log.warning("unexpected error: %s", e)
     except Exception as e:
         log.debug("_ws_notify_new_draft: %s", e)

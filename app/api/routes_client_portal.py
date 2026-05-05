@@ -1,3 +1,4 @@
+import logging
 """
 app/api/routes_client_portal.py
 Bridge Hub — Client Portal
@@ -11,6 +12,8 @@ from app.api.authz import require_permission
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/client", tags=["client-portal"])
 
@@ -216,8 +219,8 @@ async def client_transaction_detail(draft_id: int, request: Request):
                 WHERE draft_id = %s AND tenant_id = %s
                 ORDER BY created_at ASC
             """), draft_id, tenant_id)]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     return {
         "ok": True,

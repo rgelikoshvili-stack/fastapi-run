@@ -271,8 +271,8 @@ def _extract_tax_invoice_inns(text: str) -> tuple[str | None, str | None, str | 
     if m:
         try:
             total_vat = float(m.group(1).replace(",", "."))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     # linked waybill number (10–11 digit starting with 0)
     linked_waybill = None
@@ -323,8 +323,8 @@ def _regex_extract(text: str) -> ExtractedDocument:
     if amounts:
         try:
             total = float(amounts[-1].replace(",", "."))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     issue_date = None
     if dates:
@@ -335,8 +335,8 @@ def _regex_extract(text: str) -> ExtractedDocument:
             else:
                 parts = re.split(r'[./]', d)
                 issue_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     doc_type = "unknown"
     text_lower = text.lower()
@@ -397,8 +397,8 @@ def _regex_extract(text: str) -> ExtractedDocument:
         try:
             vat_total = float(amounts[-1].replace(",", "."))
             net_amount = float(amounts[-2].replace(",", "."))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     # Classify provider type from INNs
     from app.api.services.contract_classifier import classify_provider_type

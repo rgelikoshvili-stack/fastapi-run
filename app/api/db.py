@@ -124,19 +124,19 @@ class _PooledConn:
                     with self._conn.cursor() as cur:
                         cur.execute(_RESET_GUC)
                     self._conn.commit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
                 try:
                     self._conn.rollback()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
             self._pool.putconn(self._conn)
         except Exception as e:
             log.warning("pool putconn error: %s", e)
             try:
                 self._conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
     def __enter__(self):
         return self

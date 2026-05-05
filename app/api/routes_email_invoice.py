@@ -1,3 +1,4 @@
+import logging
 """
 app/api/routes_email_invoice.py
 Bridge Hub — Email → Invoice Routes
@@ -19,6 +20,8 @@ from app.api.services.email_invoice_service import (
 )
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
 from app.api.authz import require_permission
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/email-invoice", tags=["email-invoice"])
 
@@ -124,8 +127,8 @@ async def preview_attachment(message_id: str, filename: str, request: Request):
         mail.login(imap_user, imap_pass)
         try:
             mail.select("INBOX")
-        except IndexError:
-            pass
+        except IndexError as e:
+            log.warning("unexpected error: %s", e)
         # message_id is a UID — use uid("FETCH") not fetch() which uses sequence numbers
         _, msg_data = mail.uid("FETCH", message_id.encode(), "(RFC822)")
 

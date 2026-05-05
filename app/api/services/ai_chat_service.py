@@ -1,3 +1,4 @@
+import logging
 """
 Bridge Hub — AI Chat Service
 app/api/services/ai_chat_service.py
@@ -32,6 +33,8 @@ except ImportError:
     CLAUDE_CHAT_AVAILABLE = False
 
 from app.api.services.posting_service import create_journal_draft
+log = logging.getLogger(__name__)
+
 
 try:
     from app.api.services.ai_orchestrator_service import orchestrate as _orchestrate
@@ -77,7 +80,7 @@ try:
     )
     _vector_db_available = True
 except ImportError:
-    pass
+    pass  # optional dependency
 
 
 # ─────────────────────────────────────────────────────────────
@@ -343,8 +346,8 @@ async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) 
     finally:
         try:
             os.remove(temp_path)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("temp file removal failed: %s", e)
 
     # Save file to processed_documents so eye-button can retrieve it later
     doc_id: Optional[int] = None
@@ -571,8 +574,8 @@ async def handle_ai_chat(
         try:
             kb_context = get_context_for_llm_hybrid(message, max_chars=4000)
             sources = ["ChromaDB + KB"]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     if not kb_context and KB_LOADED:
         kb_context = get_context_for_llm(message, max_chars=3000)
@@ -664,8 +667,8 @@ def run_ai_search(q: str, top_k: int = 5, use_vector: bool = True):
     if use_vector and _vector_db_available:
         try:
             return {"query": q, "results": hybrid_search(q, top_k), "method": "hybrid"}
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     if KB_LOADED:
         return {"query": q, "results": search_knowledge(q, top_k), "method": "keyword"}

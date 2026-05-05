@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Request, Query
 from pydantic import BaseModel
 from typing import Optional
@@ -11,6 +12,8 @@ from app.api.email_service import (
 )
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -56,8 +59,8 @@ async def list_notifications(request: Request, limit: int = 20):
                 LIMIT %s
             """), tenant_id, limit)
             items.extend([dict(r) for r in rows])
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
         try:
             rows = await conn.fetch(_q("""
@@ -73,8 +76,8 @@ async def list_notifications(request: Request, limit: int = 20):
                 LIMIT %s
             """), tenant_id, limit)
             items.extend([dict(r) for r in rows])
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     items.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
     items = items[:limit]
@@ -184,8 +187,8 @@ async def notifications_feed(
                         "created_at": str(row["created_at"]),
                         "action": f"/posting/apply/{row['draft_id']}",
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
             rows = await conn.fetch(_q("""
                 SELECT description, COUNT(*) AS cnt, SUM(amount) AS total

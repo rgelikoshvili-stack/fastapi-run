@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Request
 import json
 
@@ -7,6 +8,8 @@ from app.api.tenant_context import resolve_tenant_id
 from app.api.services.learning_service import get_learning_health_service
 from app.api.services.pattern_decay_service import run_pattern_decay
 from app.api.authz import require_permission
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -67,8 +70,8 @@ async def _ensure_tables(conn):
     for stmt in _ALTER_FEEDBACK_COLS + _ALTER_QUEUE_COLS:
         try:
             await conn.execute(stmt)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
 
 @router.post("/feedback")

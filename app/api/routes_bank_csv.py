@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, UploadFile, File, Form, Request
 from typing import Optional
 import hashlib, uuid, json
@@ -8,6 +9,8 @@ from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, par
 from app.api.tenant_context import resolve_tenant_id
 from app.api.security import limiter
 from app.api.db import get_conn, _q
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/bank-csv", tags=["bank"])
 
@@ -42,8 +45,8 @@ async def upload_bank_file(
                     "original_batch_id": str(existing["batch_id"]),
                     "message": "ეს ფაილი უკვე ატვირთულია"
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
         if name.endswith(".csv"):
             rows = parse_csv_bytes(content)

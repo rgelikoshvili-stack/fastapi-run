@@ -35,8 +35,8 @@ def _to_date(v) -> Optional[date]:
     for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%Y/%m/%d"):
         try:
             return datetime.strptime(str(v), fmt).date()
-        except ValueError:
-            pass
+        except ValueError as e:
+            log.warning("unexpected error: %s", e)
     return None
 
 

@@ -1,6 +1,9 @@
+import logging
 import io, math, csv
 import pandas as pd
 import xml.etree.ElementTree as ET
+log = logging.getLogger(__name__)
+
 
 NS = {"g": "http://www.mygemini.com/schemas/mygemini"}
 
@@ -10,8 +13,8 @@ def _clean(v):
     try:
         if isinstance(v, float) and math.isnan(v):
             return None
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
     if hasattr(v, "isoformat"):
         return v.isoformat()
     s = str(v).strip()

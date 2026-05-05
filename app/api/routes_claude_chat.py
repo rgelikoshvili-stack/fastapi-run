@@ -360,8 +360,8 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                         f"  სულ: {row['total']} | დამტკ: {row['approved']} | მოლოდინი: {row['pending']} | უარი: {row['rejected']}\n"
                         f"  შემოსავალი: {float(row['inflow'] or 0):.2f}₾ | გასავალი: {abs(float(row['outflow'] or 0)):.2f}₾"
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
             if any(w in msg_lower for w in ["ტრანზაქცი", "დრაფტ", "დოკუმენტ", "ჩანაწერ", "გატარ", "ბოლო", "last", "recent"]):
                 try:
@@ -376,8 +376,8 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                         for r in rows:
                             lines.append(f"  #{r['id']} [{r['date']}] {r['description'] or '-'} | {float(r['amount'] or 0):.2f}₾ | Dr:{r['debit_account']} Cr:{r['credit_account']} | {r['status']}")
                         parts.append("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
 
             if any(w in msg_lower for w in ["ბანკ", "bank", "გადარ"]):
                 try:
@@ -390,8 +390,8 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                         for r in rows:
                             lines.append(f"  [{r['date']}] {r['bank']} | {float(r['amount'] or 0):.2f}₾ | {r['description'] or '-'}")
                         parts.append("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
 
             if any(w in msg_lower for w in ["თვ", "monthly", "report", "შემოსავ", "გასავ", "cashflow"]):
                 try:
@@ -408,8 +408,8 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                             net = float(r['inflow'] or 0) - float(r['outflow'] or 0)
                             lines.append(f"  {r['month']}: {r['docs']} დოკ | +{float(r['inflow'] or 0):.0f}₾ / -{float(r['outflow'] or 0):.0f}₾ | net:{net:.0f}₾")
                         parts.append("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
         return "\n\n".join(parts)
     except Exception as e:
         log.warning("db context fetch failed: %s", e)

@@ -111,8 +111,8 @@ async def _add_anomaly_flags(anomalies: list, conn, tenant_id: str) -> list:
             GROUP BY account_code
         """), tenant_id, account_codes)
         avgs = {r["account_code"]: float(r["avg_amount"] or 0) for r in rows}
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
     result = []
     for a in anomalies:

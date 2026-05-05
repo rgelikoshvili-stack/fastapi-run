@@ -1,5 +1,8 @@
+import logging
 from fastapi import Request
 from app.api.audit import log_event
+log = logging.getLogger(__name__)
+
 
 SKIP_PREFIXES = (
     "/docs",
@@ -32,7 +35,7 @@ async def audit_log_middleware(request: Request, call_next):
             status="success" if response.status_code < 400 else "error",
             ip_address=ip,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
     return response

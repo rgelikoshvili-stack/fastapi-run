@@ -227,8 +227,8 @@ def _save_history(session_id: str, tenant_id: str, messages: list, role: str = N
     try:
         from app.api.services.chat_session_service import save_history
         save_history(session_id, tenant_id, trimmed, role=role)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("unexpected error: %s", e)
 
 
 def chat_with_claude(

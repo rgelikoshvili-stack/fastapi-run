@@ -294,13 +294,13 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
                 try:
                     pdfmetrics.registerFont(TTFont(_n, _fp))
                     _ok += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("unexpected error: %s", e)
         if _ok == 2:
             FONT = "DejaVuSans"
             FONT_BOLD = "DejaVuSans-Bold"
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
     line_items = inv.get("line_items") or []
     if isinstance(line_items, str):

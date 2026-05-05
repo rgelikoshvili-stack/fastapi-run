@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import List, Optional
@@ -6,6 +7,8 @@ from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -31,8 +34,8 @@ def sign_payload(secret: str, payload: str) -> str:
 async def _ensure_tenant_id_col(conn):
     try:
         await conn.execute("ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'")
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
 
 
 async def fire_webhook(webhook: dict, event: str, payload: dict):
@@ -55,8 +58,8 @@ async def fire_webhook(webhook: dict, event: str, payload: dict):
                 VALUES (%s::uuid,%s,%s,%s,%s)
             """), webhook["id"], event, json.dumps(payload), code, success)
             await conn.execute(_q("UPDATE webhooks SET last_triggered=NOW() WHERE id=%s"), webhook["id"])
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
     return success, code
 
 @router.get("/events")

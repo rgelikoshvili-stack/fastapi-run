@@ -140,8 +140,8 @@ async def get_entity_history_async(conn, entity_type: str, entity_id,
                 if isinstance(d.get(field), str):
                     try:
                         d[field] = json.loads(d[field])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning("unexpected error: %s", e)
             result.append(d)
         return result
     except Exception as e:
@@ -172,8 +172,8 @@ def get_entity_history(conn, entity_type: str, entity_id,
                 if isinstance(r.get(field), str):
                     try:
                         r[field] = json.loads(r[field])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning("unexpected error: %s", e)
         return rows
     except Exception as e:
         log.warning("get_entity_history failed: %s", e)

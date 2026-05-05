@@ -1,9 +1,12 @@
+import logging
 from fastapi import APIRouter, Request
 import json
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/audit-engine", tags=["audit-engine"])
 
@@ -48,8 +51,8 @@ async def find_anomalies(request: Request):
                 if v < 0:
                     issues.append({"type": "NEGATIVE_AMOUNT", "run_id": r["run_id"],
                                    "filename": r["filename"], "amount": v, "severity": "CRITICAL"})
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
     return {"ok": True, "anomalies_found": len(issues), "issues": issues}
 
 
@@ -75,8 +78,8 @@ async def policy_check(request: Request):
                 violations.append({"type": "APPROVAL_OVERDUE", "run_id": r["run_id"],
                                     "filename": r["filename"], "hours_pending": round(age_hours, 1),
                                     "severity": "MEDIUM"})
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
     return {"ok": True, "violations_found": len(violations), "violations": violations}
 
 

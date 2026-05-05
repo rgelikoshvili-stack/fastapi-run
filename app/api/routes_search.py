@@ -1,8 +1,11 @@
+import logging
 from fastapi import APIRouter, Query, Request
 from app.api.db import get_conn, _q
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+log = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -72,8 +75,8 @@ async def _run_search(tenant_id: str, q: str = "", state: str = "",
                 await conn.execute(_q("""
                     INSERT INTO search_history (query, results_count) VALUES (%s, %s)
                 """), q, total_results)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("unexpected error: %s", e)
 
     return {
         "ok": True, "query": q, "state": state,

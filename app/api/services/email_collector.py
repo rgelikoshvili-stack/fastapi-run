@@ -193,8 +193,8 @@ def _extract_text_from_pdf(data: bytes) -> str:
         doc = fitz.open(stream=data, filetype="pdf")
         pages = [doc[i].get_text() for i in range(min(len(doc), 10))]
         return "\n".join(pages).strip()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("unexpected error: %s", e)
     try:
         # fallback: raw bytes scan for readable text
         text = data.decode("latin-1", errors="replace")

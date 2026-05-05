@@ -312,8 +312,8 @@ async def auth_me(authorization: Optional[str] = Header(None)):
                 company_name = row["company_name_legal"]
                 company_inn = row["company_inn"]
                 subscription_tier = row["subscription_tier"]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
     return ok_response("User info", {
         "user_id": payload.get("sub"),

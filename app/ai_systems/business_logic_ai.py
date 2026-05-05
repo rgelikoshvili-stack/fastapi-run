@@ -267,8 +267,8 @@ def _ai_generate(
                 getattr(resp.usage, "input_tokens", 0),
                 getattr(resp.usage, "output_tokens", 0),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("unexpected error: %s", e)
 
         return {
             "lines": normalized,

@@ -1,14 +1,8 @@
-from fastapi import Request
+﻿from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.api.authz import ROLE_PERMISSIONS
-from app.api.policy.permission_map import PERMISSION_MAP
+from app.api.policy.permission_map import match_permission
 
-
-def match_permission(method: str, path: str):
-    for allowed_method, prefix, permission in PERMISSION_MAP:
-        if (allowed_method == "*" or method == allowed_method) and path.startswith(prefix):
-            return permission
-    return None
 
 
 async def rbac_middleware(request: Request, call_next):
@@ -63,7 +57,7 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "UNAUTHORIZED",
-                    "details": "ავთენტიკაცია აუცილებელია",
+                    "details": "áƒáƒ•áƒ—áƒ”áƒœáƒ¢áƒ˜áƒ™áƒáƒªáƒ˜áƒ áƒáƒ£áƒªáƒ˜áƒšáƒ”áƒ‘áƒ”áƒšáƒ˜áƒ",
                 },
             },
         )
@@ -84,7 +78,7 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "FORBIDDEN",
-                    "details": "როლი ვერ განისაზღვრა",
+                    "details": "áƒ áƒáƒšáƒ˜ áƒ•áƒ”áƒ  áƒ’áƒáƒœáƒ˜áƒ¡áƒáƒ–áƒ¦áƒ•áƒ áƒ",
                 },
             },
         )
@@ -100,9 +94,10 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "FORBIDDEN",
-                    "details": f"წვდომა აკრძალულია ({required_permission})",
+                    "details": f"áƒ¬áƒ•áƒ“áƒáƒ›áƒ áƒáƒ™áƒ áƒ«áƒáƒšáƒ£áƒšáƒ˜áƒ ({required_permission})",
                 },
             },
         )
 
     return await call_next(request)
+

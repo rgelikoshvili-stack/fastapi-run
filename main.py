@@ -375,6 +375,8 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     for k, v in SECURITY_HEADERS.items():
         response.headers[k] = v
+    if "X-Powered-By" in response.headers:
+        del response.headers["X-Powered-By"]
     return response
 
 

@@ -224,7 +224,7 @@ async def pnl_detail(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
-    conditions = ["tenant_id = %s", "status IN ('approved','auto_approved','posted')"]
+    conditions = ["tenant_id = %s", "status IN ('posted','simulated_success')"]
     params: list = [tenant_id]
     if account_code:
         conditions.append("account_code = %s"); params.append(account_code)

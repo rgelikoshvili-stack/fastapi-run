@@ -140,6 +140,9 @@ PERMISSION_MAP = [
     ("GET",    "/qa",                 "audit:view"),
     ("GET",    "/docs-hub",           "audit:read"),
 
+    # ── Metrics (Prometheus — internal only) ─────────────────────────────────
+    ("GET",    "/metrics",            "dashboard:admin"),
+
     # ── Tenants / Admin ───────────────────────────────────────────────────────
     ("*",      "/tenants",            "tenants:manage"),
     ("*",      "/system",             "tenants:manage"),

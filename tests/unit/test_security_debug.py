@@ -73,32 +73,102 @@ def test_token_in_url_rejected_for_non_download_path():
     import app.api.middleware.rbac_middleware as mod
 
     async def _run():
-        # Build a fake request for /api/reports (NOT a download path)
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/reports",
-            "query_string": b"token=fake-jwt-token",
-            "headers": [],
-        }
         request = MagicMock()
         request.url.path = "/api/reports"
         request.method = "GET"
         request.query_params = {"token": "fake-jwt-token"}
         request.state = SimpleNamespace(authenticated=False)
 
-        responses = []
-
         async def call_next(r):
             return MagicMock(status_code=200)
 
-        # Middleware should NOT authenticate using query token for /api/reports
-        # (It should return 401 Unauthorized because the path is not a download path)
         response = await mod.rbac_middleware(request, call_next)
         return response
 
     resp = asyncio.run(_run())
-    # Should get 401 because token-in-URL is not used for /api/reports
     assert resp.status_code == 401, (
         f"Expected 401 for non-download path with ?token=, got {resp.status_code}"
     )
+
+
+# ── P2-2: /metrics must be protected (not in public prefixes) ─────────────────
+
+def test_metrics_not_in_rbac_public_prefixes():
+    """/metrics must not appear in rbac_middleware public_prefixes — requires auth."""
+    import inspect
+    import app.api.middleware.rbac_middleware as mod
+    src = inspect.getsource(mod.rbac_middleware)
+    # Find the public_prefixes tuple inside the function
+    idx = src.index("public_prefixes")
+    # Grab the block up to the closing paren of the tuple
+    block_end = src.index(")", idx)
+    block = src[idx:block_end]
+    assert '"/metrics"' not in block and "'metrics'" not in block, (
+        "/metrics is still in rbac_middleware public_prefixes — it is publicly accessible"
+    )
+
+
+def test_metrics_requires_dashboard_admin_permission():
+    """/metrics must be mapped to dashboard:admin in PERMISSION_MAP."""
+    from app.api.policy.permission_map import PERMISSION_MAP
+    metrics_entries = [(m, p, perm) for m, p, perm in PERMISSION_MAP if p == "/metrics"]
+    assert metrics_entries, "/metrics has no entry in PERMISSION_MAP"
+    assert all(perm == "dashboard:admin" for _, _, perm in metrics_entries), (
+        f"/metrics permission should be dashboard:admin, got {metrics_entries}"
+    )
+
+
+def test_metrics_unauthenticated_gets_401():
+    """/metrics with no token must return 401 from rbac_middleware."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    import app.api.middleware.rbac_middleware as mod
+
+    async def _run():
+        request = MagicMock()
+        request.url.path = "/metrics"
+        request.method = "GET"
+        request.query_params = {}
+        request.state = SimpleNamespace(authenticated=False)
+
+        async def call_next(r):
+            return MagicMock(status_code=200)
+
+        return await mod.rbac_middleware(request, call_next)
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 401, (
+        f"Expected 401 for unauthenticated /metrics, got {resp.status_code}"
+    )
+
+
+# ── P2-3: CORS must use explicit allowlists ────────────────────────────────────
+
+def test_cors_methods_not_wildcard():
+    """CORSMiddleware must not use allow_methods=['*']."""
+    import inspect
+    import main as app_main
+    src = inspect.getsource(app_main)
+    assert 'allow_methods=["*"]' not in src and "allow_methods=['*']" not in src, (
+        "CORS allow_methods is still wildcard"
+    )
+
+
+def test_cors_headers_not_wildcard():
+    """CORSMiddleware must not use allow_headers=['*']."""
+    import inspect
+    import main as app_main
+    src = inspect.getsource(app_main)
+    assert 'allow_headers=["*"]' not in src and "allow_headers=['*']" not in src, (
+        "CORS allow_headers is still wildcard"
+    )
+
+
+def test_cors_required_headers_present():
+    """CORS allowlist must include Authorization and X-Tenant-ID."""
+    import inspect
+    import main as app_main
+    src = inspect.getsource(app_main)
+    assert '"Authorization"' in src or "'Authorization'" in src
+    assert '"X-Tenant-ID"' in src or "'X-Tenant-ID'" in src

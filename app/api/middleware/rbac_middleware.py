@@ -20,7 +20,6 @@ async def rbac_middleware(request: Request, call_next):
         "/docs",
         "/openapi.json",
         "/health",
-        "/metrics",
         "/static",
         "/favicon",
         "/api/ai/",

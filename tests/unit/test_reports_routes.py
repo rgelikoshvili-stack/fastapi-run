@@ -202,3 +202,21 @@ def test_annual_report_has_rate_limiter():
     idx_annual = module_src.index("async def annual_report")
     snippet = module_src[max(0, idx_annual - 80):idx_annual]
     assert "limiter.limit" in snippet
+
+
+# ── P2-1: pnl/detail must show only finalized (posted) drafts ────────────────
+
+def test_pnl_detail_excludes_approved_and_auto_approved():
+    """pnl/detail must not expose pending-approval drafts — posted-only filter."""
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.pnl_detail)
+    assert "'approved'" not in src, "pnl/detail must not include 'approved' status"
+    assert "'auto_approved'" not in src, "pnl/detail must not include 'auto_approved' status"
+    assert "'posted'" in src, "pnl/detail must filter for posted status"
+
+
+def test_pnl_detail_includes_simulated_success():
+    """simulated_success (mock posting) is the posted equivalent and must be included."""
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.pnl_detail)
+    assert "'simulated_success'" in src

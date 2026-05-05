@@ -87,6 +87,94 @@ def debug_ai_routing(request: Request):
     )
 
 
+_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_OPENROUTER_MODEL = "openai/gpt-4o-mini"
+_LLM_TIMEOUT = 10  # seconds
+
+
+def _safe_error(exc: Exception) -> str:
+    """Return a generic error label — never leaks key/URL/config details."""
+    name = type(exc).__name__
+    msg = str(exc)
+    # Map known SDK error classes to stable codes
+    for marker, code in (
+        ("AuthenticationError", "AUTH_ERROR"),
+        ("PermissionDenied",    "AUTH_ERROR"),
+        ("RateLimitError",      "RATE_LIMIT"),
+        ("APIConnectionError",  "CONNECTION_ERROR"),
+        ("APITimeoutError",     "TIMEOUT"),
+        ("Timeout",             "TIMEOUT"),
+        ("NotFoundError",       "MODEL_NOT_FOUND"),
+        ("BadRequestError",     "BAD_REQUEST"),
+        ("InternalServerError", "PROVIDER_ERROR"),
+    ):
+        if marker in name or marker in msg:
+            return code
+    return "PROVIDER_ERROR"
+
+
+async def _ping_anthropic() -> dict:
+    import asyncio
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"ok": False, "model": _ANTHROPIC_MODEL, "error": "NOT_CONFIGURED"}
+    try:
+        import anthropic as _ant
+        client = _ant.AsyncAnthropic(api_key=api_key)
+        resp = await asyncio.wait_for(
+            client.messages.create(
+                model=_ANTHROPIC_MODEL,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Return exactly ANTHROPIC_OK"}],
+            ),
+            timeout=_LLM_TIMEOUT,
+        )
+        text = (resp.content[0].text or "").strip() if resp.content else ""
+        return {"ok": "ANTHROPIC_OK" in text, "model": _ANTHROPIC_MODEL, "error": None}
+    except Exception as exc:
+        return {"ok": False, "model": _ANTHROPIC_MODEL, "error": _safe_error(exc)}
+
+
+async def _ping_openrouter() -> dict:
+    import asyncio
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        return {"ok": False, "model": _OPENROUTER_MODEL, "error": "NOT_CONFIGURED"}
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        resp = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=_OPENROUTER_MODEL,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Return exactly OPENROUTER_OK"}],
+            ),
+            timeout=_LLM_TIMEOUT,
+        )
+        text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
+        return {"ok": "OPENROUTER_OK" in text, "model": _OPENROUTER_MODEL, "error": None}
+    except Exception as exc:
+        return {"ok": False, "model": _OPENROUTER_MODEL, "error": _safe_error(exc)}
+
+
+@router.get("/llm-ping")
+async def debug_llm_ping(request: Request):
+    """Live LLM provider ping — verifies real API calls, not just env var presence."""
+    _require_debug_access(request)
+    import asyncio
+    anthropic_result, openrouter_result = await asyncio.gather(
+        _ping_anthropic(),
+        _ping_openrouter(),
+    )
+    return {
+        "anthropic":   anthropic_result,
+        "openrouter":  openrouter_result,
+    }
+
+
 @router.get("/kb-files")
 async def debug_kb_files(request: Request):
     _require_debug_access(request)

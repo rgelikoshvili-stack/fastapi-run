@@ -98,3 +98,44 @@ def test_queue_polling_interval():
     assert matches, "loadPending polling not found in approval.html"
     for ms in matches:
         assert int(ms) <= 10000, f"Queue poll interval {ms}ms is too slow (max 10000ms)"
+
+
+# ── P1-2: ?token= auth fallback restricted to download paths ─────────────────
+
+def test_token_query_param_only_for_download_paths():
+    """Non-download paths must NOT authenticate via ?token= query param."""
+    import inspect
+    import app.api.middleware.auth_middleware as mod
+
+    src = inspect.getsource(mod.auth_middleware)
+    # The token extraction from query_params must be guarded by download prefix check
+    assert "_DOWNLOAD_PREFIXES" in inspect.getsource(mod), \
+        "_DOWNLOAD_PREFIXES not defined in auth_middleware"
+    # Verify the conditional extraction — must NOT fire unconditionally
+    assert 'elif not token:' not in src, \
+        "?token= extraction fires unconditionally — not restricted to download paths"
+
+
+def test_download_prefixes_defined():
+    """_DOWNLOAD_PREFIXES must include document and report download paths."""
+    from app.api.middleware.auth_middleware import _DOWNLOAD_PREFIXES
+    assert any("documents" in p for p in _DOWNLOAD_PREFIXES)
+    assert any("reports" in p for p in _DOWNLOAD_PREFIXES)
+
+
+# ── P1-3: no tenant_id::text casts in bank_accounts or budget routes ─────────
+
+def test_bank_accounts_no_tenant_id_text_cast():
+    """tenant_id::text cast prevents index use — must not appear in routes_bank_accounts."""
+    import inspect
+    import app.api.routes_bank_accounts as mod
+    assert "tenant_id::text" not in inspect.getsource(mod), \
+        "routes_bank_accounts still contains tenant_id::text cast"
+
+
+def test_budget_no_tenant_id_text_cast():
+    """tenant_id::text cast prevents index use — must not appear in routes_budget."""
+    import inspect
+    import app.api.routes_budget as mod
+    assert "tenant_id::text" not in inspect.getsource(mod), \
+        "routes_budget still contains tenant_id::text cast"

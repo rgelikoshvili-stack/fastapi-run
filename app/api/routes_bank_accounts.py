@@ -30,7 +30,7 @@ async def list_accounts(request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         accounts = [dict(r) for r in await conn.fetch(_q(
-            "SELECT * FROM bank_accounts WHERE tenant_id::text = %s ORDER BY is_primary DESC, id"),
+            "SELECT * FROM bank_accounts WHERE tenant_id = %s ORDER BY is_primary DESC, id"),
             tenant_id)]
 
     total_gel = sum(float(a["balance"]) for a in accounts if a["currency"] == "GEL")
@@ -60,13 +60,13 @@ async def update_balance(account_id: int, data: BalanceUpdate, request: Request)
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         acc = await conn.fetchrow(_q(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id = %s"),
             account_id, tenant_id)
         if not acc:
             return error_response("Not found", "NOT_FOUND", "")
         old_balance = float(acc["balance"])
         await conn.execute(_q(
-            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id::text = %s"),
+            "UPDATE bank_accounts SET balance=%s WHERE id=%s AND tenant_id = %s"),
             data.balance, account_id, tenant_id)
     return ok_response("Balance updated", {
         "id": account_id,
@@ -80,10 +80,10 @@ async def transfer(req: TransferRequest, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         from_acc = await conn.fetchrow(_q(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id = %s"),
             req.from_account_id, tenant_id)
         to_acc = await conn.fetchrow(_q(
-            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id::text = %s"),
+            "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id = %s"),
             req.to_account_id, tenant_id)
 
         if not from_acc or not to_acc:
@@ -94,10 +94,10 @@ async def transfer(req: TransferRequest, request: Request):
 
         async with conn.transaction():
             await conn.execute(_q(
-                "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id::text = %s"),
+                "UPDATE bank_accounts SET balance=balance-%s WHERE id=%s AND tenant_id = %s"),
                 req.amount, req.from_account_id, tenant_id)
             await conn.execute(_q(
-                "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id::text = %s"),
+                "UPDATE bank_accounts SET balance=balance+%s WHERE id=%s AND tenant_id = %s"),
                 req.amount, req.to_account_id, tenant_id)
 
     return ok_response("Transfer complete", {
@@ -118,11 +118,11 @@ async def account_summary(request: Request):
                    COUNT(*) as account_count,
                    COALESCE(SUM(balance),0) as total_balance
             FROM bank_accounts
-            WHERE tenant_id::text = %s
+            WHERE tenant_id = %s
             GROUP BY currency ORDER BY total_balance DESC
         """), tenant_id)]
         primary = await conn.fetchrow(_q(
-            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id::text = %s LIMIT 1"),
+            "SELECT * FROM bank_accounts WHERE is_primary=TRUE AND tenant_id = %s LIMIT 1"),
             tenant_id)
 
     return ok_response("Account summary", {

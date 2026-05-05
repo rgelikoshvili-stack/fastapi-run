@@ -12,6 +12,12 @@ PUBLIC_PATH_PREFIXES = (
     "/static",
 )
 
+_DOWNLOAD_PREFIXES = (
+    "/api/documents/download/",
+    "/api/reports/export/",
+    "/api/payroll/slip/",
+)
+
 
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -25,7 +31,7 @@ async def auth_middleware(request: Request, call_next):
 
     if authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
-    elif not token:
+    elif any(path.startswith(p) for p in _DOWNLOAD_PREFIXES):
         token = request.query_params.get("token") or None
 
     request.state.authenticated = False

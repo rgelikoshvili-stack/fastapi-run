@@ -153,3 +153,52 @@ def test_monthly_report_filters_pipeline_runs_by_tenant():
     assert "FROM pipeline_runs" in sql
     assert "tenant_id" in sql
     assert args == ("tenant-a",)
+
+
+# ── P1-1: annual_report and audit_trail are tenant-isolated ──────────────────
+
+def test_annual_report_filters_by_tenant():
+    """annual_report SQL must include WHERE tenant_id = %s."""
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.annual_report)
+    assert "FROM pipeline_runs" in src
+    assert "tenant_id" in src
+    assert "getattr(request.state" in src or "tenant_id" in src
+
+
+def test_annual_report_passes_tenant_id_to_query():
+    """annual_report must pass tenant_id as a positional param (not inline in SQL)."""
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.annual_report)
+    assert "WHERE tenant_id = %s" in src
+    assert "getattr(request.state" in src
+
+
+def test_audit_trail_filters_by_tenant():
+    """audit_trail SQL must include WHERE tenant_id = %s."""
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.audit_trail)
+    assert "FROM pipeline_runs" in src
+    assert "WHERE tenant_id = %s" in src
+    assert "getattr(request.state" in src
+
+
+def test_audit_trail_has_rate_limiter():
+    """audit_trail must be decorated with @limiter.limit."""
+    import inspect as _inspect
+    import app.api.routes_reports as mod
+    # The module source shows limiter.limit applied to audit_trail
+    module_src = _inspect.getsource(mod)
+    idx_audit = module_src.index("async def audit_trail")
+    snippet = module_src[max(0, idx_audit - 80):idx_audit]
+    assert "limiter.limit" in snippet
+
+
+def test_annual_report_has_rate_limiter():
+    """annual_report must be decorated with @limiter.limit."""
+    import inspect as _inspect
+    import app.api.routes_reports as mod
+    module_src = _inspect.getsource(mod)
+    idx_annual = module_src.index("async def annual_report")
+    snippet = module_src[max(0, idx_annual - 80):idx_annual]
+    assert "limiter.limit" in snippet

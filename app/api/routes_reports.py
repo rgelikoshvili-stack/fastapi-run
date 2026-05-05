@@ -62,30 +62,36 @@ async def monthly_report(request: Request):
     return {"ok": True, "monthly_reports": result}
 
 
+@limiter.limit("10/minute")
 @router.get("/annual")
 async def annual_report(request: Request):
     require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
-        rows = await conn.fetch("""
+        rows = await conn.fetch(_q("""
             SELECT EXTRACT(YEAR FROM created_at) as year,
                    COUNT(*) as total
             FROM pipeline_runs
+            WHERE tenant_id = %s
             GROUP BY year
             ORDER BY year DESC
-        """)
+        """), tenant_id)
     return {"ok": True, "annual_reports": [dict(r) for r in rows]}
 
 
+@limiter.limit("10/minute")
 @router.get("/audit-trail")
 async def audit_trail(request: Request):
     require_permission(request, "reports:read")
+    tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
-        rows = await conn.fetch("""
+        rows = await conn.fetch(_q("""
             SELECT run_id, filename, state, created_at
             FROM pipeline_runs
+            WHERE tenant_id = %s
             ORDER BY created_at DESC
             LIMIT 50
-        """)
+        """), tenant_id)
     return {"ok": True, "pipeline_runs": [dict(r) for r in rows]}
 
 

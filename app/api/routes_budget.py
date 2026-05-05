@@ -62,7 +62,7 @@ async def budget_vs_actual(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         budgets = [dict(r) for r in await conn.fetch(_q(
-            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code"),
+            "SELECT * FROM budgets WHERE year=%s AND tenant_id = %s ORDER BY account_code"),
             year, tenant_id)]
         actuals_rows = await conn.fetch(_q("""
             SELECT account_code,
@@ -86,6 +86,6 @@ async def list_budgets(year: int, request: Request):
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q(
-            "SELECT * FROM budgets WHERE year=%s AND tenant_id::text = %s ORDER BY account_code, month"),
+            "SELECT * FROM budgets WHERE year=%s AND tenant_id = %s ORDER BY account_code, month"),
             year, tenant_id)]
     return ok_response("Budgets", {"year": year, "count": len(rows), "budgets": rows})

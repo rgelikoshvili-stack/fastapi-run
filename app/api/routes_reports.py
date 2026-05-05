@@ -137,7 +137,7 @@ async def cashflow_report(
 
 @limiter.limit("10/minute")
 @router.get("/ledger/{account_code}")
-def ledger_report(
+async def ledger_report(
     account_code: str,
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
@@ -145,26 +145,26 @@ def ledger_report(
 ):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    data = get_account_ledger(tenant_id, account_code, date_from, date_to)
+    data = await get_account_ledger(tenant_id, account_code, date_from, date_to)
     return {"ok": True, "report": "ledger", **data}
 
 
 @limiter.limit("10/minute")
 @router.get("/trial-balance")
-def trial_balance_report(
+async def trial_balance_report(
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    data = get_trial_balance(tenant_id, date_from, date_to)
+    data = await get_trial_balance(tenant_id, date_from, date_to)
     return {"ok": True, "report": "trial_balance", **data}
 
 
 @limiter.limit("10/minute")
 @router.get("/counterparty/{inn}")
-def counterparty_ledger_report(
+async def counterparty_ledger_report(
     inn: str,
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
@@ -172,26 +172,26 @@ def counterparty_ledger_report(
 ):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    data = get_counterparty_ledger(tenant_id, inn, date_from, date_to)
+    data = await get_counterparty_ledger(tenant_id, inn, date_from, date_to)
     return {"ok": True, "report": "counterparty_ledger", **data}
 
 
 @limiter.limit("10/minute")
 @router.get("/payroll")
-def payroll_ledger_report(
+async def payroll_ledger_report(
     request: Request,
     employee_id: Optional[str] = Query(None, description="Employee personal tax number"),
     year: Optional[int] = Query(None),
 ):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    data = get_payroll_ledger(tenant_id, employee_id, year)
+    data = await get_payroll_ledger(tenant_id, employee_id, year)
     return {"ok": True, "report": "payroll_ledger", **data}
 
 
 @limiter.limit("10/minute")
 @router.get("/journal")
-def journal_report(
+async def journal_report(
     request: Request,
     date: Optional[str] = Query(None, description="YYYY-MM-DD — specific date, or omit for latest"),
     limit: int = Query(100, ge=1, le=500),
@@ -199,7 +199,7 @@ def journal_report(
 ):
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
-    data = get_journal_entries(tenant_id, date, limit, offset)
+    data = await get_journal_entries(tenant_id, date, limit, offset)
     return {"ok": True, "report": "journal", **data}
 
 

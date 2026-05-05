@@ -4,7 +4,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.errors
 
-from app.api.db import get_db
+from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.services.entity_audit_service import log_entity_change
@@ -73,10 +73,7 @@ SIGNAL_WEIGHTS = {
 }
 
 
-def get_queue_service(status: str, limit: int, offset: int, tenant_id: str, q: str = ""):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+async def get_queue_service(status: str, limit: int, offset: int, tenant_id: str, q: str = ""):
     search_cond = ""
     search_params: list = []
     if q:
@@ -85,66 +82,53 @@ def get_queue_service(status: str, limit: int, offset: int, tenant_id: str, q: s
         search_params = [like, like, like]
 
     try:
-        if status:
-            cur.execute(
-                f"""
-                SELECT COUNT(*) AS total
-                FROM journal_drafts
-                WHERE status = %s AND tenant_id = %s{search_cond}
-                """,
-                [status, tenant_id] + search_params,
-            )
-            total = cur.fetchone()["total"]
-            cur.execute(
-                f"""
-                SELECT id, date, partner, amount, currency, status, our_role,
-                       confidence, created_at, source_document_id,
-                       description, account_code, debit_account, credit_account,
-                       operation_category, is_foreign_doc, counterparty_name,
-                       doc_set_summary, doc_set_score, doc_matrix,
-                       provider_type, completeness_alerts
-                FROM journal_drafts
-                WHERE status = %s AND tenant_id = %s{search_cond}
-                ORDER BY created_at DESC, id DESC
-                LIMIT %s OFFSET %s
-                """,
-                [status, tenant_id] + search_params + [limit, offset],
-            )
-        else:
-            cur.execute(
-                f"""
-                SELECT COUNT(*) AS total
-                FROM journal_drafts
-                WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-                  AND tenant_id = %s{search_cond}
-                """,
-                [tenant_id] + search_params,
-            )
-            total = cur.fetchone()["total"]
-            cur.execute(
-                f"""
-                SELECT id, date, partner, amount, currency, status, our_role,
-                       confidence, created_at, source_document_id,
-                       description, account_code, debit_account, credit_account,
-                       operation_category, is_foreign_doc, counterparty_name,
-                       doc_set_summary, doc_set_score, doc_matrix,
-                       provider_type, completeness_alerts
-                FROM journal_drafts
-                WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-                  AND tenant_id = %s{search_cond}
-                ORDER BY created_at DESC, id DESC
-                LIMIT %s OFFSET %s
-                """,
-                [tenant_id] + search_params + [limit, offset],
-            )
-
-        items = [dict(r) for r in cur.fetchall()]
-
+        async with get_conn() as conn:
+            if status:
+                total = await conn.fetchval(
+                    _q(f"SELECT COUNT(*) FROM journal_drafts WHERE status = %s AND tenant_id = %s{search_cond}"),
+                    *([status, tenant_id] + search_params),
+                )
+                rows = await conn.fetch(
+                    _q(f"""
+                        SELECT id, date, partner, amount, currency, status, our_role,
+                               confidence, created_at, source_document_id,
+                               description, account_code, debit_account, credit_account,
+                               operation_category, is_foreign_doc, counterparty_name,
+                               doc_set_summary, doc_set_score, doc_matrix,
+                               provider_type, completeness_alerts
+                        FROM journal_drafts
+                        WHERE status = %s AND tenant_id = %s{search_cond}
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT %s OFFSET %s
+                    """),
+                    *([status, tenant_id] + search_params + [limit, offset]),
+                )
+            else:
+                total = await conn.fetchval(
+                    _q(f"""SELECT COUNT(*) FROM journal_drafts
+                        WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
+                          AND tenant_id = %s{search_cond}"""),
+                    *([tenant_id] + search_params),
+                )
+                rows = await conn.fetch(
+                    _q(f"""
+                        SELECT id, date, partner, amount, currency, status, our_role,
+                               confidence, created_at, source_document_id,
+                               description, account_code, debit_account, credit_account,
+                               operation_category, is_foreign_doc, counterparty_name,
+                               doc_set_summary, doc_set_score, doc_matrix,
+                               provider_type, completeness_alerts
+                        FROM journal_drafts
+                        WHERE status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
+                          AND tenant_id = %s{search_cond}
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT %s OFFSET %s
+                    """),
+                    *([tenant_id] + search_params + [limit, offset]),
+                )
+            items = [dict(r) for r in rows]
     except Exception as e:
         return error_response("Queue failed", "QUEUE_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
     return ok_response(
         "Approval queue",
@@ -224,9 +208,8 @@ def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
     return {"updated": 0}
 
 
-def approve_draft_service(draft_id: int, tenant_id: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+async def approve_draft_service(draft_id: int, tenant_id: str):
+    import asyncpg
 
     draft = None
     updated = None
@@ -234,174 +217,160 @@ def approve_draft_service(draft_id: int, tenant_id: str):
     qa_result = {"ok": False, "score": 0, "issues": [], "recommendation": "unknown"}
 
     try:
-        try:
-            cur.execute(
-                """
-                SELECT * FROM journal_drafts
-                WHERE id = %s AND tenant_id = %s
-                FOR UPDATE NOWAIT
-                """,
-                (draft_id, tenant_id),
-            )
-        except psycopg2.errors.LockNotAvailable:
-            conn.rollback()
-            return error_response(
-                "Draft locked",
-                "DRAFT_LOCKED",
-                "Draft is being processed by another request. Try again in a moment.",
-            )
+        async with get_conn() as conn:
+            tr = conn.transaction()
+            await tr.start()
 
-        draft = cur.fetchone()
+            try:
+                draft_row = await conn.fetchrow(
+                    _q("SELECT * FROM journal_drafts WHERE id = %s AND tenant_id = %s FOR UPDATE NOWAIT"),
+                    draft_id, tenant_id,
+                )
+            except asyncpg.exceptions.LockNotAvailableError:
+                await tr.rollback()
+                return error_response(
+                    "Draft locked", "DRAFT_LOCKED",
+                    "Draft is being processed by another request. Try again in a moment.",
+                )
 
-        if not draft:
-            return error_response(
-                "Not found",
-                "NOT_FOUND",
-                f"Draft {draft_id} not found for tenant {tenant_id}",
-            )
+            if not draft_row:
+                await tr.rollback()
+                return error_response("Not found", "NOT_FOUND",
+                                      f"Draft {draft_id} not found for tenant {tenant_id}")
 
-        draft = dict(draft)
-        draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
-        draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
+            draft = dict(draft_row)
+            draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
+            draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 
-        # Period lock check
-        try:
-            from app.api.routes_period_lock import is_period_locked
-            from datetime import date as _date
-            entry_date_raw = draft.get("date")
-            if entry_date_raw:
-                if isinstance(entry_date_raw, str):
-                    entry_date_raw = _date.fromisoformat(str(entry_date_raw)[:10])
-                if is_period_locked(conn, tenant_id, entry_date_raw):
-                    return error_response(
-                        "Period is locked",
-                        "PERIOD_LOCKED",
-                        f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
-                    )
-        except Exception:
-            pass  # period_locks table may not exist yet
+            # Period lock check (is_period_locked is already async + asyncpg-compatible)
+            try:
+                from app.api.routes_period_lock import is_period_locked
+                from datetime import date as _date
+                entry_date_raw = draft.get("date")
+                if entry_date_raw:
+                    if isinstance(entry_date_raw, str):
+                        entry_date_raw = _date.fromisoformat(str(entry_date_raw)[:10])
+                    if await is_period_locked(conn, tenant_id, entry_date_raw):
+                        await tr.rollback()
+                        return error_response(
+                            "Period is locked", "PERIOD_LOCKED",
+                            f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
+                        )
+            except Exception:
+                pass
 
-        if draft["status"] == "approved":
-            return error_response(
-                "Already approved",
-                "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved",
-            )
+            if draft["status"] == "approved":
+                await tr.rollback()
+                return error_response("Already approved", "ALREADY_APPROVED",
+                                      f"Draft {draft_id} is already approved")
 
-        if draft["status"] == "rejected":
-            return error_response(
-                "Already rejected",
-                "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected and cannot be approved",
-            )
+            if draft["status"] == "rejected":
+                await tr.rollback()
+                return error_response("Already rejected", "ALREADY_REJECTED",
+                                      f"Draft {draft_id} is already rejected and cannot be approved")
 
-        qa_result = evaluate_decision(draft)
+            qa_result = evaluate_decision(draft)
 
-        # Dual approval: amounts above threshold require CFO second approval
-        DUAL_APPROVAL_THRESHOLD = 10000.0
-        needs_dual = draft["amount"] >= DUAL_APPROVAL_THRESHOLD
-        # Check if already at level 1 (awaiting_cfo)
-        if draft.get("status") == "awaiting_cfo":
-            return error_response(
-                "Awaiting CFO",
-                "AWAITING_CFO",
-                f"Draft {draft_id} requires CFO second approval (amount ≥ ₾{DUAL_APPROVAL_THRESHOLD:,.0f}). Use /approval/cfo-approve/{draft_id}.",
-            )
+            DUAL_APPROVAL_THRESHOLD = 10000.0
+            needs_dual = draft["amount"] >= DUAL_APPROVAL_THRESHOLD
 
-        if needs_dual:
-            # First approval: set to awaiting_cfo
-            cur.execute("""
+            if draft.get("status") == "awaiting_cfo":
+                await tr.rollback()
+                return error_response(
+                    "Awaiting CFO", "AWAITING_CFO",
+                    f"Draft {draft_id} requires CFO second approval (amount ≥ ₾{DUAL_APPROVAL_THRESHOLD:,.0f}). Use /approval/cfo-approve/{draft_id}.",
+                )
+
+            if needs_dual:
+                updated_row = await conn.fetchrow(_q("""
+                    UPDATE journal_drafts
+                    SET status = 'awaiting_cfo', approved_by_mode = 'human', updated_at = NOW()
+                    WHERE id = %s AND tenant_id = %s
+                      AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
+                    RETURNING *
+                """), draft_id, tenant_id)
+                if updated_row:
+                    await tr.commit()
+                    _ws_notify(tenant_id, "draft_awaiting_cfo", draft_id, "awaiting_cfo")
+                    return ok_response("First approval done — awaiting CFO", {
+                        "id": draft_id,
+                        "status": "awaiting_cfo",
+                        "message": f"Amount ₾{draft['amount']:,.2f} requires CFO approval. Use /approval/cfo-approve/{draft_id}.",
+                        "dual_approval_required": True,
+                    })
+                else:
+                    await tr.rollback()
+                    return error_response("Approve blocked", "APPROVE_BLOCKED",
+                                          f"Draft {draft_id} could not be approved for tenant {tenant_id}")
+
+            updated_row = await conn.fetchrow(_q("""
                 UPDATE journal_drafts
-                SET status = 'awaiting_cfo',
-                    approved_by_mode = 'human',
+                SET status = 'approved',
+                    approved_by_mode = COALESCE(approved_by_mode, 'human'),
                     updated_at = NOW()
                 WHERE id = %s AND tenant_id = %s
                   AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
                 RETURNING *
-            """, (draft_id, tenant_id))
-            updated = cur.fetchone()
-            if updated:
-                conn.commit()
-                _ws_notify(tenant_id, "draft_awaiting_cfo", draft_id, "awaiting_cfo")
-                return ok_response("First approval done — awaiting CFO", {
-                    "id": draft_id,
-                    "status": "awaiting_cfo",
-                    "message": f"Amount ₾{draft['amount']:,.2f} requires CFO approval. Use /approval/cfo-approve/{draft_id}.",
-                    "dual_approval_required": True,
-                })
+            """), draft_id, tenant_id)
 
-        cur.execute(
-            """
-            UPDATE journal_drafts
-            SET status = 'approved',
-                approved_by_mode = COALESCE(approved_by_mode, 'human'),
-                updated_at = NOW()
-            WHERE id = %s AND tenant_id = %s
-              AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-            RETURNING *
-            """,
-            (draft_id, tenant_id),
-        )
-        updated = cur.fetchone()
+            if not updated_row:
+                await tr.rollback()
+                return error_response("Approve blocked", "APPROVE_BLOCKED",
+                                      f"Draft {draft_id} could not be approved for tenant {tenant_id}")
 
-        if not updated:
-            conn.rollback()
-            return error_response(
-                "Approve blocked",
-                "APPROVE_BLOCKED",
-                f"Draft {draft_id} could not be approved for tenant {tenant_id}",
-            )
+            updated = dict(updated_row)
+            await tr.commit()
 
-        conn.commit()  # commit status change first — audit/feedback are non-fatal
+            try:
+                save_feedback(
+                    draft_id=draft.get("id"),
+                    tx_fingerprint=draft.get("tx_fingerprint"),
+                    source_type=draft.get("source_type"),
+                    description_raw=draft.get("description"),
+                    description_normalized=draft.get("normalized_description") or draft.get("description"),
+                    partner_raw=draft.get("partner"),
+                    partner_normalized=draft.get("partner"),
+                    amount=draft.get("amount"),
+                    original_account_code=draft.get("account_code"),
+                    original_reason=draft.get("reason"),
+                    original_confidence=float(draft.get("confidence") or 0.0),
+                    final_account_code=draft.get("account_code"),
+                    final_reason=draft.get("reason"),
+                    feedback_type="approve",
+                    corrected_by=None,
+                    notes=None,
+                    tenant_id=tenant_id,
+                )
+            except Exception as _fe:
+                log.warning("save_feedback failed (non-fatal): %s", _fe)
 
-        try:
-            save_feedback(
-                draft_id=draft.get("id"),
-                tx_fingerprint=draft.get("tx_fingerprint"),
-                source_type=draft.get("source_type"),
-                description_raw=draft.get("description"),
-                description_normalized=draft.get("normalized_description") or draft.get("description"),
-                partner_raw=draft.get("partner"),
-                partner_normalized=draft.get("partner"),
-                amount=draft.get("amount"),
-                original_account_code=draft.get("account_code"),
-                original_reason=draft.get("reason"),
-                original_confidence=float(draft.get("confidence") or 0.0),
-                final_account_code=draft.get("account_code"),
-                final_reason=draft.get("reason"),
-                feedback_type="approve",
-                corrected_by=None,
-                notes=None,
-                tenant_id=tenant_id,
-            )
-        except Exception as _fe:
-            log.warning("save_feedback failed (non-fatal): %s", _fe)
+            try:
+                save_transaction_memory(
+                    draft.get("description"),
+                    draft.get("partner"),
+                    draft.get("amount"),
+                    draft.get("account_code"),
+                    tenant_id=tenant_id,
+                )
+                generate_patterns_from_feedback(tenant_id=tenant_id)
+            except Exception as _me:
+                log.warning("memory/patterns update failed (non-fatal): %s", _me)
 
-        try:
-            save_transaction_memory(
-                draft.get("description"),
-                draft.get("partner"),
-                draft.get("amount"),
-                draft.get("account_code"),
-                tenant_id=tenant_id,
-            )
-            generate_patterns_from_feedback(tenant_id=tenant_id)
-        except Exception as _me:
-            log.warning("memory/patterns update failed (non-fatal): %s", _me)
-
-        try:
-            log_entity_change(conn, "journal_drafts", draft_id,
-                              old_data=draft, new_data=dict(updated),
-                              actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
-        except Exception as _ae:
-            log.warning("audit log failed (non-fatal): %s", _ae)
+            # Audit log — separate psycopg2 conn so INSERT is actually committed (fixes pre-existing bug)
+            try:
+                _audit_conn = get_db()
+                try:
+                    log_entity_change(_audit_conn, "journal_drafts", draft_id,
+                                      old_data=draft, new_data=updated,
+                                      actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
+                    _audit_conn.commit()
+                finally:
+                    _audit_conn.close()
+            except Exception as _ae:
+                log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
-        conn.rollback()
         return error_response("Approve failed", "APPROVE_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
     pattern_update_result = {"updated": 0}
     try:
@@ -444,117 +413,102 @@ def approve_draft_service(draft_id: int, tenant_id: str):
     )
 
 
-def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "default"):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "default"):
+    import asyncpg
 
     draft = None
     updated = None
 
     try:
-        try:
-            cur.execute(
-                """
-                SELECT * FROM journal_drafts
+        async with get_conn() as conn:
+            tr = conn.transaction()
+            await tr.start()
+
+            try:
+                draft_row = await conn.fetchrow(
+                    _q("SELECT * FROM journal_drafts WHERE id = %s AND tenant_id = %s FOR UPDATE NOWAIT"),
+                    draft_id, tenant_id,
+                )
+            except asyncpg.exceptions.LockNotAvailableError:
+                await tr.rollback()
+                return error_response(
+                    "Draft locked", "DRAFT_LOCKED",
+                    "Draft is being processed by another request. Try again in a moment.",
+                )
+
+            if not draft_row:
+                await tr.rollback()
+                return error_response("Not found", "NOT_FOUND",
+                                      f"Draft {draft_id} not found for tenant {tenant_id}")
+
+            draft = dict(draft_row)
+            draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
+            draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
+
+            if draft["status"] == "rejected":
+                await tr.rollback()
+                return error_response("Already rejected", "ALREADY_REJECTED",
+                                      f"Draft {draft_id} is already rejected")
+
+            if draft["status"] == "approved":
+                await tr.rollback()
+                return error_response("Already approved", "ALREADY_APPROVED",
+                                      f"Draft {draft_id} is already approved and cannot be rejected")
+
+            updated_row = await conn.fetchrow(_q("""
+                UPDATE journal_drafts
+                SET status = 'rejected', updated_at = NOW()
                 WHERE id = %s AND tenant_id = %s
-                FOR UPDATE NOWAIT
-                """,
-                (draft_id, tenant_id),
-            )
-        except psycopg2.errors.LockNotAvailable:
-            conn.rollback()
-            return error_response(
-                "Draft locked",
-                "DRAFT_LOCKED",
-                "Draft is being processed by another request. Try again in a moment.",
-            )
+                  AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
+                RETURNING *
+            """), draft_id, tenant_id)
 
-        draft = cur.fetchone()
+            if not updated_row:
+                await tr.rollback()
+                return error_response("Reject blocked", "REJECT_BLOCKED",
+                                      f"Draft {draft_id} could not be rejected for tenant {tenant_id}")
 
-        if not draft:
-            return error_response(
-                "Not found",
-                "NOT_FOUND",
-                f"Draft {draft_id} not found for tenant {tenant_id}",
-            )
+            updated = dict(updated_row)
+            await tr.commit()
 
-        draft = dict(draft)
-        draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
-        draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
+            try:
+                save_feedback(
+                    draft_id=draft.get("id"),
+                    tx_fingerprint=draft.get("tx_fingerprint"),
+                    source_type=draft.get("source_type"),
+                    description_raw=draft.get("description"),
+                    description_normalized=draft.get("normalized_description") or draft.get("description"),
+                    partner_raw=draft.get("partner"),
+                    partner_normalized=draft.get("partner"),
+                    amount=draft.get("amount"),
+                    original_account_code=draft.get("account_code"),
+                    original_reason=draft.get("reason"),
+                    original_confidence=float(draft.get("confidence") or 0.0),
+                    final_account_code=None,
+                    final_reason=None,
+                    feedback_type="reject",
+                    corrected_by=None,
+                    notes=reason,
+                    tenant_id=tenant_id,
+                )
+            except Exception as _fe:
+                log.warning("save_feedback failed (non-fatal): %s", _fe)
 
-        if draft["status"] == "rejected":
-            return error_response(
-                "Already rejected",
-                "ALREADY_REJECTED",
-                f"Draft {draft_id} is already rejected",
-            )
-
-        if draft["status"] == "approved":
-            return error_response(
-                "Already approved",
-                "ALREADY_APPROVED",
-                f"Draft {draft_id} is already approved and cannot be rejected",
-            )
-
-        cur.execute(
-            """
-            UPDATE journal_drafts
-            SET status = 'rejected', updated_at = NOW()
-            WHERE id = %s AND tenant_id = %s
-              AND status IN ('drafted', 'pending_approval', 'auto_approved', 'pending_human_review')
-            RETURNING *
-            """,
-            (draft_id, tenant_id),
-        )
-        updated = cur.fetchone()
-
-        if not updated:
-            conn.rollback()
-            return error_response(
-                "Reject blocked",
-                "REJECT_BLOCKED",
-                f"Draft {draft_id} could not be rejected for tenant {tenant_id}",
-            )
-
-        conn.commit()  # commit status change first — audit/feedback are non-fatal
-
-        try:
-            save_feedback(
-                draft_id=draft.get("id"),
-                tx_fingerprint=draft.get("tx_fingerprint"),
-                source_type=draft.get("source_type"),
-                description_raw=draft.get("description"),
-                description_normalized=draft.get("normalized_description") or draft.get("description"),
-                partner_raw=draft.get("partner"),
-                partner_normalized=draft.get("partner"),
-                amount=draft.get("amount"),
-                original_account_code=draft.get("account_code"),
-                original_reason=draft.get("reason"),
-                original_confidence=float(draft.get("confidence") or 0.0),
-                final_account_code=None,
-                final_reason=None,
-                feedback_type="reject",
-                corrected_by=None,
-                notes=reason,
-                tenant_id=tenant_id,
-            )
-        except Exception as _fe:
-            log.warning("save_feedback failed (non-fatal): %s", _fe)
-
-        try:
-            log_entity_change(conn, "journal_drafts", draft_id,
-                              old_data=draft, new_data=dict(updated),
-                              actor=tenant_id, tenant_id=tenant_id, action="REJECT",
-                              details=reason or None)
-        except Exception as _ae:
-            log.warning("audit log failed (non-fatal): %s", _ae)
+            try:
+                _audit_conn = get_db()
+                try:
+                    log_entity_change(_audit_conn, "journal_drafts", draft_id,
+                                      old_data=draft, new_data=updated,
+                                      actor=tenant_id, tenant_id=tenant_id, action="REJECT",
+                                      details=reason or None)
+                    _audit_conn.commit()
+                finally:
+                    _audit_conn.close()
+            except Exception as _ae:
+                log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
-        conn.rollback()
         return error_response("Reject failed", "REJECT_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
     pattern_update_result = {"updated": 0}
     try:
@@ -587,27 +541,17 @@ def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "defa
     )
 
 
-def get_audit_service(limit: int, offset: int, tenant_id: str):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+async def get_audit_service(limit: int, offset: int, tenant_id: str):
     try:
-        cur.execute(
-            """
-            SELECT * FROM audit_events
-            WHERE tenant_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
-            """,
-            (tenant_id, limit, offset),
-        )
-        events = [dict(r) for r in cur.fetchall()]
-
+        async with get_conn() as conn:
+            events = [dict(r) for r in await conn.fetch(_q("""
+                SELECT * FROM audit_events
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """), tenant_id, limit, offset)]
     except Exception as e:
         return error_response("Audit failed", "AUDIT_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
     return ok_response(
         "Audit log",

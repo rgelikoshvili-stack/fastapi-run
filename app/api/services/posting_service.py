@@ -422,51 +422,38 @@ def create_journal_draft(
         conn.close()
 
 
-def get_approved_drafts_service(limit: int = 100, offset: int = 0, tenant_id: str = "default"):
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT
-                    id,
-                    tenant_id,
-                    date,
-                    description,
-                    COALESCE(partner, '') AS partner,
-                    COALESCE(amount, 0) AS amount,
-                    COALESCE(currency, 'GEL') AS currency,
-                    COALESCE(status, '') AS status,
-                    COALESCE(lines_json, '[]'::jsonb) AS lines_json
-                FROM journal_drafts
-                WHERE tenant_id = %s
-                  AND status = 'approved'
-                ORDER BY id DESC
-                LIMIT %s OFFSET %s
-                """,
-                (tenant_id, limit, offset),
-            )
-            rows = cur.fetchall()
-
-            items = []
-            for row in rows:
-                items.append(
-                    {
-                        "id": row["id"],
-                        "tenant_id": row["tenant_id"],
-                        "date": str(row["date"]) if row["date"] else None,
-                        "description": row["description"],
-                        "partner": row["partner"],
-                        "amount": float(row["amount"] or 0),
-                        "currency": row["currency"],
-                        "status": row["status"],
-                        "lines": _normalize_lines(row["lines_json"]),
-                    }
-                )
-
-            return ok_response("approved drafts fetched", items)
-    finally:
-        conn.close()
+async def get_approved_drafts_service(limit: int = 100, offset: int = 0, tenant_id: str = "default"):
+    from app.api.db import get_conn, _q
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q("""
+            SELECT
+                id, tenant_id, date, description,
+                COALESCE(partner, '') AS partner,
+                COALESCE(amount, 0) AS amount,
+                COALESCE(currency, 'GEL') AS currency,
+                COALESCE(status, '') AS status,
+                COALESCE(lines_json, '[]'::jsonb) AS lines_json
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND status = 'approved'
+            ORDER BY id DESC
+            LIMIT %s OFFSET %s
+        """), tenant_id, limit, offset)
+    items = [
+        {
+            "id": r["id"],
+            "tenant_id": r["tenant_id"],
+            "date": str(r["date"]) if r["date"] else None,
+            "description": r["description"],
+            "partner": r["partner"],
+            "amount": float(r["amount"] or 0),
+            "currency": r["currency"],
+            "status": r["status"],
+            "lines": _normalize_lines(r["lines_json"]),
+        }
+        for r in rows
+    ]
+    return ok_response("approved drafts fetched", items)
 
 
 def get_posting_payload_service(draft_id: int, tenant_id: str = "default"):
@@ -488,60 +475,44 @@ def mock_posting_service(draft_id: int, tenant_id: str = "default"):
     return apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
 
 
-def get_posting_logs_service(
+async def get_posting_logs_service(
     limit: int = 100,
     offset: int = 0,
     tenant_id: str = "default",
     target_system: Optional[str] = None,
     draft_id: Optional[int] = None,
 ):
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            query = """
-                SELECT id, tenant_id, draft_id, target_system, status, error_message, created_at
-                FROM posting_logs
-                WHERE tenant_id = %s
-            """
-            params: List[Any] = [tenant_id]
-
-            if target_system:
-                query += " AND target_system = %s"
-                params.append(_normalize_target(target_system))
-
-            if draft_id is not None:
-                query += " AND draft_id = %s"
-                params.append(draft_id)
-
-            query += " ORDER BY id DESC LIMIT %s OFFSET %s"
-            params.extend([limit, offset])
-
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            return ok_response("posting logs fetched", rows)
-    finally:
-        conn.close()
+    from app.api.db import get_conn, _q
+    conditions = ["tenant_id = %s"]
+    params: List[Any] = [tenant_id]
+    if target_system:
+        conditions.append("target_system = %s")
+        params.append(_normalize_target(target_system))
+    if draft_id is not None:
+        conditions.append("draft_id = %s")
+        params.append(draft_id)
+    params.extend([limit, offset])
+    where = " AND ".join(conditions)
+    sql = _q(f"""
+        SELECT id, tenant_id, draft_id, target_system, status, error_message, created_at
+        FROM posting_logs
+        WHERE {where}
+        ORDER BY id DESC LIMIT %s OFFSET %s
+    """)
+    async with get_conn() as conn:
+        rows = await conn.fetch(sql, *params)
+    return ok_response("posting logs fetched", [dict(r) for r in rows])
 
 
-def get_posting_log_detail_service(log_id: int, tenant_id: str = "default"):
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT *
-                FROM posting_logs
-                WHERE id = %s
-                  AND tenant_id = %s
-                """,
-                (log_id, tenant_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                return error_response("posting log not found", code="NOT_FOUND")
-            return ok_response("posting log fetched", row)
-    finally:
-        conn.close()
+async def get_posting_log_detail_service(log_id: int, tenant_id: str = "default"):
+    from app.api.db import get_conn, _q
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "SELECT * FROM posting_logs WHERE id = %s AND tenant_id = %s"
+        ), log_id, tenant_id)
+    if not row:
+        return error_response("posting log not found", code="NOT_FOUND")
+    return ok_response("posting log fetched", dict(row))
 
 
 def get_balance_status_service(tenant_id: str = "default"):

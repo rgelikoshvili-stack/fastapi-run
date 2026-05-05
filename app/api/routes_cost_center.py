@@ -134,7 +134,7 @@ async def cost_center_analysis(
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conds = ["jd.tenant_id = %s", "jd.status IN ('approved','auto_approved','posted')",
+    conds = ["jd.tenant_id = %s", "jd.status = 'posted'",
              "jd.cost_center_id IS NOT NULL", "jd.debit_account LIKE '7%%'"]
     params: list = [tenant_id]
     if date_from:
@@ -142,7 +142,7 @@ async def cost_center_analysis(
     if date_to:
         conds.append("jd.date <= %s"); params.append(date_to)
 
-    uncat_conds = ["jd.tenant_id = %s", "jd.status IN ('approved','auto_approved','posted')",
+    uncat_conds = ["jd.tenant_id = %s", "jd.status = 'posted'",
                    "jd.cost_center_id IS NULL", "jd.debit_account LIKE '7%%'"]
     uncat_params: list = [tenant_id]
     if date_from:

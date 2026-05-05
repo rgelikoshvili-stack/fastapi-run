@@ -45,6 +45,7 @@ def _setup_logging():
 
 _setup_logging()
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -418,10 +419,10 @@ async def _nbg_sync_loop():
         await _asyncio.sleep(86400)
 
 
-@app.on_event("startup")
-async def start_background_tasks():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── startup ────────────────────────────────────────────────────────────────
     print("🚀 Starting background scheduler...")
-    # Warm up asyncpg pool
     try:
         from app.api.db import get_pool
         await get_pool()
@@ -432,36 +433,30 @@ async def start_background_tasks():
     asyncio.create_task(decay_loop())
     asyncio.create_task(email_poller_loop())
     asyncio.create_task(_nbg_sync_loop())
-    # DB column migrations
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _run_db_migrations)
-    # Email collector tables
     try:
         await loop.run_in_executor(None, _ensure_email_tables)
         print("✅ Email collector tables OK")
     except Exception as e:
         print(f"⚠️ Email tables migration error (non-fatal): {e}")
-    # Balance.ge per-tenant credentials table
     try:
         from app.api.services.balance_credentials_service import ensure_table as _ensure_balance_table
         await loop.run_in_executor(None, _ensure_balance_table)
         print("✅ Balance credentials table OK")
     except Exception as e:
         print(f"⚠️ Balance credentials table migration (non-fatal): {e}")
-    # JSON → DB one-time migration
     try:
         from app.knowledge.knowledge_loader import migrate_json_to_db
         await loop.run_in_executor(None, migrate_json_to_db)
     except Exception as e:
         print(f"⚠️ KB migration error (non-fatal): {e}")
-    # Inventory tables
     try:
         from app.api.services.inventory_service import ensure_inventory_tables
         await loop.run_in_executor(None, ensure_inventory_tables)
         print("✅ Inventory tables OK")
     except Exception as e:
         print(f"⚠️ Inventory tables migration (non-fatal): {e}")
-    # NBG live exchange rates
     try:
         from app.integrations.nbg_api import sync_rates_to_db
         from app.api.db import get_db_sync as _get_db_sync
@@ -475,18 +470,20 @@ async def start_background_tasks():
         await loop.run_in_executor(None, _nbg_sync)
     except Exception as e:
         print(f"⚠️ NBG rate sync (non-fatal): {e}")
-    # Knowledge Base preload
     try:
         from app.knowledge.knowledge_loader import _load_files as _kb_load
-        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _kb_load)
         print("✅ Knowledge Base loaded!")
     except Exception as e:
         print(f"⚠️ KB load error: {e}")
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_event():
+    # ── shutdown ───────────────────────────────────────────────────────────────
     from app.api.db import close_pool
     await close_pool()
     print("✅ asyncpg pool closed")
+
+
+# Wire lifespan into the app (defined after app to avoid forward-reference NameError)
+app.router.lifespan_context = lifespan

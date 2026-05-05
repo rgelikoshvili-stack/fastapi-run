@@ -97,10 +97,10 @@ async def get_suggestions(request: Request, q: str = "", field: str = "partner")
 
 
 @router.get("/queue")
-def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0, q: str = ""):
+async def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0, q: str = ""):
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return get_queue_service(status, limit, offset, tenant_id=tenant_id, q=q)
+    return await get_queue_service(status, limit, offset, tenant_id=tenant_id, q=q)
 
 
 def _check_locked(result):
@@ -112,7 +112,7 @@ def _check_locked(result):
 
 @router.post("/approve/{draft_id}")
 @limiter.limit("30/minute")
-def approve_draft(draft_id: int, request: Request):
+async def approve_draft(draft_id: int, request: Request):
     require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -122,7 +122,7 @@ def approve_draft(draft_id: int, request: Request):
         if hit is not None:
             return hit
     log.info("action=approve draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
-    result = approve_draft_service(draft_id, tenant_id=tenant_id)
+    result = await approve_draft_service(draft_id, tenant_id=tenant_id)
     result = _check_locked(result) or result
     if idem_key:
         idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
@@ -133,7 +133,7 @@ def approve_draft(draft_id: int, request: Request):
 
 @router.post("/reject/{draft_id}")
 @limiter.limit("30/minute")
-def reject_draft(draft_id: int, req: RejectRequest, request: Request):
+async def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -143,7 +143,7 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
         if hit is not None:
             return hit
     log.info("action=reject draft_id=%s user=%s tenant=%s reason=%s", draft_id, user_id, tenant_id, req.reason)
-    result = reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
+    result = await reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
     result = _check_locked(result) or result
     if idem_key:
         idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
@@ -154,7 +154,7 @@ def reject_draft(draft_id: int, req: RejectRequest, request: Request):
 
 @router.post("/correct/{draft_id}")
 @limiter.limit("30/minute")
-def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
+async def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
     require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -165,7 +165,7 @@ def correct_draft_route(draft_id: int, req: CorrectRequest, request: Request):
         "debit_account": req.debit_account,
         "credit_account": req.credit_account,
     }
-    result = correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
+    result = await correct_draft(draft_id, payload, req.user or "human", tenant_id=tenant_id)
     return _check_locked(result) or result
 
 
@@ -221,10 +221,10 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
 
 
 @router.get("/audit")
-def get_audit_log(request: Request, limit: int = 50, offset: int = 0):
+async def get_audit_log(request: Request, limit: int = 50, offset: int = 0):
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return get_audit_service(limit, offset, tenant_id=tenant_id)
+    return await get_audit_service(limit, offset, tenant_id=tenant_id)
 
 
 @router.post("/autopilot")

@@ -623,3 +623,28 @@ def _run_remaining_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # ── B4: Bank reconciliation unique constraint ─────────────────────────────
+    # Prevents the same bank_transaction from being matched to multiple drafts.
+    for recon_sql in [
+        """
+        CREATE TABLE IF NOT EXISTS bank_reconciliations (
+            id                   SERIAL PRIMARY KEY,
+            tenant_id            TEXT NOT NULL,
+            bank_transaction_id  INTEGER NOT NULL,
+            draft_id             INTEGER NOT NULL,
+            reconciled_at        TIMESTAMPTZ DEFAULT NOW(),
+            reconciled_by        TEXT
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_reconciliation_unique
+            ON bank_reconciliations(bank_transaction_id, draft_id)
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_reconciliation_tenant ON bank_reconciliations(tenant_id)",
+    ]:
+        try:
+            cur.execute(recon_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

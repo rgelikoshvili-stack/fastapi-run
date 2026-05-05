@@ -38,7 +38,7 @@ def _validate_pagination(limit: int, offset: int):
 # READ ENDPOINTS
 # ===============================
 @router.get("/approved-drafts")
-def get_approved_drafts(
+async def get_approved_drafts(
     request: Request,
     limit: int = Query(100),
     offset: int = Query(0),
@@ -48,7 +48,7 @@ def get_approved_drafts(
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    return get_approved_drafts_service(limit=limit, offset=offset, tenant_id=tenant_id)
+    return await get_approved_drafts_service(limit=limit, offset=offset, tenant_id=tenant_id)
 
 
 @router.get("/payload/{draft_id}")
@@ -63,7 +63,7 @@ def get_posting_payload(
 
 
 @router.get("/logs")
-def get_posting_logs(
+async def get_posting_logs(
     request: Request,
     limit: int = Query(100),
     offset: int = Query(0),
@@ -75,7 +75,7 @@ def get_posting_logs(
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    return get_posting_logs_service(
+    return await get_posting_logs_service(
         limit=limit,
         offset=offset,
         tenant_id=tenant_id,
@@ -85,14 +85,14 @@ def get_posting_logs(
 
 
 @router.get("/logs/{log_id}")
-def get_posting_log_detail(
+async def get_posting_log_detail(
     request: Request,
     log_id: int = Path(...),
 ):
     require_permission(request, "posting:read")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return get_posting_log_detail_service(log_id=log_id, tenant_id=tenant_id)
+    return await get_posting_log_detail_service(log_id=log_id, tenant_id=tenant_id)
 
 
 @router.get("/history")

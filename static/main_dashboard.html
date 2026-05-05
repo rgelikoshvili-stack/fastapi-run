@@ -17,30 +17,56 @@
       gap: 12px;
     }
     h1 { margin-bottom: 16px; }
+    .stale { opacity: 0.6; font-size: 0.85em; }
   </style>
 </head>
 <body>
 
 <h1>Bridge Hub — Dashboard</h1>
 
-<div class="grid" id="stats"></div>
+<div class="grid" id="stats"><div class="card stale">Loading…</div></div>
 
 <script>
-async function loadStats() {
-  const queue = await fetch('/approval/queue').then(r=>r.json());
-  const patterns = await fetch('/patterns').then(r=>r.json());
+const CACHE_KEY = 'bh_main_dashboard';
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
-  const totalQueue = queue?.data?.queue?.length || 0;
-  const totalPatterns = patterns?.data?.patterns?.length || 0;
-
+function renderStats(data, stale) {
   const root = document.getElementById('stats');
-
+  const tag = stale ? ' <span class="stale">(cached)</span>' : '';
   root.innerHTML = `
-    <div class="card">Pending Drafts: ${totalQueue}</div>
-    <div class="card">Patterns: ${totalPatterns}</div>
+    <div class="card">Pending Drafts: ${data.pending_count ?? '—'}${tag}</div>
+    <div class="card">Auto-approved: ${data.auto_approved ?? '—'}</div>
     <div class="card">System: ACTIVE</div>
     <div class="card">Mode: Semi-Autonomous</div>
   `;
+}
+
+async function loadStats() {
+  // Show stale cached data immediately (avoids blank screen on revisit)
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const { data, ts } = JSON.parse(raw);
+      if (Date.now() - ts < CACHE_TTL_MS) {
+        renderStats(data, false);
+        return; // fresh enough — no network call needed
+      }
+      renderStats(data, true); // show stale while refreshing in background
+    }
+  } catch (_) {}
+
+  try {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch('/approval/stats', { headers });
+    if (!res.ok) throw new Error(res.status);
+    const json = await res.json();
+    const data = json.ok ? json : json.data || json;
+    renderStats(data, false);
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch (_) {}
+  } catch (e) {
+    console.warn('Dashboard stats load failed:', e);
+  }
 }
 
 loadStats();

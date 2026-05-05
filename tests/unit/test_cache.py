@@ -111,3 +111,86 @@ def test_deep_health_calls_db():
     import app.api.routes_health as mod
     src = inspect.getsource(mod.health_check_deep)
     assert "get_conn" in src or "_check_db_deep" in src
+
+
+# ── cached() async helper ─────────────────────────────────────────────────────
+
+def test_cached_helper_calls_loader_on_miss():
+    import asyncio
+    from app.api.services.cache_service import cached
+    _cache.clear()
+    calls = []
+
+    async def loader():
+        calls.append(1)
+        return {"v": 42}
+
+    result = asyncio.run(cached("test:miss", 60, loader))
+    assert result == {"v": 42}
+    assert len(calls) == 1
+
+
+def test_cached_helper_returns_cached_value():
+    import asyncio
+    from app.api.services.cache_service import cached
+    _cache.clear()
+    cache_set("test:hit", {"v": 99}, ttl=60)
+    calls = []
+
+    async def loader():
+        calls.append(1)
+        return {"v": 0}
+
+    result = asyncio.run(cached("test:hit", 60, loader))
+    assert result == {"v": 99}
+    assert len(calls) == 0  # loader not called on cache hit
+
+
+def test_cached_helper_stores_result():
+    import asyncio
+    from app.api.services.cache_service import cached
+    _cache.clear()
+
+    async def loader():
+        return {"stored": True}
+
+    asyncio.run(cached("test:store", 60, loader))
+    assert cache_get("test:store") == {"stored": True}
+
+
+# ── approval stats index usability ───────────────────────────────────────────
+
+def test_approval_stats_query_has_no_tenant_cast():
+    """tenant_id::text cast prevents index use; query must use plain tenant_id = %s."""
+    import inspect
+    import app.api.routes_approval as mod
+    src = inspect.getsource(mod.get_stats)
+    assert "tenant_id::text" not in src, (
+        "approval stats query uses tenant_id::text cast which prevents index use"
+    )
+
+
+def test_batch_action_query_has_no_tenant_cast():
+    """Batch action query must not cast tenant_id to prevent index skip."""
+    import inspect
+    import app.api.routes_approval as mod
+    src = inspect.getsource(mod.batch_action)
+    assert "tenant_id::text" not in src
+
+
+# ── migrations include all required speed indexes ────────────────────────────
+
+def test_migrations_include_bank_transactions_tenant_created_index():
+    import inspect
+    import app.startup.migrations as mod
+    src = inspect.getsource(mod)
+    assert "bank_transactions(tenant_id, created_at" in src or \
+           "bank_transactions_tenant_created" in src
+
+
+def test_migrations_include_pipeline_runs_tenant_created_index():
+    import inspect
+    import app.startup.migrations as mod
+    src = inspect.getsource(mod)
+    assert "pipeline_runs(tenant_id, created_at" in src or \
+           "pipeline_runs_tenant_created" in src

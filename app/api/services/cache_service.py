@@ -40,6 +40,16 @@ def cache_clear_prefix(prefix: str) -> None:
         _cache.pop(k, None)
 
 
+async def cached(key: str, ttl: int, loader):
+    """Async read-through helper: return cached value or call loader() and cache result."""
+    hit = cache_get(key)
+    if hit is not None:
+        return hit
+    value = await loader()
+    cache_set(key, value, ttl)
+    return value
+
+
 def cache_stats() -> dict:
     now = time.time()
     alive = {k: v for k, v in _cache.items() if v["expires"] > now}

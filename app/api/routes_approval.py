@@ -267,7 +267,7 @@ async def get_stats(request: Request):
                     COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
                     COALESCE(AVG(CAST(confidence AS FLOAT)), 0) AS avg_confidence
                 FROM journal_drafts
-                WHERE tenant_id::text = %s
+                WHERE tenant_id = %s
             """), tenant_id)
         result = {
             "ok": True,
@@ -352,7 +352,7 @@ async def batch_action(body: BatchActionRequest, request: Request):
                 UPDATE journal_drafts
                 SET status = %s, updated_at = NOW()
                 WHERE id = ANY(%s)
-                  AND tenant_id::text = %s
+                  AND tenant_id = %s
                   AND status NOT IN ('approved', 'rejected', 'posted')
             """), new_status, body.draft_ids, tenant_id)
             affected = int(st.split()[-1])

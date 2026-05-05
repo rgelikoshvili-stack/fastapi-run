@@ -648,3 +648,14 @@ def _run_remaining_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # ── Speed Phase 2: bank_transactions + pipeline_runs composite indexes ─────
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_tenant_created ON bank_transactions(tenant_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_created     ON pipeline_runs(tenant_id, created_at DESC)",
+    ]:
+        try:
+            cur.execute(idx_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()

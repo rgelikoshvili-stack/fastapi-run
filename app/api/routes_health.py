@@ -31,7 +31,6 @@ async def health_check():
     uptime = f"{uptime_s // 3600}h {(uptime_s % 3600) // 60}m {uptime_s % 60}s"
     env = _check_env()
     missing = [k for k, v in env.items() if v == "missing"]
-    all_ok = len(missing) == 0
 
     data = {
         "service": "Bridge Hub",
@@ -39,7 +38,9 @@ async def health_check():
         "environment": os.environ.get("ENVIRONMENT", "production"),
         "uptime": uptime,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "degraded" if missing else "ok",
         "env_vars": env,
+        "warnings": [f"{k} not configured" for k in missing],
         "connectors": {
             "balance":    "configured" if os.environ.get("BALANCE_API_KEY")    else "demo_mode",
             "anthropic":  "configured" if os.environ.get("ANTHROPIC_API_KEY")  else "missing",
@@ -47,9 +48,10 @@ async def health_check():
         },
     }
 
-    if all_ok:
-        return ok_response("Health check OK", data)
-    return error_response("Health check degraded", "HEALTH_DEGRADED", data)
+    # /health is a liveness probe — the process is alive regardless of which
+    # optional third-party API keys are configured.  Missing keys are surfaced
+    # as warnings, not errors.  Use /health/deep for a full connectivity check.
+    return ok_response("Health check OK", data)
 
 
 # ── Deep health — full DB + GCS check, max 5 s timeout ──────────────────────

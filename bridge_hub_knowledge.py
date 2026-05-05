@@ -1,8 +1,11 @@
+﻿"""
+bridge_hub_knowledge.py â€” DEPRECATED backward-compatibility shim.
+
+All logic lives in app/knowledge/. Do not add new code here.
+Import directly from app.knowledge or the specific sub-module instead:
+    from app.knowledge import classify_transaction, build_journal_from_text
 """
-bridge_hub_knowledge.py — backward-compatibility shim.
-All logic lives in app/knowledge/.
-"""
-from app.knowledge import *  # noqa: F401, F403
+from app.knowledge import __all__ as _KNOWLEDGE_ALL
 from app.knowledge import (
     TAX_RATES, CHART_OF_ACCOUNTS, ACCA_STANDARDS, TAX_RULES,
     _fmt, _jl, _journal, _payload, _CLS_RULES, _KB,
@@ -14,3 +17,7 @@ from app.knowledge import (
     calculate_vat, calculate_payroll, calculate_cit,
     calculate_withholding, calculate_depreciation, calculate_inventory_shortage,
 )
+
+__all__ = list(_KNOWLEDGE_ALL)
+
+

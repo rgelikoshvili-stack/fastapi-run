@@ -178,7 +178,16 @@ def _draft_to_posting_payload(draft: dict) -> dict:
             amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
             payload["amount_gel"]    = float(amount_gel)
             payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
-        except Exception:
+        except Exception as _fx_exc:
+            # Currency rate lookup failed — falling back to 1.0 is financially wrong.
+            # Log so ops can fix the rate table; the caller should not silently receive
+            # a GEL-equivalent that equals the foreign-currency face value.
+            log.warning(
+                "FX rate lookup failed for %s→GEL (draft date=%s): %s — "
+                "falling back to exchange_rate=1.0 which IS INCORRECT. "
+                "Populate the currency_rates table to fix this.",
+                currency, draft.get("date"), _fx_exc,
+            )
             payload["amount_gel"]    = float(amount)
             payload["exchange_rate"] = 1.0
     else:
@@ -603,8 +612,9 @@ def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]
                 "amount": float(row["amount"] or 0),
                 "partner": row["partner"],
             }
-    except Exception:
-        pass
+    except Exception as _dup_sync_exc:
+        log.warning("_check_duplicate_invoice (sync) failed for draft %s: %s — check skipped",
+                    draft.get("id"), _dup_sync_exc)
     return None
 
 
@@ -760,8 +770,15 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                                 code="DUPLICATE_INVOICE_WARNING",
                                 details={"duplicate_draft": dup, "hint": "force=true-ით გაიმეორე თუ განზრახ გინდა"},
                             )
-                    except Exception:
-                        pass
+                    except Exception as _dup_exc:
+                        # Duplicate-check query failed — skip the guard but log so it
+                        # does not silently vanish. A broken dup-check is not a posting
+                        # blocker but the operator should know the guard was skipped.
+                        log.warning(
+                            "Duplicate-invoice check raised an unexpected exception "
+                            "for draft %s (check skipped — posting will proceed): %s",
+                            draft_id, _dup_exc,
+                        )
 
             # block re-posting
             existing = await conn.fetchrow(

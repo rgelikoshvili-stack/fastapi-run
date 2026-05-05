@@ -132,11 +132,18 @@ jobs:
       - name: Smoke test — health check
         run: |
           echo "Checking: ${{ env.SERVICE_URL }}/health"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          BODY=$(curl -s \
             --retry 5 --retry-delay 5 --retry-connrefused \
             "${{ env.SERVICE_URL }}/health")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ env.SERVICE_URL }}/health")
           echo "HTTP status: $STATUS"
+          echo "Response body: $BODY"
           if [ "$STATUS" != "200" ]; then
             echo "❌ Health check FAILED (HTTP $STATUS)" && exit 1
           fi
-          echo "✅ Health check PASSED"
+          if ! echo "$BODY" | grep -q '"ok":true'; then
+            echo "❌ Health check returned ok:false — liveness probe must return ok:true"
+            exit 1
+          fi
+          echo "✅ Health check PASSED (HTTP $STATUS, ok:true)"

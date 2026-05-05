@@ -1,8 +1,8 @@
-"""
+﻿"""
 app/api/services/payroll_service.py
-Bridge Hub — Payroll Service
-PAYG (2%) + საშემოსავლო გადასახადი + RS.ge ფორმატი
-georgia_pack.py-ს გამოიყენებს.
+Bridge Hub â€” Payroll Service
+PAYG (2%) + áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ¡áƒáƒ®áƒáƒ“áƒ˜ + RS.ge áƒ¤áƒáƒ áƒ›áƒáƒ¢áƒ˜
+georgia_pack.py-áƒ¡ áƒ’áƒáƒ›áƒáƒ˜áƒ§áƒ”áƒœáƒ”áƒ‘áƒ¡.
 """
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
@@ -10,6 +10,7 @@ from typing import Optional
 import logging
 import psycopg2.extras
 from app.api.db import get_db
+from app.api.response_utils import ok_response, error_response
 from app.policy.localization.georgia_pack import (
     calculate_payg, get_account, VAT_RATE, PAYG_RATE, PIT_RATE
 )
@@ -29,8 +30,8 @@ def calculate_employee_payroll(
     period: Optional[str] = None,
 ) -> dict:
     """
-    ერთი თანამშრომლის ხელფასის გამოთვლა.
-    PAYG 2% + საშემოსავლო 20%
+    áƒ”áƒ áƒ—áƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡ áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ’áƒáƒ›áƒáƒ—áƒ•áƒšáƒ.
+    PAYG 2% + áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ 20%
     """
     gross = Decimal(str(gross_salary))
     period = period or datetime.now().strftime("%Y-%m")
@@ -64,7 +65,7 @@ def calculate_employee_payroll(
 
 def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
     """
-    მრავალი თანამშრომლის payroll გამოთვლა.
+    áƒ›áƒ áƒáƒ•áƒáƒšáƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡ payroll áƒ’áƒáƒ›áƒáƒ—áƒ•áƒšáƒ.
     """
     period = period or datetime.now().strftime("%Y-%m")
     results = []
@@ -112,12 +113,12 @@ def generate_payroll_drafts(
     tenant_id: str = "default",
 ) -> dict:
     """
-    Payroll-იდან journal drafts-ის შექმნა.
-    ყოველი თანამშრომლისთვის 4 entry:
-    1. ხელფასის ხარჯი
-    2. PAYG გადახდა
-    3. საშემოსავლო გადახდა
-    4. დამსაქმებლის 2% საპენსიო ხარჯი
+    Payroll-áƒ˜áƒ“áƒáƒœ journal drafts-áƒ˜áƒ¡ áƒ¨áƒ”áƒ¥áƒ›áƒœáƒ.
+    áƒ§áƒáƒ•áƒ”áƒšáƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡áƒ—áƒ•áƒ˜áƒ¡ 4 entry:
+    1. áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ®áƒáƒ áƒ¯áƒ˜
+    2. PAYG áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ
+    3. áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ
+    4. áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ 2% áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ áƒ®áƒáƒ áƒ¯áƒ˜
     """
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -129,7 +130,7 @@ def generate_payroll_drafts(
         for emp in payroll.get("employees", []):
             name = emp["employee_name"]
 
-            # 1. ხელფასის ხარჯი
+            # 1. áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ®áƒáƒ áƒ¯áƒ˜
             cur.execute("""
                 INSERT INTO journal_drafts (
                     date, description, partner, amount,
@@ -139,7 +140,7 @@ def generate_payroll_drafts(
                 RETURNING id
             """, (
                 date,
-                f"ხელფასი — {name} ({period})",
+                f"áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜ â€” {name} ({period})",
                 name,
                 emp["gross_salary"],
                 get_account("salary"),
@@ -153,7 +154,7 @@ def generate_payroll_drafts(
             ))
             created_ids.append(cur.fetchone()["id"])
 
-            # 2. PAYG გადახდა (2%)
+            # 2. PAYG áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ (2%)
             cur.execute("""
                 INSERT INTO journal_drafts (
                     date, description, partner, amount,
@@ -163,7 +164,7 @@ def generate_payroll_drafts(
                 RETURNING id
             """, (
                 date,
-                f"PAYG 2% — {name} ({period})",
+                f"PAYG 2% â€” {name} ({period})",
                 name,
                 emp["payg_2pct"],
                 "3120",
@@ -177,7 +178,7 @@ def generate_payroll_drafts(
             ))
             created_ids.append(cur.fetchone()["id"])
 
-            # 3. საშემოსავლო გადახდა (20%)
+            # 3. áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ (20%)
             cur.execute("""
                 INSERT INTO journal_drafts (
                     date, description, partner, amount,
@@ -187,7 +188,7 @@ def generate_payroll_drafts(
                 RETURNING id
             """, (
                 date,
-                f"საშემოსავლო 20% — {name} ({period})",
+                f"áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ 20% â€” {name} ({period})",
                 name,
                 emp["pit_20pct"],
                 "3320",
@@ -205,7 +206,7 @@ def generate_payroll_drafts(
             if employer_pension is None:
                 employer_pension = round(float(emp.get("gross_salary", 0)) * float(EMPLOYER_PENSION_RATE), 2)
 
-            # 4. დამსაქმებლის საპენსიო შენატანი (2%)
+            # 4. áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ áƒ¨áƒ”áƒœáƒáƒ¢áƒáƒœáƒ˜ (2%)
             cur.execute("""
                 INSERT INTO journal_drafts (
                     date, description, partner, amount,
@@ -215,7 +216,7 @@ def generate_payroll_drafts(
                 RETURNING id
             """, (
                 date,
-                f"დამსაქმებლის საპენსიო 2% — {name} ({period})",
+                f"áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ 2% â€” {name} ({period})",
                 name,
                 employer_pension,
                 EMPLOYER_PENSION_EXPENSE_ACCOUNT,
@@ -230,17 +231,19 @@ def generate_payroll_drafts(
             created_ids.append(cur.fetchone()["id"])
 
         conn.commit()
-        return {
-            "ok": True,
+        data = {
             "period": period,
             "drafts_created": len(created_ids),
             "draft_ids": created_ids,
             "tenant_id": tenant_id,
         }
+        # Preserve legacy direct-service keys while also exposing the standard
+        # {ok, message, data, error} envelope expected by route consumers.
+        return {**ok_response("Payroll drafts created", data), **data}
     except Exception:
         conn.rollback()
         log.exception("Payroll draft generation failed tenant=%s period=%s", tenant_id, period)
-        return {"ok": False, "error": "Payroll draft generation failed"}
+        return error_response("Payroll draft generation failed", "PAYROLL_ERROR")
     finally:
         cur.close()
         conn.close()
@@ -250,7 +253,7 @@ def generate_payroll_drafts(
 
 def generate_rsge_xml(payroll: dict) -> str:
     """
-    RS.ge-ისთვის XML ფორმატის გენერაცია.
+    RS.ge-áƒ˜áƒ¡áƒ—áƒ•áƒ˜áƒ¡ XML áƒ¤áƒáƒ áƒ›áƒáƒ¢áƒ˜áƒ¡ áƒ’áƒ”áƒœáƒ”áƒ áƒáƒªáƒ˜áƒ.
     """
     period = payroll.get("period", datetime.now().strftime("%Y-%m"))
     lines = [

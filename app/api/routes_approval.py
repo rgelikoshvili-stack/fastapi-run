@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
@@ -29,12 +29,12 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit უნდა იყოს 0 ან მეტი"},
+            detail={"error": "INVALID_PAGINATION", "message": "limit áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"},
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset უნდა იყოს 0 ან მეტი"},
+            detail={"error": "INVALID_PAGINATION", "message": "offset áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"},
         )
 
 
@@ -71,10 +71,10 @@ async def get_suggestions(request: Request, q: str = "", field: str = "partner")
     """Return autocomplete suggestions for partner/description fields from historical drafts."""
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if len(q) < 2:
-        return ok_response([])
+        return ok_response("Suggestions", [])
     allowed_fields = {"partner", "description"}
     if field not in allowed_fields:
-        return ok_response([])
+        return ok_response("Suggestions", [])
 
     col = "partner" if field == "partner" else "description"
     try:
@@ -90,10 +90,10 @@ async def get_suggestions(request: Request, q: str = "", field: str = "partner")
                 ORDER BY cnt DESC
                 LIMIT 8
             """), tenant_id, f"%{q}%")
-        return ok_response([{"value": r["val"], "count": r["cnt"]} for r in rows])
+        return ok_response("Suggestions", [{"value": r["val"], "count": r["cnt"]} for r in rows])
     except Exception as e:
         log.error("get_suggestions error: %s", e)
-        return ok_response([])
+        return ok_response("Suggestions", [])
 
 
 @router.get("/queue")
@@ -206,7 +206,7 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
     if req.account_code   is not None: fields.append("account_code = %s");   vals.append(req.account_code)
     if req.reason         is not None: fields.append("reason = %s");         vals.append(req.reason)
     if not fields:
-        return {"ok": True, "message": "no_changes"}
+        return ok_response("No changes requested", {"draft_id": draft_id})
     fields.append("updated_at = NOW()")
     vals += [draft_id, tenant_id]
     try:
@@ -215,9 +215,9 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
                 _q(f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s"),
                 *vals,
             )
-        return {"ok": True, "draft_id": draft_id}
+        return ok_response("Draft updated", {"draft_id": draft_id})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return error_response("Draft update failed", "UPDATE_ERROR", str(e))
 
 
 @router.get("/audit")
@@ -326,7 +326,7 @@ async def reclassify_unclassified(request: Request):
                     updated += 1
                 except Exception:
                     pass
-        return {"ok": True, "reclassified": updated, "total_unclassified": len(drafts)}
+        return ok_response("Reclassification complete", {"reclassified": updated, "total_unclassified": len(drafts)})
     except Exception as e:
         return error_response("Reclassify failed", "RECLASSIFY_ERROR", str(e))
 
@@ -357,13 +357,13 @@ async def batch_action(body: BatchActionRequest, request: Request):
             """), new_status, body.draft_ids, tenant_id)
             affected = int(st.split()[-1])
         log.info("batch_action action=%s affected=%s tenant=%s", body.action, affected, tenant_id)
-        return {"ok": True, "action": body.action, "affected": affected, "tenant_id": tenant_id}
+        return ok_response("Batch action complete", {"action": body.action, "affected": affected, "tenant_id": tenant_id})
     except Exception as e:
         log.error("batch_action error: %s", e)
         return error_response("Batch action failed", "BATCH_ERROR", str(e))
 
 
-# ── Draft Attachment ──────────────────────────────────────────────────────────
+# â”€â”€ Draft Attachment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/draft/{draft_id}/attach")
 async def attach_file_to_draft(draft_id: int, request: Request, file=None):
@@ -402,7 +402,7 @@ async def attach_file_to_draft(draft_id: int, request: Request, file=None):
                    WHERE id = %s AND tenant_id = %s"""),
                 gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
         log.info("action=draft_attach draft_id=%s tenant=%s file=%s", draft_id, tenant_id, file.filename)
-        return ok_response({"draft_id": draft_id, "file_name": file.filename, "file_size": len(file_bytes)})
+        return ok_response("Draft attachment saved", {"draft_id": draft_id, "file_name": file.filename, "file_size": len(file_bytes)})
     except Exception as e:
         log.error("attach_file_to_draft draft_id=%s: %s", draft_id, e)
         return error_response("Attach failed", "ATTACH_ERROR", str(e))
@@ -431,7 +431,7 @@ async def get_draft_attachment(draft_id: int, request: Request):
     if gcs_path:
         signed_url = generate_signed_url(gcs_path, expires_in=900)
         if signed_url:
-            return ok_response({"signed_url": signed_url, "file_name": file_name, "file_size": file_size})
+            return ok_response("Draft attachment URL", {"signed_url": signed_url, "file_name": file_name, "file_size": file_size})
         try:
             content = download_file(gcs_path)
             return Response(content=content, media_type="application/octet-stream",
@@ -464,16 +464,16 @@ async def delete_draft_attachment(draft_id: int, request: Request):
                 "UPDATE journal_drafts SET attached_file_path=NULL, attached_file_name=NULL, attached_file_size=NULL "
                 "WHERE id=%s AND tenant_id=%s"),
                 draft_id, tenant_id)
-        return ok_response({"draft_id": draft_id, "removed": True})
+        return ok_response("Draft attachment deleted", {"draft_id": draft_id, "removed": True})
     except Exception as e:
         return error_response("Delete failed", "ATTACH_ERROR", str(e))
 
 
-# ── CFO Second Approval ───────────────────────────────────────────────────────
+# â”€â”€ CFO Second Approval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/cfo-approve/{draft_id}")
 async def cfo_approve(draft_id: int, request: Request):
-    """CFO second-level approval for high-value drafts (≥ ₾10,000)."""
+    """CFO second-level approval for high-value drafts (â‰¥ â‚¾10,000)."""
     require_permission(request, "approval:cfo")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     user = getattr(request.state, "user_email", "cfo")
@@ -497,7 +497,7 @@ async def cfo_approve(draft_id: int, request: Request):
                     WHERE id = %s AND tenant_id = %s
                 """), draft_id, tenant_id)
         log.info("action=cfo_approve draft=%s tenant=%s by=%s", draft_id, tenant_id, user)
-        return {"ok": True, "id": draft_id, "status": "approved", "approved_by": user, "level": "CFO"}
+        return ok_response("CFO approval recorded", {"id": draft_id, "status": "approved", "approved_by": user, "level": "CFO"})
     except Exception as e:
         return http_error(500, str(e), "CFO_APPROVE_ERROR")
 
@@ -520,4 +520,5 @@ async def list_awaiting_cfo(request: Request):
         r["created_at"] = str(r["created_at"])[:19] if r.get("created_at") else None
         r["amount"] = float(r["amount"] or 0)
 
-    return {"ok": True, "data": {"items": rows, "count": len(rows)}}
+    return ok_response("Drafts awaiting CFO approval", {"items": rows, "count": len(rows)})
+

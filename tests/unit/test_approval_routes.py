@@ -94,3 +94,27 @@ def test_posting_service_validate_lines_unbalanced():
     ]
     result = _validate_lines(lines)
     assert result is not None
+
+
+def test_approval_routes_success_responses_use_standard_envelope():
+    """Approval route successes should use ok_response(message, data), not ok_response(data)."""
+    import inspect
+    import app.api.routes_approval as mod
+
+    src = inspect.getsource(mod)
+    assert 'return {"ok": True' not in src
+    assert 'return ok_response([])' not in src
+    assert 'return ok_response({"draft_id"' not in src
+    assert 'return ok_response({"signed_url"' not in src
+    assert 'ok_response("No changes requested", {"draft_id": draft_id})' in src
+    assert 'ok_response("Batch action complete", {' in src
+
+
+def test_approval_attachment_responses_keep_data_field():
+    import inspect
+    import app.api.routes_approval as mod
+
+    src = inspect.getsource(mod)
+    assert 'ok_response("Draft attachment saved", {"draft_id": draft_id' in src
+    assert 'ok_response("Draft attachment URL", {"signed_url": signed_url' in src
+    assert 'ok_response("Draft attachment deleted", {"draft_id": draft_id' in src

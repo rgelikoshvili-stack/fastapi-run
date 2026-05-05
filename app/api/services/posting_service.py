@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date as _date
 from typing import Any, List, Optional
@@ -9,6 +10,8 @@ import psycopg2.extras
 from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+
+log = logging.getLogger(__name__)
 
 from app.api.connectors.balance_connector import BalanceConnector
 from app.api.connectors.onec_connector import OneCConnector
@@ -708,8 +711,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                             code="PERIOD_LOCKED",
                             details={"date": str(entry_date_raw), "tenant_id": tenant_id},
                         )
-                except Exception:
-                    pass
+                except Exception as _pl_exc:
+                    # Period-lock query failed unexpectedly; log and continue so a
+                    # broken lock-check does not block all postings.  Operator must
+                    # investigate — a silent pass here could permit posting to a
+                    # locked period without anyone knowing.
+                    log.warning(
+                        "period_lock query raised an unexpected exception for draft %s "
+                        "(posting proceeding — investigate period_lock table): %s",
+                        draft.get("id"), _pl_exc,
+                    )
 
             # duplicate invoice check
             if not force:

@@ -170,7 +170,7 @@ def _mark_success_for_draft(draft: dict, tenant_id: str, weight: float = 1.0):
         )
     if matched_on == "description_fuzzy":
         return mark_pattern_success(
-            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+            "description_fuzzy", pattern_value, account_code, tenant_id=tenant_id, weight=weight
         )
     if matched_on == "partner_fuzzy":
         return mark_pattern_success(
@@ -198,7 +198,7 @@ def _mark_failure_for_draft(draft: dict, tenant_id: str, weight: float = 1.5):
         )
     if matched_on == "description_fuzzy":
         return mark_pattern_failure(
-            "description_exact", pattern_value, account_code, tenant_id=tenant_id, weight=weight
+            "description_fuzzy", pattern_value, account_code, tenant_id=tenant_id, weight=weight
         )
     if matched_on == "partner_fuzzy":
         return mark_pattern_failure(
@@ -256,8 +256,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                             "Period is locked", "PERIOD_LOCKED",
                             f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
                         )
-            except Exception:
-                pass
+            except Exception as _pl_exc:
+                # Period-lock check failed unexpectedly. Log so it is visible in
+                # Cloud Run logs; do NOT silently pass — at minimum the operator
+                # must see this. We continue because a broken lock-check function
+                # must not block all approvals, but the operator should fix it.
+                log.warning(
+                    "period_lock check raised an unexpected exception for draft %s "
+                    "(approval proceeding — investigate period_lock service): %s",
+                    draft_id, _pl_exc,
+                )
 
             if draft["status"] == "approved":
                 await tr.rollback()
@@ -271,6 +279,10 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
             qa_result = evaluate_decision(draft)
 
+            # TODO: read from tenant config table when available.
+            # No per-tenant config schema exists yet — fallback is 10000.0.
+            # Task: add tenant_settings(tenant_id, key, value) and look up
+            # "cfo_approval_threshold" with this as the default.
             DUAL_APPROVAL_THRESHOLD = 10000.0
             needs_dual = draft["amount"] >= DUAL_APPROVAL_THRESHOLD
 

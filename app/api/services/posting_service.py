@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 
 import psycopg2.extras
 
-from app.api.db import get_db
+from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 
@@ -456,23 +456,47 @@ async def get_approved_drafts_service(limit: int = 100, offset: int = 0, tenant_
     return ok_response("approved drafts fetched", items)
 
 
-def get_posting_payload_service(draft_id: int, tenant_id: str = "default"):
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            draft = _fetch_draft(cur, draft_id, tenant_id)
-            err = _validate_approved_draft(draft, draft_id, tenant_id)
-            if err:
-                return err
+async def get_posting_payload_service(draft_id: int, tenant_id: str = "default"):
+    async with get_conn() as conn:
+        draft_row = await conn.fetchrow(
+            _q("""
+                SELECT id, tenant_id, date, description,
+                    COALESCE(partner, '') AS partner,
+                    COALESCE(amount, 0) AS amount,
+                    COALESCE(status, '') AS status,
+                    COALESCE(currency, 'GEL') AS currency,
+                    COALESCE(lines_json, '[]'::jsonb) AS lines_json
+                FROM journal_drafts
+                WHERE id = %s AND tenant_id = %s
+            """),
+            draft_id, tenant_id,
+        )
+    if not draft_row:
+        return error_response(
+            f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
+            code="NOT_FOUND",
+        )
+    draft = {
+        "id": draft_row["id"],
+        "tenant_id": draft_row["tenant_id"],
+        "date": str(draft_row["date"]) if draft_row["date"] else None,
+        "description": draft_row["description"],
+        "partner": draft_row["partner"],
+        "amount": float(draft_row["amount"] or 0),
+        "status": draft_row["status"],
+        "currency": draft_row["currency"],
+        "lines_json": draft_row["lines_json"],
+        "lines": _normalize_lines(draft_row["lines_json"]),
+    }
+    err = _validate_approved_draft(draft, draft_id, tenant_id)
+    if err:
+        return err
+    payload = _draft_to_posting_payload(draft)
+    return ok_response("posting payload ready", payload)
 
-            payload = _draft_to_posting_payload(draft)
-            return ok_response("posting payload ready", payload)
-    finally:
-        conn.close()
 
-
-def mock_posting_service(draft_id: int, tenant_id: str = "default"):
-    return apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
+async def mock_posting_service(draft_id: int, tenant_id: str = "default"):
+    return await apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
 
 
 async def get_posting_logs_service(
@@ -520,8 +544,8 @@ def get_balance_status_service(tenant_id: str = "default"):
     return ok_response("balance status", readiness)
 
 
-def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default"):
-    return apply_posting_service(draft_id, "balance", tenant_id=tenant_id)
+async def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default"):
+    return await apply_posting_service(draft_id, "balance", tenant_id=tenant_id)
 
 
 def get_onec_status_service(tenant_id: str = "default"):
@@ -529,8 +553,8 @@ def get_onec_status_service(tenant_id: str = "default"):
     return ok_response("1c status", readiness)
 
 
-def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default"):
-    return apply_posting_service(draft_id, "onec", tenant_id=tenant_id)
+async def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default"):
+    return await apply_posting_service(draft_id, "onec", tenant_id=tenant_id)
 
 
 def get_oris_status_service(tenant_id: str = "default"):
@@ -538,8 +562,8 @@ def get_oris_status_service(tenant_id: str = "default"):
     return ok_response("oris status", readiness)
 
 
-def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
-    return apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
+async def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
+    return await apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
 
 
 def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]:
@@ -602,155 +626,242 @@ def _is_period_locked_sync(cur, tenant_id: str, entry_date) -> bool:
     )
     return cur.fetchone() is not None
 
-def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
+async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
+    import asyncpg
     target_normalized = _normalize_target(target)
 
     if target_normalized not in {"mock", "balance", "onec", "oris"}:
         return error_response("unsupported posting target", code="VALIDATION_ERROR")
 
-    conn = get_db()
     try:
-        with conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                draft = _fetch_draft(cur, draft_id, tenant_id)
-                err = _validate_approved_draft(draft, draft_id, tenant_id)
-                if err:
-                    return err
-
-                if _is_period_locked_sync(cur, tenant_id, draft.get("date")):
-                    return error_response(
-                        "accounting period is locked",
-                        code="PERIOD_LOCKED",
-                        details={"date": str(draft.get("date")), "tenant_id": tenant_id},
-                    )
-
-                if not force:
-                    dup = _check_duplicate_invoice(cur, draft, tenant_id)
-                    if dup:
-                        return error_response(
-                            f"სავარაუდო დუბლიკატი: draft #{dup['id']} ({dup['partner']}, {dup['amount']}, {dup['date']})",
-                            code="DUPLICATE_INVOICE_WARNING",
-                            details={"duplicate_draft": dup, "hint": "force=true-ით გაიმეორე თუ განზრახ გინდა"},
-                        )
-
-                existing = _find_successful_post(cur, tenant_id, draft_id, target_normalized)
-                if existing:
-                    return error_response(
-                        f"draft {draft_id} already posted to {target_normalized}",
-                        code="POSTING_DUPLICATE_BLOCKED",
-                        details={"existing_log_id": existing["id"], "status": existing["status"]},
-                    )
-
-                readiness = _get_connector_readiness(target_normalized, tenant_id)
-                if target_normalized != "mock" and not readiness["ok"]:
-                    log_id = _insert_posting_log(
-                        cur=cur,
-                        tenant_id=tenant_id,
-                        draft_id=draft_id,
-                        target_system=target_normalized,
-                        payload={},
-                        response=readiness,
-                        status="config_missing",
-                        error_message=readiness.get("message", "connector not ready"),
-                    )
-
-                    log_event(
-                        "connector_not_ready",
-                        {
-                            "entity_type": "journal_draft",
-                            "entity_id": draft_id,
-                            "target": target_normalized,
-                            "log_id": log_id,
-                            "status": readiness,
-                        },
-                        tenant_id=tenant_id,
-                    )
-
-                    return error_response(
-                        f"{target_normalized} connector not ready",
-                        code="CONNECTOR_NOT_READY",
-                        details=readiness,
-                    )
-
-                payload = _draft_to_posting_payload(draft)
-
-                # Compute idempotency hash before any external call
-                entry_hash = _compute_entry_hash(
+        async with get_conn() as conn:
+            tr = conn.transaction()
+            await tr.start()
+            try:
+                draft_row = await conn.fetchrow(
+                    _q("""
+                        SELECT id, tenant_id, date, description,
+                            COALESCE(partner, '') AS partner,
+                            COALESCE(amount, 0) AS amount,
+                            COALESCE(status, '') AS status,
+                            COALESCE(currency, 'GEL') AS currency,
+                            COALESCE(lines_json, '[]'::jsonb) AS lines_json
+                        FROM journal_drafts
+                        WHERE id = %s AND tenant_id = %s
+                        FOR UPDATE NOWAIT
+                    """),
                     draft_id, tenant_id,
-                    draft.get("amount", 0),
-                    draft.get("date", ""),
-                    target_normalized,
+                )
+            except asyncpg.exceptions.LockNotAvailableError:
+                await tr.rollback()
+                return error_response(
+                    "Draft is being processed by another request",
+                    code="DRAFT_LOCKED",
+                    details={"draft_id": draft_id},
                 )
 
+            if not draft_row:
+                await tr.rollback()
+                return error_response(
+                    f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
+                    code="NOT_FOUND",
+                )
+
+            draft = {
+                "id": draft_row["id"],
+                "tenant_id": draft_row["tenant_id"],
+                "date": str(draft_row["date"]) if draft_row["date"] else None,
+                "description": draft_row["description"],
+                "partner": draft_row["partner"],
+                "amount": float(draft_row["amount"] or 0),
+                "status": draft_row["status"],
+                "currency": draft_row["currency"],
+                "lines_json": draft_row["lines_json"],
+                "lines": _normalize_lines(draft_row["lines_json"]),
+            }
+
+            err = _validate_approved_draft(draft, draft_id, tenant_id)
+            if err:
+                await tr.rollback()
+                return err
+
+            # period lock check
+            entry_date_raw = draft.get("date")
+            if entry_date_raw:
+                try:
+                    d = _date.fromisoformat(str(entry_date_raw)[:10])
+                    lock_val = await conn.fetchval(
+                        _q("""
+                            SELECT 1 FROM period_locks
+                            WHERE tenant_id = %s
+                              AND unlocked_at IS NULL
+                              AND period_year = %s
+                              AND (period_month = 0 OR period_month = %s)
+                            LIMIT 1
+                        """),
+                        tenant_id, d.year, d.month,
+                    )
+                    if lock_val is not None:
+                        await tr.rollback()
+                        return error_response(
+                            "accounting period is locked",
+                            code="PERIOD_LOCKED",
+                            details={"date": str(entry_date_raw), "tenant_id": tenant_id},
+                        )
+                except Exception:
+                    pass
+
+            # duplicate invoice check
+            if not force:
+                partner = (draft.get("partner") or "").strip()
+                amount_val = float(draft.get("amount") or 0)
+                date_str = draft.get("date")
+                if partner and amount_val and date_str:
+                    try:
+                        dup_row = await conn.fetchrow(
+                            _q("""
+                                SELECT id, date, description, amount, partner
+                                FROM journal_drafts
+                                WHERE tenant_id = %s
+                                  AND id <> %s
+                                  AND LOWER(TRIM(COALESCE(partner, ''))) = LOWER(TRIM(%s))
+                                  AND ABS(COALESCE(amount, 0) - %s) < 1.0
+                                  AND status IN ('approved', 'posted', 'simulated_success')
+                                  AND date IS NOT NULL
+                                  AND date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                                  AND ABS(date::date - %s::date) <= 3
+                                ORDER BY id DESC
+                                LIMIT 1
+                            """),
+                            tenant_id, draft["id"], partner, amount_val, date_str,
+                        )
+                        if dup_row:
+                            await tr.rollback()
+                            dup = {
+                                "id": dup_row["id"],
+                                "date": str(dup_row["date"]),
+                                "description": dup_row["description"],
+                                "amount": float(dup_row["amount"] or 0),
+                                "partner": dup_row["partner"],
+                            }
+                            return error_response(
+                                f"სავარაუდო დუბლიკატი: draft #{dup['id']} ({dup['partner']}, {dup['amount']}, {dup['date']})",
+                                code="DUPLICATE_INVOICE_WARNING",
+                                details={"duplicate_draft": dup, "hint": "force=true-ით გაიმეორე თუ განზრახ გინდა"},
+                            )
+                    except Exception:
+                        pass
+
+            # block re-posting
+            existing = await conn.fetchrow(
+                _q("""
+                    SELECT id, status, response_json
+                    FROM posting_logs
+                    WHERE tenant_id = %s
+                      AND draft_id = %s
+                      AND target_system = %s
+                      AND status IN ('posted', 'simulated_success')
+                    ORDER BY id DESC
+                    LIMIT 1
+                """),
+                tenant_id, draft_id, target_normalized,
+            )
+            if existing:
+                await tr.rollback()
+                return error_response(
+                    f"draft {draft_id} already posted to {target_normalized}",
+                    code="POSTING_DUPLICATE_BLOCKED",
+                    details={"existing_log_id": existing["id"], "status": existing["status"]},
+                )
+
+            readiness = _get_connector_readiness(target_normalized, tenant_id)
+            if target_normalized != "mock" and not readiness["ok"]:
+                log_id = await conn.fetchval(
+                    _q("""
+                        INSERT INTO posting_logs
+                        (tenant_id, draft_id, target_system, payload_json, response_json,
+                         status, error_message, entry_hash, source_draft_id)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                        ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
+                        RETURNING id
+                    """),
+                    tenant_id, draft_id, target_normalized,
+                    json.dumps({}, ensure_ascii=False),
+                    json.dumps(readiness, ensure_ascii=False),
+                    "config_missing",
+                    readiness.get("message", "connector not ready"),
+                    None, draft_id,
+                )
+                await tr.commit()
                 log_event(
-                    "posting_attempt_started",
+                    "connector_not_ready",
                     {
                         "entity_type": "journal_draft",
                         "entity_id": draft_id,
                         "target": target_normalized,
-                        "payload": payload,
+                        "log_id": log_id,
+                        "status": readiness,
                     },
                     tenant_id=tenant_id,
                 )
-
-                response = _post_via_connector(target_normalized, payload, tenant_id)
-
-                success = bool(response.get("success", False))
-                status = (
-                    "simulated_success"
-                    if target_normalized == "mock" and success
-                    else ("posted" if success else "failed")
-                )
-                error_message = response.get("error")
-
-                log_id = _insert_posting_log(
-                    cur=cur,
-                    tenant_id=tenant_id,
-                    draft_id=draft_id,
-                    target_system=target_normalized,
-                    payload=payload,
-                    response=response,
-                    status=status,
-                    error_message=error_message,
-                    entry_hash=entry_hash,
+                return error_response(
+                    f"{target_normalized} connector not ready",
+                    code="CONNECTOR_NOT_READY",
+                    details=readiness,
                 )
 
-                if success:
-                    cur.execute(
-                        """
-                        UPDATE journal_drafts
-                        SET status = 'posted'
-                        WHERE id = %s
-                          AND tenant_id = %s
-                        """,
-                        (draft_id, tenant_id),
-                    )
+            payload = _draft_to_posting_payload(draft)
+            entry_hash = _compute_entry_hash(
+                draft_id, tenant_id,
+                draft.get("amount", 0),
+                draft.get("date", ""),
+                target_normalized,
+            )
 
-                    log_event(
-                        "posting_attempt_finished",
-                        {
-                            "entity_type": "journal_draft",
-                            "entity_id": draft_id,
-                            "target": target_normalized,
-                            "log_id": log_id,
-                            "response": response,
-                        },
-                        tenant_id=tenant_id,
-                    )
+            log_event(
+                "posting_attempt_started",
+                {
+                    "entity_type": "journal_draft",
+                    "entity_id": draft_id,
+                    "target": target_normalized,
+                    "payload": payload,
+                },
+                tenant_id=tenant_id,
+            )
 
-                    return ok_response(
-                        f"draft {draft_id} posted to {target_normalized}",
-                        {
-                            "draft_id": draft_id,
-                            "target": target_normalized,
-                            "log_id": log_id,
-                            "response": response,
-                            "payload": payload,
-                        },
-                    )
+            response = _post_via_connector(target_normalized, payload, tenant_id)
 
+            success = bool(response.get("success", False))
+            post_status = (
+                "simulated_success"
+                if target_normalized == "mock" and success
+                else ("posted" if success else "failed")
+            )
+            error_message = response.get("error")
+
+            log_id = await conn.fetchval(
+                _q("""
+                    INSERT INTO posting_logs
+                    (tenant_id, draft_id, target_system, payload_json, response_json,
+                     status, error_message, entry_hash, source_draft_id)
+                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                    ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
+                    RETURNING id
+                """),
+                tenant_id, draft_id, target_normalized,
+                json.dumps(payload, ensure_ascii=False),
+                json.dumps(response, ensure_ascii=False),
+                post_status, error_message, entry_hash, draft_id,
+            )
+
+            if success:
+                await conn.execute(
+                    _q("UPDATE journal_drafts SET status = 'posted' WHERE id = %s AND tenant_id = %s"),
+                    draft_id, tenant_id,
+                )
+                await tr.commit()
                 log_event(
-                    "posting_attempt_failed",
+                    "posting_attempt_finished",
                     {
                         "entity_type": "journal_draft",
                         "entity_id": draft_id,
@@ -760,16 +871,38 @@ def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default"
                     },
                     tenant_id=tenant_id,
                 )
-
-                return error_response(
-                    f"posting to {target_normalized} failed",
-                    code="POSTING_FAILED",
-                    details={
+                return ok_response(
+                    f"draft {draft_id} posted to {target_normalized}",
+                    {
                         "draft_id": draft_id,
                         "target": target_normalized,
                         "log_id": log_id,
                         "response": response,
+                        "payload": payload,
                     },
                 )
-    finally:
-        conn.close()
+
+            await tr.commit()
+            log_event(
+                "posting_attempt_failed",
+                {
+                    "entity_type": "journal_draft",
+                    "entity_id": draft_id,
+                    "target": target_normalized,
+                    "log_id": log_id,
+                    "response": response,
+                },
+                tenant_id=tenant_id,
+            )
+            return error_response(
+                f"posting to {target_normalized} failed",
+                code="POSTING_FAILED",
+                details={
+                    "draft_id": draft_id,
+                    "target": target_normalized,
+                    "log_id": log_id,
+                    "response": response,
+                },
+            )
+    except Exception as e:
+        return error_response("Posting failed", "POSTING_ERROR", str(e))

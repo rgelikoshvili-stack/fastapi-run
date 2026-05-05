@@ -52,14 +52,14 @@ async def get_approved_drafts(
 
 
 @router.get("/payload/{draft_id}")
-def get_posting_payload(
+async def get_posting_payload(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:read")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return get_posting_payload_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await get_posting_payload_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.get("/logs")
@@ -96,7 +96,7 @@ async def get_posting_log_detail(
 
 
 @router.get("/history")
-def get_posting_history(
+async def get_posting_history(
     request: Request,
     limit: int = Query(100),
     offset: int = Query(0),
@@ -108,7 +108,7 @@ def get_posting_history(
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    return get_posting_logs_service(
+    return await get_posting_logs_service(
         limit=limit,
         offset=offset,
         tenant_id=tenant_id,
@@ -162,55 +162,55 @@ def preview_posting(
 # ===============================
 @router.post("/mock/{draft_id}")
 @limiter.limit("20/minute")
-def mock_posting(
+async def mock_posting(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return mock_posting_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await mock_posting_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.post("/balance/{draft_id}")
 @limiter.limit("20/minute")
-def post_draft_to_balance(
+async def post_draft_to_balance(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return post_draft_to_balance_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await post_draft_to_balance_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.post("/onec/{draft_id}")
 @limiter.limit("20/minute")
-def post_draft_to_onec(
+async def post_draft_to_onec(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return post_draft_to_onec_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await post_draft_to_onec_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.post("/oris/{draft_id}")
 @limiter.limit("20/minute")
-def post_draft_to_oris(
+async def post_draft_to_oris(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return post_draft_to_oris_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await post_draft_to_oris_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.post("/apply/{draft_id}")
 @limiter.limit("20/minute")
-def apply_posting(
+async def apply_posting(
     request: Request,
     draft_id: int = Path(...),
     target: str = Query(...),
@@ -223,7 +223,7 @@ def apply_posting(
         hit = idempotency_check(tenant_id, idem_key, f"posting:{draft_id}:{target}")
         if hit is not None:
             return hit
-    result = apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
+    result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
     if idem_key:
         idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
     return result

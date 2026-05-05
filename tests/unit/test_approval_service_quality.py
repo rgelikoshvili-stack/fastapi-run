@@ -188,12 +188,15 @@ def test_cfo_threshold_is_10000():
     assert "DUAL_APPROVAL_THRESHOLD" in src
 
 
-def test_cfo_threshold_has_todo_for_config():
-    """A TODO must exist noting the threshold should come from tenant config."""
+def test_cfo_threshold_reads_from_tenant_config_service():
+    """CFO threshold must be read via get_tenant_setting, not a bare hardcoded literal."""
     import app.api.services.approval_service as mod
     src = inspect.getsource(mod)
-    assert "TODO" in src and ("tenant config" in src.lower() or "tenant_settings" in src.lower()), (
-        "CFO threshold TODO for tenant config table is missing from approval_service"
+    assert "tenant_config_service" in src, (
+        "approval_service must import from tenant_config_service for the CFO threshold"
+    )
+    assert "get_tenant_setting" in src, (
+        "approval_service must call get_tenant_setting to read CFO threshold"
     )
 
 

@@ -46,19 +46,26 @@ AUTOPILOT_MIN_USAGE_COUNT = 5
 AUTOPILOT_MIN_SUCCESS_RATE = 0.80
 AUTOPILOT_MAX_PATTERN_AGE_DAYS = 45
 
+# Confidence thresholds by transaction risk tier (amount in GEL).
+# Override via tenant_settings key "approval.confidence_threshold_high" etc. in future.
+CONFIDENCE_THRESHOLD_HIGH_RISK  = 0.95   # amount > HIGH_RISK_AMOUNT_GEL
+CONFIDENCE_THRESHOLD_LOW_RISK   = 0.75   # amount < LOW_RISK_AMOUNT_GEL
+CONFIDENCE_THRESHOLD_DEFAULT    = 0.85   # everything else
+HIGH_RISK_AMOUNT_GEL            = 1000.0
+LOW_RISK_AMOUNT_GEL             = 50.0
+
+# CFO dual-approval threshold default (GEL).
+# Read per-tenant from tenant_settings key "approval.cfo_threshold_gel"; fallback to this value.
+CFO_APPROVAL_THRESHOLD_DEFAULT  = 10000.0
+
 
 def effective_threshold(amount: float) -> float:
-    """
-    Dynamic confidence threshold based on transaction risk (amount).
-    > 1000 GEL → stricter (0.95)
-    < 50  GEL → lenient  (0.75)
-    default    → 0.85
-    """
-    if amount > 1000:
-        return 0.95
-    if amount < 50:
-        return 0.75
-    return 0.85
+    """Dynamic confidence threshold based on transaction risk (amount in GEL)."""
+    if amount > HIGH_RISK_AMOUNT_GEL:
+        return CONFIDENCE_THRESHOLD_HIGH_RISK
+    if amount < LOW_RISK_AMOUNT_GEL:
+        return CONFIDENCE_THRESHOLD_LOW_RISK
+    return CONFIDENCE_THRESHOLD_DEFAULT
 
 PATTERN_SOURCES = {
     "pattern_active",
@@ -279,11 +286,10 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
             qa_result = evaluate_decision(draft)
 
-            # TODO: read from tenant config table when available.
-            # No per-tenant config schema exists yet — fallback is 10000.0.
-            # Task: add tenant_settings(tenant_id, key, value) and look up
-            # "cfo_approval_threshold" with this as the default.
-            DUAL_APPROVAL_THRESHOLD = 10000.0
+            from app.api.services.tenant_config_service import get_tenant_setting
+            DUAL_APPROVAL_THRESHOLD = float(await get_tenant_setting(
+                tenant_id, "approval.cfo_threshold_gel", CFO_APPROVAL_THRESHOLD_DEFAULT
+            ))
             needs_dual = draft["amount"] >= DUAL_APPROVAL_THRESHOLD
 
             if draft.get("status") == "awaiting_cfo":

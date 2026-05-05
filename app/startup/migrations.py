@@ -204,6 +204,13 @@ def run_db_migrations():
 
         _run_remaining_migrations(cur)
 
+        # tenant_settings — per-tenant config table (CFO thresholds, feature flags, etc.)
+        try:
+            from app.api.services.tenant_config_service import ensure_tenant_settings_table
+            ensure_tenant_settings_table(conn)
+        except Exception as _tcs_e:
+            log.warning("tenant_settings migration skipped: %s", _tcs_e)
+
         conn.commit()
         cur.close()
         conn.close()

@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.db import get_conn, _q
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/rsge-credentials", tags=["rsge-credentials"])
 
@@ -31,6 +32,7 @@ class RsgeCredsPayload(BaseModel):
 
 @router.get("/status")
 async def get_status(request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
@@ -47,6 +49,7 @@ async def get_status(request: Request):
 
 @router.post("/save")
 async def save_creds(body: RsgeCredsPayload, request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.username:
         return {"ok": False, "error": "username is required"}

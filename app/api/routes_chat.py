@@ -4,6 +4,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
 import os, anthropic, base64, json
 from app.api.db import get_conn, _q
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 _sessions: dict = {}
@@ -106,6 +107,7 @@ async def send_message(
     session_id: str = Form("default"),
     file: Optional[UploadFile] = File(None)
 ):
+    require_permission(request, "chat:use")
     try:
         tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])

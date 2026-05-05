@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Path, Request, HTTPException
 
+from app.api.authz import require_permission
 from app.api.services.system_service import (
     get_system_summary_service,
     get_system_overview_service,
@@ -26,24 +27,28 @@ def _validate_pagination(limit: int, offset: int):
 
 @router.get("/summary")
 def get_system_summary(request: Request):
+    require_permission(request, "dashboard:admin")
     tenant_id = getattr(request.state, "tenant_id", "default")
     return get_system_summary_service(tenant_id)
 
 
 @router.get("/overview")
 def get_system_overview(request: Request):
+    require_permission(request, "dashboard:admin")
     tenant_id = getattr(request.state, "tenant_id", "default")
     return get_system_overview_service(tenant_id)
 
 
 @router.get("/bank-files")
-def get_bank_files_history(limit: int = 50, offset: int = 0):
+def get_bank_files_history(request: Request, limit: int = 50, offset: int = 0):
+    require_permission(request, "dashboard:admin")
     _validate_pagination(limit, offset)
     return get_bank_files_history_service(limit, offset)
 
 
 @router.get("/bank-files/{file_id}")
-def get_bank_file_detail(file_id: int = Path(..., description="Processed bank file ID")):
+def get_bank_file_detail(request: Request, file_id: int = Path(..., description="Processed bank file ID")):
+    require_permission(request, "dashboard:admin")
     return get_bank_file_detail_service(file_id)
 
 
@@ -54,6 +59,7 @@ def get_bank_file_drafts(
     limit: int = 100,
     offset: int = 0,
 ):
+    require_permission(request, "dashboard:admin")
     _validate_pagination(limit, offset)
     tenant_id = getattr(request.state, "tenant_id", "default")
     return get_bank_file_drafts_service(file_id, limit, offset, tenant_id)

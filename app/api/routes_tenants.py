@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from app.api.authz import require_permission
 
 from app.api.services.tenant_service import (
     list_tenants_service,

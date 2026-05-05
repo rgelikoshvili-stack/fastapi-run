@@ -17,6 +17,7 @@ from fastapi import APIRouter, Request, Query
 
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai", tags=["AI Assistant"])
@@ -105,6 +106,7 @@ async def get_recommendations(
     high_value_threshold: Optional[float] = Query(5000.0),
 ):
     """Read-only proactive suggestions based on pending journal drafts."""
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:

@@ -18,6 +18,7 @@ from app.api.services.email_invoice_service import (
     get_email_status,
 )
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/email-invoice", tags=["email-invoice"])
 
@@ -39,22 +40,26 @@ class ProcessEmailRequest(BaseModel):
 
 @router.get("/status")
 def email_status():
+    require_permission(request, "approval:write")
     return get_email_status()
 
 
 @router.get("/inbox")
 def get_inbox(request: Request, limit: int = 20):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return fetch_all_emails(limit=limit, tenant_id=tenant_id)
 
 
 @router.get("/fetch")
 def fetch_emails(request: Request, limit: int = 10):
+    require_permission(request, "approval:write")
     return fetch_all_emails(limit=limit)
 
 
 @router.post("/confirm-process")
 def confirm_process(req: ProcessByIdRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return process_email_by_id(
         message_id=req.message_id,
@@ -65,6 +70,7 @@ def confirm_process(req: ProcessByIdRequest, request: Request):
 
 @router.post("/process")
 def process_all(req: ProcessEmailRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return process_email_invoices(
         tenant_id=tenant_id,
@@ -75,6 +81,7 @@ def process_all(req: ProcessEmailRequest, request: Request):
 
 @router.post("/manual-upload")
 async def manual_upload(request: Request, file: UploadFile = File(...)):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await file.read()
     fields = extract_invoice_fields(file.filename, data)

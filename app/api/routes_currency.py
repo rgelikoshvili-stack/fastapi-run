@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 from typing import Optional
 
+from app.api.authz import require_permission
 from app.api.db import get_conn, get_db, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
@@ -108,7 +109,8 @@ def convert_currency_get(
 
 
 @router.post("/rates/update")
-async def update_rate(data: RateUpdate):
+async def update_rate(data: RateUpdate, request: Request):
+    require_permission(request, "settings:write")
     currency = data.currency.upper()
     try:
         async with get_conn() as conn:
@@ -128,7 +130,8 @@ async def update_rate(data: RateUpdate):
 
 
 @router.post("/rates/sync-nbg")
-async def sync_nbg_rates():
+async def sync_nbg_rates(request: Request):
+    require_permission(request, "settings:write")
     """Fetch live rates from National Bank of Georgia and store in DB."""
     import asyncio
     try:

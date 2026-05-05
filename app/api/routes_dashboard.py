@@ -1,5 +1,6 @@
 import os
 from fastapi import APIRouter, Response
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -9,6 +10,7 @@ TEMPLATE_PATH = os.path.join(
 
 @router.get("/", response_class=Response)
 async def dashboard():
+    require_permission(request, "dashboard:view")
     try:
         with open(TEMPLATE_PATH, encoding="utf-8") as f:
             html = f.read()

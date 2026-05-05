@@ -5,6 +5,7 @@ Bridge Hub — Invoice OCR Routes
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from app.api.tenant_context import resolve_tenant_id
 from app.api.security import limiter
+from app.api.authz import require_permission
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
 from app.api.db import get_conn, _q
 
@@ -18,6 +19,7 @@ async def extract_from_file(
     file: UploadFile = File(...),
 ):
     """PDF/Excel/სურათიდან ინვოისის ველების ამოღება. Draft არ იქმნება."""
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     if not file.filename:
@@ -42,6 +44,7 @@ async def extract_and_create_draft(
     file: UploadFile = File(...),
 ):
     """PDF/Excel-იდან ინვოისის ამოღება + Draft-ის ავტომატური შექმნა."""
+    require_permission(request, "ocr:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     if not file.filename:
@@ -68,6 +71,7 @@ async def ocr_history(
     offset: int = Query(0, ge=0),
 ):
     """OCR / document extraction history."""
+    require_permission(request, "ocr:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         items = [dict(r) for r in await conn.fetch("""

@@ -12,6 +12,7 @@ from app.api.services.collaboration_service import (
     assign_draft, get_assigned_drafts, unassign_draft,
 )
 from app.api.db import get_conn, _q
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
 
@@ -31,6 +32,7 @@ class AssignRequest(BaseModel):
 
 @router.post("/drafts/{draft_id}/comments")
 def create_comment(draft_id: int, req: CommentRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = add_comment(
         draft_id=draft_id,
@@ -45,12 +47,14 @@ def create_comment(draft_id: int, req: CommentRequest, request: Request):
 
 @router.get("/drafts/{draft_id}/comments")
 def list_comments(draft_id: int, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_comments(draft_id=draft_id, tenant_id=tenant_id)
 
 
 @router.post("/drafts/{draft_id}/assign")
 def assign(draft_id: int, req: AssignRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = assign_draft(
         draft_id=draft_id,
@@ -64,6 +68,7 @@ def assign(draft_id: int, req: AssignRequest, request: Request):
 
 @router.delete("/drafts/{draft_id}/assign")
 def unassign(draft_id: int, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     actor = request.headers.get("X-Actor", "system")
     return unassign_draft(
@@ -75,6 +80,7 @@ def unassign(draft_id: int, request: Request):
 
 @router.get("/assigned/{accountant}")
 def get_assigned(accountant: str, request: Request, status: str = None):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_assigned_drafts(
         assigned_to=accountant,
@@ -85,6 +91,7 @@ def get_assigned(accountant: str, request: Request, status: str = None):
 
 @router.get("/summary")
 async def collaboration_summary(request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         assignments = [dict(r) for r in await conn.fetch(_q("""

@@ -8,6 +8,7 @@ from app.api.transaction_classifier import classify
 from app.api.services.approval_service import autopilot_approve_service
 from app.api.services.classification_explanation_service import build_explanation
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/transaction-ai", tags=["transaction-ai"])
 
@@ -24,6 +25,7 @@ class TransactionAnalyzeRequest(BaseModel):
 
 
 def _resolve_amount_and_direction(data: TransactionAnalyzeRequest):
+    require_permission(request, "approval:write")
     paid_in = data.paid_in
     paid_out = data.paid_out
     amount = data.amount
@@ -50,6 +52,7 @@ def _resolve_amount_and_direction(data: TransactionAnalyzeRequest):
 
 
 def _build_explanation(result: dict) -> str:
+    require_permission(request, "approval:write")
     source = result.get("source", "")
     confidence = result.get("confidence", 0)
     support_count = result.get("pattern_support_count")
@@ -96,6 +99,7 @@ def _build_explanation(result: dict) -> str:
 
 @router.post("/analyze")
 def analyze_transaction(data: TransactionAnalyzeRequest, request: Request):
+    require_permission(request, "approval:write")
     try:
         tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 

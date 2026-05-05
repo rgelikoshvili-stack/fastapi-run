@@ -1,10 +1,11 @@
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.response_utils import ok_response, error_response
 from app.api.services.erp_import_service import import_erp_history
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/erp-memory/import", tags=["erp-memory-import"])
 
@@ -31,7 +32,8 @@ class ErpImportRequest(BaseModel):
 
 
 @router.post("/json")
-def import_erp_history_json(data: ErpImportRequest):
+def import_erp_history_json(data: ErpImportRequest, request: Request):
+    require_permission(request, "posting:write")
     try:
         result = import_erp_history(
             items=[item.model_dump() for item in data.items],

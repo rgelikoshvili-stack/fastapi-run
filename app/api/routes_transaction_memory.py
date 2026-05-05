@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 from app.api.services.transaction_memory_service import (
     list_transaction_memory,
     save_transaction_memory,

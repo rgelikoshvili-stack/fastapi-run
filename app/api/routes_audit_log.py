@@ -4,6 +4,7 @@ from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/audit-log", tags=["audit-log"])
 
@@ -20,6 +21,7 @@ class AuditEventCreate(BaseModel):
 
 @router.post("/log")
 def create_audit_event(data: AuditEventCreate, request: Request):
+    require_permission(request, "audit:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     ip = request.client.host if request.client else None
     log_event(action=data.action, resource=data.resource, resource_id=data.resource_id,
@@ -31,6 +33,7 @@ def create_audit_event(data: AuditEventCreate, request: Request):
 @router.get("/list")
 async def list_audit_log(request: Request, action: Optional[str] = None,
                           resource: Optional[str] = None, actor: Optional[str] = None, limit: int = 50):
+    require_permission(request, "audit:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     sql = "SELECT * FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = $1)"
     params: list = [tenant_id]
@@ -51,6 +54,7 @@ async def list_audit_log(request: Request, action: Optional[str] = None,
 
 @router.get("/stats")
 async def audit_stats(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         try:
@@ -83,6 +87,7 @@ async def audit_stats(request: Request):
 
 @router.get("/timeline")
 async def audit_timeline(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         try:
@@ -100,6 +105,7 @@ async def audit_timeline(request: Request):
 
 @router.delete("/clear")
 async def clear_old_events(request: Request, days: int = 90):
+    require_permission(request, "audit:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         try:

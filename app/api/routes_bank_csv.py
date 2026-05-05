@@ -3,6 +3,7 @@ from typing import Optional
 import hashlib, uuid, json
 
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 from app.api.bank_statement_parser import parse_csv_bytes, parse_xlsx_bytes, parse_xml_bytes
 from app.api.tenant_context import resolve_tenant_id
 from app.api.security import limiter
@@ -18,6 +19,7 @@ async def upload_bank_file(
     file: UploadFile = File(...),
     bank: Optional[str] = Form(default="UNKNOWN")
 ):
+    require_permission(request, "bank:upload")
     try:
         tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
         content = await file.read()

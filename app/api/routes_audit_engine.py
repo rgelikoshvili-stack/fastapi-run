@@ -3,12 +3,14 @@ import json
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/audit-engine", tags=["audit-engine"])
 
 
 @router.get("/duplicates")
 async def find_duplicates(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q("""
@@ -24,6 +26,7 @@ async def find_duplicates(request: Request):
 
 @router.get("/anomalies")
 async def find_anomalies(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     issues = []
     async with get_conn() as conn:
@@ -52,6 +55,7 @@ async def find_anomalies(request: Request):
 
 @router.get("/policy-check")
 async def policy_check(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     violations = []
     async with get_conn() as conn:
@@ -78,6 +82,7 @@ async def policy_check(request: Request):
 
 @router.get("/summary")
 async def audit_summary(request: Request):
+    require_permission(request, "audit:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         status_rows = await conn.fetch(_q(

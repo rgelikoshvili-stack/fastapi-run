@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Request
 
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 from app.api.workflows.bank_processing_workflow import process_bank_file_workflow
 
 router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])

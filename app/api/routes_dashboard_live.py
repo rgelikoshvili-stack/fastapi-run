@@ -8,6 +8,7 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.cache_service import cache_get, cache_set, CACHE_TTL
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/dashboard/live", tags=["dashboard-live"])
 
@@ -17,6 +18,7 @@ _EMPTY_COUNTS = {"total": 0, "approved": 0, "pending": 0}
 
 @router.get("/pnl")
 async def get_pnl(request: Request, period: str = "month"):
+    require_permission(request, "dashboard:view")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     cache_key = f"dashboard_live:{tenant_id}:pnl:{period}"
     cached = cache_get(cache_key)
@@ -85,6 +87,7 @@ async def get_pnl(request: Request, period: str = "month"):
 
 @router.get("/cashflow")
 async def get_cashflow(request: Request, days: int = 30):
+    require_permission(request, "dashboard:view")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     cache_key = f"dashboard_live:{tenant_id}:cashflow:{days}"
     cached = cache_get(cache_key)
@@ -140,6 +143,7 @@ async def get_cashflow(request: Request, days: int = 30):
 
 @router.get("/kpi")
 async def get_kpi(request: Request):
+    require_permission(request, "dashboard:view")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     cache_key = f"dashboard_live:{tenant_id}:kpi"
     cached = cache_get(cache_key)
@@ -200,6 +204,7 @@ async def get_kpi(request: Request):
 
 @router.get("/activity")
 async def get_activity(request: Request, limit: int = 10):
+    require_permission(request, "dashboard:view")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
@@ -222,6 +227,7 @@ async def get_activity(request: Request, limit: int = 10):
 
 @router.get("/summary")
 async def get_summary(request: Request):
+    require_permission(request, "dashboard:view")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     cache_key = f"dashboard_live:{tenant_id}:summary"
     cached = cache_get(cache_key)

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.services.worker_client import verify_worker_signature
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ async def worker_result(request: Request):
         "error":      "..."     # if status == "failed"
       }
     """
+    require_permission(request, "dashboard:admin")
     body = await request.body()
     sig  = request.headers.get("X-Worker-Signature", "")
 
@@ -72,6 +74,7 @@ async def worker_result(request: Request):
 
 
 async def _update_doc_text(tenant_id: str, doc_id: int, raw_text: str, method: str):
+    require_permission(request, "dashboard:admin")
     try:
         async with get_conn() as conn:
             await conn.execute(_q(
@@ -82,6 +85,7 @@ async def _update_doc_text(tenant_id: str, doc_id: int, raw_text: str, method: s
 
 
 async def _mark_doc_status(tenant_id: str, doc_id: int, status: str):
+    require_permission(request, "dashboard:admin")
     try:
         async with get_conn() as conn:
             await conn.execute(_q(

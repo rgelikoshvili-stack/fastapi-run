@@ -1,6 +1,7 @@
 """Unit tests for Georgian payroll / tax calculations (no DB required)."""
 from decimal import Decimal
 import os
+from unittest.mock import MagicMock
 
 os.environ.setdefault("TEST_MODE", "1")
 os.environ.setdefault("DATABASE_URL", "")
@@ -146,10 +147,18 @@ def test_cit_journal_entries_present():
 
 # --- API-level tax endpoint regression tests ---
 
+def _mock_request(role: str = "admin"):
+    req = MagicMock()
+    req.state.tenant_id = "tenant_a"
+    req.state.role = role
+    req.state.permissions = ["reports:read"]
+    return req
+
+
 def test_tax_salary_endpoint_uses_2pct_employee_and_2pct_employer_pension():
     from app.api.routes_tax import SalaryRequest, calculate_salary
 
-    result = calculate_salary(SalaryRequest(gross_salary=3000, include_pension=True))
+    result = calculate_salary(SalaryRequest(gross_salary=3000, include_pension=True), _mock_request())
     data = result["data"]
 
     assert data["income_tax_20pct"] == 600
@@ -163,7 +172,7 @@ def test_tax_salary_endpoint_uses_2pct_employee_and_2pct_employer_pension():
 def test_tax_corporate_endpoint_uses_georgian_gross_up():
     from app.api.routes_tax import CorporateRequest, calculate_corporate
 
-    result = calculate_corporate(CorporateRequest(profit=100000, distributed=True))
+    result = calculate_corporate(CorporateRequest(profit=100000, distributed=True), _mock_request())
     data = result["data"]
 
     assert data["tax_base"] == 117647.06

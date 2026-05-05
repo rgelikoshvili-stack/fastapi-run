@@ -6,6 +6,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.learning_service import get_learning_health_service
 from app.api.services.pattern_decay_service import run_pattern_decay
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -72,6 +73,7 @@ async def _ensure_tables(conn):
 
 @router.post("/feedback")
 async def submit_feedback(request: Request, payload: dict):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -98,6 +100,7 @@ async def submit_feedback(request: Request, payload: dict):
 
 @router.get("/patterns")
 async def get_learned_patterns(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -127,6 +130,7 @@ async def get_learned_patterns(request: Request):
 
 @router.post("/queue/add")
 async def queue_add(request: Request, payload: dict):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -146,6 +150,7 @@ async def queue_add(request: Request, payload: dict):
 
 @router.get("/queue/status")
 async def queue_status(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -173,6 +178,7 @@ async def queue_status(request: Request):
 
 @router.get("/stats")
 async def learning_stats(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -199,6 +205,7 @@ async def learning_stats(request: Request):
 
 @router.get("/health")
 def learning_health(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = get_learning_health_service(tenant_id=tenant_id)
     if result.get("ok"):
@@ -212,6 +219,7 @@ def learning_health(request: Request):
 
 @router.get("/patterns/top")
 async def learning_patterns_top(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     try:
@@ -260,6 +268,7 @@ async def learning_patterns_top(request: Request):
 
 @router.post("/decay")
 def learning_decay(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = run_pattern_decay(tenant_id=tenant_id)
     if result.get("ok"):
@@ -274,6 +283,7 @@ def autopilot_check(
     success_count: int = 5,
     support_count: int = 6,
 ):
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     success_rate = success_count / max(support_count, 1)
     eligible = confidence >= 0.90 and success_rate >= 0.80
@@ -289,6 +299,7 @@ def autopilot_check(
 @router.patch("/patterns/{pattern_id}")
 async def update_pattern(pattern_id: int, payload: dict, request: Request):
     """Human correction of a learned pattern (account_code, reason, status)."""
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
@@ -319,6 +330,7 @@ async def update_pattern(pattern_id: int, payload: dict, request: Request):
 @router.delete("/patterns/{pattern_id}")
 async def delete_pattern(pattern_id: int, request: Request):
     """Soft-delete a pattern (sets status = 'archived')."""
+    require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:

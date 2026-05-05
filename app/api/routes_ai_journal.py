@@ -5,6 +5,7 @@ from typing import Optional, List
 from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/ai-journal", tags=["ai-journal"])
 
@@ -35,6 +36,7 @@ class JournalRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_journal(req: JournalRequest):
+    require_permission(request, "approval:write")
     try:
         desc = (req.description or "").lower()
 
@@ -65,6 +67,7 @@ async def generate_journal(req: JournalRequest):
 
 @router.get("/coa")
 def get_coa():
+    require_permission(request, "approval:write")
     try:
         return ok_response("COA loaded", {"coa": COA})
     except Exception as e:
@@ -72,6 +75,7 @@ def get_coa():
 
 @router.get("/list")
 async def list_journals():
+    require_permission(request, "approval:write")
     try:
         async with get_conn() as conn:
             rows = [dict(r) for r in await conn.fetch(

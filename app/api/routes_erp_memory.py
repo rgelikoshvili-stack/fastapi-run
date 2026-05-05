@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 from app.api.services.erp_memory_service import (
     upsert_erp_posting_memory,
     list_erp_posting_memory,
@@ -28,7 +29,8 @@ class ErpMemoryUpsertRequest(BaseModel):
 
 
 @router.post("/upsert")
-def upsert_memory(data: ErpMemoryUpsertRequest):
+def upsert_memory(data: ErpMemoryUpsertRequest, request: Request):
+    require_permission(request, "posting:read")
     try:
         result = upsert_erp_posting_memory(
             source_system=data.source_system,
@@ -51,7 +53,8 @@ def upsert_memory(data: ErpMemoryUpsertRequest):
 
 
 @router.get("/list")
-def list_memory(limit: int = 100):
+def list_memory(request: Request, limit: int = 100):
+    require_permission(request, "posting:read")
     try:
         items = list_erp_posting_memory(limit=limit)
         return ok_response("ERP posting memory list", {"items": items, "count": len(items)})

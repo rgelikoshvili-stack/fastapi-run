@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request
 import hashlib, secrets
 from datetime import datetime, timedelta
 from app.api.db import get_conn, _q
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/security", tags=["security"])
 
@@ -50,6 +51,7 @@ _CREATE_BLOCKED_IPS = """
 
 
 async def _ensure_tables(conn):
+    require_permission(request, "settings:write")
     await conn.execute(_CREATE_RATE_LIMITS)
     await conn.execute(_CREATE_SECURITY_EVENTS)
     await conn.execute(_CREATE_API_TOKENS)
@@ -58,6 +60,7 @@ async def _ensure_tables(conn):
 
 @router.post("/token/generate")
 async def generate_token(payload: dict):
+    require_permission(request, "settings:write")
     token = secrets.token_hex(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     expires_days = payload.get("expires_days", 30)
@@ -75,6 +78,7 @@ async def generate_token(payload: dict):
 
 @router.post("/token/validate")
 async def validate_token(payload: dict):
+    require_permission(request, "settings:write")
     token = payload.get("token", "")
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     async with get_conn() as conn:
@@ -95,6 +99,7 @@ async def validate_token(payload: dict):
 
 @router.get("/tokens")
 async def list_tokens():
+    require_permission(request, "settings:write")
     async with get_conn() as conn:
         await _ensure_tables(conn)
         rows = [dict(r) for r in await conn.fetch(
@@ -105,6 +110,7 @@ async def list_tokens():
 
 @router.post("/ip/block")
 async def block_ip(payload: dict):
+    require_permission(request, "settings:write")
     hours = payload.get("hours", 24)
     blocked_until = datetime.utcnow() + timedelta(hours=hours)
     reason = payload.get("reason", "Manual block")
@@ -120,6 +126,7 @@ async def block_ip(payload: dict):
 
 @router.get("/ip/blocked")
 async def list_blocked():
+    require_permission(request, "settings:write")
     async with get_conn() as conn:
         await _ensure_tables(conn)
         rows = [dict(r) for r in await conn.fetch(
@@ -130,6 +137,7 @@ async def list_blocked():
 
 @router.post("/event/log")
 async def log_event(payload: dict):
+    require_permission(request, "settings:write")
     async with get_conn() as conn:
         await _ensure_tables(conn)
         await conn.execute(_q("""
@@ -143,6 +151,7 @@ async def log_event(payload: dict):
 
 @router.get("/events")
 async def security_events():
+    require_permission(request, "settings:write")
     async with get_conn() as conn:
         await _ensure_tables(conn)
         rows = [dict(r) for r in await conn.fetch(
@@ -153,6 +162,7 @@ async def security_events():
 
 @router.get("/summary")
 async def security_summary():
+    require_permission(request, "settings:write")
     async with get_conn() as conn:
         await _ensure_tables(conn)
         active_tokens = await conn.fetchval(

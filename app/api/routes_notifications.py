@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Query
 from pydantic import BaseModel
 from typing import Optional
+from app.api.authz import require_permission
 
 from app.api.email_service import (
     send_email,
@@ -36,6 +37,7 @@ class NotifyReconcileRequest(BaseModel):
 
 @router.get("/list")
 async def list_notifications(request: Request, limit: int = 20):
+    require_permission(request, "notifications:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     items = []
 
@@ -93,6 +95,7 @@ async def notifications_feed(
     Enriched, actionable notification feed. Read-only. No emails sent.
     Types: pending_approval, high_amount, failed_posting, repeated_anomaly.
     """
+    require_permission(request, "notifications:write")
     tenant_id = getattr(request.state, "tenant_id", "default") or "default"
     items = []
 
@@ -256,6 +259,7 @@ def test_notification(req: TestEmailRequest):
 
 @router.post("/draft-approved")
 async def notify_approved(req: NotifyApprovalRequest, request: Request):
+    require_permission(request, "notifications:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     to_email = req.to or req.email
 
@@ -273,6 +277,7 @@ async def notify_approved(req: NotifyApprovalRequest, request: Request):
 
 @router.post("/review-required")
 async def notify_review(req: TestEmailRequest, request: Request):
+    require_permission(request, "notifications:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     to_email = req.to or req.email
 

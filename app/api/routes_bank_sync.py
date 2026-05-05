@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 from app.api.connectors.bank_sync_connector import (
     TBCConnector, BOGConnector, sync_all_banks
 )
@@ -25,6 +26,7 @@ class SyncRequest(BaseModel):
 
 @router.get("/status")
 def bank_sync_status(request: Request):
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     tbc = TBCConnector(tenant_id)
     bog = BOGConnector(tenant_id)
@@ -42,6 +44,7 @@ def bank_sync_status(request: Request):
 
 @router.post("/tbc/sync")
 def sync_tbc(req: SyncRequest, request: Request):
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     connector = TBCConnector(tenant_id)
     result = connector.sync_transactions(
@@ -55,6 +58,7 @@ def sync_tbc(req: SyncRequest, request: Request):
 
 @router.post("/bog/sync")
 def sync_bog(req: SyncRequest, request: Request):
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     connector = BOGConnector(tenant_id)
     result = connector.sync_transactions(
@@ -71,6 +75,7 @@ def sync_all(req: SyncRequest, request: Request):
     """
     ყველა ბანკიდან sync + queue-ში დამატება.
     """
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = sync_all_banks(tenant_id=tenant_id, days=req.days)
     return result
@@ -81,6 +86,7 @@ def sync_all_get(request: Request, days: int = 7):
     """
     GET ვერსია — browser-იდან ტესტისთვის.
     """
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = sync_all_banks(tenant_id=tenant_id, days=days)
     return result

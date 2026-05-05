@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 from datetime import datetime
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -28,6 +29,7 @@ async def list_categories():
 
 @router.post("/create")
 async def create_expense(data: ExpenseCreate, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         try:
@@ -49,6 +51,7 @@ async def create_expense(data: ExpenseCreate, request: Request):
 
 @router.get("/list")
 async def list_expenses(request: Request, status: Optional[str] = None, category: Optional[str] = None):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     sql = "SELECT * FROM expenses WHERE tenant_id = $1"
     params: list = [tenant_id]
@@ -63,6 +66,7 @@ async def list_expenses(request: Request, status: Optional[str] = None, category
 
 @router.post("/{expense_id}/status")
 async def update_status(expense_id: int, data: ExpenseStatusUpdate, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     valid = ["pending", "approved", "rejected", "reimbursed"]
     if data.status not in valid:
@@ -79,6 +83,7 @@ async def update_status(expense_id: int, data: ExpenseStatusUpdate, request: Req
 
 @router.get("/summary")
 async def expense_summary(request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         by_category = [dict(r) for r in await conn.fetch(_q("""
@@ -109,6 +114,7 @@ async def expense_summary(request: Request):
 
 @router.get("/monthly/{year}")
 async def monthly_expenses(year: int, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q("""

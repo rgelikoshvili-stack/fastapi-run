@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from app.schemas.canonical import CanonicalBankTransaction
 from app.engines.audit_engine import run_all_checks, get_issues, ISSUES
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 

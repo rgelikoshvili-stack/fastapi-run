@@ -5,6 +5,7 @@ Per-tenant Gmail credentials management + manual poll trigger.
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.email_collector import (
     get_tenant_email_credentials,
@@ -23,6 +24,7 @@ class EmailCredentials(BaseModel):
 
 @router.get("/status")
 def email_collector_status(request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     creds = get_tenant_email_credentials(tenant_id)
     if creds:
@@ -31,12 +33,14 @@ def email_collector_status(request: Request):
 
 
 @router.post("/test")
-def test_connection(body: EmailCredentials):
+def test_connection(body: EmailCredentials, request: Request):
+    require_permission(request, "settings:write")
     return test_imap_connection(body.email, body.app_password)
 
 
 @router.post("/credentials")
 def save_credentials(body: EmailCredentials, request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     # Validate credentials before saving
     test = test_imap_connection(body.email, body.app_password)
@@ -51,6 +55,7 @@ def save_credentials(body: EmailCredentials, request: Request):
 @router.post("/poll")
 async def manual_poll(request: Request):
     """Manually trigger inbox polling for current tenant."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = await collect_tenant_inbox(tenant_id)
     return {"ok": result.get("status") == "ok", **result}

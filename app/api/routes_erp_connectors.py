@@ -1,20 +1,23 @@
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.api.services.erp_history_import_service import import_posted_history_from_connector
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/erp-connectors", tags=["ERP Connectors"])
 
 
 @router.post("/import-history")
 def import_history(
+    request: Request,
     source_system: str = Query(..., description="balance | oris | 1c"),
     mode: str = Query("demo", description="demo | real"),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=5000),
 ):
+    require_permission(request, "posting:write")
     result = import_posted_history_from_connector(
         source_system=source_system,
         mode=mode,

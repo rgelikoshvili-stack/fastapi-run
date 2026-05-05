@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 from app.api.services.balance_credentials_service import (
     get_credentials_status,
     save_balance_credentials,
@@ -22,12 +23,14 @@ class BalanceCredsPayload(BaseModel):
 
 @router.get("/status")
 def get_status(request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return {"ok": True, **get_credentials_status(tenant_id)}
 
 
 @router.post("/save")
 def save_creds(body: BalanceCredsPayload, request: Request):
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.api_key:
         return {"ok": False, "error": "api_key required"}
@@ -45,6 +48,7 @@ def save_creds(body: BalanceCredsPayload, request: Request):
 @router.post("/test")
 def test_connection(request: Request):
     """Test Balance.ge connectivity with current credentials."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         from app.api.connectors.balance_connector import BalanceConnector

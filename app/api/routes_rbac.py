@@ -4,9 +4,11 @@ from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.authz import ROLE_PERMISSIONS, has_role_permission
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 
 
 async def get_user_by_key(api_key: str):
+    require_permission(request, "tenants:manage")
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT * FROM users WHERE api_key=%s AND active=TRUE"), api_key)
     return dict(row) if row else None
@@ -21,6 +23,7 @@ class UserCreate(BaseModel):
 
 @router.get("/me-apikey")
 async def get_me(x_api_key: Optional[str] = Header(None)):
+    require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("API key required", "AUTH_ERROR", "Pass X-Api-Key header")
     user = await get_user_by_key(x_api_key)
@@ -37,6 +40,7 @@ async def get_me(x_api_key: Optional[str] = Header(None)):
 
 @router.get("/users")
 async def list_users(x_api_key: Optional[str] = Header(None)):
+    require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
     caller = await get_user_by_key(x_api_key)
@@ -49,6 +53,7 @@ async def list_users(x_api_key: Optional[str] = Header(None)):
 
 @router.post("/users/create")
 async def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None)):
+    require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
     caller = await get_user_by_key(x_api_key)
@@ -69,4 +74,5 @@ async def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None))
 
 @router.get("/roles")
 def list_roles():
+    require_permission(request, "tenants:manage")
     return ok_response("Roles & permissions", {r: sorted(p) for r, p in ROLE_PERMISSIONS.items()})

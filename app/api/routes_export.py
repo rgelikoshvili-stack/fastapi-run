@@ -3,12 +3,14 @@ from fastapi.responses import StreamingResponse
 import io, csv, json
 from datetime import datetime
 from app.api.db import get_conn, _q
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/export", tags=["export"])
 
 
 @router.get("/documents/csv")
-async def export_documents_csv():
+async def export_documents_csv(request: Request):
+    require_permission(request, "export:any")
     # pipeline_runs is a global table without tenant_id — exported as-is
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(
@@ -28,6 +30,7 @@ async def export_documents_csv():
 
 @router.get("/transactions/csv")
 async def export_transactions_csv(request: Request):
+    require_permission(request, "export:any")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q(
@@ -45,7 +48,8 @@ async def export_transactions_csv(request: Request):
 
 
 @router.get("/coa/csv")
-async def export_coa_csv():
+async def export_coa_csv(request: Request):
+    require_permission(request, "export:any")
     # Chart of accounts is global reference data without tenant_id
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(
@@ -64,6 +68,7 @@ async def export_coa_csv():
 
 @router.get("/report/json")
 async def export_full_report_json(request: Request):
+    require_permission(request, "export:any")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         total_docs = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs") or 0
@@ -107,7 +112,8 @@ async def export_full_report_json(request: Request):
 
 
 @router.get("/available")
-def available_exports():
+def available_exports(request: Request):
+    require_permission(request, "export:any")
     return {
         "ok": True,
         "exports": [

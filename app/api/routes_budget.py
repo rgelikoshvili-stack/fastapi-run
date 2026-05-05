@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
+from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
@@ -26,6 +27,7 @@ class AnnualBudgetCreate(BaseModel):
 
 @router.post("/create")
 async def create_budget(data: BudgetCreate, request: Request):
+    require_permission(request, "budget:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         try:
@@ -39,6 +41,7 @@ async def create_budget(data: BudgetCreate, request: Request):
 
 @router.post("/create-annual")
 async def create_annual_budget(data: AnnualBudgetCreate, request: Request):
+    require_permission(request, "budget:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     created = []
     async with get_conn() as conn:
@@ -59,6 +62,7 @@ async def create_annual_budget(data: AnnualBudgetCreate, request: Request):
 
 @router.get("/vs-actual/{year}")
 async def budget_vs_actual(year: int, request: Request):
+    require_permission(request, "budget:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         budgets = [dict(r) for r in await conn.fetch(_q(
@@ -83,6 +87,7 @@ async def budget_vs_actual(year: int, request: Request):
 
 @router.get("/list/{year}")
 async def list_budgets(year: int, request: Request):
+    require_permission(request, "budget:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q(

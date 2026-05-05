@@ -26,6 +26,7 @@ import secrets
 import psycopg2
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from app.api.authz import require_permission
 from psycopg2.extras import RealDictCursor
 
 from app.api.services.email_collector import (
@@ -109,6 +110,7 @@ async def email_inbound_webhook(request: Request):
     No auth header required — secured by token in To address + optional shared secret.
     """
     # Optional shared-secret header check (SendGrid sends X-Webhook-Secret, Mailgun doesn't)
+    require_permission(request, "settings:write")
     if INBOUND_WEBHOOK_SECRET:
         incoming = (
             request.headers.get("X-Webhook-Secret")
@@ -212,6 +214,7 @@ async def email_inbound_webhook(request: Request):
 @router.get("/email-invoice/submit-address")
 async def get_submit_address(request: Request):
     """Return this tenant's dedicated invoice submission email address."""
+    require_permission(request, "settings:write")
     tenant_id = getattr(request.state, "tenant_id", None)
     if not tenant_id:
         return JSONResponse({"ok": False, "error": "not authenticated"}, status_code=401)
@@ -234,6 +237,7 @@ async def get_submit_address(request: Request):
 @router.post("/email-invoice/regenerate-token")
 async def regenerate_submit_token(request: Request):
     """Generate a new submit token (invalidates old address)."""
+    require_permission(request, "settings:write")
     tenant_id = getattr(request.state, "tenant_id", None)
     if not tenant_id:
         return JSONResponse({"ok": False, "error": "not authenticated"}, status_code=401)

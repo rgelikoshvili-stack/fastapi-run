@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query, Request
 from app.api.db import get_conn, _q
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -91,6 +92,7 @@ async def search_alias(
     min_amount: float = Query(0, ge=0),
     max_amount: float = Query(999999999, ge=0),
 ):
+    require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return await _run_search(tenant_id=tenant_id, q=q, state=state,
                              min_amount=min_amount, max_amount=max_amount)
@@ -100,6 +102,7 @@ async def search_alias(
 @limiter.limit("30/minute")
 async def search_query(request: Request, q: str = "", state: str = "",
                        min_amount: float = 0, max_amount: float = 999999999):
+    require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return await _run_search(tenant_id=tenant_id, q=q, state=state,
                              min_amount=min_amount, max_amount=max_amount)
@@ -108,6 +111,7 @@ async def search_query(request: Request, q: str = "", state: str = "",
 @router.get("/filters")
 @limiter.limit("30/minute")
 async def get_filters(request: Request):
+    require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
@@ -131,6 +135,7 @@ async def get_filters(request: Request):
 @router.get("/recent")
 @limiter.limit("30/minute")
 async def recent_searches(request: Request):
+    require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
@@ -149,6 +154,7 @@ async def recent_searches(request: Request):
 @router.get("/stats")
 @limiter.limit("30/minute")
 async def search_stats(request: Request):
+    require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:

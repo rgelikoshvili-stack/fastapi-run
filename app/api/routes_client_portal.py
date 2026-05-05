@@ -7,6 +7,7 @@ Core approval logic არ ეხება.
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from app.api.authz import require_permission
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
@@ -29,6 +30,7 @@ async def client_dashboard(request: Request):
     """
     კლიენტის მთავარი გვერდი — საკუთარი ტრანზაქციების შეჯამება.
     """
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
@@ -81,6 +83,7 @@ async def client_transactions(
     """
     კლიენტის ტრანზაქციების სია.
     """
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
@@ -124,6 +127,7 @@ async def client_upload(
     კლიენტი ატვირთავს დოკუმენტს.
     OCR → Draft → pending_approval queue-ში.
     """
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
@@ -188,6 +192,7 @@ async def client_transaction_detail(draft_id: int, request: Request):
     """
     კლიენტი ხედავს ერთი ტრანზაქციის დეტალებს.
     """
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     client_id = request.headers.get("X-Client-ID", "default_client")
 
@@ -226,6 +231,7 @@ async def client_transaction_detail(draft_id: int, request: Request):
 @router.get("/invoices")
 async def client_invoices(request: Request):
     """Client sees their own invoices — amount, status, due date."""
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
@@ -255,6 +261,7 @@ async def client_invoices(request: Request):
 @router.get("/invoices/{invoice_id}/pdf")
 async def client_invoice_pdf(invoice_id: int, request: Request):
     """Download invoice as PDF."""
+    require_permission(request, "reports:read")
     from fastapi.responses import StreamingResponse
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
@@ -336,6 +343,7 @@ async def client_invoice_pdf(invoice_id: int, request: Request):
 @router.get("/statement")
 async def client_statement(request: Request):
     """Account statement — all transactions summary for client."""
+    require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:

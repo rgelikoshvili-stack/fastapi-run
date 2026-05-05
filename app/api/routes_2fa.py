@@ -11,6 +11,7 @@ from app.api.services.totp_service import (
     generate_totp_secret, generate_qr_png, verify_totp,
 )
 import logging
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/auth/2fa", tags=["2fa"])
 log = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ async def setup_2fa(request: Request):
 
     async with get_conn() as conn:
         await conn.execute("""
+    require_permission(request, "settings:write")
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS totp_secret TEXT,
                 ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE
@@ -80,6 +82,7 @@ async def get_qr_image(request: Request):
 @router.post("/enable")
 async def enable_2fa_endpoint(body: TOTPEnableRequest, request: Request):
     """Step 2 — verify code from Authenticator app → activate 2FA."""
+    require_permission(request, "settings:write")
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
@@ -141,6 +144,7 @@ async def disable_2fa_endpoint(body: TOTPVerifyRequest, request: Request):
 @router.post("/verify")
 async def verify_2fa_code(body: TOTPVerifyRequest, request: Request):
     """Verify a TOTP code — used during login flow when 2FA is enabled."""
+    require_permission(request, "settings:write")
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:

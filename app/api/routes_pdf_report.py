@@ -11,6 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -21,6 +22,7 @@ class ReportRequest(BaseModel):
     report_type: Optional[str] = "journal"  # journal or reconcile
 
 def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
+    require_permission(request, "reports:read")
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         rightMargin=1.5*cm, leftMargin=1.5*cm,
@@ -101,6 +103,7 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
 
 @router.post("/pdf")
 async def generate_pdf_report(req: ReportRequest, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
 
     conds = ["tenant_id = %s"]

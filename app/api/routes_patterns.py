@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Request
 from app.api.db import get_conn, _q
 from app.api.services.pattern_decay_service import run_pattern_decay
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 
 
 @router.get("/learning-health")
 async def learning_health(request: Request):
+    require_permission(request, "patterns:manage")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("""
@@ -47,6 +49,7 @@ async def learning_health(request: Request):
 
 @router.post("/decay/run")
 def decay_run():
+    require_permission(request, "patterns:manage")
     result = run_pattern_decay()
     return {
         "ok": True,

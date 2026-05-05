@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query, Body
 
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 from app.api.services.expense_article_service import (
     list_expense_articles,
     get_expense_article,

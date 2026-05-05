@@ -10,6 +10,7 @@ from typing import Optional, List
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
 from app.policy.localization.georgia_pack import calculate_cit as calculate_georgian_cit
+from app.api.authz import require_permission
  
 # ── Accounting Rules ──────────────────────────────────────────────────────────
 try:
@@ -20,6 +21,7 @@ try:
 except ImportError:
     ACCT_RULES_LOADED = False
     def format_gel(a: float) -> str:
+        require_permission(request, "reports:read")
         return f"{a:,.2f}₾"
  
 router = APIRouter(prefix="/tax", tags=["tax"])
@@ -82,12 +84,14 @@ class AnnualTaxRequest(BaseModel):
 # ── ENDPOINTS ─────────────────────────────────────────────────────────────────
  
 @router.get("/rates")
-def get_tax_rates():
+def get_tax_rates(request: Request):
+    require_permission(request, "reports:read")
     return ok_response("Georgian tax rates 2026", GEO_TAX_RATES)
  
  
 @router.post("/vat")
-def calculate_vat(req: VATRequest):
+def calculate_vat(req: VATRequest, request: Request):
+    require_permission(request, "reports:read")
     if req.direction == "add":
         vat_amount = round(req.amount * req.vat_rate / 100, 2)
         total = round(req.amount + vat_amount, 2)
@@ -119,12 +123,13 @@ def calculate_vat(req: VATRequest):
  
  
 @router.post("/vat-posting")                    # NEW — structured Balance.ge payload
-def vat_posting(req: VATPostingRequest):
+def vat_posting(req: VATPostingRequest, request: Request):
     """
     VAT posting rule:
     - paid   → Dr 1120 Bank | Cr 6110 | Cr 3310
     - unpaid → Dr 1410 Receivable | Cr 6110 | Cr 3310
     """
+    require_permission(request, "reports:read")
     if not ACCT_RULES_LOADED:
         return error_response("accounting_rules module not found", 503)
     result = build_vat_posting(req.gross_amount, req.vat_rate, req.payment_status)
@@ -132,12 +137,13 @@ def vat_posting(req: VATPostingRequest):
  
  
 @router.post("/dividend")                       # NEW — 2-step dividend posting
-def dividend_posting(req: DividendRequest):
+def dividend_posting(req: DividendRequest, request: Request):
     """
     Dividend 2-step posting rule:
     Step 1: Dr 4210 Retained Earnings | Cr 3320 Dividends Payable
     Step 2: Dr 3320 | Cr 3340 CIT (15%) | Cr 1120 Bank
     """
+    require_permission(request, "reports:read")
     if not ACCT_RULES_LOADED:
         # fallback — simple calculation
         cit = round(req.gross_amount * req.cit_rate, 2)
@@ -155,7 +161,8 @@ def dividend_posting(req: DividendRequest):
  
  
 @router.post("/salary")
-def calculate_salary(req: SalaryRequest):
+def calculate_salary(req: SalaryRequest, request: Request):
+    require_permission(request, "reports:read")
     income_tax = round(req.gross_salary * GEO_TAX_RATES["income_tax"] / 100, 2)
     pension_employee = round(req.gross_salary * GEO_TAX_RATES["pension"] / 100, 2) if req.include_pension else 0
     pension_employer = round(req.gross_salary * GEO_TAX_RATES["pension_employer"] / 100, 2) if req.include_pension else 0
@@ -180,7 +187,8 @@ def calculate_salary(req: SalaryRequest):
  
  
 @router.post("/corporate")
-def calculate_corporate(req: CorporateRequest):
+def calculate_corporate(req: CorporateRequest, request: Request):
+    require_permission(request, "reports:read")
     if req.distributed:
         cit = calculate_georgian_cit(Decimal(str(req.profit)))
         tax = round(float(cit["cit"]), 2)
@@ -211,7 +219,8 @@ def calculate_corporate(req: CorporateRequest):
  
  
 @router.post("/invoice")
-def calculate_invoice_tax(req: InvoiceTaxRequest):
+def calculate_invoice_tax(req: InvoiceTaxRequest, request: Request):
+    require_permission(request, "reports:read")
     vat = round(req.subtotal * req.vat_rate / 100, 2)
     total = round(req.subtotal + vat, 2)
     withholding = round(total * req.withholding_rate / 100, 2) if req.include_withholding else 0
@@ -231,7 +240,8 @@ def calculate_invoice_tax(req: InvoiceTaxRequest):
  
  
 @router.post("/annual-summary")
-def annual_tax_summary(req: AnnualTaxRequest):
+def annual_tax_summary(req: AnnualTaxRequest, request: Request):
+    require_permission(request, "reports:read")
     profit = req.annual_revenue - req.annual_expenses
     corporate_tax = round(float(calculate_georgian_cit(Decimal(str(profit)))["cit"]), 2) if profit > 0 else 0
     vat_payable = round(req.annual_revenue * GEO_TAX_RATES["vat"] / 100, 2)
@@ -263,6 +273,7 @@ def annual_tax_summary(req: AnnualTaxRequest):
  
 @router.get("/from-journal/{year}")
 async def tax_from_journal(year: int, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         r = await conn.fetchrow(_q(
@@ -341,6 +352,7 @@ def rs_ge_vat_return(body: VatReturnRequest, request: Request):
 @router.post("/rs-ge/withholding")
 def rs_ge_withholding(body: WithholdingRequest, request: Request):
     """Build RS Form 1 (Withholding Tax) payload."""
+    require_permission(request, "reports:read")
     from app.integrations.rs_ge_api import build_withholding_declaration, verify_taxpayer_inn
     v = verify_taxpayer_inn(body.inn)
     if not v["valid"]:

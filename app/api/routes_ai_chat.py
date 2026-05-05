@@ -7,6 +7,7 @@ Thin routes only
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from app.api.authz import require_permission
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -125,6 +126,7 @@ async def ai_chat(
     files: Optional[List[UploadFile]] = File(None),
 ):
     # Prefer tenant_id from auth middleware over form field
+    require_permission(request, "chat:use")
     tenant_id = getattr(request.state, "tenant_id", None) or tenant_id or "global"
     message = (message or "").strip()
 
@@ -165,6 +167,7 @@ async def preview_action(request: Request, body: dict):
     Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
     Response: { "preview": {...}, "requires_human_approval": true, "action": "..." }
     """
+    require_permission(request, "chat:use")
     from app.api.response_utils import ok_response
 
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
@@ -275,6 +278,7 @@ async def confirm_action(request: Request, body: dict):
 
     Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
     """
+    require_permission(request, "chat:use")
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     action = body.get("action", "")
     params = body.get("params") or {}
@@ -302,6 +306,7 @@ async def confirm_action(request: Request, body: dict):
 @router.get("/session/{session_id}")
 async def get_session(session_id: str, request: Request):
     """Return metadata about a chat session."""
+    require_permission(request, "chat:use")
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     from app.api.services.chat_session_service import get_session_summary
     from app.api.response_utils import ok_response
@@ -311,6 +316,7 @@ async def get_session(session_id: str, request: Request):
 @router.delete("/session/{session_id}")
 async def clear_session(session_id: str, request: Request):
     """Clear conversation history for a session (fresh start)."""
+    require_permission(request, "chat:use")
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     from app.api.services.chat_session_service import clear_history
     from app.api.services.llm_service import _chat_history
@@ -327,41 +333,49 @@ async def ai_search(q: str, top_k: int = 5, use_vector: bool = True):
 
 @router.post("/vat")
 async def vat_calc(request: VATRequest):
+    require_permission(request, "chat:use")
     return run_vat_calc(request)
 
 
 @router.post("/dividend")
 async def dividend_calc(request: DividendRequest):
+    require_permission(request, "chat:use")
     return run_dividend_calc(request)
 
 
 @router.post("/payroll")
 async def payroll_calc(request: PayrollRequest):
+    require_permission(request, "chat:use")
     return run_payroll_calc(request)
 
 
 @router.post("/cit")
 async def cit_calc(request: CITRequest):
+    require_permission(request, "chat:use")
     return run_cit_calc(request)
 
 
 @router.post("/depreciation")
 async def dep_calc(request: DepreciationRequest):
+    require_permission(request, "chat:use")
     return run_depreciation_calc(request)
 
 
 @router.post("/classify")
 async def classify_tx(request: ClassifyRequest):
+    require_permission(request, "chat:use")
     return run_classify_tx(request)
 
 
 @router.post("/learn")
 async def learn_rule(request: LearnRequest):
+    require_permission(request, "chat:use")
     return run_learn_rule(request)
 
 
 @router.post("/index")
 async def index_files_ep(request: IndexRequest):
+    require_permission(request, "chat:use")
     return run_index_files(request)
 
 
@@ -375,6 +389,7 @@ async def vector_stats():
 @router.get("/export/txt")
 async def export_chat_txt(session_id: str, request: Request):
     """Export full conversation history as plain text."""
+    require_permission(request, "chat:use")
     from fastapi.responses import PlainTextResponse
     from app.api.services.chat_session_service import load_history
 
@@ -400,6 +415,7 @@ async def export_chat_txt(session_id: str, request: Request):
 @router.get("/export/md")
 async def export_chat_md(session_id: str, request: Request):
     """Export full conversation history as Markdown."""
+    require_permission(request, "chat:use")
     from fastapi.responses import PlainTextResponse
     from app.api.services.chat_session_service import load_history
 

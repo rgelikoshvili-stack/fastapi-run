@@ -4,6 +4,7 @@ from typing import List, Optional
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from datetime import datetime
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -26,6 +27,7 @@ class InvoiceStatusUpdate(BaseModel):
 
 @router.post("/create")
 async def create_invoice(data: InvoiceCreate, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     items_with_totals = []
     subtotal = 0.0
@@ -60,6 +62,7 @@ async def create_invoice(data: InvoiceCreate, request: Request):
 
 @router.get("/list")
 async def list_invoices(request: Request, status: Optional[str] = None):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         if status:
@@ -73,6 +76,7 @@ async def list_invoices(request: Request, status: Optional[str] = None):
 
 @router.get("/stats/summary")
 async def invoice_stats(request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         by_status = [dict(r) for r in await conn.fetch(_q("""
@@ -97,6 +101,7 @@ async def invoice_stats(request: Request):
 
 @router.get("/{invoice_id}")
 async def get_invoice(invoice_id: int, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         inv = await conn.fetchrow(_q("SELECT * FROM invoices WHERE id=%s AND tenant_id=%s"), invoice_id, tenant_id)
@@ -107,6 +112,7 @@ async def get_invoice(invoice_id: int, request: Request):
 
 @router.post("/{invoice_id}/status")
 async def update_status(invoice_id: int, data: InvoiceStatusUpdate, request: Request):
+    require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     valid = ["draft", "sent", "paid", "cancelled", "overdue"]
     if data.status not in valid:

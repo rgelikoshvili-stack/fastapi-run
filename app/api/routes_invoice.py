@@ -2,12 +2,14 @@ from fastapi import APIRouter, UploadFile, File
 
 from app.api.response_utils import error_response
 from app.services.route_bridge_service import bridge_invoice_payload
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/invoice", tags=["invoice"])
 
 
 @router.post("/parse")
 async def parse_invoice(file: UploadFile = File(...)):
+    require_permission(request, "approval:write")
     try:
         content = await file.read()
 

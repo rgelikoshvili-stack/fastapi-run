@@ -1,6 +1,7 @@
 """Outgoing invoice routes — create, auto-save, finalize, list, PDF download."""
 import logging
 from fastapi import APIRouter, Request, Query
+from app.api.authz import require_permission
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -83,6 +84,7 @@ class InvoiceUpdateRequest(BaseModel):
 @router.post("/drafts")
 @limiter.limit("30/minute")
 def create_invoice_draft(data: InvoiceCreateRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db(tenant_id)
     try:
@@ -103,6 +105,7 @@ def create_invoice_draft(data: InvoiceCreateRequest, request: Request):
 @router.patch("/drafts/{invoice_id}")
 @limiter.limit("60/minute")
 def autosave_invoice(invoice_id: int, data: InvoiceUpdateRequest, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db(tenant_id)
     try:
@@ -124,6 +127,7 @@ def autosave_invoice(invoice_id: int, data: InvoiceUpdateRequest, request: Reque
 @limiter.limit("20/minute")
 def finalize_invoice(invoice_id: int, request: Request):
     """Generate waybill + tax invoice, assign invoice number, propagate comment."""
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db(tenant_id)
     try:
@@ -148,6 +152,7 @@ def list_outgoing_invoices(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     conn = get_db(tenant_id)
     try:
@@ -161,6 +166,7 @@ def list_outgoing_invoices(
 
 @router.get("/{invoice_id}")
 async def get_invoice(invoice_id: int, request: Request):
+    require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("""
@@ -618,6 +624,7 @@ def _build_nsd_pdf(inv: dict, signature_bytes: bytes = None, stamp_bytes: bytes 
 @limiter.limit("10/minute")
 def send_invoice_email(invoice_id: int, request: Request):
     """Generate PDF and email it to buyer_email. Marks invoice as 'sent'."""
+    require_permission(request, "approval:write")
     import os, smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.base import MIMEBase
@@ -723,6 +730,7 @@ def send_invoice_email(invoice_id: int, request: Request):
 @limiter.limit("10/minute")
 def download_invoice_pdf(invoice_id: int, request: Request):
     """Generate NSD-style PDF for an outgoing invoice."""
+    require_permission(request, "approval:write")
     import io, psycopg2.extras
     from fastapi.responses import StreamingResponse
 

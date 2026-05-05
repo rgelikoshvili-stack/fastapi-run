@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import date
 from fastapi import APIRouter, UploadFile, File, Form, Request
+from app.api.authz import require_permission
 from app.api.response_utils import http_error
 
 log = logging.getLogger(__name__)
@@ -450,6 +451,7 @@ async def claude_chat(
     history: str = Form("[]"),
     file: UploadFile = File(None),
 ):
+    require_permission(request, "chat:use")
     message = (message or "").strip()
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:

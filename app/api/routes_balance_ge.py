@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
+from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
 from app.ai_systems.external_api_ai import (
@@ -24,7 +25,8 @@ class JournalPostRequest(BaseModel):
     company_id: Optional[str] = "default"
 
 @router.post("/test-connection")
-async def test_connection(config: BalanceGeConfig):
+async def test_connection(config: BalanceGeConfig, request: Request):
+    require_permission(request, "posting:write")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
@@ -44,6 +46,7 @@ async def test_connection(config: BalanceGeConfig):
 
 @router.post("/post-journals")
 async def post_journals(req: JournalPostRequest, request: Request):
+    require_permission(request, "posting:write")
     tenant_id = getattr(request.state, "tenant_id", "default")
     async with get_conn() as conn:
         drafts = [dict(r) for r in await conn.fetch(_q(

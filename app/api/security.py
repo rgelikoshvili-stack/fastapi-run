@@ -61,7 +61,7 @@ SECURITY_HEADERS = {
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
         "img-src 'self' data: https: blob:; "
         "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com https://fonts.gstatic.com; "
-        "connect-src 'self' https://fastapi-run-oobzrmikna-ew.a.run.app https://storage.googleapis.com; "
+        f"connect-src 'self' {os.getenv('APP_BASE_URL', '')} https://storage.googleapis.com; "
         "frame-src 'self' blob:; "
         "object-src 'self' blob:;"
     ),

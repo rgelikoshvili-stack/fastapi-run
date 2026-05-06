@@ -4,7 +4,8 @@ from app.api.response_utils import ok_response
 
 router = APIRouter(prefix="/api-docs", tags=["api-docs"])
 
-BASE = "https://fastapi-run-226875230147.us-central1.run.app"
+import os
+BASE = os.getenv("APP_BASE_URL", "https://fastapi-run-226875230147.us-central1.run.app")
 
 POSTMAN_COLLECTION = {
     "info": {

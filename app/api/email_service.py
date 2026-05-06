@@ -8,6 +8,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "noreply@bridgehub.ge")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://fastapi-run-226875230147.us-central1.run.app")
 
 def send_email(to: str, subject: str, body_html: str, body_text: str = "") -> dict:
     if not SMTP_USER or not SMTP_PASS:
@@ -49,7 +50,7 @@ def notify_review_required(to: str, count: int) -> dict:
     html = f"""
     <h2 style="color:#f59e0b">⚠️ Review Required</h2>
     <p><b>{count}</b> journal draft(s) are waiting for your approval.</p>
-    <a href="https://fastapi-run-226875230147.us-central1.run.app/ui/dashboard"
+    <a href="{APP_BASE_URL}/ui/dashboard"
        style="background:#3b82f6;color:white;padding:10px 20px;border-radius:8px;text-decoration:none">
        Open Dashboard
     </a>

@@ -148,13 +148,13 @@ def get_oris_status(request: Request):
 # SHADOW POSTING (read-only preview)
 # ===============================
 @router.get("/preview/{draft_id}")
-def preview_posting(
+async def preview_posting(
     request: Request,
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return preview_posting_service(draft_id=draft_id, tenant_id=tenant_id)
+    return await preview_posting_service(draft_id=draft_id, tenant_id=tenant_id)
 
 
 # ===============================

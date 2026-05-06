@@ -235,7 +235,7 @@ def run_autopilot(request: Request):
 
 
 @router.post("/preview")
-def preview_draft(payload: dict, request: Request):
+async def preview_draft(payload: dict, request: Request):
     """Unified preview: uses posting_preview_service when draft_id is supplied (full Dr/Cr impact),
     otherwise falls back to simple summary preview."""
     try:
@@ -243,7 +243,7 @@ def preview_draft(payload: dict, request: Request):
         if draft_id:
             tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
             from app.api.services.posting_preview_service import preview_posting_service
-            return preview_posting_service(draft_id=int(draft_id), tenant_id=tenant_id)
+            return await preview_posting_service(draft_id=int(draft_id), tenant_id=tenant_id)
         return build_preview_response(payload)
     except Exception as e:
         return error_response("Preview failed", "PREVIEW_ERROR", str(e))

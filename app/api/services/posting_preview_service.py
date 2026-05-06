@@ -10,9 +10,7 @@ import logging
 from decimal import Decimal
 from typing import Optional
 
-import psycopg2.extras
-
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -135,26 +133,21 @@ def _impact_narrative(draft: dict) -> dict:
     }
 
 
-def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
+async def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
     """
     Read-only: compute impact of posting draft_id.
     Returns structured impact without any DB writes.
     """
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute(
-            """
-            SELECT id, description, partner, amount, currency,
-                   account_code, debit_account, credit_account,
-                   reason, status, date, confidence, source_document_id,
-                   raw_extraction, attached_file_name, attached_file_path, attached_file_size
-            FROM journal_drafts
-            WHERE id = %s AND tenant_id = %s
-            """,
-            (draft_id, tenant_id),
-        )
-        row = cur.fetchone()
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q("""
+                SELECT id, description, partner, amount, currency,
+                       account_code, debit_account, credit_account,
+                       reason, status, date, confidence, source_document_id,
+                       raw_extraction, attached_file_name, attached_file_path, attached_file_size
+                FROM journal_drafts
+                WHERE id = %s AND tenant_id = %s
+            """), draft_id, tenant_id)
         if not row:
             return {
                 "ok": False,
@@ -193,6 +186,3 @@ def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
             "ok": False,
             "error": {"code": "INTERNAL_ERROR", "details": str(e)},
         }
-    finally:
-        cur.close()
-        conn.close()

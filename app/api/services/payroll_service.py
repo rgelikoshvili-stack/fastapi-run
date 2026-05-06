@@ -8,8 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from typing import Optional
 import logging
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.policy.localization.georgia_pack import (
     calculate_payg, get_account, VAT_RATE, PAYG_RATE, PIT_RATE
@@ -108,148 +107,61 @@ def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
 
 # ========== Draft Generation ==========
 
-def generate_payroll_drafts(
+async def generate_payroll_drafts(
     payroll: dict,
     tenant_id: str = "default",
 ) -> dict:
-    """
-    Payroll-áƒ˜áƒ“áƒáƒœ journal drafts-áƒ˜áƒ¡ áƒ¨áƒ”áƒ¥áƒ›áƒœáƒ.
-    áƒ§áƒáƒ•áƒ”áƒšáƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡áƒ—áƒ•áƒ˜áƒ¡ 4 entry:
-    1. áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ®áƒáƒ áƒ¯áƒ˜
-    2. PAYG áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ
-    3. áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ
-    4. áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ 2% áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ áƒ®áƒáƒ áƒ¯áƒ˜
-    """
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    """Payroll-იდან journal drafts-ის შექმნა. ყოველი თანამშრომლისთვის 4 entry."""
+    _INSERT = _q("""
+        INSERT INTO journal_drafts (
+            date, description, partner, amount,
+            debit_account, credit_account, account_code,
+            reason, confidence, status, source_type, tenant_id, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        RETURNING id
+    """)
     period = payroll.get("period", datetime.now().strftime("%Y-%m"))
     date = f"{period}-01"
     created_ids = []
 
     try:
-        for emp in payroll.get("employees", []):
-            name = emp["employee_name"]
+        async with get_conn() as conn:
+            for emp in payroll.get("employees", []):
+                name = emp["employee_name"]
+                employer_pension = emp.get("employer_pension_2pct")
+                if employer_pension is None:
+                    employer_pension = round(float(emp.get("gross_salary", 0)) * float(EMPLOYER_PENSION_RATE), 2)
 
-            # 1. áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ®áƒáƒ áƒ¯áƒ˜
-            cur.execute("""
-                INSERT INTO journal_drafts (
-                    date, description, partner, amount,
-                    debit_account, credit_account, account_code,
-                    reason, confidence, status, source_type, tenant_id, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                RETURNING id
-            """, (
-                date,
-                f"áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜ â€” {name} ({period})",
-                name,
-                emp["gross_salary"],
-                get_account("salary"),
-                get_account("bank"),
-                get_account("salary"),
-                "payroll_salary",
-                0.95,
-                "pending_approval",
-                "payroll",
-                tenant_id,
-            ))
-            created_ids.append(cur.fetchone()["id"])
+                entries = [
+                    (date, f"ხელფასი — {name} ({period})", name, emp["gross_salary"],
+                     get_account("salary"), get_account("bank"), get_account("salary"),
+                     "payroll_salary", 0.95, "pending_approval", "payroll", tenant_id),
+                    (date, f"PAYG 2% — {name} ({period})", name, emp["payg_2pct"],
+                     "3120", get_account("bank"), "3120",
+                     "payroll_payg", 0.95, "pending_approval", "payroll", tenant_id),
+                    (date, f"საშემოსავლო 20% — {name} ({period})", name, emp["pit_20pct"],
+                     "3320", get_account("bank"), "3320",
+                     "payroll_pit", 0.95, "pending_approval", "payroll", tenant_id),
+                    (date, f"დამსაქმებლის საპენსიო 2% — {name} ({period})", name, employer_pension,
+                     EMPLOYER_PENSION_EXPENSE_ACCOUNT, EMPLOYER_PENSION_PAYABLE_ACCOUNT,
+                     EMPLOYER_PENSION_EXPENSE_ACCOUNT,
+                     "payroll_employer_pension", 0.95, "pending_approval", "payroll", tenant_id),
+                ]
+                for args in entries:
+                    row = await conn.fetchrow(_INSERT, *args)
+                    created_ids.append(row["id"])
 
-            # 2. PAYG áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ (2%)
-            cur.execute("""
-                INSERT INTO journal_drafts (
-                    date, description, partner, amount,
-                    debit_account, credit_account, account_code,
-                    reason, confidence, status, source_type, tenant_id, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                RETURNING id
-            """, (
-                date,
-                f"PAYG 2% â€” {name} ({period})",
-                name,
-                emp["payg_2pct"],
-                "3120",
-                get_account("bank"),
-                "3120",
-                "payroll_payg",
-                0.95,
-                "pending_approval",
-                "payroll",
-                tenant_id,
-            ))
-            created_ids.append(cur.fetchone()["id"])
-
-            # 3. áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ®áƒ“áƒ (20%)
-            cur.execute("""
-                INSERT INTO journal_drafts (
-                    date, description, partner, amount,
-                    debit_account, credit_account, account_code,
-                    reason, confidence, status, source_type, tenant_id, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                RETURNING id
-            """, (
-                date,
-                f"áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ 20% â€” {name} ({period})",
-                name,
-                emp["pit_20pct"],
-                "3320",
-                get_account("bank"),
-                "3320",
-                "payroll_pit",
-                0.95,
-                "pending_approval",
-                "payroll",
-                tenant_id,
-            ))
-            created_ids.append(cur.fetchone()["id"])
-
-            employer_pension = emp.get("employer_pension_2pct")
-            if employer_pension is None:
-                employer_pension = round(float(emp.get("gross_salary", 0)) * float(EMPLOYER_PENSION_RATE), 2)
-
-            # 4. áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ áƒ¨áƒ”áƒœáƒáƒ¢áƒáƒœáƒ˜ (2%)
-            cur.execute("""
-                INSERT INTO journal_drafts (
-                    date, description, partner, amount,
-                    debit_account, credit_account, account_code,
-                    reason, confidence, status, source_type, tenant_id, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                RETURNING id
-            """, (
-                date,
-                f"áƒ“áƒáƒ›áƒ¡áƒáƒ¥áƒ›áƒ”áƒ‘áƒšáƒ˜áƒ¡ áƒ¡áƒáƒžáƒ”áƒœáƒ¡áƒ˜áƒ 2% â€” {name} ({period})",
-                name,
-                employer_pension,
-                EMPLOYER_PENSION_EXPENSE_ACCOUNT,
-                EMPLOYER_PENSION_PAYABLE_ACCOUNT,
-                EMPLOYER_PENSION_EXPENSE_ACCOUNT,
-                "payroll_employer_pension",
-                0.95,
-                "pending_approval",
-                "payroll",
-                tenant_id,
-            ))
-            created_ids.append(cur.fetchone()["id"])
-
-        conn.commit()
         data = {
             "period": period,
             "drafts_created": len(created_ids),
             "draft_ids": created_ids,
             "tenant_id": tenant_id,
         }
-        # Preserve legacy direct-service keys while also exposing the standard
-        # {ok, message, data, error} envelope expected by route consumers.
         return {**ok_response("Payroll drafts created", data), **data}
     except Exception:
-        conn.rollback()
         log.exception("Payroll draft generation failed tenant=%s period=%s", tenant_id, period)
         return error_response("Payroll draft generation failed", "PAYROLL_ERROR")
-    finally:
-        cur.close()
-        conn.close()
 
-
-# ========== RS.ge XML Format ==========
 
 def generate_rsge_xml(payroll: dict) -> str:
     """

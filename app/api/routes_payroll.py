@@ -62,7 +62,7 @@ def payroll_calculate_single(req: SingleEmployeeRequest, request: Request):
 
 
 @router.post("/generate-drafts")
-def payroll_generate_drafts(req: PayrollRequest, request: Request):
+async def payroll_generate_drafts(req: PayrollRequest, request: Request):
     require_permission(request, "payroll:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -73,7 +73,7 @@ def payroll_generate_drafts(req: PayrollRequest, request: Request):
     if not payroll.get("ok"):
         return error_response("გამოთვლის შეცდომა", "ERROR", "")
 
-    drafts = generate_payroll_drafts(payroll, tenant_id=tenant_id)
+    drafts = await generate_payroll_drafts(payroll, tenant_id=tenant_id)
 
     return {
         "ok": True,

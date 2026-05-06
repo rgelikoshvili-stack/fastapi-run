@@ -1,7 +1,9 @@
 """Unit tests for Georgian payroll / tax calculations (no DB required)."""
+import asyncio
+from contextlib import asynccontextmanager
 from decimal import Decimal
 import os
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 os.environ.setdefault("TEST_MODE", "1")
 os.environ.setdefault("DATABASE_URL", "")
@@ -231,43 +233,66 @@ class _FakePayrollConn:
         pass
 
 
+def _make_payroll_conn():
+    inserted = []
+    _next_id = [0]
+
+    async def _fetchrow(sql, *args):
+        _next_id[0] += 1
+        row = dict(zip(
+            ["date", "description", "partner", "amount",
+             "debit_account", "credit_account", "account_code",
+             "reason", "confidence", "status", "source_type", "tenant_id"],
+            args,
+        ))
+        row["id"] = _next_id[0]
+        inserted.append(row)
+        return row
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=_fetchrow)
+    conn._inserted = inserted
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx, conn
+
+
 def test_generate_payroll_drafts_creates_employer_pension_entry(monkeypatch):
     from app.api.services import payroll_service
 
-    fake_conn = _FakePayrollConn()
-    monkeypatch.setattr(payroll_service, "get_db", lambda: fake_conn)
+    ctx, conn = _make_payroll_conn()
+    monkeypatch.setattr(payroll_service, "get_conn", ctx)
     payroll = payroll_service.calculate_payroll([{"gross_salary": 3000, "name": "Nino"}], period="2026-05")
 
-    result = payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a")
+    result = asyncio.run(payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a"))
 
     assert result["ok"] is True
     assert result["drafts_created"] == 4
-    assert fake_conn.committed is True
-    reasons = [params[7] for _, params in fake_conn.cursor_obj.calls]
+    reasons = [r["reason"] for r in conn._inserted]
     assert "payroll_employer_pension" in reasons
-    employer_params = [params for _, params in fake_conn.cursor_obj.calls if params[7] == "payroll_employer_pension"][0]
-    assert employer_params[3] == 60.0
-    assert employer_params[4] == "7220"
-    assert employer_params[5] == "3335"
+    pension = next(r for r in conn._inserted if r["reason"] == "payroll_employer_pension")
+    assert pension["amount"] == 60.0
+    assert pension["debit_account"] == "7220"
+    assert pension["credit_account"] == "3335"
 
 
 def test_payroll_journal_entries_each_balanced(monkeypatch):
     """Each payroll draft must have a positive amount with distinct Dr/Cr accounts (balanced entry)."""
     from app.api.services import payroll_service
 
-    fake_conn = _FakePayrollConn()
-    monkeypatch.setattr(payroll_service, "get_db", lambda: fake_conn)
+    ctx, conn = _make_payroll_conn()
+    monkeypatch.setattr(payroll_service, "get_conn", ctx)
     payroll = payroll_service.calculate_payroll([{"gross_salary": 3000, "name": "Nino"}], period="2026-05")
-    payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a")
+    asyncio.run(payroll_service.generate_payroll_drafts(payroll, tenant_id="tenant-a"))
 
-    # Each INSERT: (date, desc, partner, amount, dr_account, cr_account, account_code, reason, ...)
-    for _, params in fake_conn.cursor_obj.calls:
-        amount, dr_account, cr_account = params[3], params[4], params[5]
-        assert amount > 0, f"Draft amount must be positive, got {amount}"
-        assert dr_account != cr_account, f"Dr and Cr must differ; both were '{dr_account}'"
+    for row in conn._inserted:
+        assert row["amount"] > 0, f"Draft amount must be positive, got {row['amount']}"
+        assert row["debit_account"] != row["credit_account"], \
+            f"Dr and Cr must differ; both were '{row['debit_account']}'"
 
-    # Amounts must cover all four components of the payroll
-    amounts = sorted(params[3] for _, params in fake_conn.cursor_obj.calls)
-    assert amounts == sorted([3000.0, 60.0, 600.0, 60.0]), (
+    amounts = sorted(r["amount"] for r in conn._inserted)
+    assert amounts == sorted([3000.0, 60.0, 600.0, 60.0]), \
         f"Expected [60, 60, 600, 3000], got {amounts}"
-    )

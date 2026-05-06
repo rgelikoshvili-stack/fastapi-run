@@ -209,11 +209,24 @@ def _load_history(session_id: str, tenant_id: str) -> list:
     if session_id in _chat_history:
         return _chat_history[session_id]
     try:
-        from app.api.services.chat_session_service import load_history
-        msgs = load_history(session_id, tenant_id)
-        if msgs:
+        import json
+        conn = _get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT messages FROM chat_sessions WHERE session_id=%s AND tenant_id=%s",
+            (session_id, tenant_id),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return []
+        msgs = row[0]
+        if isinstance(msgs, str):
+            msgs = json.loads(msgs)
+        if isinstance(msgs, list):
             _chat_history[session_id] = msgs
-        return msgs
+        return msgs if isinstance(msgs, list) else []
     except Exception:
         return []
 
@@ -222,11 +235,27 @@ def _save_history(session_id: str, tenant_id: str, messages: list, role: str = N
     """Write-through: update cache + persist to DB."""
     if not session_id:
         return
+    import json
     trimmed = messages[-(2 * _HISTORY_MAX_TURNS):]
     _chat_history[session_id] = trimmed
     try:
-        from app.api.services.chat_session_service import save_history
-        save_history(session_id, tenant_id, trimmed, role=role)
+        conn = _get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO chat_sessions (session_id, tenant_id, role, messages, updated_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (session_id, tenant_id)
+            DO UPDATE SET
+                messages   = EXCLUDED.messages,
+                role       = COALESCE(EXCLUDED.role, chat_sessions.role),
+                updated_at = NOW()
+            """,
+            (session_id, tenant_id, role, json.dumps(trimmed, ensure_ascii=False)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
     except Exception as e:
         logger.warning("unexpected error: %s", e)
 

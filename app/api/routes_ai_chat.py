@@ -310,7 +310,7 @@ async def get_session(session_id: str, request: Request):
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     from app.api.services.chat_session_service import get_session_summary
     from app.api.response_utils import ok_response
-    return ok_response("Session", get_session_summary(session_id, tenant_id))
+    return ok_response("Session", await get_session_summary(session_id, tenant_id))
 
 
 @router.delete("/session/{session_id}")
@@ -321,7 +321,7 @@ async def clear_session(session_id: str, request: Request):
     from app.api.services.chat_session_service import clear_history
     from app.api.services.llm_service import _chat_history
     from app.api.response_utils import ok_response
-    clear_history(session_id, tenant_id)
+    await clear_history(session_id, tenant_id)
     _chat_history.pop(session_id, None)
     return ok_response("Session cleared", {"session_id": session_id})
 
@@ -394,7 +394,7 @@ async def export_chat_txt(session_id: str, request: Request):
     from app.api.services.chat_session_service import load_history
 
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
-    messages = load_history(session_id, tenant_id)
+    messages = await load_history(session_id, tenant_id)
 
     if not messages:
         raise HTTPException(status_code=404, detail="Session not found or empty")
@@ -420,7 +420,7 @@ async def export_chat_md(session_id: str, request: Request):
     from app.api.services.chat_session_service import load_history
 
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
-    messages = load_history(session_id, tenant_id)
+    messages = await load_history(session_id, tenant_id)
 
     if not messages:
         raise HTTPException(status_code=404, detail="Session not found or empty")

@@ -220,10 +220,10 @@ async def apply_posting(
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     idem_key = request.headers.get("X-Idempotent-Key")
     if idem_key:
-        hit = idempotency_check(tenant_id, idem_key, f"posting:{draft_id}:{target}")
+        hit = await idempotency_check(tenant_id, idem_key, f"posting:{draft_id}:{target}")
         if hit is not None:
             return hit
     result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
     if idem_key:
-        idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
+        await idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
     return result

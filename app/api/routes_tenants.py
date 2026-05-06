@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from app.api.authz import require_permission
 
@@ -16,10 +16,12 @@ class CreateTenantRequest(BaseModel):
 
 
 @router.get("")
-def list_tenants():
-    return list_tenants_service()
+async def list_tenants(request: Request):
+    require_permission(request, "tenant:admin")
+    return await list_tenants_service()
 
 
 @router.post("/create")
-def create_tenant(req: CreateTenantRequest):
-    return create_tenant_service(req.tenant_id, req.name)
+async def create_tenant(req: CreateTenantRequest, request: Request):
+    require_permission(request, "tenant:admin")
+    return await create_tenant_service(req.tenant_id, req.name)

@@ -61,22 +61,29 @@ def test_idempotent_posting():
 
     cached = {"ok": True, "draft_id": 42, "status": "posted"}
 
-    mock_conn = MagicMock()
-    mock_cur = MagicMock()
-    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
-    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-    mock_conn.cursor.return_value = mock_cur
-
     # First call — miss (None)
-    mock_cur.fetchone.return_value = None
-    with patch("app.api.services.idempotency_service.get_db", return_value=mock_conn):
-        result = idempotency_check("tenant_a", "key-001", "posting")
+    conn_miss = AsyncMock()
+    conn_miss.fetchrow = AsyncMock(return_value=None)
+    conn_miss.execute = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def _ctx_miss():
+        yield conn_miss
+
+    with patch("app.api.services.idempotency_service.get_conn", _ctx_miss):
+        result = asyncio.run(idempotency_check("tenant_a", "key-001", "posting"))
     assert result is None
 
     # Second call — hit (return cached dict)
-    mock_cur.fetchone.return_value = (cached,)
-    with patch("app.api.services.idempotency_service.get_db", return_value=mock_conn):
-        result = idempotency_check("tenant_a", "key-001", "posting")
+    conn_hit = AsyncMock()
+    conn_hit.fetchrow = AsyncMock(return_value={"response_json": cached})
+
+    @asynccontextmanager
+    async def _ctx_hit():
+        yield conn_hit
+
+    with patch("app.api.services.idempotency_service.get_conn", _ctx_hit):
+        result = asyncio.run(idempotency_check("tenant_a", "key-001", "posting"))
     assert result == cached
     assert result["draft_id"] == 42
 

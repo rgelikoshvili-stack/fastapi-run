@@ -118,14 +118,14 @@ async def approve_draft(draft_id: int, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     idem_key = request.headers.get("X-Idempotent-Key")
     if idem_key:
-        hit = idempotency_check(tenant_id, idem_key, f"approve:{draft_id}")
+        hit = await idempotency_check(tenant_id, idem_key, f"approve:{draft_id}")
         if hit is not None:
             return hit
     log.info("action=approve draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
     result = await approve_draft_service(draft_id, tenant_id=tenant_id)
     result = _check_locked(result) or result
     if idem_key:
-        idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
+        await idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
     cache_clear_prefix(f"approval_stats:{tenant_id}")
     cache_clear_prefix(f"dashboard_live:{tenant_id}")
     return result
@@ -139,14 +139,14 @@ async def reject_draft(draft_id: int, req: RejectRequest, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     idem_key = request.headers.get("X-Idempotent-Key")
     if idem_key:
-        hit = idempotency_check(tenant_id, idem_key, f"reject:{draft_id}")
+        hit = await idempotency_check(tenant_id, idem_key, f"reject:{draft_id}")
         if hit is not None:
             return hit
     log.info("action=reject draft_id=%s user=%s tenant=%s reason=%s", draft_id, user_id, tenant_id, req.reason)
     result = await reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
     result = _check_locked(result) or result
     if idem_key:
-        idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
+        await idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
     cache_clear_prefix(f"approval_stats:{tenant_id}")
     cache_clear_prefix(f"dashboard_live:{tenant_id}")
     return result

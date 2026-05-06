@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
+from app.api.response_utils import ok_response, error_response
 from app.api.services.email_collector import (
     get_tenant_email_credentials,
     save_tenant_email_credentials,

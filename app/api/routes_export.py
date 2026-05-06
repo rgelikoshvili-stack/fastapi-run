@@ -4,6 +4,7 @@ import io, csv, json
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -31,7 +32,7 @@ async def export_documents_csv(request: Request):
 @router.get("/transactions/csv")
 async def export_transactions_csv(request: Request):
     require_permission(request, "export:any")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q(
             "SELECT id, bank, date, amount, description, balance FROM bank_transactions WHERE tenant_id=%s ORDER BY created_at DESC"
@@ -69,7 +70,7 @@ async def export_coa_csv(request: Request):
 @router.get("/report/json")
 async def export_full_report_json(request: Request):
     require_permission(request, "export:any")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         total_docs = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs") or 0
         status_rows = await conn.fetch("SELECT status, COUNT(*) as count FROM pipeline_runs GROUP BY status")

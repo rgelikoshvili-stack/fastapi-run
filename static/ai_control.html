@@ -743,8 +743,18 @@ async function loadFeedback() {
 }
 
 // ── INSIGHTS TAB ──
+const _INS_KEY = 'bh_insights_ai_cache';
+const _INS_TTL = 60000;
 async function loadInsights() {
-  const d = await api('/dashboard/insights');
+  let d;
+  try {
+    const raw = sessionStorage.getItem(_INS_KEY);
+    if (raw) { const { data, ts } = JSON.parse(raw); if (Date.now() - ts < _INS_TTL) d = data; }
+  } catch (_) {}
+  if (!d) {
+    d = await api('/dashboard/insights');
+    try { if (d && d.ok) sessionStorage.setItem(_INS_KEY, JSON.stringify({ data: d, ts: Date.now() })); } catch (_) {}
+  }
   if (!d || !d.ok) {
     ['ins-body','ins-rev-exp','ins-queue-detail','ins-anomalies','ins-trends'].forEach(id => {
       const el = document.getElementById(id);

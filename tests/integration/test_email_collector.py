@@ -28,7 +28,7 @@ def test_email_collector_status_endpoint(client):
     assert r.status_code == 200
     data = r.json()
     assert "ok" in data
-    assert "configured" in data
+    assert "configured" in data.get("data", {})
 
 
 def test_email_collector_test_endpoint_bad_credentials(client):
@@ -87,8 +87,8 @@ def test_email_collector_tenant_isolation(client):
         r_a = client.get("/email-collector/status", headers=_auth(client, "tenant_a"))
         r_b = client.get("/email-collector/status", headers=_auth(client, "tenant_b"))
 
-    assert r_a.json()["configured"] is True
-    assert r_b.json()["configured"] is False
+    assert r_a.json()["data"]["configured"] is True
+    assert r_b.json()["data"]["configured"] is False
 
 
 # ── AI Processor draft creation ───────────────────────────────────────────────

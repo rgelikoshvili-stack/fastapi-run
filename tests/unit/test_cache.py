@@ -183,7 +183,8 @@ def test_batch_action_query_has_no_tenant_cast():
 def test_migrations_include_bank_transactions_tenant_created_index():
     import inspect
     import app.startup.migrations as mod
-    src = inspect.getsource(mod)
+    import app.startup.migrations_indexes as mod_idx
+    src = inspect.getsource(mod) + inspect.getsource(mod_idx)
     assert "bank_transactions(tenant_id, created_at" in src or \
            "bank_transactions_tenant_created" in src
 
@@ -191,6 +192,7 @@ def test_migrations_include_bank_transactions_tenant_created_index():
 def test_migrations_include_pipeline_runs_tenant_created_index():
     import inspect
     import app.startup.migrations as mod
-    src = inspect.getsource(mod)
+    import app.startup.migrations_indexes as mod_idx
+    src = inspect.getsource(mod) + inspect.getsource(mod_idx)
     assert "pipeline_runs(tenant_id, created_at" in src or \
            "pipeline_runs_tenant_created" in src

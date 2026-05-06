@@ -49,7 +49,8 @@ def test_gcs_storage_present():
 
 def test_human_review_flow():
     import app.api.routes_documents as mod
-    src = inspect.getsource(mod)
+    import app.api.services.document_processing_service as svc
+    src = inspect.getsource(mod) + inspect.getsource(svc)
     assert "human_review" in src or "pending" in src.lower()
 
 

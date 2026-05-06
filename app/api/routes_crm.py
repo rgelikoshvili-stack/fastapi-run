@@ -4,6 +4,7 @@ from typing import Optional
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 
@@ -26,7 +27,7 @@ class InteractionCreate(BaseModel):
 @router.get("/customers")
 async def list_customers(request: Request, type: Optional[str] = None, status: Optional[str] = None):
     require_permission(request, "crm:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     sql = "SELECT * FROM customers WHERE tenant_id=$1"
     params: list = [tenant_id]
     if type:
@@ -41,7 +42,7 @@ async def list_customers(request: Request, type: Optional[str] = None, status: O
 @router.post("/customers/create")
 async def create_customer(data: CustomerCreate, request: Request):
     require_permission(request, "crm:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             new_id = await conn.fetchval(_q("""
@@ -56,7 +57,7 @@ async def create_customer(data: CustomerCreate, request: Request):
 @router.get("/customers/{customer_id}")
 async def get_customer(customer_id: int, request: Request):
     require_permission(request, "crm:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT * FROM customers WHERE id=%s AND tenant_id=%s"), customer_id, tenant_id)
         if not row:
@@ -69,7 +70,7 @@ async def get_customer(customer_id: int, request: Request):
 @router.post("/customers/{customer_id}/interaction")
 async def add_interaction(customer_id: int, data: InteractionCreate, request: Request):
     require_permission(request, "crm:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         owner = await conn.fetchrow(_q("SELECT id FROM customers WHERE id=%s AND tenant_id=%s"), customer_id, tenant_id)
         if not owner:
@@ -86,7 +87,7 @@ async def add_interaction(customer_id: int, data: InteractionCreate, request: Re
 @router.get("/stats")
 async def crm_stats(request: Request):
     require_permission(request, "crm:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         total = await conn.fetchval(_q("SELECT COUNT(*) FROM customers WHERE tenant_id=%s"), tenant_id) or 0
         by_type = {r["type"]: r["cnt"] for r in await conn.fetch(_q(

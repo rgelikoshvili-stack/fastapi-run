@@ -5,6 +5,7 @@ import httpx
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
+from app.api.tenant_context import resolve_tenant_id
 from app.ai_systems.external_api_ai import (
     assess_human_gate,
     validate_before_posting,
@@ -47,7 +48,7 @@ async def test_connection(config: BalanceGeConfig, request: Request):
 @router.post("/post-journals")
 async def post_journals(req: JournalPostRequest, request: Request):
     require_permission(request, "posting:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         drafts = [dict(r) for r in await conn.fetch(_q(
             "SELECT * FROM journal_drafts WHERE id = ANY(%s) AND status='approved' AND tenant_id=%s"),
@@ -112,7 +113,7 @@ async def post_journals(req: JournalPostRequest, request: Request):
 
 @router.get("/export-format/{draft_id}")
 async def export_format(draft_id: int, request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         d = await conn.fetchrow(_q(
             "SELECT * FROM journal_drafts WHERE id=%s AND tenant_id=%s"),

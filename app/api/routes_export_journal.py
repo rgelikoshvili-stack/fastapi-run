@@ -4,13 +4,14 @@ import openpyxl, io
 from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/export", tags=["export"])
 
 @router.get("/journal/excel")
 async def export_journal_excel(request: Request, status: str = "approved"):
     require_permission(request, "export:any")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             rows = [dict(r) for r in await conn.fetch(_q(

@@ -4,6 +4,7 @@ import os
 from app.api.db import get_conn, _q
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -15,7 +16,7 @@ def _require_debug_access(request: Request) -> None:
 @router.get("/log")
 async def debug_log(request: Request, limit: int = 20):
     _require_debug_access(request)
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             rows = [dict(r) for r in await conn.fetch(_q("""

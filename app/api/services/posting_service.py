@@ -23,38 +23,10 @@ log = logging.getLogger(__name__)
 
 from app.api.connectors.balance_connector import BalanceConnector
 from app.api.connectors.onec_connector import OneCConnector
+from app.api.connectors.oris_connector import OrisConnector
 
 
 BLOCKING_POST_STATUSES = {"posted", "simulated_success"}
-
-
-class OrisConnector:
-    def __init__(self, tenant_id: str = "default"):
-        self.tenant_id = tenant_id
-
-    def status(self) -> dict:
-        return {
-            "connected": False,
-            "mode": "demo",
-            "message": "ORIS connector not implemented yet",
-            "tenant_id": self.tenant_id,
-        }
-
-    def preview(self, draft: dict) -> dict:
-        lines = draft.get("lines", [])
-        if not lines:
-            return {"valid": False, "errors": ["lines აკლია"], "warnings": []}
-        return {"valid": True, "errors": [], "warnings": []}
-
-    def post(self, draft: dict) -> dict:
-        return {
-            "success": False,
-            "erp_id": None,
-            "error": "ORIS connector not implemented yet",
-        }
-
-    def history(self, tenant_id: str, limit: int = 50) -> list:
-        return []
 
 
 def _normalize_target(target: str) -> str:

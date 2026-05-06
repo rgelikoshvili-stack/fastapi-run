@@ -5,6 +5,7 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/audit-log", tags=["audit-log"])
 
@@ -22,7 +23,7 @@ class AuditEventCreate(BaseModel):
 @router.post("/log")
 def create_audit_event(data: AuditEventCreate, request: Request):
     require_permission(request, "audit:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     ip = request.client.host if request.client else None
     log_event(action=data.action, resource=data.resource, resource_id=data.resource_id,
               actor=data.actor, role=data.role, details=data.details, status=data.status,
@@ -34,7 +35,7 @@ def create_audit_event(data: AuditEventCreate, request: Request):
 async def list_audit_log(request: Request, action: Optional[str] = None,
                           resource: Optional[str] = None, actor: Optional[str] = None, limit: int = 50):
     require_permission(request, "audit:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     sql = "SELECT * FROM audit_log WHERE (tenant_id IS NULL OR tenant_id::text = $1)"
     params: list = [tenant_id]
     if action:
@@ -55,7 +56,7 @@ async def list_audit_log(request: Request, action: Optional[str] = None,
 @router.get("/stats")
 async def audit_stats(request: Request):
     require_permission(request, "audit:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             by_action = [dict(r) for r in await conn.fetch(_q("""
@@ -88,7 +89,7 @@ async def audit_stats(request: Request):
 @router.get("/timeline")
 async def audit_timeline(request: Request):
     require_permission(request, "audit:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             timeline = [dict(r) for r in await conn.fetch(_q("""
@@ -106,7 +107,7 @@ async def audit_timeline(request: Request):
 @router.delete("/clear")
 async def clear_old_events(request: Request, days: int = 90):
     require_permission(request, "audit:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             st = await conn.execute(_q("""

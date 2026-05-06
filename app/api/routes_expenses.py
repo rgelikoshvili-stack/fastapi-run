@@ -5,6 +5,7 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.authz import require_permission
 from datetime import datetime
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -30,7 +31,7 @@ async def list_categories():
 @router.post("/create")
 async def create_expense(data: ExpenseCreate, request: Request):
     require_permission(request, "approval:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             row = await conn.fetchrow(_q("SELECT account_code FROM expense_categories WHERE code=%s"), data.category)
@@ -52,7 +53,7 @@ async def create_expense(data: ExpenseCreate, request: Request):
 @router.get("/list")
 async def list_expenses(request: Request, status: Optional[str] = None, category: Optional[str] = None):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     sql = "SELECT * FROM expenses WHERE tenant_id = $1"
     params: list = [tenant_id]
     if status:
@@ -67,7 +68,7 @@ async def list_expenses(request: Request, status: Optional[str] = None, category
 @router.post("/{expense_id}/status")
 async def update_status(expense_id: int, data: ExpenseStatusUpdate, request: Request):
     require_permission(request, "approval:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     valid = ["pending", "approved", "rejected", "reimbursed"]
     if data.status not in valid:
         return error_response("Invalid status", "VALIDATION_ERROR", f"Use: {valid}")
@@ -84,7 +85,7 @@ async def update_status(expense_id: int, data: ExpenseStatusUpdate, request: Req
 @router.get("/summary")
 async def expense_summary(request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         by_category = [dict(r) for r in await conn.fetch(_q("""
             SELECT e.category, ec.name,
@@ -115,7 +116,7 @@ async def expense_summary(request: Request):
 @router.get("/monthly/{year}")
 async def monthly_expenses(year: int, request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q("""
             SELECT SUBSTRING(date::text,1,7) as month, category, COALESCE(SUM(amount),0) as total

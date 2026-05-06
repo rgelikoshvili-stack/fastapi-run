@@ -15,6 +15,7 @@ from app.api.services.auth_service import login, verify_token, refresh_token, cr
 from app.api.response_utils import ok_response, error_response
 from app.api.security import limiter
 from app.api.db import get_conn, _q
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger(__name__)
@@ -513,7 +514,7 @@ class SignatureRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_signature(data: SignatureRequest, request: Request):
     """Save tenant signature/stamp image (base64)."""
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not getattr(request.state, "authenticated", False):
         return error_response("Unauthorized", "AUTH_ERROR")
     b64 = data.signature_b64.strip()
@@ -527,7 +528,7 @@ async def save_signature(data: SignatureRequest, request: Request):
 @router.get("/signature")
 async def get_signature(request: Request):
     """Return tenant's saved signature image (base64)."""
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT signature_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)
     return ok_response("OK", {"signature_b64": row["signature_b64"] if row else None})
@@ -541,7 +542,7 @@ class StampRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_stamp(data: StampRequest, request: Request):
     """Save tenant stamp image (base64)."""
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not getattr(request.state, "authenticated", False):
         return error_response("Unauthorized", "AUTH_ERROR")
     b64 = data.stamp_b64.strip()
@@ -555,7 +556,7 @@ async def save_stamp(data: StampRequest, request: Request):
 @router.get("/stamp")
 async def get_stamp(request: Request):
     """Return tenant's saved stamp image (base64)."""
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT stamp_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)
     return ok_response("OK", {"stamp_b64": row["stamp_b64"] if row else None})

@@ -7,6 +7,7 @@ from datetime import datetime
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/1c", tags=["1c"])
 
@@ -56,7 +57,7 @@ def drafts_to_1c_csv(drafts: list) -> str:
 @router.post("/export")
 async def export_1c(req: ExportRequest, request: Request):
     require_permission(request, "posting:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             if req.draft_ids:
@@ -91,7 +92,7 @@ async def export_1c(req: ExportRequest, request: Request):
 @router.get("/preview/{status}")
 async def preview_1c(status: str, request: Request):
     require_permission(request, "posting:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             drafts = [dict(r) for r in await conn.fetch(_q(

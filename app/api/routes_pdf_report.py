@@ -12,6 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from app.api.db import get_conn, _q
 from app.api.response_utils import error_response
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -104,7 +105,7 @@ def build_pdf(drafts: list, recon: dict, req: ReportRequest) -> bytes:
 @router.post("/pdf")
 async def generate_pdf_report(req: ReportRequest, request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conds = ["tenant_id = %s"]
     params: list = [tenant_id]

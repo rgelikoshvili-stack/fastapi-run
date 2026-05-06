@@ -5,6 +5,7 @@ from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
+from app.api.services.cache_service import cache_get, cache_set
 log = logging.getLogger(__name__)
 
 
@@ -79,12 +80,12 @@ async def _run_search(tenant_id: str, q: str = "", state: str = "",
             except Exception as e:
                 log.warning("unexpected error: %s", e)
 
-    return {
-        "ok": True, "query": q, "state": state,
+    return ok_response("search results", {
+        "query": q, "state": state,
         "min_amount": min_amount, "max_amount": max_amount,
         "total_results": total_results,
         "documents": docs, "transactions": tx_results, "coa_accounts": coa_results,
-    }
+    })
 
 
 @router.get("")
@@ -160,6 +161,11 @@ async def recent_searches(request: Request):
 async def search_stats(request: Request):
     require_permission(request, "search:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    cache_key = f"search_stats:{tenant_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     async with get_conn() as conn:
         try:
             total_docs = await conn.fetchval(_q("SELECT COUNT(*) FROM pipeline_runs WHERE tenant_id = %s"), tenant_id) or 0
@@ -177,9 +183,11 @@ async def search_stats(request: Request):
             total_searches = await conn.fetchval(_q("SELECT COUNT(*) FROM search_history WHERE tenant_id = %s"), tenant_id) or 0
         except Exception:
             total_searches = 0
-    return {
-        "ok": True,
+
+    result = ok_response("search stats", {
         "indexed": {"documents": total_docs, "transactions": total_txs,
                     "coa_accounts": total_coa, "total": total_docs + total_txs + total_coa},
         "total_searches": total_searches,
-    }
+    })
+    cache_set(cache_key, result, ttl=60)
+    return result

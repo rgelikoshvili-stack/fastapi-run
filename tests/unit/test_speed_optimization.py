@@ -59,9 +59,9 @@ def test_background_sets_failed_on_exception():
     def fake_mark(doc_id, status, tenant_id):
         status_updates.append(status)
 
-    with patch("app.api.routes_documents._mark_doc_status", side_effect=fake_mark):
-        with patch("app.api.routes_documents.parse_document", side_effect=RuntimeError("OCR failed")):
-            from app.api.routes_documents import _process_document_background
+    with patch("app.api.services.document_processing_service._mark_doc_status", side_effect=fake_mark):
+        with patch("app.api.services.document_processing_service.parse_document", side_effect=RuntimeError("OCR failed")):
+            from app.api.services.document_processing_service import _process_document_background
             asyncio.run(
                 _process_document_background(1, "tenant_a", b"fake_bytes", "application/pdf", "test.pdf")
             )
@@ -72,9 +72,14 @@ def test_background_sets_failed_on_exception():
 # ── 4. DB indexes present in migration ───────────────────────────────────────
 
 def test_db_indexes_defined_in_main():
-    """Verify critical indexes are defined in the startup migrations module."""
-    with open("app/startup/migrations.py", "r", encoding="utf-8") as f:
-        content = f.read()
+    """Verify critical indexes are defined in the startup migrations modules."""
+    content = ""
+    for fname in ["app/startup/migrations.py", "app/startup/migrations_indexes.py"]:
+        try:
+            with open(fname, "r", encoding="utf-8") as f:
+                content += f.read()
+        except FileNotFoundError:
+            pass
 
     assert "idx_journal_drafts_tenant_status_created" in content
     assert "idx_processed_documents_tenant_hash" in content

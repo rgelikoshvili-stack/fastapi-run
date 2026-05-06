@@ -11,6 +11,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
 from app.policy.localization.georgia_pack import calculate_cit as calculate_georgian_cit
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
  
 # ── Accounting Rules ──────────────────────────────────────────────────────────
 try:
@@ -274,7 +275,7 @@ def annual_tax_summary(req: AnnualTaxRequest, request: Request):
 @router.get("/from-journal/{year}")
 async def tax_from_journal(year: int, request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         r = await conn.fetchrow(_q(
             "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '6%%' AND date LIKE %s AND tenant_id = %s"),

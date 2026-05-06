@@ -6,6 +6,7 @@ import logging
 from decimal import Decimal
 
 from app.api.db import get_conn, _q
+from app.api.services.cache_service import cache_get, cache_set, CACHE_TTL
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ async def _detect_duplicates(conn, tenant_id: str) -> list:
         WHERE tenant_id = %s
           AND created_at >= NOW() - INTERVAL '24 hours'
         ORDER BY created_at DESC
-        LIMIT 200
+        LIMIT 50
     """), tenant_id)]
 
     seen = set()
@@ -129,6 +130,11 @@ async def _add_anomaly_flags(anomalies: list, conn, tenant_id: str) -> list:
 
 
 async def get_dashboard_insights(tenant_id: str) -> dict:
+    cache_key = f"insights:{tenant_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         async with get_conn() as conn:
             top_expenses = [dict(r) for r in await conn.fetch(_q("""
@@ -150,6 +156,7 @@ async def get_dashboard_insights(tenant_id: str) -> dict:
                     COALESCE(SUM(amount) FILTER (WHERE account_code LIKE '7%%'), 0) AS total_expenses
                 FROM journal_drafts
                 WHERE tenant_id = %s AND status = 'approved'
+                  AND date >= CURRENT_DATE - INTERVAL '12 months'
             """), tenant_id) or {})
             total_revenue = float(rev_exp.get("total_revenue") or 0)
             total_expenses = float(rev_exp.get("total_expenses") or 0)
@@ -207,7 +214,7 @@ async def get_dashboard_insights(tenant_id: str) -> dict:
         log.error("insights_service tenant=%s: %s", tenant_id, e)
         return {"ok": False, "error": {"code": "INSIGHTS_ERROR", "details": str(e)}}
 
-    return {
+    result = {
         "ok": True,
         "tenant_id": tenant_id,
         "top_expenses": [
@@ -238,3 +245,5 @@ async def get_dashboard_insights(tenant_id: str) -> dict:
         "possible_duplicates": possible_duplicates,
         "runway": runway,
     }
+    cache_set(cache_key, result, ttl=CACHE_TTL.get("dashboard_live", 30))
+    return result

@@ -12,6 +12,7 @@ from app.api.email_service import (
 )
 from app.api.response_utils import ok_response, error_response
 from app.api.db import get_conn, _q
+from app.api.tenant_context import resolve_tenant_id
 log = logging.getLogger(__name__)
 
 
@@ -41,7 +42,7 @@ class NotifyReconcileRequest(BaseModel):
 @router.get("/list")
 async def list_notifications(request: Request, limit: int = 20):
     require_permission(request, "notifications:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     items = []
 
     async with get_conn() as conn:
@@ -99,7 +100,7 @@ async def notifications_feed(
     Types: pending_approval, high_amount, failed_posting, repeated_anomaly.
     """
     require_permission(request, "notifications:write")
-    tenant_id = getattr(request.state, "tenant_id", "default") or "default"
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     items = []
 
     try:
@@ -263,7 +264,7 @@ def test_notification(req: TestEmailRequest):
 @router.post("/draft-approved")
 async def notify_approved(req: NotifyApprovalRequest, request: Request):
     require_permission(request, "notifications:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     to_email = req.to or req.email
 
     async with get_conn() as conn:
@@ -281,7 +282,7 @@ async def notify_approved(req: NotifyApprovalRequest, request: Request):
 @router.post("/review-required")
 async def notify_review(req: TestEmailRequest, request: Request):
     require_permission(request, "notifications:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     to_email = req.to or req.email
 
     async with get_conn() as conn:

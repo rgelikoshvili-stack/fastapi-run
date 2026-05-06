@@ -4,6 +4,7 @@ from typing import Optional, List
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/budget", tags=["budget"])
 
@@ -28,7 +29,7 @@ class AnnualBudgetCreate(BaseModel):
 @router.post("/create")
 async def create_budget(data: BudgetCreate, request: Request):
     require_permission(request, "budget:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             new_id = await conn.fetchval(_q("""
@@ -42,7 +43,7 @@ async def create_budget(data: BudgetCreate, request: Request):
 @router.post("/create-annual")
 async def create_annual_budget(data: AnnualBudgetCreate, request: Request):
     require_permission(request, "budget:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     created = []
     async with get_conn() as conn:
         try:
@@ -63,7 +64,7 @@ async def create_annual_budget(data: AnnualBudgetCreate, request: Request):
 @router.get("/vs-actual/{year}")
 async def budget_vs_actual(year: int, request: Request):
     require_permission(request, "budget:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         budgets = [dict(r) for r in await conn.fetch(_q(
             "SELECT * FROM budgets WHERE year=%s AND tenant_id = %s ORDER BY account_code"),
@@ -88,7 +89,7 @@ async def budget_vs_actual(year: int, request: Request):
 @router.get("/list/{year}")
 async def list_budgets(year: int, request: Request):
     require_permission(request, "budget:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = [dict(r) for r in await conn.fetch(_q(
             "SELECT * FROM budgets WHERE year=%s AND tenant_id = %s ORDER BY account_code, month"),

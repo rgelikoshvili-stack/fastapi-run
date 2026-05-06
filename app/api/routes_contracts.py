@@ -6,6 +6,7 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit import log_event
 from datetime import datetime
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -34,7 +35,7 @@ class MilestoneCreate(BaseModel):
 @router.get("/list")
 async def list_contracts(request: Request, status: Optional[str] = None, contract_type: Optional[str] = None):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     sql = "SELECT * FROM contracts WHERE tenant_id = $1"
     params: list = [tenant_id]
     if status:
@@ -49,7 +50,7 @@ async def list_contracts(request: Request, status: Optional[str] = None, contrac
 @router.post("/create")
 async def create_contract(data: ContractCreate, request: Request):
     require_permission(request, "settings:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     num = f"CNT-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     async with get_conn() as conn:
         try:
@@ -67,7 +68,7 @@ async def create_contract(data: ContractCreate, request: Request):
 @router.get("/{contract_id}")
 async def get_contract(contract_id: int, request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT * FROM contracts WHERE id=%s AND tenant_id=%s"), contract_id, tenant_id)
         if not row:
@@ -79,7 +80,7 @@ async def get_contract(contract_id: int, request: Request):
 @router.post("/{contract_id}/status")
 async def update_status(contract_id: int, data: ContractStatusUpdate, request: Request):
     require_permission(request, "settings:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         try:
             st = await conn.execute(_q("UPDATE contracts SET status=%s WHERE id=%s AND tenant_id=%s"),
@@ -93,7 +94,7 @@ async def update_status(contract_id: int, data: ContractStatusUpdate, request: R
 @router.post("/{contract_id}/milestones")
 async def add_milestone(contract_id: int, data: MilestoneCreate, request: Request):
     require_permission(request, "settings:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         owner = await conn.fetchrow(_q("SELECT id FROM contracts WHERE id=%s AND tenant_id=%s"), contract_id, tenant_id)
         if not owner:
@@ -110,7 +111,7 @@ async def add_milestone(contract_id: int, data: MilestoneCreate, request: Reques
 @router.get("/stats/summary")
 async def contract_stats(request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         total = await conn.fetchval(_q("SELECT COUNT(*) FROM contracts WHERE tenant_id=%s"), tenant_id) or 0
         total_value = await conn.fetchval(_q("SELECT COALESCE(SUM(value),0) FROM contracts WHERE tenant_id=%s"), tenant_id) or 0

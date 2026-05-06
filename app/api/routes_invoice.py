@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File
 
 from app.api.response_utils import error_response
 from app.services.route_bridge_service import bridge_invoice_payload
@@ -8,7 +8,7 @@ router = APIRouter(prefix="/invoice", tags=["invoice"])
 
 
 @router.post("/parse")
-async def parse_invoice(file: UploadFile = File(...)):
+async def parse_invoice(request: Request, file: UploadFile = File(...)):
     require_permission(request, "approval:write")
     try:
         content = await file.read()

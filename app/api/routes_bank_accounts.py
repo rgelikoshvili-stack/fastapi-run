@@ -4,6 +4,7 @@ from typing import Optional
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
+from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/bank-accounts", tags=["bank-accounts"])
 
@@ -29,7 +30,7 @@ class TransferRequest(BaseModel):
 @router.get("/list")
 async def list_accounts(request: Request):
     require_permission(request, "bank:process")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         accounts = [dict(r) for r in await conn.fetch(_q(
             "SELECT * FROM bank_accounts WHERE tenant_id = %s ORDER BY is_primary DESC, id"),
@@ -46,7 +47,7 @@ async def list_accounts(request: Request):
 @router.post("/create")
 async def create_account(data: BankAccountCreate, request: Request):
     require_permission(request, "settings:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             new_id = await conn.fetchval(_q("""
@@ -61,7 +62,7 @@ async def create_account(data: BankAccountCreate, request: Request):
 @router.post("/{account_id}/update-balance")
 async def update_balance(account_id: int, data: BalanceUpdate, request: Request):
     require_permission(request, "settings:write")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         acc = await conn.fetchrow(_q(
             "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id = %s"),
@@ -82,7 +83,7 @@ async def update_balance(account_id: int, data: BalanceUpdate, request: Request)
 @router.post("/transfer")
 async def transfer(req: TransferRequest, request: Request):
     require_permission(request, "bank:process")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         from_acc = await conn.fetchrow(_q(
             "SELECT * FROM bank_accounts WHERE id=%s AND tenant_id = %s"),
@@ -117,7 +118,7 @@ async def transfer(req: TransferRequest, request: Request):
 @router.get("/summary")
 async def account_summary(request: Request):
     require_permission(request, "bank:process")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         by_currency = [dict(r) for r in await conn.fetch(_q("""
             SELECT currency,

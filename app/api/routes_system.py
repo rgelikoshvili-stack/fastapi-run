@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Path, Request, HTTPException
 
 from app.api.authz import require_permission
+from app.api.tenant_context import resolve_tenant_id
 from app.api.services.system_service import (
     get_system_summary_service,
     get_system_overview_service,
@@ -28,14 +29,14 @@ def _validate_pagination(limit: int, offset: int):
 @router.get("/summary")
 def get_system_summary(request: Request):
     require_permission(request, "dashboard:admin")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_system_summary_service(tenant_id)
 
 
 @router.get("/overview")
 def get_system_overview(request: Request):
     require_permission(request, "dashboard:admin")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_system_overview_service(tenant_id)
 
 
@@ -61,5 +62,5 @@ def get_bank_file_drafts(
 ):
     require_permission(request, "dashboard:admin")
     _validate_pagination(limit, offset)
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return get_bank_file_drafts_service(file_id, limit, offset, tenant_id)

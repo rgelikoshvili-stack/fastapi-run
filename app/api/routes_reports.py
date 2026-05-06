@@ -4,6 +4,7 @@ from app.api.db import get_conn, _q
 from app.api.authz import require_permission
 from app.api.security import limiter
 from app.api.response_utils import ok_response, error_response
+from app.api.tenant_context import resolve_tenant_id
 from app.api.services.ledger_service import (
     get_account_ledger,
     get_trial_balance,
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.get("/monthly")
 async def monthly_report(request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     async with get_conn() as conn:
         rows = await conn.fetch(_q("""
@@ -67,7 +68,7 @@ async def monthly_report(request: Request):
 @router.get("/annual")
 async def annual_report(request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = await conn.fetch(_q("""
             SELECT EXTRACT(YEAR FROM created_at) as year,
@@ -84,7 +85,7 @@ async def annual_report(request: Request):
 @router.get("/audit-trail")
 async def audit_trail(request: Request):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         rows = await conn.fetch(_q("""
             SELECT run_id, filename, state, created_at
@@ -104,7 +105,7 @@ async def cashflow_report(
     month: int | None = Query(None, ge=1, le=12),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
     params: list = [tenant_id]
@@ -150,7 +151,7 @@ async def ledger_report(
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_account_ledger(tenant_id, account_code, date_from, date_to)
     return ok_response("Ledger report", {"report": "ledger", **data})
 
@@ -163,7 +164,7 @@ async def trial_balance_report(
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_trial_balance(tenant_id, date_from, date_to)
     return ok_response("Trial balance", {"report": "trial_balance", **data})
 
@@ -177,7 +178,7 @@ async def counterparty_ledger_report(
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_counterparty_ledger(tenant_id, inn, date_from, date_to)
     return ok_response("Counterparty ledger", {"report": "counterparty_ledger", **data})
 
@@ -190,7 +191,7 @@ async def payroll_ledger_report(
     year: Optional[int] = Query(None),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_payroll_ledger(tenant_id, employee_id, year)
     return ok_response("Payroll ledger", {"report": "payroll_ledger", **data})
 
@@ -204,7 +205,7 @@ async def journal_report(
     offset: int = Query(0, ge=0),
 ):
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_journal_entries(tenant_id, date, limit, offset)
     return ok_response("Journal report", {"report": "journal", **data})
 
@@ -222,7 +223,7 @@ async def pnl_detail(
 ):
     """Drill-down: click a P&L row → see individual journal drafts behind the number."""
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conditions = ["tenant_id = %s", "status IN ('posted','simulated_success')"]
     params: list = [tenant_id]
@@ -273,7 +274,7 @@ async def bs_detail(
 ):
     """Drill-down: Balance Sheet account → individual transactions."""
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conditions = ["tenant_id = %s"]
     params: list = [tenant_id]
@@ -319,7 +320,7 @@ async def cashflow_detail(
 ):
     """Drill-down: Cash Flow in/out → individual bank transactions."""
     require_permission(request, "reports:read")
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     conditions = ["tenant_id = %s", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
     params: list = [tenant_id]

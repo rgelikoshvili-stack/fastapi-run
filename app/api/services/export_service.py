@@ -7,40 +7,34 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 
-def get_journal_drafts(tenant_id="default", status=None, limit=1000):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
+async def get_journal_drafts(tenant_id="default", status=None, limit=1000):
+    async with get_conn() as conn:
         if status:
-            cur.execute("""
+            rows = await conn.fetch(_q("""
                 SELECT id, date, description, partner, amount,
                        debit_account, credit_account, account_code,
                        reason, confidence, status, source_type, created_at
                 FROM journal_drafts
                 WHERE tenant_id = %s AND status = %s
                 ORDER BY created_at DESC LIMIT %s
-            """, (tenant_id, status, limit))
+            """), tenant_id, status, limit)
         else:
-            cur.execute("""
+            rows = await conn.fetch(_q("""
                 SELECT id, date, description, partner, amount,
                        debit_account, credit_account, account_code,
                        reason, confidence, status, source_type, created_at
                 FROM journal_drafts
                 WHERE tenant_id = %s
                 ORDER BY created_at DESC LIMIT %s
-            """, (tenant_id, limit))
-        return [dict(r) for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+            """), tenant_id, limit)
+    return [dict(r) for r in rows]
 
 
-def export_excel(tenant_id="default", status=None):
-    rows = get_journal_drafts(tenant_id, status)
+async def export_excel(tenant_id="default", status=None):
+    rows = await get_journal_drafts(tenant_id, status)
     wb = Workbook()
     ws = wb.active
     ws.title = "Journal Drafts"
@@ -94,8 +88,8 @@ def export_excel(tenant_id="default", status=None):
     return output
 
 
-def export_csv_drafts(tenant_id="default", status=None):
-    rows = get_journal_drafts(tenant_id, status)
+async def export_csv_drafts(tenant_id="default", status=None):
+    rows = await get_journal_drafts(tenant_id, status)
     output = io.StringIO()
     fields = ["id", "date", "description", "partner", "amount",
               "debit_account", "credit_account", "account_code",
@@ -108,8 +102,8 @@ def export_csv_drafts(tenant_id="default", status=None):
     return output
 
 
-def export_1c_xml(tenant_id="default", status="approved"):
-    rows = get_journal_drafts(tenant_id, status)
+async def export_1c_xml(tenant_id="default", status="approved"):
+    rows = await get_journal_drafts(tenant_id, status)
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
     lines.append(f'<ФайлОбменДанными ВерсияФормата="1.0" ДатаФормирования="{datetime.now().strftime("%Y-%m-%d")}">')
     lines.append('  <Документы>')
@@ -127,8 +121,8 @@ def export_1c_xml(tenant_id="default", status="approved"):
     return "\n".join(lines)
 
 
-def export_pdf(tenant_id="default", status=None):
-    rows = get_journal_drafts(tenant_id, status, limit=500)
+async def export_pdf(tenant_id="default", status=None):
+    rows = await get_journal_drafts(tenant_id, status, limit=500)
     output = io.BytesIO()
     doc = SimpleDocTemplate(output, pagesize=A4,
                             rightMargin=20, leftMargin=20,

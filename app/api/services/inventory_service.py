@@ -3,21 +3,26 @@ Inventory management: CRUD, stock movements, FIFO/LIFO/Average valuation.
 """
 from __future__ import annotations
 import logging
-from datetime import date, datetime
+import os
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from app.api.db import get_db
+import psycopg2
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
 
-# ── Table bootstrap ───────────────────────────────────────────────────────────
+# ── Table bootstrap (sync, DDL — kept psycopg2) ──────────────────────────────
 
 def ensure_inventory_tables(conn=None):
     close = conn is None
     if conn is None:
-        conn = get_db()
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            return
+        conn = psycopg2.connect(url)
     cur = conn.cursor()
     try:
         cur.execute("""
@@ -129,27 +134,29 @@ def ensure_inventory_tables(conn=None):
 
 # ── Item CRUD ─────────────────────────────────────────────────────────────────
 
-def list_items(tenant_id: str, search: str = "", category_id: Optional[int] = None,
-               low_stock: bool = False, limit: int = 50, offset: int = 0) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
+async def list_items(tenant_id: str, search: str = "", category_id: Optional[int] = None,
+                     low_stock: bool = False, limit: int = 50, offset: int = 0) -> dict:
+    async with get_conn() as conn:
         params: list = [tenant_id]
-        where = ["i.tenant_id = %s", "i.is_active = TRUE"]
+        where = ["i.tenant_id = $1", "i.is_active = TRUE"]
         if search:
-            where.append("(i.item_code ILIKE %s OR i.item_name ILIKE %s)")
             params += [f"%{search}%", f"%{search}%"]
+            i2, i3 = len(params) - 1, len(params)
+            where.append(f"(i.item_code ILIKE ${i2} OR i.item_name ILIKE ${i3})")
         if category_id:
-            where.append("i.category_id = %s")
             params.append(category_id)
+            where.append(f"i.category_id = ${len(params)}")
 
         where_sql = " AND ".join(where)
 
-        cur.execute(f"SELECT COUNT(*) FROM inventory_items i WHERE {where_sql}", params)
-        total = cur.fetchone()[0]
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM inventory_items i WHERE {where_sql}", *params
+        )
 
-        # current stock = sum of movements
-        cur.execute(f"""
+        params_page = params + [limit, offset]
+        lim_p = len(params_page) - 1
+        off_p = len(params_page)
+        rows = await conn.fetch(f"""
             SELECT i.id, i.item_code, i.item_name, i.unit_of_measure,
                    i.purchase_price, i.selling_price, i.reorder_level,
                    i.costing_method, i.description,
@@ -164,155 +171,127 @@ def list_items(tenant_id: str, search: str = "", category_id: Optional[int] = No
             LEFT JOIN inventory_categories c ON c.id = i.category_id
             WHERE {where_sql}
             ORDER BY i.item_name
-            LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+            LIMIT ${lim_p} OFFSET ${off_p}
+        """, *params_page)
 
-        rows = cur.fetchall()
-        cols = [d[0] for d in cur.description]
-        items = [dict(zip(cols, r)) for r in rows]
+        items = [dict(r) for r in rows]
+        for it in items:
+            for k, v in it.items():
+                if isinstance(v, Decimal):
+                    it[k] = float(v)
 
         if low_stock:
-            items = [it for it in items if it["current_stock"] <= it["reorder_level"]]
+            items = [it for it in items if float(it["current_stock"]) <= float(it["reorder_level"])]
 
         total_value = sum(float(it["current_stock"]) * float(it["selling_price"] or 0) for it in items)
-        low_stock_count = sum(1 for it in items if it["current_stock"] <= it["reorder_level"])
+        low_stock_count = sum(1 for it in items if float(it["current_stock"]) <= float(it["reorder_level"]))
 
-        return {
-            "items": items, "total": total,
-            "total_value": round(total_value, 2),
-            "low_stock_count": low_stock_count,
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "items": items, "total": total,
+        "total_value": round(total_value, 2),
+        "low_stock_count": low_stock_count,
+    }
 
 
-def get_item(tenant_id: str, item_id: int) -> Optional[dict]:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+async def get_item(tenant_id: str, item_id: int) -> Optional[dict]:
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT * FROM inventory_items WHERE id = %s AND tenant_id = %s",
-            (item_id, tenant_id),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        return dict(zip([d[0] for d in cur.description], row))
-    finally:
-        cur.close()
-        conn.close()
+        ), item_id, tenant_id)
+    if not row:
+        return None
+    result = dict(row)
+    for k, v in result.items():
+        if isinstance(v, Decimal):
+            result[k] = float(v)
+    return result
 
 
-def create_item(tenant_id: str, data: dict) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
+async def create_item(tenant_id: str, data: dict) -> dict:
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             INSERT INTO inventory_items
                 (tenant_id, item_code, item_name, description, category_id,
                  purchase_price, selling_price, unit_of_measure, reorder_level, costing_method)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
-            """,
-            (
-                tenant_id,
-                data["item_code"], data["item_name"],
-                data.get("description"), data.get("category_id"),
-                data.get("purchase_price", 0), data.get("selling_price", 0),
-                data.get("unit_of_measure", "piece"),
-                data.get("reorder_level", 0),
-                data.get("costing_method", "fifo"),
-            ),
+        """), tenant_id,
+            data["item_code"], data["item_name"],
+            data.get("description"), data.get("category_id"),
+            data.get("purchase_price", 0), data.get("selling_price", 0),
+            data.get("unit_of_measure", "piece"),
+            data.get("reorder_level", 0),
+            data.get("costing_method", "fifo"),
         )
-        item_id = cur.fetchone()[0]
-        conn.commit()
-        return {**data, "id": item_id, "tenant_id": tenant_id}
-    finally:
-        cur.close()
-        conn.close()
+    return {**data, "id": row["id"], "tenant_id": tenant_id}
 
 
-def update_item(tenant_id: str, item_id: int, data: dict) -> Optional[dict]:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        allowed = ["item_name", "description", "category_id", "purchase_price",
-                   "selling_price", "unit_of_measure", "reorder_level", "costing_method", "is_active"]
-        sets = [f"{k} = %s" for k in allowed if k in data]
-        if not sets:
-            return get_item(tenant_id, item_id)
-        vals = [data[k] for k in allowed if k in data]
-        cur.execute(
-            f"UPDATE inventory_items SET {', '.join(sets)}, updated_at=NOW() "
-            f"WHERE id=%s AND tenant_id=%s RETURNING id",
-            vals + [item_id, tenant_id],
+async def update_item(tenant_id: str, item_id: int, data: dict) -> Optional[dict]:
+    allowed = ["item_name", "description", "category_id", "purchase_price",
+               "selling_price", "unit_of_measure", "reorder_level", "costing_method", "is_active"]
+    sets = [k for k in allowed if k in data]
+    if not sets:
+        return await get_item(tenant_id, item_id)
+
+    async with get_conn() as conn:
+        params = [data[k] for k in sets] + [item_id, tenant_id]
+        set_clauses = [f"{k} = ${i+1}" for i, k in enumerate(sets)]
+        set_clauses.append("updated_at=NOW()")
+        row = await conn.fetchrow(
+            f"UPDATE inventory_items SET {', '.join(set_clauses)} "
+            f"WHERE id=${len(sets)+1} AND tenant_id=${len(sets)+2} RETURNING id",
+            *params,
         )
-        row = cur.fetchone()
-        conn.commit()
-        return get_item(tenant_id, item_id) if row else None
-    finally:
-        cur.close()
-        conn.close()
+    return await get_item(tenant_id, item_id) if row else None
 
 
 # ── Stock movements ───────────────────────────────────────────────────────────
 
-def record_movement(tenant_id: str, data: dict) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
+async def record_movement(tenant_id: str, data: dict) -> dict:
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             INSERT INTO stock_movements
                 (tenant_id, item_id, movement_type, quantity, unit_cost,
                  warehouse_from, warehouse_to, reference_type, reference_doc,
                  movement_date, notes)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
-            """,
-            (
-                tenant_id,
-                data["item_id"], data["movement_type"],
-                data["quantity"], data.get("unit_cost", 0),
-                data.get("warehouse_from"), data.get("warehouse_to"),
-                data.get("reference_type"), data.get("reference_doc"),
-                data.get("movement_date") or date.today().isoformat(),
-                data.get("notes"),
-            ),
+        """), tenant_id,
+            data["item_id"], data["movement_type"],
+            data["quantity"], data.get("unit_cost", 0),
+            data.get("warehouse_from"), data.get("warehouse_to"),
+            data.get("reference_type"), data.get("reference_doc"),
+            data.get("movement_date") or date.today().isoformat(),
+            data.get("notes"),
         )
-        mv_id = cur.fetchone()[0]
-        conn.commit()
-        return {**data, "id": mv_id}
-    finally:
-        cur.close()
-        conn.close()
+    return {**data, "id": row["id"]}
 
 
-def get_movements(tenant_id: str, item_id: Optional[int] = None,
-                  movement_type: Optional[str] = None,
-                  date_from: Optional[str] = None, date_to: Optional[str] = None,
-                  limit: int = 50, offset: int = 0) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
+async def get_movements(tenant_id: str, item_id: Optional[int] = None,
+                        movement_type: Optional[str] = None,
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        limit: int = 50, offset: int = 0) -> dict:
+    async with get_conn() as conn:
         params: list = [tenant_id]
-        where = ["m.tenant_id = %s"]
+        where = ["m.tenant_id = $1"]
         if item_id:
-            where.append("m.item_id = %s"); params.append(item_id)
+            params.append(item_id); where.append(f"m.item_id = ${len(params)}")
         if movement_type:
-            where.append("m.movement_type = %s"); params.append(movement_type)
+            params.append(movement_type); where.append(f"m.movement_type = ${len(params)}")
         if date_from:
-            where.append("m.movement_date >= %s"); params.append(date_from)
+            params.append(date_from); where.append(f"m.movement_date >= ${len(params)}")
         if date_to:
-            where.append("m.movement_date <= %s"); params.append(date_to)
+            params.append(date_to); where.append(f"m.movement_date <= ${len(params)}")
 
         where_sql = " AND ".join(where)
-        cur.execute(f"SELECT COUNT(*) FROM stock_movements m WHERE {where_sql}", params)
-        total = cur.fetchone()[0]
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM stock_movements m WHERE {where_sql}", *params
+        )
 
-        cur.execute(f"""
+        params_page = params + [limit, offset]
+        lim_p = len(params_page) - 1
+        off_p = len(params_page)
+        rows = await conn.fetch(f"""
             SELECT m.id, m.item_id, i.item_code, i.item_name,
                    m.movement_type, m.quantity, m.unit_cost,
                    m.quantity * m.unit_cost AS total_value,
@@ -321,61 +300,47 @@ def get_movements(tenant_id: str, item_id: Optional[int] = None,
             JOIN inventory_items i ON i.id = m.item_id
             WHERE {where_sql}
             ORDER BY m.movement_date DESC, m.id DESC
-            LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+            LIMIT ${lim_p} OFFSET ${off_p}
+        """, *params_page)
 
-        cols = [d[0] for d in cur.description]
-        return {
-            "movements": [dict(zip(cols, r)) for r in cur.fetchall()],
-            "total": total,
-        }
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "movements": [dict(r) for r in rows],
+        "total": total,
+    }
 
 
-def get_current_stock(tenant_id: str, item_id: int) -> float:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute("""
+async def get_current_stock(tenant_id: str, item_id: int) -> float:
+    async with get_conn() as conn:
+        val = await conn.fetchval(_q("""
             SELECT COALESCE(SUM(CASE WHEN movement_type IN ('in','transfer') THEN quantity
                                      ELSE -quantity END), 0)
             FROM stock_movements
             WHERE tenant_id = %s AND item_id = %s
-        """, (tenant_id, item_id))
-        return float(cur.fetchone()[0])
-    finally:
-        cur.close()
-        conn.close()
+        """), tenant_id, item_id)
+    return float(val or 0)
 
 
 # ── Valuation ─────────────────────────────────────────────────────────────────
 
-def calculate_valuation(tenant_id: str, method: str = "fifo",
-                        as_of_date: Optional[str] = None) -> dict:
+async def calculate_valuation(tenant_id: str, method: str = "fifo",
+                              as_of_date: Optional[str] = None) -> dict:
     as_of = as_of_date or date.today().isoformat()
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(
             "SELECT id, item_code, item_name, unit_of_measure FROM inventory_items "
-            "WHERE tenant_id = %s AND is_active = TRUE",
-            (tenant_id,),
-        )
-        items = [dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE tenant_id = %s AND is_active = TRUE"
+        ), tenant_id)
+        items = [dict(r) for r in rows]
 
     valued = []
     for item in items:
+        ins, outs = await _in_out_movements(tenant_id, item["id"], as_of)
         if method == "fifo":
-            v = _fifo_value(tenant_id, item["id"], as_of)
+            v = _fifo_value(ins, outs)
         elif method == "lifo":
-            v = _lifo_value(tenant_id, item["id"], as_of)
+            v = _lifo_value(ins, outs)
         else:
-            v = _average_value(tenant_id, item["id"], as_of)
+            v = _average_value(ins, outs)
         valued.append({**item, **v})
 
     total_value = sum(it["total_value"] for it in valued)
@@ -385,29 +350,22 @@ def calculate_valuation(tenant_id: str, method: str = "fifo",
             "items": [it for it in valued if it["quantity"] > 0]}
 
 
-def _in_out_movements(tenant_id: str, item_id: int, as_of: str):
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute("""
+async def _in_out_movements(tenant_id: str, item_id: int, as_of: str):
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q("""
             SELECT movement_type, quantity, unit_cost, movement_date
             FROM stock_movements
             WHERE tenant_id=%s AND item_id=%s AND movement_date <= %s
             ORDER BY movement_date, id
-        """, (tenant_id, item_id, as_of))
-        rows = cur.fetchall()
-    finally:
-        cur.close()
-        conn.close()
+        """), tenant_id, item_id, as_of)
 
-    ins  = [{"qty": float(r[1]), "cost": float(r[2]), "date": r[3]}
-            for r in rows if r[0] in ("in",)]
-    outs = [{"qty": float(r[1])} for r in rows if r[0] in ("out", "transfer")]
+    ins  = [{"qty": float(r["quantity"]), "cost": float(r["unit_cost"]), "date": r["movement_date"]}
+            for r in rows if r["movement_type"] in ("in",)]
+    outs = [{"qty": float(r["quantity"])} for r in rows if r["movement_type"] in ("out", "transfer")]
     return ins, outs
 
 
-def _fifo_value(tenant_id: str, item_id: int, as_of: str) -> dict:
-    ins, outs = _in_out_movements(tenant_id, item_id, as_of)
+def _fifo_value(ins: list, outs: list) -> dict:
     total_out = sum(o["qty"] for o in outs)
     batches = []
     consumed = 0.0
@@ -426,8 +384,7 @@ def _fifo_value(tenant_id: str, item_id: int, as_of: str) -> dict:
             "avg_cost": round(value / qty, 4) if qty else 0}
 
 
-def _lifo_value(tenant_id: str, item_id: int, as_of: str) -> dict:
-    ins, outs = _in_out_movements(tenant_id, item_id, as_of)
+def _lifo_value(ins: list, outs: list) -> dict:
     total_out = sum(o["qty"] for o in outs)
     batches = []
     consumed = 0.0
@@ -446,8 +403,7 @@ def _lifo_value(tenant_id: str, item_id: int, as_of: str) -> dict:
             "avg_cost": round(value / qty, 4) if qty else 0}
 
 
-def _average_value(tenant_id: str, item_id: int, as_of: str) -> dict:
-    ins, outs = _in_out_movements(tenant_id, item_id, as_of)
+def _average_value(ins: list, outs: list) -> dict:
     total_in   = sum(b["qty"] for b in ins)
     total_out  = sum(o["qty"] for o in outs)
     total_cost = sum(b["qty"] * b["cost"] for b in ins)
@@ -459,170 +415,142 @@ def _average_value(tenant_id: str, item_id: int, as_of: str) -> dict:
 
 # ── Purchase Orders ───────────────────────────────────────────────────────────
 
-def create_purchase_order(tenant_id: str, data: dict) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        # auto-generate PO number if missing
+async def create_purchase_order(tenant_id: str, data: dict) -> dict:
+    async with get_conn() as conn:
         if not data.get("po_number"):
-            cur.execute(
-                "SELECT COUNT(*)+1 FROM purchase_orders WHERE tenant_id=%s", (tenant_id,)
-            )
-            n = cur.fetchone()[0]
+            n = await conn.fetchval(_q(
+                "SELECT COUNT(*)+1 FROM purchase_orders WHERE tenant_id=%s"
+            ), tenant_id)
             data["po_number"] = f"PO-{date.today().year}-{n:04d}"
 
-        cur.execute(
-            """
+        row = await conn.fetchrow(_q("""
             INSERT INTO purchase_orders
                 (tenant_id, po_number, supplier_name, supplier_inn,
                  po_date, expected_date, total_amount, notes)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
-            """,
-            (
-                tenant_id, data["po_number"],
-                data.get("supplier_name"), data.get("supplier_inn"),
-                data.get("po_date") or date.today().isoformat(),
-                data.get("expected_date"),
-                data.get("total_amount", 0),
-                data.get("notes"),
-            ),
+        """), tenant_id, data["po_number"],
+            data.get("supplier_name"), data.get("supplier_inn"),
+            data.get("po_date") or date.today().isoformat(),
+            data.get("expected_date"),
+            data.get("total_amount", 0),
+            data.get("notes"),
         )
-        po_id = cur.fetchone()[0]
+        po_id = row["id"]
 
         for line in data.get("lines", []):
-            cur.execute(
-                """
+            await conn.execute(_q("""
                 INSERT INTO purchase_order_lines
                     (po_id, item_id, quantity_ordered, unit_price, line_number, notes)
                 VALUES (%s,%s,%s,%s,%s,%s)
-                """,
-                (po_id, line["item_id"], line["quantity"],
-                 line["unit_price"], line.get("line_number"), line.get("notes")),
+            """), po_id, line["item_id"], line["quantity"],
+                line["unit_price"], line.get("line_number"), line.get("notes"),
             )
-        conn.commit()
-        return {**data, "id": po_id}
-    finally:
-        cur.close()
-        conn.close()
+    return {**data, "id": po_id}
 
 
-def list_purchase_orders(tenant_id: str, status: Optional[str] = None,
-                         limit: int = 50, offset: int = 0) -> dict:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
+async def list_purchase_orders(tenant_id: str, status: Optional[str] = None,
+                               limit: int = 50, offset: int = 0) -> dict:
+    async with get_conn() as conn:
         params: list = [tenant_id]
-        where = ["tenant_id = %s"]
+        where = ["tenant_id = $1"]
         if status:
-            where.append("status = %s"); params.append(status)
+            params.append(status); where.append(f"status = ${len(params)}")
         where_sql = " AND ".join(where)
-        cur.execute(f"SELECT COUNT(*) FROM purchase_orders WHERE {where_sql}", params)
-        total = cur.fetchone()[0]
-        cur.execute(f"""
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM purchase_orders WHERE {where_sql}", *params
+        )
+        params_page = params + [limit, offset]
+        lim_p = len(params_page) - 1
+        off_p = len(params_page)
+        rows = await conn.fetch(f"""
             SELECT id, po_number, supplier_name, po_date, expected_date,
                    status, total_amount, notes, created_at
             FROM purchase_orders WHERE {where_sql}
-            ORDER BY created_at DESC LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        cols = [d[0] for d in cur.description]
-        return {"orders": [dict(zip(cols, r)) for r in cur.fetchall()], "total": total}
-    finally:
-        cur.close()
-        conn.close()
+            ORDER BY created_at DESC LIMIT ${lim_p} OFFSET ${off_p}
+        """, *params_page)
+    return {"orders": [dict(r) for r in rows], "total": total}
 
 
-def receive_purchase_order(tenant_id: str, po_id: int, lines_received: list) -> dict:
-    """Receive PO lines → create stock_movements, update po status."""
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
+async def receive_purchase_order(tenant_id: str, po_id: int, lines_received: list) -> dict:
     received_count = 0
-    try:
+    async with get_conn() as conn:
         for line in lines_received:
             line_id = line["line_id"]
             qty     = float(line["quantity_received"])
             cost    = float(line.get("unit_cost", 0))
 
-            cur.execute(
+            row = await conn.fetchrow(_q(
                 "SELECT pol.item_id, pol.quantity_ordered, pol.quantity_received "
                 "FROM purchase_order_lines pol "
                 "JOIN purchase_orders po ON po.id = pol.po_id "
-                "WHERE pol.id = %s AND po.tenant_id = %s",
-                (line_id, tenant_id),
-            )
-            row = cur.fetchone()
+                "WHERE pol.id = %s AND po.tenant_id = %s"
+            ), line_id, tenant_id)
             if not row:
                 continue
-            item_id, ordered, already_received = row[0], float(row[1]), float(row[2])
-            qty = min(qty, ordered - already_received)
+            item_id = row["item_id"]
+            qty = min(qty, float(row["quantity_ordered"]) - float(row["quantity_received"]))
             if qty <= 0:
                 continue
 
-            cur.execute(
+            await conn.execute(_q(
                 "UPDATE purchase_order_lines SET quantity_received = quantity_received + %s "
-                "WHERE id = %s",
-                (qty, line_id),
-            )
-            cur.execute(
-                """
+                "WHERE id = %s"
+            ), qty, line_id)
+            await conn.execute(_q("""
                 INSERT INTO stock_movements
                     (tenant_id, item_id, movement_type, quantity, unit_cost,
                      reference_type, reference_doc, movement_date)
                 VALUES (%s,%s,'in',%s,%s,'purchase_order',%s,CURRENT_DATE)
-                """,
-                (tenant_id, item_id, qty, cost,
-                 f"PO-{po_id}"),
-            )
+            """), tenant_id, item_id, qty, cost, f"PO-{po_id}")
             received_count += 1
 
-        # update PO status
-        cur.execute(
-            """
+        await conn.execute(_q("""
             UPDATE purchase_orders SET status = CASE
                 WHEN (SELECT SUM(quantity_ordered - quantity_received) FROM purchase_order_lines WHERE po_id=%s) <= 0
                      THEN 'received'
                 ELSE 'partial'
             END, updated_at=NOW()
             WHERE id=%s AND tenant_id=%s
-            """,
-            (po_id, po_id, tenant_id),
-        )
-        conn.commit()
-        return {"po_id": po_id, "lines_received": received_count}
-    finally:
-        cur.close()
-        conn.close()
+        """), po_id, po_id, tenant_id)
+
+    return {"po_id": po_id, "lines_received": received_count}
 
 
 # ── Warehouses & Categories ───────────────────────────────────────────────────
 
-def list_warehouses(tenant_id: str) -> list:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+async def list_warehouses(tenant_id: str) -> list:
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(
             "SELECT id, code, name, address, is_default FROM warehouses "
-            "WHERE tenant_id=%s AND is_active=TRUE ORDER BY is_default DESC, name",
-            (tenant_id,),
-        )
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE tenant_id=%s AND is_active=TRUE ORDER BY is_default DESC, name"
+        ), tenant_id)
+    return [dict(r) for r in rows]
 
 
-def list_categories(tenant_id: str) -> list:
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    try:
-        cur.execute(
+async def list_categories(tenant_id: str) -> list:
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(
             "SELECT id, code, name, parent_id FROM inventory_categories "
-            "WHERE tenant_id=%s AND is_active=TRUE ORDER BY name",
-            (tenant_id,),
-        )
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+            "WHERE tenant_id=%s AND is_active=TRUE ORDER BY name"
+        ), tenant_id)
+    return [dict(r) for r in rows]
+
+
+async def create_warehouse(tenant_id: str, data: dict) -> dict:
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "INSERT INTO warehouses (tenant_id, code, name, address, is_default) "
+            "VALUES (%s,%s,%s,%s,%s) RETURNING id"
+        ), tenant_id, data["code"], data["name"],
+            data.get("address"), data.get("is_default", False))
+    return {**data, "id": row["id"]}
+
+
+async def create_category(tenant_id: str, data: dict) -> dict:
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
+            "INSERT INTO inventory_categories (tenant_id, code, name, parent_id) "
+            "VALUES (%s,%s,%s,%s) RETURNING id"
+        ), tenant_id, data["code"], data["name"], data.get("parent_id"))
+    return {**data, "id": row["id"]}

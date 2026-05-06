@@ -54,7 +54,7 @@ async def profit_and_loss_by_month(
 
 
 @router.get("/gl-reconciliation")
-def gl_reconciliation(
+async def gl_reconciliation(
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
     date_to:   Optional[str] = Query(None, description="YYYY-MM-DD"),
@@ -62,4 +62,4 @@ def gl_reconciliation(
     """GL ↔ Bank reconciliation — matches journal entries against bank transactions."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return reconcile_gl_bank(tenant_id, date_from, date_to)
+    return await reconcile_gl_bank(tenant_id, date_from, date_to)

@@ -4,9 +4,9 @@ GL ↔ Bank reconciliation: match journal_drafts entries against bank_transactio
 from __future__ import annotations
 import logging
 from typing import Optional
-from datetime import date, timedelta
+from datetime import date
 
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 log = logging.getLogger(__name__)
@@ -15,9 +15,9 @@ _BANK_ACCOUNTS = {"1120", "1110"}  # cash + bank in COA
 _TOLERANCE_GEL = 0.05              # rounding tolerance
 
 
-def _get_gl_bank_movements(tenant_id: str, date_from: str, date_to: str) -> list[dict]:
-    """Return all debit/credit movements on bank/cash accounts from approved drafts."""
-    sql = """
+async def _get_gl_bank_movements(conn, tenant_id: str, date_from: str, date_to: str) -> list[dict]:
+    bank_codes = list(_BANK_ACCOUNTS)
+    rows = await conn.fetch(_q("""
         SELECT
             jd.id             AS draft_id,
             jd.date           AS tx_date,
@@ -33,26 +33,17 @@ def _get_gl_bank_movements(tenant_id: str, date_from: str, date_to: str) -> list
           AND jd.date BETWEEN %s AND %s
           AND (entry->>'dr' = ANY(%s) OR entry->>'cr' = ANY(%s))
         ORDER BY jd.date, jd.id
-    """
-    bank_codes = list(_BANK_ACCOUNTS)
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, (tenant_id, date_from, date_to, bank_codes, bank_codes))
-        rows = cur.fetchall()
-        cur.close()
-    finally:
-        conn.close()
+    """), tenant_id, date_from, date_to, bank_codes, bank_codes)
 
     results = []
-    for draft_id, tx_date, desc, draft_amount, dr, cr, amount in rows:
-        side = "debit" if dr in _BANK_ACCOUNTS else "credit"
+    for r in rows:
+        side = "debit" if r["dr_account"] in _BANK_ACCOUNTS else "credit"
         results.append({
             "source": "gl",
-            "draft_id": draft_id,
-            "date": tx_date.isoformat() if hasattr(tx_date, "isoformat") else str(tx_date),
-            "description": desc or "",
-            "amount": float(amount or 0),
+            "draft_id": r["draft_id"],
+            "date": r["tx_date"].isoformat() if hasattr(r["tx_date"], "isoformat") else str(r["tx_date"]),
+            "description": r["description"] or "",
+            "amount": float(r["entry_amount"] or 0),
             "side": side,
             "matched": False,
             "match_id": None,
@@ -60,32 +51,22 @@ def _get_gl_bank_movements(tenant_id: str, date_from: str, date_to: str) -> list
     return results
 
 
-def _get_bank_transactions(tenant_id: str, date_from: str, date_to: str) -> list[dict]:
-    """Return bank_transactions rows for the period."""
-    sql = """
+async def _get_bank_transactions(conn, tenant_id: str, date_from: str, date_to: str) -> list[dict]:
+    rows = await conn.fetch(_q("""
         SELECT id, date, description, amount
         FROM bank_transactions
-        WHERE tenant_id = %s
-          AND date BETWEEN %s AND %s
+        WHERE tenant_id = %s AND date BETWEEN %s AND %s
         ORDER BY date, id
-    """
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, (tenant_id, date_from, date_to))
-        rows = cur.fetchall()
-        cur.close()
-    finally:
-        conn.close()
+    """), tenant_id, date_from, date_to)
 
     return [
         {
             "source": "bank",
-            "bank_tx_id": r[0],
-            "date": r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1]),
-            "description": r[2] or "",
-            "amount": abs(float(r[3] or 0)),
-            "side": "debit" if float(r[3] or 0) >= 0 else "credit",
+            "bank_tx_id": r["id"],
+            "date": r["date"].isoformat() if hasattr(r["date"], "isoformat") else str(r["date"]),
+            "description": r["description"] or "",
+            "amount": abs(float(r["amount"] or 0)),
+            "side": "debit" if float(r["amount"] or 0) >= 0 else "credit",
             "matched": False,
             "match_id": None,
         }
@@ -108,10 +89,9 @@ def _match(gl_items: list[dict], bank_items: list[dict]) -> tuple[list, list, li
                 continue
             if abs(bk["amount"] - gl["amount"]) > _TOLERANCE_GEL:
                 continue
-            # Date within ±3 days
             try:
-                gl_d  = date.fromisoformat(gl["date"])
-                bk_d  = date.fromisoformat(bk["date"])
+                gl_d = date.fromisoformat(gl["date"])
+                bk_d = date.fromisoformat(bk["date"])
                 if abs((gl_d - bk_d).days) <= 3:
                     best = i
                     break
@@ -129,42 +109,43 @@ def _match(gl_items: list[dict], bank_items: list[dict]) -> tuple[list, list, li
     return matched_pairs, unmatched_gl, remaining_bank
 
 
-def reconcile_gl_bank(
+async def reconcile_gl_bank(
     tenant_id: str,
     date_from: Optional[str] = None,
-    date_to:   Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> dict:
     today = date.today()
     df = date_from or (today.replace(day=1)).isoformat()
-    dt = date_to   or today.isoformat()
+    dt = date_to or today.isoformat()
 
     try:
-        gl_items   = _get_gl_bank_movements(tenant_id, df, dt)
-        bank_items = _get_bank_transactions(tenant_id, df, dt)
+        async with get_conn() as conn:
+            gl_items = await _get_gl_bank_movements(conn, tenant_id, df, dt)
+            bank_items = await _get_bank_transactions(conn, tenant_id, df, dt)
     except Exception as e:
         log.error("GL recon data fetch failed: %s", e)
         return error_response("GL reconciliation failed", "DB_ERROR", str(e))
 
     matched, unmatched_gl, unmatched_bank = _match(gl_items, bank_items)
 
-    gl_total   = round(sum(i["amount"] for i in gl_items), 2)
+    gl_total = round(sum(i["amount"] for i in gl_items), 2)
     bank_total = round(sum(i["amount"] for i in bank_items), 2)
-    diff       = round(gl_total - bank_total, 2)
+    diff = round(gl_total - bank_total, 2)
 
     return ok_response("GL reconciliation complete", {
-        "period":          {"from": df, "to": dt},
+        "period": {"from": df, "to": dt},
         "summary": {
-            "gl_movements":     len(gl_items),
+            "gl_movements": len(gl_items),
             "bank_transactions": len(bank_items),
-            "matched":          len(matched),
-            "unmatched_gl":     len(unmatched_gl),
-            "unmatched_bank":   len(unmatched_bank),
-            "gl_total":         gl_total,
-            "bank_total":       bank_total,
-            "difference":       diff,
-            "status":           "balanced" if abs(diff) <= _TOLERANCE_GEL else "unbalanced",
+            "matched": len(matched),
+            "unmatched_gl": len(unmatched_gl),
+            "unmatched_bank": len(unmatched_bank),
+            "gl_total": gl_total,
+            "bank_total": bank_total,
+            "difference": diff,
+            "status": "balanced" if abs(diff) <= _TOLERANCE_GEL else "unbalanced",
         },
-        "matched_pairs":   matched,
-        "unmatched_gl":    unmatched_gl,
-        "unmatched_bank":  unmatched_bank,
+        "matched_pairs": matched,
+        "unmatched_gl": unmatched_gl,
+        "unmatched_bank": unmatched_bank,
     })

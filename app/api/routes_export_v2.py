@@ -16,10 +16,10 @@ router = APIRouter(prefix="/export/v2", tags=["export-v2"])
 
 @router.get("/journal/excel")
 @limiter.limit("20/minute")
-def journal_excel(request: Request, status: str = None):
+async def journal_excel(request: Request, status: str = None):
     require_permission(request, "export:any")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    output = export_excel(tenant_id, status)
+    output = await export_excel(tenant_id, status)
     filename = f"journal_{tenant_id}_{datetime.now().strftime('%Y%m%d')}.xlsx"
     return StreamingResponse(
         output,
@@ -30,10 +30,10 @@ def journal_excel(request: Request, status: str = None):
 
 @router.get("/journal/csv")
 @limiter.limit("20/minute")
-def journal_csv(request: Request, status: str = None):
+async def journal_csv(request: Request, status: str = None):
     require_permission(request, "export:any")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    output = export_csv_drafts(tenant_id, status)
+    output = await export_csv_drafts(tenant_id, status)
     filename = f"journal_{tenant_id}_{datetime.now().strftime('%Y%m%d')}.csv"
     return StreamingResponse(
         iter([output.getvalue().encode("utf-8")]),
@@ -44,10 +44,10 @@ def journal_csv(request: Request, status: str = None):
 
 @router.get("/journal/1c-xml")
 @limiter.limit("10/minute")
-def journal_1c_xml(request: Request, status: str = "approved"):
+async def journal_1c_xml(request: Request, status: str = "approved"):
     require_permission(request, "export:any")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    xml = export_1c_xml(tenant_id, status)
+    xml = await export_1c_xml(tenant_id, status)
     filename = f"1c_export_{tenant_id}_{datetime.now().strftime('%Y%m%d')}.xml"
     return StreamingResponse(
         iter([xml.encode("utf-8")]),
@@ -58,10 +58,10 @@ def journal_1c_xml(request: Request, status: str = "approved"):
 
 @router.get("/journal/pdf")
 @limiter.limit("10/minute")
-def journal_pdf(request: Request, status: str = None):
+async def journal_pdf(request: Request, status: str = None):
     require_permission(request, "export:any")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    output = export_pdf(tenant_id, status)
+    output = await export_pdf(tenant_id, status)
     filename = f"journal_{tenant_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
         output,

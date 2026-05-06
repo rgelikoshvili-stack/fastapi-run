@@ -1,17 +1,7 @@
 """tests/unit/test_inventory.py — Inventory service unit tests."""
-from unittest.mock import MagicMock, patch
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def _mock_conn(rows=None, scalar=0):
-    conn = MagicMock()
-    cur = MagicMock()
-    cur.fetchall.return_value = rows or []
-    cur.fetchone.return_value = (scalar,)
-    cur.description = [("qty",)]
-    conn.cursor.return_value = cur
-    return conn, cur
+import asyncio
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 
 # ── 1. FIFO leaves oldest batches ─────────────────────────────────────────────
@@ -19,14 +9,11 @@ def _mock_conn(rows=None, scalar=0):
 def test_fifo_oldest_batch_remains():
     from app.api.services.inventory_service import _fifo_value
 
-    def fake_in_out(tenant_id, item_id, as_of):
-        ins  = [{"qty": 10, "cost": 5.0, "date": "2026-01-01"},  # oldest
-                {"qty": 10, "cost": 8.0, "date": "2026-02-01"}]  # newer
-        outs = [{"qty": 10}]  # consume oldest batch first
-        return ins, outs
+    ins  = [{"qty": 10, "cost": 5.0, "date": "2026-01-01"},  # oldest
+            {"qty": 10, "cost": 8.0, "date": "2026-02-01"}]  # newer
+    outs = [{"qty": 10}]  # consume oldest batch first
 
-    with patch("app.api.services.inventory_service._in_out_movements", side_effect=fake_in_out):
-        result = _fifo_value("t", 1, "2026-04-01")
+    result = _fifo_value(ins, outs)
 
     # FIFO: first 10 consumed → only newer batch (cost=8) remains
     assert result["quantity"] == 10
@@ -38,14 +25,11 @@ def test_fifo_oldest_batch_remains():
 def test_lifo_newest_consumed_first():
     from app.api.services.inventory_service import _lifo_value
 
-    def fake_in_out(tenant_id, item_id, as_of):
-        ins  = [{"qty": 10, "cost": 5.0, "date": "2026-01-01"},
-                {"qty": 10, "cost": 8.0, "date": "2026-02-01"}]
-        outs = [{"qty": 10}]  # consume newest batch first (LIFO)
-        return ins, outs
+    ins  = [{"qty": 10, "cost": 5.0, "date": "2026-01-01"},
+            {"qty": 10, "cost": 8.0, "date": "2026-02-01"}]
+    outs = [{"qty": 10}]  # consume newest batch first (LIFO)
 
-    with patch("app.api.services.inventory_service._in_out_movements", side_effect=fake_in_out):
-        result = _lifo_value("t", 1, "2026-04-01")
+    result = _lifo_value(ins, outs)
 
     # LIFO: newest 10 consumed (cost=8) → only oldest (cost=5) remains
     assert result["quantity"] == 10
@@ -57,13 +41,10 @@ def test_lifo_newest_consumed_first():
 def test_average_value():
     from app.api.services.inventory_service import _average_value
 
-    def fake_in_out(tenant_id, item_id, as_of):
-        ins  = [{"qty": 10, "cost": 4.0}, {"qty": 10, "cost": 6.0}]  # avg=5
-        outs = [{"qty": 5}]
-        return ins, outs
+    ins  = [{"qty": 10, "cost": 4.0}, {"qty": 10, "cost": 6.0}]  # avg=5
+    outs = [{"qty": 5}]
 
-    with patch("app.api.services.inventory_service._in_out_movements", side_effect=fake_in_out):
-        result = _average_value("t", 1, "2026-04-01")
+    result = _average_value(ins, outs)
 
     assert result["quantity"] == 15  # 20 - 5
     assert result["avg_cost"] == 5.0
@@ -73,31 +54,40 @@ def test_average_value():
 # ── 4. Insufficient stock blocked ────────────────────────────────────────────
 
 def test_insufficient_stock_returns_error():
-    """Movement 'out' with qty > available stock should return error."""
-    from app.api.services.inventory_service import get_current_stock
+    """get_current_stock returns a value; route blocks if qty > available."""
+    from app.api.services import inventory_service
 
-    conn, cur = _mock_conn()
-    cur.fetchone.return_value = (3.0,)  # only 3 in stock
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=3.0)
 
-    with patch("app.api.services.inventory_service.get_db", return_value=conn):
-        stock = get_current_stock("tenant_a", 1)
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.inventory_service.get_conn", _ctx):
+        stock = asyncio.run(inventory_service.get_current_stock("tenant_a", 1))
 
     assert stock == 3.0
-    # route checks: if qty > stock → error. Validate logic:
     requested = 10
-    assert requested > stock  # would be blocked
+    assert requested > stock  # would be blocked by route
 
 
 # ── 5. PO auto-number generation ─────────────────────────────────────────────
 
 def test_po_auto_number():
-    from app.api.services.inventory_service import create_purchase_order
+    from app.api.services import inventory_service
 
-    conn, cur = _mock_conn()
-    cur.fetchone.side_effect = [(5,), (42,)]  # count=5 → PO-2026-0006; then RETURNING id=42
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=5)  # COUNT(*)+1 = 5 → PO-...-0005
+    conn.fetchrow = AsyncMock(return_value={"id": 42})
+    conn.execute = AsyncMock()
 
-    with patch("app.api.services.inventory_service.get_db", return_value=conn):
-        result = create_purchase_order("tenant_a", {"lines": []})
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.inventory_service.get_conn", _ctx):
+        result = asyncio.run(inventory_service.create_purchase_order("tenant_a", {"lines": []}))
 
     assert "po_number" in result
     assert result["po_number"].startswith("PO-")
@@ -108,8 +98,7 @@ def test_po_auto_number():
 def test_fifo_no_stock():
     from app.api.services.inventory_service import _fifo_value
 
-    with patch("app.api.services.inventory_service._in_out_movements", return_value=([], [])):
-        result = _fifo_value("t", 1, "2026-04-01")
+    result = _fifo_value([], [])
 
     assert result["quantity"] == 0
     assert result["total_value"] == 0

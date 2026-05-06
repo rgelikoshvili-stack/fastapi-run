@@ -41,10 +41,10 @@ async def get_status(request: Request):
                 "SELECT username, taxpayer_inn FROM tenant_rsge_credentials WHERE tenant_id = %s"
             ), tenant_id)
         if row:
-            return {"ok": True, "configured": True, "username": row["username"], "taxpayer_inn": row["taxpayer_inn"]}
-        return {"ok": True, "configured": False}
+            return ok_response("ok", {"configured": True, "username": row["username"], "taxpayer_inn": row["taxpayer_inn"]})
+        return ok_response("ok", {"configured": False})
     except Exception as e:
-        return {"ok": True, "configured": False, "error": str(e)}
+        return ok_response("ok", {"configured": False, "error": str(e)})
 
 
 @router.post("/save")
@@ -52,9 +52,9 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.username:
-        return {"ok": False, "error": "username is required"}
+        return error_response("username is required", "ERROR", "")
     if not body.password:
-        return {"ok": False, "error": "password is required"}
+        return error_response("password is required", "ERROR", "")
     try:
         async with get_conn() as conn:
             await conn.execute(_CREATE_TABLE)
@@ -67,9 +67,9 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
                     taxpayer_inn = EXCLUDED.taxpayer_inn,
                     updated_at = NOW()
             """), tenant_id, body.username, body.password, body.taxpayer_inn or "")
-        return {"ok": True, "message": "RS.ge credentials saved"}
+        return ok_response("ok", {"message": "RS.ge credentials saved"})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return error_response(str(e), "ERROR", "")
 
 
 @router.post("/test")
@@ -86,6 +86,6 @@ async def test_connection(request: Request):
                 "ok": True,
                 "message": f"Credentials saved for {row['username']}. Live RS.ge portal sync: coming soon.",
             }
-        return {"ok": False, "error": "No credentials saved — please save first"}
+        return error_response("No credentials saved — please save first", "ERROR", "")
     except Exception:
-        return {"ok": False, "error": "Credentials not found"}
+        return error_response("Credentials not found", "ERROR", "")

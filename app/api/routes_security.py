@@ -3,6 +3,7 @@ import hashlib, secrets
 from datetime import datetime, timedelta
 from app.api.db import get_conn, _q
 from app.api.authz import require_permission
+from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/security", tags=["security"])
 
@@ -72,8 +73,8 @@ async def generate_token(payload: dict):
             VALUES (%s,%s,%s,%s) RETURNING id
         """), token_hash, payload.get("name", "API Token"),
             payload.get("permissions", ["read"]), expires_at)
-    return {"ok": True, "token": token, "token_id": tid,
-            "expires_at": expires_at.isoformat(), "note": "Save this token — it won't be shown again"}
+    return ok_response("Token created", {"token": token, "token_id": tid,
+            "expires_at": expires_at.isoformat(), "note": "Save this token — it won't be shown again"})
 
 
 @router.post("/token/validate")
@@ -92,9 +93,9 @@ async def validate_token(payload: dict):
                 "UPDATE api_tokens SET last_used=NOW() WHERE token_hash=%s"
             ), token_hash)
     if not tok:
-        return {"ok": False, "valid": False, "message": "Invalid or expired token"}
-    return {"ok": True, "valid": True, "name": tok["name"],
-            "permissions": tok["permissions"], "expires_at": str(tok["expires_at"])}
+        return error_response("Invalid or expired token", "INVALID_TOKEN", "")
+    return ok_response("Token valid", {"valid": True, "name": tok["name"],
+            "permissions": tok["permissions"], "expires_at": str(tok["expires_at"])})
 
 
 @router.get("/tokens")
@@ -105,7 +106,7 @@ async def list_tokens():
         rows = [dict(r) for r in await conn.fetch(
             "SELECT id, name, permissions, is_active, last_used, expires_at, created_at FROM api_tokens ORDER BY created_at DESC"
         )]
-    return {"ok": True, "tokens": rows}
+    return ok_response("ok", {"tokens": rows})
 
 
 @router.post("/ip/block")
@@ -121,7 +122,7 @@ async def block_ip(payload: dict):
             VALUES (%s,%s,%s) ON CONFLICT (ip_address) DO UPDATE
             SET reason=%s, blocked_until=%s
         """), payload.get("ip"), reason, blocked_until, reason, blocked_until)
-    return {"ok": True, "ip": payload.get("ip"), "blocked_until": blocked_until.isoformat()}
+    return ok_response("ok", {"ip": payload.get("ip"), "blocked_until": blocked_until.isoformat()})
 
 
 @router.get("/ip/blocked")
@@ -132,7 +133,7 @@ async def list_blocked():
         rows = [dict(r) for r in await conn.fetch(
             "SELECT * FROM blocked_ips WHERE blocked_until > NOW() ORDER BY blocked_at DESC"
         )]
-    return {"ok": True, "blocked_ips": rows}
+    return ok_response("ok", {"blocked_ips": rows})
 
 
 @router.post("/event/log")
@@ -146,7 +147,7 @@ async def log_event(payload: dict):
         """), payload.get("event_type", "UNKNOWN"), payload.get("ip", "0.0.0.0"),
             payload.get("endpoint", "/"), payload.get("details", ""),
             payload.get("severity", "LOW"))
-    return {"ok": True, "message": "Security event logged"}
+    return ok_response("ok", {"message": "Security event logged"})
 
 
 @router.get("/events")
@@ -157,7 +158,7 @@ async def security_events():
         rows = [dict(r) for r in await conn.fetch(
             "SELECT * FROM security_events ORDER BY created_at DESC LIMIT 50"
         )]
-    return {"ok": True, "events": rows}
+    return ok_response("ok", {"events": rows})
 
 
 @router.get("/summary")

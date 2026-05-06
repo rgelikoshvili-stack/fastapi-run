@@ -8,6 +8,7 @@ from app.api.security import limiter
 from app.api.authz import require_permission
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
 from app.api.db import get_conn, _q
+from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/ocr", tags=["ocr"])
 
@@ -34,7 +35,7 @@ async def extract_from_file(
         raise HTTPException(status_code=400, detail="ფაილი 10MB-ზე მეტია")
 
     fields = extract_invoice_fields(file.filename, data)
-    return {"ok": True, "tenant_id": tenant_id, "filename": file.filename, "fields": fields}
+    return ok_response("Fields extracted", {"tenant_id": tenant_id, "filename": file.filename, "fields": fields})
 
 
 @router.post("/extract-and-draft")
@@ -54,14 +55,14 @@ async def extract_and_create_draft(
     fields = extract_invoice_fields(file.filename, data)
 
     if not fields.get("ok"):
-        return {"ok": False, "error": "ინვოისიდან მონაცემების ამოღება ვერ მოხდა"}
+        return error_response("ინვოისიდან მონაცემების ამოღება ვერ მოხდა", "EXTRACTION_FAILED", "")
 
     if not fields.get("amount"):
-        return {"ok": False, "error": "თანხა ვერ ამოიღო", "fields": fields}
+        return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
 
     draft = create_draft_from_invoice(fields, tenant_id=tenant_id)
-    return {"ok": True, "tenant_id": tenant_id, "filename": file.filename,
-            "extracted_fields": fields, "draft": draft}
+    return ok_response("Draft created", {"tenant_id": tenant_id, "filename": file.filename,
+            "extracted_fields": fields, "draft": draft})
 
 
 @router.get("/history")

@@ -130,7 +130,7 @@ async def health_check_deep():
 
 @router.get("/ping")
 def ping():
-    return {"ok": True, "pong": True, "ts": datetime.now(timezone.utc).isoformat()}
+    return ok_response("ok", {"pong": True, "ts": datetime.now(timezone.utc).isoformat()})
 
 
 # ── Version (standalone router) ──────────────────────────────────────────────

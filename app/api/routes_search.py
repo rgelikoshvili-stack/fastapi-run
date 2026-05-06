@@ -4,6 +4,7 @@ from app.api.db import get_conn, _q
 from app.api.security import limiter
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+from app.api.response_utils import ok_response, error_response
 log = logging.getLogger(__name__)
 
 
@@ -132,7 +133,7 @@ async def get_filters(request: Request):
                 "SELECT DISTINCT category FROM coa WHERE category IS NOT NULL")]
         except Exception:
             categories = []
-    return {"ok": True, "states": states, "banks": banks, "coa_categories": categories}
+    return ok_response("ok", {"states": states, "banks": banks, "coa_categories": categories})
 
 
 @router.get("/recent")
@@ -151,7 +152,7 @@ async def recent_searches(request: Request):
             """), tenant_id)]
         except Exception:
             rows = []
-    return {"ok": True, "recent_searches": rows}
+    return ok_response("ok", {"recent_searches": rows})
 
 
 @router.get("/stats")

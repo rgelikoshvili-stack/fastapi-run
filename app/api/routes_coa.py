@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from app.api.db import get_conn, _q
 from app.api.services.cache_service import cache_get, cache_set, cache_delete, CACHE_TTL
+from app.api.response_utils import ok_response, error_response
 
 router = APIRouter(prefix="/coa", tags=["coa"])
 
@@ -43,7 +44,7 @@ async def coa_search(q: str):
             _q("SELECT * FROM coa WHERE (name_ka ILIKE %s OR name_en ILIKE %s OR code ILIKE %s) AND is_active=TRUE ORDER BY code"),
             f"%{q}%", f"%{q}%", f"%{q}%"
         )
-    return {"ok": True, "count": len(rows), "accounts": [dict(r) for r in rows]}
+    return ok_response("ok", {"count": len(rows), "accounts": [dict(r) for r in rows]})
 
 
 @router.get("/categories")

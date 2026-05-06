@@ -28,8 +28,8 @@ def email_collector_status(request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     creds = get_tenant_email_credentials(tenant_id)
     if creds:
-        return {"ok": True, "configured": True, "email": creds["email"]}
-    return {"ok": True, "configured": False}
+        return ok_response("ok", {"configured": True, "email": creds["email"]})
+    return ok_response("ok", {"configured": False})
 
 
 @router.post("/test")
@@ -45,11 +45,11 @@ def save_credentials(body: EmailCredentials, request: Request):
     # Validate credentials before saving
     test = test_imap_connection(body.email, body.app_password)
     if not test.get("ok"):
-        return {"ok": False, "error": test.get("error", "IMAP connection failed")}
+        return error_response(test.get("error", "IMAP connection failed"), "ERROR", "")
     saved = save_tenant_email_credentials(tenant_id, body.email, body.app_password)
     if saved:
-        return {"ok": True, "message": "Credentials saved and IMAP connection verified"}
-    return {"ok": False, "error": "DB save failed"}
+        return ok_response("ok", {"message": "Credentials saved and IMAP connection verified"})
+    return error_response("DB save failed", "ERROR", "")
 
 
 @router.post("/poll")
@@ -58,4 +58,6 @@ async def manual_poll(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     result = await collect_tenant_inbox(tenant_id)
-    return {"ok": result.get("status") == "ok", **result}
+    if result.get("status") == "ok":
+        return ok_response("Inbox collected", result)
+    return error_response("Inbox collection failed", "ERROR", result.get("error", ""))

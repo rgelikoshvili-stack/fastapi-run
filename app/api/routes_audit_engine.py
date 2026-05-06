@@ -5,6 +5,7 @@ from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+from app.api.response_utils import ok_response, error_response
 log = logging.getLogger(__name__)
 
 
@@ -24,7 +25,7 @@ async def find_duplicates(request: Request):
             HAVING COUNT(*) > 1
             ORDER BY count DESC
         """), tenant_id)]
-    return {"ok": True, "duplicates_found": len(rows), "items": rows}
+    return ok_response("ok", {"duplicates_found": len(rows), "items": rows})
 
 
 @router.get("/anomalies")
@@ -53,7 +54,7 @@ async def find_anomalies(request: Request):
                                    "filename": r["filename"], "amount": v, "severity": "CRITICAL"})
         except Exception as e:
             log.warning("unexpected error: %s", e)
-    return {"ok": True, "anomalies_found": len(issues), "issues": issues}
+    return ok_response("ok", {"anomalies_found": len(issues), "issues": issues})
 
 
 @router.get("/policy-check")
@@ -80,7 +81,7 @@ async def policy_check(request: Request):
                                     "severity": "MEDIUM"})
         except Exception as e:
             log.warning("unexpected error: %s", e)
-    return {"ok": True, "violations_found": len(violations), "violations": violations}
+    return ok_response("ok", {"violations_found": len(violations), "violations": violations})
 
 
 @router.get("/summary")
@@ -99,5 +100,5 @@ async def audit_summary(request: Request):
             ) x
         """), tenant_id)
         dups = dups_row["dups"] if dups_row else 0
-    return {"ok": True, "total_runs": total, "status_breakdown": status_counts,
-            "duplicate_filenames": dups, "health": "OK" if dups == 0 else "WARNING"}
+    return ok_response("Audit health", {"total_runs": total, "status_breakdown": status_counts,
+            "duplicate_filenames": dups, "health": "OK" if dups == 0 else "WARNING"})

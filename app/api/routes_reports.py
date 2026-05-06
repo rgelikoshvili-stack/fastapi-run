@@ -3,6 +3,7 @@ from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.authz import require_permission
 from app.api.security import limiter
+from app.api.response_utils import ok_response, error_response
 from app.api.services.ledger_service import (
     get_account_ledger,
     get_trial_balance,
@@ -59,7 +60,7 @@ async def monthly_report(request: Request):
                 "outflow": round(float(tx.get("outflow") or 0), 2),
             },
         })
-    return {"ok": True, "monthly_reports": result}
+    return ok_response("Monthly reports", {"monthly_reports": result})
 
 
 @limiter.limit("10/minute")
@@ -76,7 +77,7 @@ async def annual_report(request: Request):
             GROUP BY year
             ORDER BY year DESC
         """), tenant_id)
-    return {"ok": True, "annual_reports": [dict(r) for r in rows]}
+    return ok_response("Annual reports", {"annual_reports": [dict(r) for r in rows]})
 
 
 @limiter.limit("10/minute")
@@ -92,7 +93,7 @@ async def audit_trail(request: Request):
             ORDER BY created_at DESC
             LIMIT 50
         """), tenant_id)
-    return {"ok": True, "pipeline_runs": [dict(r) for r in rows]}
+    return ok_response("Audit trail", {"pipeline_runs": [dict(r) for r in rows]})
 
 
 
@@ -129,8 +130,7 @@ async def cashflow_report(
     cash_in  = round(float((row or {}).get("cash_in")  or 0), 2)
     cash_out = round(float((row or {}).get("cash_out") or 0), 2)
 
-    return {
-        "ok": True,
+    return ok_response("Cashflow report", {
         "report": "cashflow",
         "data": {
             "cash_in": cash_in,
@@ -138,7 +138,7 @@ async def cashflow_report(
             "net_cashflow": round(cash_in - cash_out, 2),
         },
         "note": "ეს არის მარტივი Cash Flow ვერსია bank_transactions-ზე დაყრდნობით.",
-    }
+    })
 
 
 @limiter.limit("10/minute")
@@ -152,7 +152,7 @@ async def ledger_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = await get_account_ledger(tenant_id, account_code, date_from, date_to)
-    return {"ok": True, "report": "ledger", **data}
+    return ok_response("Ledger report", {"report": "ledger", **data})
 
 
 @limiter.limit("10/minute")
@@ -165,7 +165,7 @@ async def trial_balance_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = await get_trial_balance(tenant_id, date_from, date_to)
-    return {"ok": True, "report": "trial_balance", **data}
+    return ok_response("Trial balance", {"report": "trial_balance", **data})
 
 
 @limiter.limit("10/minute")
@@ -179,7 +179,7 @@ async def counterparty_ledger_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = await get_counterparty_ledger(tenant_id, inn, date_from, date_to)
-    return {"ok": True, "report": "counterparty_ledger", **data}
+    return ok_response("Counterparty ledger", {"report": "counterparty_ledger", **data})
 
 
 @limiter.limit("10/minute")
@@ -192,7 +192,7 @@ async def payroll_ledger_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = await get_payroll_ledger(tenant_id, employee_id, year)
-    return {"ok": True, "report": "payroll_ledger", **data}
+    return ok_response("Payroll ledger", {"report": "payroll_ledger", **data})
 
 
 @limiter.limit("10/minute")
@@ -206,7 +206,7 @@ async def journal_report(
     require_permission(request, "reports:read")
     tenant_id = getattr(request.state, "tenant_id", "default")
     data = await get_journal_entries(tenant_id, date, limit, offset)
-    return {"ok": True, "report": "journal", **data}
+    return ok_response("Journal report", {"report": "journal", **data})
 
 
 @router.get("/pnl/detail")

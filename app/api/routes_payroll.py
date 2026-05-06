@@ -58,7 +58,7 @@ def payroll_calculate_single(req: SingleEmployeeRequest, request: Request):
         employee_id=req.employee_id,
         period=req.period,
     )
-    return {"ok": True, "employee": result}
+    return ok_response("ok", {"employee": result})
 
 
 @router.post("/generate-drafts")
@@ -71,7 +71,7 @@ def payroll_generate_drafts(req: PayrollRequest, request: Request):
     payroll = calculate_payroll(employees, req.period)
 
     if not payroll.get("ok"):
-        return {"ok": False, "error": "გამოთვლის შეცდომა"}
+        return error_response("გამოთვლის შეცდომა", "ERROR", "")
 
     drafts = generate_payroll_drafts(payroll, tenant_id=tenant_id)
 

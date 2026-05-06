@@ -12,6 +12,7 @@ from app.api.authz import require_permission
 from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+from app.api.response_utils import ok_response, error_response
 log = logging.getLogger(__name__)
 
 
@@ -256,9 +257,9 @@ async def client_invoices(request: Request):
         float(r.get("total") or 0) for r in rows
         if r.get("status") not in ("paid", "cancelled")
     )
-    return {"ok": True, "invoices": rows,
+    return ok_response("Invoices", {"invoices": rows,
             "summary": {"total_outstanding": total_outstanding,
-                        "count": len(rows)}}
+                        "count": len(rows)}})
 
 
 @router.get("/invoices/{invoice_id}/pdf")
@@ -368,7 +369,7 @@ async def client_statement(request: Request):
     except Exception:
         rows = []
 
-    return {"ok": True, "statement": rows}
+    return ok_response("ok", {"statement": rows})
 
 
 # ========== Status ==========

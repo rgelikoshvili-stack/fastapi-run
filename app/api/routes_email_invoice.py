@@ -12,6 +12,7 @@ import email as emaillib
 import os
 
 from app.api.tenant_context import resolve_tenant_id
+from app.api.response_utils import ok_response, error_response
 from app.api.services.email_invoice_service import (
     fetch_all_emails,
     process_email_by_id,
@@ -89,25 +90,17 @@ async def manual_upload(request: Request, file: UploadFile = File(...)):
     data = await file.read()
     fields = extract_invoice_fields(file.filename, data)
     if not fields.get("amount"):
-        return {"ok": False, "error": "თანხა ვერ ამოიღო", "fields": fields}
+        return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
     draft = create_draft_from_invoice(fields, tenant_id=tenant_id, force=False)
     if draft.get("duplicate"):
         existing = draft.get("existing_draft", {})
-        return {
-            "ok": False,
-            "duplicate": True,
-            "warning": f"⚠️ ეს ინვოისი უკვე გატარებულია! Draft #{existing.get('id')}",
-            "existing_draft": existing,
-            "extracted_fields": fields,
-        }
-    return {
-        "ok": True,
+        return error_response(f"⚠️ ეს ინვოისი უკვე გატარებულია! Draft #{existing.get('id')}", "DUPLICATE", str(existing))
+    return ok_response("Invoice processed", {
         "tenant_id": tenant_id,
         "filename": file.filename,
         "fields": fields,
         "draft": draft,
-        "message": "✅ ინვოისი დამუშავდა",
-    }
+    })
 
 
 @router.get("/preview/{message_id}/{filename}")

@@ -25,7 +25,7 @@ class BalanceCredsPayload(BaseModel):
 def get_status(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return {"ok": True, **get_credentials_status(tenant_id)}
+    return ok_response("ok", {**get_credentials_status(tenant_id)})
 
 
 @router.post("/save")
@@ -33,7 +33,7 @@ def save_creds(body: BalanceCredsPayload, request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.api_key:
-        return {"ok": False, "error": "api_key required"}
+        return error_response("api_key required", "ERROR", "")
     ok = save_balance_credentials(
         tenant_id=tenant_id,
         api_key=body.api_key,
@@ -41,8 +41,8 @@ def save_creds(body: BalanceCredsPayload, request: Request):
         api_base=body.api_base or "https://api.balance.ge",
     )
     if ok:
-        return {"ok": True, "message": "Balance.ge credentials saved"}
-    return {"ok": False, "error": "DB save failed"}
+        return ok_response("ok", {"message": "Balance.ge credentials saved"})
+    return error_response("DB save failed", "ERROR", "")
 
 
 @router.post("/test")
@@ -54,6 +54,8 @@ def test_connection(request: Request):
         from app.api.connectors.balance_connector import BalanceConnector
         conn = BalanceConnector(tenant_id=tenant_id)
         status = conn.status()
-        return {"ok": status.get("connected", False), **status}
+        if status.get("connected", False):
+            return ok_response("Connected", status)
+        return error_response("Not connected", "NOT_CONNECTED", status.get("error", ""))
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return error_response(str(e), "ERROR", "")

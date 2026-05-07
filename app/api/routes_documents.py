@@ -14,27 +14,18 @@ from fastapi import APIRouter, UploadFile, File, Request, Query
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
-from app.api.db import get_conn, get_db, _q
+from app.api.db import get_conn, _q
 from app.api.security import limiter
 from app.api.services.storage_service import upload_file as gcs_upload, safe_download
 from app.api.metrics import FILE_PREVIEW_DURATION
 from app.api.authz import require_permission
 from app.api.services.document_processing_service import (
-    _confidence_score,
-    _parse_company_from_notes,
-    _resolve_seller_name,
-    _build_description,
-    _build_partner,
-    _get_tenant_vat,
-    _upsert_counterparty,
-    _mark_doc_status,
-    _apply_completeness,
-    _refresh_related_drafts,
     _dec_or_none,
     _parse_date,
     _extract_from_file,
     _try_match_triangle,
     _also_queue_for_pipeline,
+    _refresh_related_drafts,
     _process_document_background,
 )
 
@@ -58,40 +49,29 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     mime_type = file.content_type or "application/pdf"
 
     # ── 1. Dedup by file hash ──────────────────────────────────────────────
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content FROM processed_documents WHERE tenant_id = %s AND file_hash = %s",
-        (tenant_id, file_hash),
-    )
-    existing_file = cur.fetchone()
-    cur.close()
-    conn.close()
+    async with get_conn() as conn:
+        existing_file = await conn.fetchrow(_q(
+            "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
+            "FROM processed_documents WHERE tenant_id = %s AND file_hash = %s"
+        ), tenant_id, file_hash)
 
-    if existing_file and existing_file[1]:
-        # File already stored — check if the linked draft is still active
-        doc_id_existing = existing_file[0]
-        conn2 = get_db(tenant_id)
-        cur2 = conn2.cursor()
-        cur2.execute(
-            "SELECT id, status FROM journal_drafts WHERE source_document_id = %s AND tenant_id = %s ORDER BY id DESC LIMIT 1",
-            (doc_id_existing, tenant_id),
-        )
-        existing_draft = cur2.fetchone()
-        cur2.close()
-        conn2.close()
+    if existing_file and existing_file["has_content"]:
+        doc_id_existing = existing_file["id"]
+        async with get_conn() as conn:
+            existing_draft = await conn.fetchrow(_q(
+                "SELECT id, status FROM journal_drafts "
+                "WHERE source_document_id = %s AND tenant_id = %s ORDER BY id DESC LIMIT 1"
+            ), doc_id_existing, tenant_id)
 
         _terminal = {'rejected', 'posted', 'auto_approved'}
-        draft_is_terminal = (existing_draft is None) or (existing_draft[1] in _terminal)
+        draft_is_terminal = (existing_draft is None) or (existing_draft["status"] in _terminal)
 
         if not draft_is_terminal:
-            # Draft is still actionable — real duplicate
             return ok_response("Duplicate file", {
                 "status": "duplicate_file",
                 "message": "ეს ფაილი უკვე ატვირთულია",
-                "existing_draft_id": existing_draft[0] if existing_draft else None,
+                "existing_draft_id": existing_draft["id"] if existing_draft else None,
             })
-        # Draft was rejected/deleted — re-trigger pipeline on the existing stored file
         asyncio.create_task(
             _process_document_background(doc_id_existing, tenant_id, file_bytes, mime_type, file.filename or "document")
         )
@@ -101,82 +81,53 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
             "doc_id": doc_id_existing,
         })
 
-    if existing_file and not existing_file[1]:
-        # Record exists but content was never stored — patch it
-        doc_id = existing_file[0]
+    if existing_file and not existing_file["has_content"]:
+        doc_id = existing_file["id"]
         gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
-        conn_patch = get_db(tenant_id)
-        cur_patch = conn_patch.cursor()
-        try:
+        async with get_conn() as conn:
             if gcs_path:
-                cur_patch.execute(
-                    "UPDATE processed_documents SET gcs_path = %s WHERE id = %s AND tenant_id = %s",
-                    (gcs_path, doc_id, tenant_id),
-                )
+                await conn.execute(_q(
+                    "UPDATE processed_documents SET gcs_path = %s WHERE id = %s AND tenant_id = %s"
+                ), gcs_path, doc_id, tenant_id)
             else:
-                cur_patch.execute(
-                    "UPDATE processed_documents SET file_content = %s WHERE id = %s AND tenant_id = %s",
-                    (file_bytes, doc_id, tenant_id),
-                )
-            conn_patch.commit()
-        finally:
-            cur_patch.close()
-            conn_patch.close()
+                await conn.execute(_q(
+                    "UPDATE processed_documents SET file_content = %s WHERE id = %s AND tenant_id = %s"
+                ), file_bytes, doc_id, tenant_id)
         log.info("action=doc_content_patched doc_id=%s tenant=%s", doc_id, tenant_id)
-        conn2 = get_db(tenant_id)
-        cur2 = conn2.cursor()
-        cur2.execute(
-            "SELECT id, status FROM journal_drafts WHERE source_document_id = %s AND tenant_id = %s LIMIT 1",
-            (doc_id, tenant_id),
-        )
-        existing_draft = cur2.fetchone()
-        cur2.close()
-        conn2.close()
+        async with get_conn() as conn:
+            existing_draft = await conn.fetchrow(_q(
+                "SELECT id, status FROM journal_drafts "
+                "WHERE source_document_id = %s AND tenant_id = %s LIMIT 1"
+            ), doc_id, tenant_id)
         return ok_response("File content restored", {
             "status": "content_restored",
             "message": "ფაილის შინაარსი განახლდა — 👁 ღილაკი ახლა მუშაობს",
             "doc_id": doc_id,
-            "existing_draft_id": existing_draft[0] if existing_draft else None,
+            "existing_draft_id": existing_draft["id"] if existing_draft else None,
         })
 
     # ── 2. Upload to GCS (or fall back to DB storage if GCS not configured) ──
     gcs_path = gcs_upload(file_bytes, file.filename or "document", mime_type, tenant_id)
-    # gcs_path is None when GCS is unavailable → store bytes in file_content column
 
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
     try:
-        if gcs_path:
-            cur.execute(
-                """
-                INSERT INTO processed_documents
-                    (tenant_id, file_hash, file_name, file_size_bytes, mime_type, gcs_path, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'processing')
-                RETURNING id
-                """,
-                (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, gcs_path),
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO processed_documents
-                    (tenant_id, file_hash, file_name, file_size_bytes, mime_type, file_content, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'processing')
-                RETURNING id
-                """,
-                (tenant_id, file_hash, file.filename, len(file_bytes), mime_type, file_bytes),
-            )
-        doc_id = cur.fetchone()[0]
-        conn.commit()
+        async with get_conn() as conn:
+            if gcs_path:
+                doc_id = await conn.fetchval(_q("""
+                    INSERT INTO processed_documents
+                        (tenant_id, file_hash, file_name, file_size_bytes, mime_type, gcs_path, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+                    RETURNING id
+                """), tenant_id, file_hash, file.filename, len(file_bytes), mime_type, gcs_path)
+            else:
+                doc_id = await conn.fetchval(_q("""
+                    INSERT INTO processed_documents
+                        (tenant_id, file_hash, file_name, file_size_bytes, mime_type, file_content, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+                    RETURNING id
+                """), tenant_id, file_hash, file.filename, len(file_bytes), mime_type, file_bytes)
     except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
         log.error("processed_documents insert failed: %s", e)
         return error_response("DB error", "DB_ERROR", str(e))
-    finally:
-        cur.close()
-        conn.close()
 
     # ── 3. Fire background processing — return immediately ─────────────────
     asyncio.create_task(
@@ -221,41 +172,28 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
         "raw_text": (parsed.get("text") or "")[:5000],
     }
 
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO waybills
-                (tenant_id, waybill_number, waybill_date, seller_inn, seller_name,
-                 buyer_inn, buyer_name, subtotal, vat_amount, total_amount,
-                 status, raw_text, version)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s,1)
-            RETURNING id
-            """,
-            (
+        async with get_conn() as conn:
+            waybill_id = await conn.fetchval(_q("""
+                INSERT INTO waybills
+                    (tenant_id, waybill_number, waybill_date, seller_inn, seller_name,
+                     buyer_inn, buyer_name, subtotal, vat_amount, total_amount,
+                     status, raw_text, version)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s,1)
+                RETURNING id
+            """),
                 tenant_id, doc["waybill_number"], doc["waybill_date"],
                 doc["seller_inn"], doc["seller_name"],
                 doc["buyer_inn"], doc["buyer_name"],
                 doc["subtotal"], doc["vat_amount"], doc["total_amount"],
                 doc["raw_text"],
-            ),
-        )
-        waybill_id = cur.fetchone()[0]
-        conn.commit()
+            )
     except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
         return error_response("DB error saving waybill", "DB_ERROR", str(e))
-    finally:
-        cur.close()
 
-    match_info = _try_match_triangle(conn, tenant_id, "waybill", waybill_id, doc)
-    conn.close()
-
-    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
-    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "waybill.pdf")
+    match_info = await _try_match_triangle(tenant_id, "waybill", waybill_id, doc)
+    await _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    await _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "waybill.pdf")
 
     log.info("action=waybill_uploaded tenant=%s id=%s num=%s",
              tenant_id, waybill_id, doc["waybill_number"])
@@ -299,41 +237,28 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
         "raw_text": (parsed.get("text") or "")[:5000],
     }
 
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO tax_invoices
-                (tenant_id, invoice_number, invoice_series, invoice_date,
-                 seller_inn, seller_name, buyer_inn, buyer_name,
-                 subtotal, vat_amount, total_amount, status, raw_text)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
-            RETURNING id
-            """,
-            (
+        async with get_conn() as conn:
+            ti_id = await conn.fetchval(_q("""
+                INSERT INTO tax_invoices
+                    (tenant_id, invoice_number, invoice_series, invoice_date,
+                     seller_inn, seller_name, buyer_inn, buyer_name,
+                     subtotal, vat_amount, total_amount, status, raw_text)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
+                RETURNING id
+            """),
                 tenant_id, doc["invoice_number"], doc["invoice_series"], doc["invoice_date"],
                 doc["seller_inn"], doc["seller_name"],
                 doc["buyer_inn"], doc["buyer_name"],
                 doc["subtotal"], doc["vat_amount"], doc["total_amount"],
                 doc["raw_text"],
-            ),
-        )
-        ti_id = cur.fetchone()[0]
-        conn.commit()
+            )
     except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
         return error_response("DB error saving tax invoice", "DB_ERROR", str(e))
-    finally:
-        cur.close()
 
-    match_info = _try_match_triangle(conn, tenant_id, "tax_invoice", ti_id, doc)
-    conn.close()
-
-    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
-    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "tax_invoice.pdf")
+    match_info = await _try_match_triangle(tenant_id, "tax_invoice", ti_id, doc)
+    await _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    await _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "tax_invoice.pdf")
 
     log.info("action=tax_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ti_id, doc["invoice_number"])
@@ -376,41 +301,28 @@ async def upload_commercial_invoice(file: UploadFile = File(...), request: Reque
         "raw_text": (parsed.get("text") or "")[:5000],
     }
 
-    conn = get_db(tenant_id)
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO commercial_invoices
-                (tenant_id, invoice_number, invoice_date,
-                 seller_inn, seller_name, buyer_inn, buyer_name,
-                 subtotal, vat_amount, total_amount, status, raw_text)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
-            RETURNING id
-            """,
-            (
+        async with get_conn() as conn:
+            ci_id = await conn.fetchval(_q("""
+                INSERT INTO commercial_invoices
+                    (tenant_id, invoice_number, invoice_date,
+                     seller_inn, seller_name, buyer_inn, buyer_name,
+                     subtotal, vat_amount, total_amount, status, raw_text)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s)
+                RETURNING id
+            """),
                 tenant_id, doc["invoice_number"], doc["invoice_date"],
                 doc["seller_inn"], doc["seller_name"],
                 doc["buyer_inn"], doc["buyer_name"],
                 doc["subtotal"], doc["vat_amount"], doc["total_amount"],
                 doc["raw_text"],
-            ),
-        )
-        ci_id = cur.fetchone()[0]
-        conn.commit()
+            )
     except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
         return error_response("DB error saving commercial invoice", "DB_ERROR", str(e))
-    finally:
-        cur.close()
 
-    match_info = _try_match_triangle(conn, tenant_id, "commercial_invoice", ci_id, doc)
-    conn.close()
-
-    _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
-    _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "commercial_invoice.pdf")
+    match_info = await _try_match_triangle(tenant_id, "commercial_invoice", ci_id, doc)
+    await _refresh_related_drafts(tenant_id, doc.get("seller_inn"), doc.get("buyer_inn"))
+    await _also_queue_for_pipeline(tenant_id, file_bytes, mime_type, file.filename or "commercial_invoice.pdf")
 
     log.info("action=commercial_invoice_uploaded tenant=%s id=%s num=%s",
              tenant_id, ci_id, doc["invoice_number"])
@@ -751,5 +663,4 @@ async def get_document_signed_url(doc_id: int, request: Request = None):
         if signed_url:
             return ok_response("Signed URL", {"signed_url": signed_url, "file_name": file_name, "fallback": False})
 
-    # GCS unavailable or no gcs_path — signal client to use /file endpoint
     return ok_response("No GCS path", {"signed_url": None, "file_name": file_name, "fallback": True})

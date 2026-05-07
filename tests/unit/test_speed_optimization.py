@@ -52,7 +52,7 @@ def test_upload_returns_processing_status():
 def test_background_sets_failed_on_exception():
     """_process_document_background sets status=failed on any exception."""
     import asyncio
-    from app.api.routes_documents import _mark_doc_status
+    from app.api.services.document_processing_service import _mark_doc_status
 
     status_updates = []
 

@@ -106,7 +106,7 @@ def compute_match_score(
     }
 
 
-def find_candidates(conn, tenant_id: str, doc_type: str, doc: dict) -> list[dict]:
+async def find_candidates(conn, tenant_id: str, doc_type: str, doc: dict) -> list[dict]:
     """Find matching documents of other types by INN + amount proximity."""
     candidates = []
     seller_inn = (doc.get("seller_inn") or "").strip()
@@ -116,138 +116,91 @@ def find_candidates(conn, tenant_id: str, doc_type: str, doc: dict) -> list[dict
     if not seller_inn and not buyer_inn:
         return candidates
 
-    cur = conn.cursor()
-
     if doc_type != "waybill":
-        cur.execute(
-            """
-            SELECT id, waybill_number AS number, waybill_date AS doc_date,
-                   seller_inn, buyer_inn, total_amount
-            FROM waybills
-            WHERE tenant_id = %s
-              AND (seller_inn = %s OR buyer_inn = %s)
-            ORDER BY waybill_date DESC LIMIT 10
-            """,
-            (tenant_id, seller_inn, buyer_inn),
+        rows = await conn.fetch(
+            "SELECT id, waybill_number AS number, waybill_date AS doc_date, "
+            "seller_inn, buyer_inn, total_amount "
+            "FROM waybills WHERE tenant_id = $1 AND (seller_inn = $2 OR buyer_inn = $3) "
+            "ORDER BY waybill_date DESC LIMIT 10",
+            tenant_id, seller_inn, buyer_inn,
         )
-        for r in cur.fetchall():
-            candidates.append({"doc_type": "waybill", "id": r[0], "number": r[1],
-                                "doc_date": str(r[2]), "seller_inn": r[3],
-                                "buyer_inn": r[4], "total_amount": r[5]})
+        for r in rows:
+            candidates.append({"doc_type": "waybill", "id": r["id"], "number": r["number"],
+                                "doc_date": str(r["doc_date"]), "seller_inn": r["seller_inn"],
+                                "buyer_inn": r["buyer_inn"], "total_amount": r["total_amount"]})
 
     if doc_type != "tax_invoice":
-        cur.execute(
-            """
-            SELECT id, invoice_number AS number, invoice_date AS doc_date,
-                   seller_inn, buyer_inn, total_amount
-            FROM tax_invoices
-            WHERE tenant_id = %s
-              AND (seller_inn = %s OR buyer_inn = %s)
-            ORDER BY invoice_date DESC LIMIT 10
-            """,
-            (tenant_id, seller_inn, buyer_inn),
+        rows = await conn.fetch(
+            "SELECT id, invoice_number AS number, invoice_date AS doc_date, "
+            "seller_inn, buyer_inn, total_amount "
+            "FROM tax_invoices WHERE tenant_id = $1 AND (seller_inn = $2 OR buyer_inn = $3) "
+            "ORDER BY invoice_date DESC LIMIT 10",
+            tenant_id, seller_inn, buyer_inn,
         )
-        for r in cur.fetchall():
-            candidates.append({"doc_type": "tax_invoice", "id": r[0], "number": r[1],
-                                "doc_date": str(r[2]), "seller_inn": r[3],
-                                "buyer_inn": r[4], "total_amount": r[5]})
+        for r in rows:
+            candidates.append({"doc_type": "tax_invoice", "id": r["id"], "number": r["number"],
+                                "doc_date": str(r["doc_date"]), "seller_inn": r["seller_inn"],
+                                "buyer_inn": r["buyer_inn"], "total_amount": r["total_amount"]})
 
     if doc_type != "commercial_invoice":
-        cur.execute(
-            """
-            SELECT id, invoice_number AS number, invoice_date AS doc_date,
-                   seller_inn, buyer_inn, total_amount
-            FROM commercial_invoices
-            WHERE tenant_id = %s
-              AND (seller_inn = %s OR buyer_inn = %s)
-            ORDER BY invoice_date DESC LIMIT 10
-            """,
-            (tenant_id, seller_inn, buyer_inn),
+        rows = await conn.fetch(
+            "SELECT id, invoice_number AS number, invoice_date AS doc_date, "
+            "seller_inn, buyer_inn, total_amount "
+            "FROM commercial_invoices WHERE tenant_id = $1 AND (seller_inn = $2 OR buyer_inn = $3) "
+            "ORDER BY invoice_date DESC LIMIT 10",
+            tenant_id, seller_inn, buyer_inn,
         )
-        for r in cur.fetchall():
-            candidates.append({"doc_type": "commercial_invoice", "id": r[0], "number": r[1],
-                                "doc_date": str(r[2]), "seller_inn": r[3],
-                                "buyer_inn": r[4], "total_amount": r[5]})
-
-    cur.close()
+        for r in rows:
+            candidates.append({"doc_type": "commercial_invoice", "id": r["id"], "number": r["number"],
+                                "doc_date": str(r["doc_date"]), "seller_inn": r["seller_inn"],
+                                "buyer_inn": r["buyer_inn"], "total_amount": r["total_amount"]})
 
     if amount is not None:
         candidates.sort(
             key=lambda c: abs(((_dec(c.get("total_amount")) or Decimal(0)) - amount))
         )
-
     return candidates
 
 
-def upsert_triangle_match(conn, tenant_id: str, match_data: dict) -> int:
+async def upsert_triangle_match(conn, tenant_id: str, match_data: dict) -> int:
     """Insert or update a triangle_matches row. Returns match id."""
-    cur = conn.cursor()
     waybill_id = match_data.get("waybill_id")
     tax_invoice_id = match_data.get("tax_invoice_id")
     commercial_invoice_id = match_data.get("commercial_invoice_id")
-
-    # Check if a match already exists for this combination
-    cur.execute(
-        """
-        SELECT id FROM triangle_matches
-        WHERE tenant_id = %s
-          AND (waybill_id = %s OR (%s IS NULL AND waybill_id IS NULL))
-          AND (tax_invoice_id = %s OR (%s IS NULL AND tax_invoice_id IS NULL))
-        LIMIT 1
-        """,
-        (tenant_id, waybill_id, waybill_id, tax_invoice_id, tax_invoice_id),
-    )
-    existing = cur.fetchone()
-
     score = match_data.get("match_score", 0)
     status = match_data.get("match_status", "partial")
     mismatches = match_data.get("mismatch_fields", [])
 
-    if existing:
-        cur.execute(
-            """
-            UPDATE triangle_matches
-            SET tax_invoice_id = %s,
-                commercial_invoice_id = %s,
-                match_score = %s,
-                match_status = %s,
-                mismatch_fields = %s,
-                waybill_total = %s,
-                tax_invoice_total = %s,
-                commercial_invoice_total = %s,
-                amount_diff = %s,
-                updated_at = NOW()
-            WHERE id = %s
-            RETURNING id
-            """,
-            (
-                tax_invoice_id, commercial_invoice_id, score, status,
-                str(mismatches),
+    async with conn.transaction():
+        existing = await conn.fetchrow(
+            "SELECT id FROM triangle_matches WHERE tenant_id = $1 "
+            "AND (waybill_id = $2 OR ($2 IS NULL AND waybill_id IS NULL)) "
+            "AND (tax_invoice_id = $3 OR ($3 IS NULL AND tax_invoice_id IS NULL)) "
+            "LIMIT 1",
+            tenant_id, waybill_id, tax_invoice_id,
+        )
+        if existing:
+            match_id = await conn.fetchval(
+                "UPDATE triangle_matches SET "
+                "tax_invoice_id=$1, commercial_invoice_id=$2, match_score=$3, match_status=$4, "
+                "mismatch_fields=$5, waybill_total=$6, tax_invoice_total=$7, "
+                "commercial_invoice_total=$8, amount_diff=$9, updated_at=NOW() "
+                "WHERE id=$10 RETURNING id",
+                tax_invoice_id, commercial_invoice_id, score, status, str(mismatches),
                 match_data.get("waybill_total"), match_data.get("tax_invoice_total"),
                 match_data.get("commercial_invoice_total"), match_data.get("amount_diff"),
-                existing[0],
-            ),
-        )
-        match_id = cur.fetchone()[0]
-    else:
-        cur.execute(
-            """
-            INSERT INTO triangle_matches
-                (tenant_id, waybill_id, tax_invoice_id, commercial_invoice_id,
-                 match_score, match_status, mismatch_fields,
-                 waybill_total, tax_invoice_total, commercial_invoice_total, amount_diff)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (
+                existing["id"],
+            )
+        else:
+            match_id = await conn.fetchval(
+                "INSERT INTO triangle_matches "
+                "(tenant_id, waybill_id, tax_invoice_id, commercial_invoice_id, "
+                "match_score, match_status, mismatch_fields, "
+                "waybill_total, tax_invoice_total, commercial_invoice_total, amount_diff) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
                 tenant_id, waybill_id, tax_invoice_id, commercial_invoice_id,
                 score, status, str(mismatches),
                 match_data.get("waybill_total"), match_data.get("tax_invoice_total"),
                 match_data.get("commercial_invoice_total"), match_data.get("amount_diff"),
-            ),
-        )
-        match_id = cur.fetchone()[0]
-
-    conn.commit()
-    cur.close()
+            )
     return match_id

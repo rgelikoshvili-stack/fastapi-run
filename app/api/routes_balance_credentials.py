@@ -7,6 +7,7 @@ from typing import Optional
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+from app.api.response_utils import ok_response, error_response
 from app.api.services.balance_credentials_service import (
     get_credentials_status,
     save_balance_credentials,
@@ -22,19 +23,19 @@ class BalanceCredsPayload(BaseModel):
 
 
 @router.get("/status")
-def get_status(request: Request):
+async def get_status(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return ok_response("ok", {**get_credentials_status(tenant_id)})
+    return ok_response("ok", await get_credentials_status(tenant_id))
 
 
 @router.post("/save")
-def save_creds(body: BalanceCredsPayload, request: Request):
+async def save_creds(body: BalanceCredsPayload, request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.api_key:
         return error_response("api_key required", "ERROR", "")
-    ok = save_balance_credentials(
+    ok = await save_balance_credentials(
         tenant_id=tenant_id,
         api_key=body.api_key,
         company_id=body.company_id or "",

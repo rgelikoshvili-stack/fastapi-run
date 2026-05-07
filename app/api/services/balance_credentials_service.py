@@ -5,25 +5,21 @@ Falls back to global env vars if no per-tenant record exists.
 """
 import logging
 import os
+import psycopg2
 from datetime import datetime, timezone
 from typing import Optional
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
 
-def _get_db():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL not configured")
-    return psycopg2.connect(url)
-
-
 def ensure_table():
     """Create table if not exists — called at startup."""
-    conn = _get_db()
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        return
+    conn = psycopg2.connect(url)
     with conn.cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tenant_balance_credentials (
@@ -41,21 +37,17 @@ def ensure_table():
     conn.close()
 
 
-def get_balance_credentials(tenant_id: str) -> dict:
+async def get_balance_credentials(tenant_id: str) -> dict:
     """
     Return Balance.ge credentials for this tenant.
     Priority: DB record → global env vars.
     """
     try:
-        conn = _get_db()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
                 "SELECT api_key, company_id, api_base FROM tenant_balance_credentials "
-                "WHERE tenant_id = %s AND active = TRUE",
-                (tenant_id,),
-            )
-            row = cur.fetchone()
-        conn.close()
+                "WHERE tenant_id = %s AND active = TRUE"
+            ), tenant_id)
         if row:
             return {
                 "api_key": row["api_key"],
@@ -66,7 +58,6 @@ def get_balance_credentials(tenant_id: str) -> dict:
     except Exception as e:
         log.warning("get_balance_credentials DB: %s", e)
 
-    # Fall back to global env vars
     api_key = os.environ.get("BALANCE_API_KEY", "")
     if api_key:
         return {
@@ -78,17 +69,15 @@ def get_balance_credentials(tenant_id: str) -> dict:
     return {"api_key": "", "company_id": "", "api_base": "https://api.balance.ge", "source": "none"}
 
 
-def save_balance_credentials(
+async def save_balance_credentials(
     tenant_id: str,
     api_key: str,
     company_id: str = "",
     api_base: str = "https://api.balance.ge",
 ) -> bool:
     try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
+        async with get_conn() as conn:
+            await conn.execute(_q("""
                 INSERT INTO tenant_balance_credentials
                     (tenant_id, api_key, company_id, api_base, updated_at)
                 VALUES (%s, %s, %s, %s, %s)
@@ -98,20 +87,16 @@ def save_balance_credentials(
                         api_base = EXCLUDED.api_base,
                         active = TRUE,
                         updated_at = EXCLUDED.updated_at
-                """,
-                (tenant_id, api_key, company_id, api_base, datetime.now(timezone.utc)),
-            )
-        conn.commit()
-        conn.close()
+            """), tenant_id, api_key, company_id, api_base, datetime.now(timezone.utc))
         return True
     except Exception as e:
         log.error("save_balance_credentials: %s", e)
         return False
 
 
-def get_credentials_status(tenant_id: str) -> dict:
+async def get_credentials_status(tenant_id: str) -> dict:
     """Return status summary for settings UI."""
-    creds = get_balance_credentials(tenant_id)
+    creds = await get_balance_credentials(tenant_id)
     configured = bool(creds.get("api_key"))
     return {
         "configured": configured,

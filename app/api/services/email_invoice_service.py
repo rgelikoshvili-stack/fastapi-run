@@ -59,10 +59,20 @@ def _get_tenant_imap_creds(tenant_id: str = None):
     """Return (user, password) — tenant DB creds first, fallback to env vars."""
     if tenant_id:
         try:
-            from app.api.services.email_collector import get_tenant_email_credentials
-            creds = get_tenant_email_credentials(tenant_id)
-            if creds:
-                return creds["email"], creds["app_password"]
+            import psycopg2, os as _os
+            _url = _os.environ.get("DATABASE_URL")
+            if _url:
+                _conn = psycopg2.connect(_url)
+                with _conn.cursor() as _cur:
+                    _cur.execute(
+                        "SELECT email, app_password FROM tenant_email_credentials "
+                        "WHERE tenant_id = %s AND active = TRUE",
+                        (tenant_id,),
+                    )
+                    row = _cur.fetchone()
+                _conn.close()
+                if row:
+                    return row[0], row[1]
         except Exception as e:
             log.warning("tenant creds failed: %s", e)
     return IMAP_USER, IMAP_PASS

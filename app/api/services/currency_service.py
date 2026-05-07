@@ -9,7 +9,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 from datetime import date as _date
 
-from app.api.db import get_db
+from app.api.db import get_db, get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +96,62 @@ def _rate_to_gel(currency: str, for_date: Optional[str] = None) -> Decimal:
         return Decimal(str(fallback))
     log.error("currency_service: no rate found for %s in DB or fallback table", currency)
     return Decimal("0")
+
+
+async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> Decimal:
+    """Async asyncpg version of _rate_to_gel."""
+    if currency == "GEL":
+        return Decimal("1.0")
+    try:
+        async with get_conn() as conn:
+            if for_date:
+                row = await conn.fetchrow(_q("""
+                    SELECT rate FROM exchange_rates
+                    WHERE (from_code = %s OR currency = %s)
+                      AND (to_code = 'GEL' OR to_code IS NULL)
+                      AND DATE(fetched_at) <= %s
+                    ORDER BY fetched_at DESC LIMIT 1
+                """), currency, currency, for_date)
+            else:
+                row = await conn.fetchrow(_q("""
+                    SELECT rate FROM exchange_rates
+                    WHERE (from_code = %s OR currency = %s)
+                      AND (to_code = 'GEL' OR to_code IS NULL)
+                    ORDER BY COALESCE(fetched_at, updated_at) DESC LIMIT 1
+                """), currency, currency)
+        if row:
+            return Decimal(str(row["rate"]))
+    except Exception as e:
+        log.warning("currency_service._rate_to_gel_async db error: %s", e)
+    fallback = _DEFAULT_RATES.get(currency)
+    if fallback:
+        log.warning(
+            "currency_service: no DB rate for %s — using hardcoded fallback %.4f.",
+            currency, fallback,
+        )
+        return Decimal(str(fallback))
+    log.error("currency_service: no rate found for %s in DB or fallback table", currency)
+    return Decimal("0")
+
+
+async def get_rate_async(from_code: str, to_code: str, for_date: Optional[str] = None) -> Decimal:
+    """Async version of get_rate for use in async contexts."""
+    from_code = from_code.upper()
+    to_code   = to_code.upper()
+    if from_code == to_code:
+        return Decimal("1.0")
+    if to_code == "GEL":
+        return await _rate_to_gel_async(from_code, for_date)
+    if from_code == "GEL":
+        r = await _rate_to_gel_async(to_code, for_date)
+        if r == Decimal("0"):
+            return Decimal("0")
+        return (Decimal("1.0") / r).quantize(Decimal("0.000001"), ROUND_HALF_UP)
+    gel_from = await _rate_to_gel_async(from_code, for_date)
+    gel_to   = await _rate_to_gel_async(to_code,   for_date)
+    if gel_to == Decimal("0"):
+        return Decimal("0")
+    return (gel_from / gel_to).quantize(Decimal("0.000001"), ROUND_HALF_UP)
 
 
 def convert(amount: Decimal, from_code: str, to_code: str,

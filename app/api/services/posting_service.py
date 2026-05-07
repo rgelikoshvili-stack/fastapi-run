@@ -36,7 +36,7 @@ def _normalize_target(target: str) -> str:
 
 
 
-def _draft_to_posting_payload(draft: dict) -> dict:
+async def _draft_to_posting_payload(draft: dict) -> dict:
     lines = _normalize_lines(
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
@@ -57,8 +57,8 @@ def _draft_to_posting_payload(draft: dict) -> dict:
 
     if currency != "GEL":
         try:
-            from app.api.services.currency_service import get_rate
-            rate = _to_decimal(get_rate(currency, "GEL", draft.get("date")))
+            from app.api.services.currency_service import get_rate_async
+            rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date")))
             amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
             payload["amount_gel"]    = float(amount_gel)
             payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
@@ -378,7 +378,7 @@ async def get_posting_payload_service(draft_id: int, tenant_id: str = "default")
     err = _validate_approved_draft(draft, draft_id, tenant_id)
     if err:
         return err
-    payload = _draft_to_posting_payload(draft)
+    payload = await _draft_to_posting_payload(draft)
     return ok_response("posting payload ready", payload)
 
 
@@ -713,7 +713,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     details=readiness,
                 )
 
-            payload = _draft_to_posting_payload(draft)
+            payload = await _draft_to_posting_payload(draft)
             entry_hash = _compute_entry_hash(
                 draft_id, tenant_id,
                 draft.get("amount", 0),

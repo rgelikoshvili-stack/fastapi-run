@@ -34,6 +34,7 @@
     const p = previewData?.preview ? previewData : null;
     const draft = p?.draft || {};
     const impact = p?.impact || {};
+    const canConfirm = !!p;
 
     const plColor = (impact.pl_impact || 0) >= 0 ? 'var(--green)' : 'var(--red)';
     const plSign  = (impact.pl_impact || 0) >= 0 ? '+' : '';
@@ -54,9 +55,14 @@
         ${!p ? '<div style="padding:16px;text-align:center;color:var(--gray-500)">Preview ვერ ჩაიტვირთა — ამ ნაბიჯის გამოტოვება შესაძლებელია.</div>' : `
         <!-- Draft summary -->
         <div style="background:var(--gray-50);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;line-height:1.7;">
+          <div><b>გატარების ID:</b> #${draftId}</div>
           <div><b>აღწერა:</b> ${esc(draft.description)}</div>
+          <div><b>პარტნიორი:</b> ${esc(draft.partner || '—')}</div>
           <div><b>თანხა:</b> <span style="font-weight:700;color:var(--blue)">${_fmtGEL(draft.amount)}</span></div>
+          <div><b>თარიღი:</b> ${esc(draft.date || '—')}</div>
           <div><b>Confidence:</b> ${Math.round((draft.confidence || 0) * 100)}%</div>
+          <div><b>წყარო დოკუმენტი:</b> ${draft.source_document_id ? `#${esc(draft.source_document_id)}` : '—'}</div>
+          <div><b>მიბმული ფაილი:</b> ${esc(draft.attached_file_name || '—')}</div>
         </div>
 
         <!-- Dr / Cr accounts -->
@@ -81,6 +87,16 @@
           <span style="color:var(--gray-500);margin-left:6px">(${impact.pl_direction || ''})</span>
         </div>` : ''}
 
+        ${impact.vat_change != null ? `
+        <div style="padding:10px;border-radius:10px;background:#fff7ed;margin-bottom:12px;font-size:12px;">
+          <b>დღგ გავლენა:</b> <span style="font-weight:700;color:#b45309">${impact.vat_change > 0 ? '+' : ''}${_fmtGEL(impact.vat_change)}</span>
+        </div>` : ''}
+
+        ${impact.tax_impact != null ? `
+        <div style="padding:10px;border-radius:10px;background:#f5f3ff;margin-bottom:12px;font-size:12px;">
+          <b>საგადასახადო გავლენა:</b> <span style="font-weight:700;color:#6d28d9">${impact.tax_type ? esc(impact.tax_type) + ' ' : ''}${_fmtGEL(impact.tax_impact)}</span>
+        </div>` : ''}
+
         <!-- Notes -->
         ${(impact.notes||[]).length ? `
         <div style="font-size:11px;color:var(--gray-600);padding:10px;background:var(--gray-50);border-radius:8px;margin-bottom:14px;">
@@ -91,7 +107,7 @@
         <!-- Action buttons -->
         <div style="display:flex;gap:10px;justify-content:flex-end;">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('shadow-modal').remove()">გაუქმება</button>
-          <button class="btn btn-green btn-sm" id="shadow-confirm-btn" onclick="shadowConfirm(${draftId})">
+          <button class="btn btn-green btn-sm" id="shadow-confirm-btn" ${canConfirm ? `onclick="shadowConfirm(${draftId})"` : 'disabled aria-disabled="true"'}>
             ✅ დადასტურება
           </button>
         </div>

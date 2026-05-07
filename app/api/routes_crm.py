@@ -24,6 +24,13 @@ class InteractionCreate(BaseModel):
     amount: Optional[float] = 0
     created_by: Optional[str] = None
 
+
+class CounterpartyCreate(BaseModel):
+    inn: str
+    name: str
+    type: Optional[str] = "customer"
+    total_transactions: Optional[int] = 0
+
 @router.get("/customers")
 async def list_customers(request: Request, type: Optional[str] = None, status: Optional[str] = None):
     require_permission(request, "crm:read")
@@ -38,6 +45,36 @@ async def list_customers(request: Request, type: Optional[str] = None, status: O
     async with get_conn() as conn:
         customers = [dict(r) for r in await conn.fetch(sql, *params)]
     return ok_response("Customers", {"count": len(customers), "tenant_id": tenant_id, "customers": customers})
+
+
+@router.get("/counterparties")
+async def list_counterparties(request: Request, type: Optional[str] = None):
+    require_permission(request, "crm:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    sql = "SELECT * FROM counterparties WHERE tenant_id=%s"
+    params: list = [tenant_id]
+    if type:
+        params.append(type)
+        sql += f" AND type=%s"
+    sql += " ORDER BY total_transactions DESC NULLS LAST, name"
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(sql), *params)]
+    return ok_response("Counterparties", {"count": len(rows), "tenant_id": tenant_id, "counterparties": rows})
+
+
+@router.post("/counterparties/create")
+async def create_counterparty(data: CounterpartyCreate, request: Request):
+    require_permission(request, "crm:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    async with get_conn() as conn:
+        try:
+            new_id = await conn.fetchval(_q("""
+                INSERT INTO counterparties (tenant_id, inn, name, type, total_transactions)
+                VALUES (%s,%s,%s,%s,%s) RETURNING id
+            """), tenant_id, data.inn, data.name, data.type, data.total_transactions)
+        except Exception as e:
+            return error_response("Create failed", "CREATE_ERROR", str(e))
+    return ok_response("Counterparty created", {"id": new_id, "inn": data.inn, "tenant_id": tenant_id})
 
 @router.post("/customers/create")
 async def create_customer(data: CustomerCreate, request: Request):

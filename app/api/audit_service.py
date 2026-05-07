@@ -1,5 +1,8 @@
 import json
+import logging
 from app.api.db import get_db
+
+log = logging.getLogger(__name__)
 
 def log_event(event_type: str, details: dict | None = None, actor: str = "system", tenant_id: str = "default"):
     if details is None:
@@ -35,7 +38,13 @@ def log_event(event_type: str, details: dict | None = None, actor: str = "system
             )
             conn.commit()
         except Exception as e2:
-            print(f"Audit log error: {e2}")
+            log.exception(
+                "audit_log_write_failed event_type=%s actor=%s tenant_id=%s error=%s",
+                event_type,
+                actor,
+                tenant_id,
+                e2,
+            )
     finally:
         if cur:
             cur.close()

@@ -10,7 +10,7 @@ def register_routers(app: FastAPI) -> None:
     """Include every router into *app*. Called once at startup from main.py."""
 
     from app.api import routes_health
-    from app.api.routes_health import version_router
+    from app.api import routes_version
     from app.api import routes_debug
     from app.api import routes_bank_csv
     from app.api import routes_bank_process
@@ -96,7 +96,7 @@ def register_routers(app: FastAPI) -> None:
 
     # ── new-style routers (registered first to match original order) ────────
     app.include_router(routes_health.router)
-    app.include_router(version_router)
+    app.include_router(routes_version.router)
     app.include_router(inventory_router)
     app.include_router(audit_trail_router)
     app.include_router(totp_router)

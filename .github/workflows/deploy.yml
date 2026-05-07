@@ -31,12 +31,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Compile Python modules
+        run: python -m compileall -q app tests main.py
+
       - name: Run unit tests
         env:
-          JWT_SECRET: test-secret-ci
+          JWT_SECRET: test-secret-ci-32-bytes-minimum-key
           TEST_MODE: "1"
           DATABASE_URL: ""
         run: python -m pytest tests/unit/ -v --tb=short --ignore=tests/unit/test_document_upload.py -q
+
+      - name: Run integration smoke tests
+        env:
+          JWT_SECRET: test-secret-ci-32-bytes-minimum-key
+          TEST_MODE: "1"
+          DATABASE_URL: ""
+        run: python -m pytest tests/integration/test_invoice_ocr_fallback.py --tb=short -q
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -95,14 +105,14 @@ jobs:
       - name: Validate secrets
         run: |
           if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
-            echo "❌ GCP_SA_KEY secret is not set. Add it in GitHub → Settings → Secrets → Actions."
+            echo "GCP_SA_KEY secret is not set. Add it in GitHub > Settings > Secrets > Actions."
             exit 1
           fi
           if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
-            echo "❌ GCP_PROJECT_ID secret is not set."
+            echo "GCP_PROJECT_ID secret is not set."
             exit 1
           fi
-          echo "✅ Secrets present"
+          echo "Secrets present"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -113,6 +123,13 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
+
+      - name: Prepare deployment metadata
+        shell: bash
+        run: |
+          echo "COMMIT_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+          echo "ENVIRONMENT=production" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloud Run
         run: |
@@ -127,9 +144,10 @@ jobs:
             --cpu 2 \
             --concurrency 100 \
             --timeout 300 \
+            --set-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
             --quiet
 
-      - name: Smoke test — health check
+      - name: Smoke test - health check
         run: |
           echo "Checking: ${{ env.SERVICE_URL }}/health"
           BODY=$(curl -s \
@@ -140,10 +158,41 @@ jobs:
           echo "HTTP status: $STATUS"
           echo "Response body: $BODY"
           if [ "$STATUS" != "200" ]; then
-            echo "❌ Health check FAILED (HTTP $STATUS)" && exit 1
+            echo "Health check FAILED (HTTP $STATUS)" && exit 1
           fi
           if ! echo "$BODY" | grep -q '"ok":true'; then
-            echo "❌ Health check returned ok:false — liveness probe must return ok:true"
+            echo "Health check returned ok:false; liveness probe must return ok:true"
             exit 1
           fi
-          echo "✅ Health check PASSED (HTTP $STATUS, ok:true)"
+          echo "Health check PASSED (HTTP $STATUS, ok:true)"
+
+      - name: Smoke test - version check
+        run: |
+          echo "Checking: ${{ env.SERVICE_URL }}/version"
+          BODY=$(curl -s \
+            --retry 5 --retry-delay 5 --retry-connrefused \
+            "${{ env.SERVICE_URL }}/version")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ env.SERVICE_URL }}/version")
+          echo "HTTP status: $STATUS"
+          echo "Response body: $BODY"
+          if [ "$STATUS" != "200" ]; then
+            echo "Version check FAILED (HTTP $STATUS)" && exit 1
+          fi
+          if ! echo "$BODY" | grep -q '"ok":true'; then
+            echo "Version check returned ok:false"
+            exit 1
+          fi
+          if ! echo "$BODY" | grep -q "\"commit_sha\":\"$COMMIT_SHA\""; then
+            echo "Version check missing commit_sha $COMMIT_SHA"
+            exit 1
+          fi
+          if ! echo "$BODY" | grep -q "\"build_time\":\"$BUILD_TIME\""; then
+            echo "Version check missing build_time $BUILD_TIME"
+            exit 1
+          fi
+          if ! echo "$BODY" | grep -q "\"environment\":\"$ENVIRONMENT\""; then
+            echo "Version check missing environment $ENVIRONMENT"
+            exit 1
+          fi
+          echo "Version check PASSED (HTTP $STATUS, deployment metadata verified)"

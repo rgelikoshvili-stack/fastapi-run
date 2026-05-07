@@ -131,17 +131,3 @@ async def health_check_deep():
 @router.get("/ping")
 def ping():
     return ok_response("ok", {"pong": True, "ts": datetime.now(timezone.utc).isoformat()})
-
-
-# ── Version (standalone router) ──────────────────────────────────────────────
-
-version_router = APIRouter(tags=["health"])
-
-
-@version_router.get("/version")
-def get_version():
-    return ok_response("Version", {
-        "version": os.environ.get("APP_VERSION", "1.0.0"),
-        "service": "Bridge Hub",
-        "environment": os.environ.get("ENVIRONMENT", "production"),
-    })

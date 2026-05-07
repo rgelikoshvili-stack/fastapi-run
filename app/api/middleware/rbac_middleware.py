@@ -3,6 +3,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.api.authz import ROLE_PERMISSIONS
 from app.api.policy.permission_map import match_permission
+from app.api.observability import structured_log
 log = logging.getLogger(__name__)
 
 
@@ -17,6 +18,7 @@ async def rbac_middleware(request: Request, call_next):
         "/docs",
         "/openapi.json",
         "/health",
+        "/version",
         "/static",
         "/favicon",
         "/api/ai/",
@@ -52,6 +54,16 @@ async def rbac_middleware(request: Request, call_next):
                 log.warning("unexpected error: %s", e)
 
     if not getattr(request.state, "authenticated", False):
+        structured_log(
+            log,
+            logging.INFO,
+            "auth_denied",
+            method=method,
+            path=path,
+            tenant_id=getattr(request.state, "tenant_id", None),
+            result="denied",
+            error_code="UNAUTHORIZED",
+        )
         return JSONResponse(
             status_code=401,
             content={
@@ -89,6 +101,18 @@ async def rbac_middleware(request: Request, call_next):
     allowed_permissions = ROLE_PERMISSIONS.get(role, set())
 
     if required_permission not in allowed_permissions:
+        structured_log(
+            log,
+            logging.INFO,
+            "permission_denied",
+            method=method,
+            path=path,
+            tenant_id=getattr(request.state, "tenant_id", None),
+            role=role,
+            required_permission=required_permission,
+            result="denied",
+            error_code="FORBIDDEN",
+        )
         return JSONResponse(
             status_code=403,
             content={

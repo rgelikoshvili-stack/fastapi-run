@@ -72,6 +72,8 @@ from app.api.middleware.rbac_middleware import rbac_middleware
 from app.startup.background import autopilot_loop, decay_loop, email_poller_loop
 from app.startup.migrations import run_db_migrations as _run_db_migrations
 
+log = logging.getLogger(__name__)
+
 
 # --- GEORGIAN JSON RESPONSE ---
 class GeorgianJSONResponse(JSONResponse):
@@ -243,53 +245,82 @@ async def _nbg_sync_loop():
                 conn = _get_db()
                 try:
                     n = _sync(conn)
-                    print(f"✅ NBG daily sync: {n} currencies")
+                    log.info("action=nbg_daily_sync currencies=%s", n)
                 finally:
                     conn.close()
             await loop.run_in_executor(None, _do_sync)
         except Exception as e:
-            print(f"⚠️ NBG daily sync failed: {e}")
+            log.warning("action=nbg_daily_sync_failed error=%s", e)
         await _asyncio.sleep(86400)
+
+
+def _log_background_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        log.info("action=background_task_cancelled task=%s", task.get_name())
+    except Exception:
+        log.exception("action=background_task_failed task=%s", task.get_name())
+
+
+def _create_background_tasks() -> list[asyncio.Task]:
+    tasks = [
+        asyncio.create_task(autopilot_loop(), name="autopilot_loop"),
+        asyncio.create_task(decay_loop(), name="decay_loop"),
+        asyncio.create_task(email_poller_loop(), name="email_poller_loop"),
+        asyncio.create_task(_nbg_sync_loop(), name="nbg_sync_loop"),
+    ]
+    for task in tasks:
+        task.add_done_callback(_log_background_task_result)
+    return tasks
+
+
+async def _cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── startup ────────────────────────────────────────────────────────────────
-    print("🚀 Starting background scheduler...")
+    log.info("action=startup_begin")
     try:
         from app.api.db import get_pool
         await get_pool()
-        print("✅ asyncpg pool ready")
+        log.info("action=asyncpg_pool_ready")
     except Exception as e:
-        print(f"⚠️ asyncpg pool init (non-fatal): {e}")
-    asyncio.create_task(autopilot_loop())
-    asyncio.create_task(decay_loop())
-    asyncio.create_task(email_poller_loop())
-    asyncio.create_task(_nbg_sync_loop())
+        log.warning("action=asyncpg_pool_init_failed non_fatal=true error=%s", e)
+    background_tasks = _create_background_tasks()
+    app.state.background_tasks = background_tasks
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _run_db_migrations)
+    try:
+        await loop.run_in_executor(None, _run_db_migrations)
+    except Exception:
+        await _cancel_background_tasks(background_tasks)
+        raise
     try:
         await loop.run_in_executor(None, _ensure_email_tables)
-        print("✅ Email collector tables OK")
+        log.info("action=email_collector_tables_ready")
     except Exception as e:
-        print(f"⚠️ Email tables migration error (non-fatal): {e}")
+        log.warning("action=email_tables_migration_failed non_fatal=true error=%s", e)
     try:
         from app.api.services.balance_credentials_service import ensure_table as _ensure_balance_table
         await loop.run_in_executor(None, _ensure_balance_table)
-        print("✅ Balance credentials table OK")
+        log.info("action=balance_credentials_table_ready")
     except Exception as e:
-        print(f"⚠️ Balance credentials table migration (non-fatal): {e}")
+        log.warning("action=balance_credentials_migration_failed non_fatal=true error=%s", e)
     try:
         from app.knowledge.knowledge_loader import migrate_json_to_db
         await loop.run_in_executor(None, migrate_json_to_db)
     except Exception as e:
-        print(f"⚠️ KB migration error (non-fatal): {e}")
+        log.warning("action=kb_migration_failed non_fatal=true error=%s", e)
     try:
         from app.api.services.inventory_service import ensure_inventory_tables
         await loop.run_in_executor(None, ensure_inventory_tables)
-        print("✅ Inventory tables OK")
+        log.info("action=inventory_tables_ready")
     except Exception as e:
-        print(f"⚠️ Inventory tables migration (non-fatal): {e}")
+        log.warning("action=inventory_tables_migration_failed non_fatal=true error=%s", e)
     try:
         from app.integrations.nbg_api import sync_rates_to_db
         from app.api.db import get_db_sync as _get_db_sync
@@ -297,25 +328,28 @@ async def lifespan(app: FastAPI):
             conn = _get_db_sync()
             try:
                 n = sync_rates_to_db(conn)
-                print(f"✅ NBG rates synced: {n} currencies")
+                log.info("action=nbg_startup_sync currencies=%s", n)
             finally:
                 conn.close()
         await loop.run_in_executor(None, _nbg_sync)
     except Exception as e:
-        print(f"⚠️ NBG rate sync (non-fatal): {e}")
+        log.warning("action=nbg_startup_sync_failed non_fatal=true error=%s", e)
     try:
         from app.knowledge.knowledge_loader import _load_files as _kb_load
         await loop.run_in_executor(None, _kb_load)
-        print("✅ Knowledge Base loaded!")
+        log.info("action=knowledge_base_loaded")
     except Exception as e:
-        print(f"⚠️ KB load error: {e}")
+        log.warning("action=knowledge_base_load_failed error=%s", e)
 
-    yield
+    try:
+        yield
+    finally:
+        await _cancel_background_tasks(background_tasks)
 
-    # ── shutdown ───────────────────────────────────────────────────────────────
-    from app.api.db import close_pool
-    await close_pool()
-    print("✅ asyncpg pool closed")
+        # ── shutdown ───────────────────────────────────────────────────────────────
+        from app.api.db import close_pool
+        await close_pool()
+        log.info("action=shutdown_complete")
 
 
 # Wire lifespan into the app (defined after app to avoid forward-reference NameError)

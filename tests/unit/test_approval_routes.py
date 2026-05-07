@@ -75,6 +75,23 @@ def test_batch_action_exists():
     assert "tenant_id" in src
 
 
+def test_reject_contract_accepts_note():
+    import app.api.routes_approval as mod
+    src = inspect.getsource(mod)
+    assert 'note: Optional[str] = ""' in src
+    assert "req.note" in src
+    assert "body.note" in src
+
+
+def test_preview_first_and_structured_reject_hooks_exist():
+    from pathlib import Path
+
+    approval = Path("static/approval.html").read_text(encoding="utf-8")
+    assert "approveWithPreview" in approval
+    assert "_openRejectModal" in approval
+    assert "submitReject()" in approval
+
+
 # ── 8. Approval service validate_lines integration ───────────────────────────
 
 def test_posting_service_validate_lines_balanced():
@@ -107,7 +124,7 @@ def test_approval_routes_success_responses_use_standard_envelope():
     assert 'return ok_response({"draft_id"' not in src
     assert 'return ok_response({"signed_url"' not in src
     assert 'ok_response("No changes requested", {"draft_id": draft_id})' in src
-    assert 'ok_response("Batch action complete", {' in src
+    assert 'ok_response("Batch action complete", payload)' in src
 
 
 def test_approval_attachment_responses_keep_data_field():

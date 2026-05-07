@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.api.db import get_conn, _q
+from app.api.observability import structured_log
 
 log = logging.getLogger(__name__)
 
@@ -181,8 +182,17 @@ async def preview_posting_service(draft_id: int, tenant_id: str) -> dict:
         }
 
     except Exception as e:
-        log.error("preview_posting_service draft_id=%s tenant=%s: %s", draft_id, tenant_id, e)
+        structured_log(
+            log,
+            logging.ERROR,
+            "posting_preview_failed",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            result="error",
+            error_code="PREVIEW_ERROR",
+            error=str(e),
+        )
         return {
             "ok": False,
-            "error": {"code": "INTERNAL_ERROR", "details": str(e)},
+            "error": {"code": "PREVIEW_ERROR", "details": str(e)},
         }

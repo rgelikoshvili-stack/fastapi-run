@@ -315,6 +315,47 @@ async def tax_from_journal(year: int, request: Request):
     })
 
 
+@router.get("/vat-register")
+async def vat_register(request: Request, year: Optional[int] = None, month: Optional[int] = None):
+    """Simple VAT register view built from posted journal drafts."""
+    require_permission(request, "reports:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    conditions = ["tenant_id = %s", "status = 'posted'"]
+    params: list = [tenant_id]
+    if year is not None:
+        conditions.append("EXTRACT(YEAR FROM date::date) = %s")
+        params.append(year)
+    if month is not None:
+        conditions.append("EXTRACT(MONTH FROM date::date) = %s")
+        params.append(month)
+    where = " AND ".join(conditions)
+
+    async with get_conn() as conn:
+        rows = [dict(r) for r in await conn.fetch(_q(f"""
+            SELECT id, date, description, partner, amount, vat_amount, total_amount,
+                   account_code, debit_account, credit_account, created_at
+            FROM journal_drafts
+            WHERE {where}
+              AND (
+                    account_code IN ('1760', '3311', '3410', '1230', '1231')
+                 OR debit_account IN ('1760', '3311', '3410', '1230', '1231')
+                 OR credit_account IN ('1760', '3311', '3410', '1230', '1231')
+              )
+            ORDER BY created_at DESC, id DESC
+        """), *params)]
+
+    total_vat = round(sum(float(r.get("vat_amount") or 0) for r in rows), 2)
+    return ok_response("VAT register", {
+        "tenant_id": tenant_id,
+        "year": year,
+        "month": month,
+        "count": len(rows),
+        "total_vat": total_vat,
+        "items": rows,
+    })
+
+
 # ── rs.ge Declaration helpers ─────────────────────────────────────────────────
 
 class VatReturnRequest(BaseModel):

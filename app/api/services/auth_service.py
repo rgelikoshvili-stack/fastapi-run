@@ -1,11 +1,26 @@
 import os
 import jwt
+import logging
 from datetime import datetime, timezone, timedelta
 from app.api.models.user import get_user, verify_password, update_last_login, has_permission
+from app.config.secrets import get_secret
 
-SECRET_KEY = os.environ.get("JWT_SECRET")
-if not SECRET_KEY:
-    raise RuntimeError("JWT_SECRET is not configured")
+log = logging.getLogger(__name__)
+
+
+def _load_jwt_secret() -> str:
+    secret = get_secret("JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not configured")
+    if len(secret.encode("utf-8")) < 32:
+        if os.environ.get("TEST_MODE") == "1":
+            log.warning("JWT_SECRET is shorter than 32 bytes; allowed only because TEST_MODE=1")
+        else:
+            raise RuntimeError("JWT_SECRET must be at least 32 bytes for HS256")
+    return secret
+
+
+SECRET_KEY = _load_jwt_secret()
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24

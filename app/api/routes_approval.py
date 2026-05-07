@@ -9,6 +9,7 @@ from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.services.cache_service import cache_get, cache_set, cache_clear_prefix, CACHE_TTL
+from app.api.observability import structured_log
 
 log = logging.getLogger(__name__)
 from app.api.services.approval_service import (
@@ -40,12 +41,14 @@ def _validate_pagination(limit: int, offset: int):
 
 class RejectRequest(BaseModel):
     reason: Optional[str] = ""
+    note: Optional[str] = ""
 
 
 class BatchActionRequest(BaseModel):
     action: str
     draft_ids: List[int]
     reason: Optional[str] = ""
+    note: Optional[str] = ""
 
 
 class CorrectRequest(BaseModel):
@@ -121,9 +124,21 @@ async def approve_draft(draft_id: int, request: Request):
         hit = await idempotency_check(tenant_id, idem_key, f"approve:{draft_id}")
         if hit is not None:
             return hit
-    log.info("action=approve draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
+    structured_log(log, logging.INFO, "approval_requested",
+                   action="approve", draft_id=draft_id, tenant_id=tenant_id, user_id=user_id, result="started")
     result = await approve_draft_service(draft_id, tenant_id=tenant_id)
     result = _check_locked(result) or result
+    structured_log(
+        log,
+        logging.INFO if result.get("ok") else logging.WARNING,
+        "approval_completed",
+        action="approve",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        result="success" if result.get("ok") else "error",
+        error_code=None if result.get("ok") else (result.get("error") or {}).get("code"),
+    )
     if idem_key:
         await idempotency_store(tenant_id, idem_key, f"approve:{draft_id}", result)
     cache_clear_prefix(f"approval_stats:{tenant_id}")
@@ -142,9 +157,22 @@ async def reject_draft(draft_id: int, req: RejectRequest, request: Request):
         hit = await idempotency_check(tenant_id, idem_key, f"reject:{draft_id}")
         if hit is not None:
             return hit
-    log.info("action=reject draft_id=%s user=%s tenant=%s reason=%s", draft_id, user_id, tenant_id, req.reason)
-    result = await reject_draft_service(draft_id, req.reason, tenant_id=tenant_id)
+    structured_log(log, logging.INFO, "approval_requested",
+                   action="reject", draft_id=draft_id, tenant_id=tenant_id, user_id=user_id,
+                   result="started", error_code=None)
+    result = await reject_draft_service(draft_id, req.reason, req.note, tenant_id=tenant_id)
     result = _check_locked(result) or result
+    structured_log(
+        log,
+        logging.INFO if result.get("ok") else logging.WARNING,
+        "approval_completed",
+        action="reject",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        result="success" if result.get("ok") else "error",
+        error_code=None if result.get("ok") else (result.get("error") or {}).get("code"),
+    )
     if idem_key:
         await idempotency_store(tenant_id, idem_key, f"reject:{draft_id}", result)
     cache_clear_prefix(f"approval_stats:{tenant_id}")
@@ -158,7 +186,8 @@ async def correct_draft_route(draft_id: int, req: CorrectRequest, request: Reque
     require_permission(request, "approval:write")
     user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    log.info("action=correct draft_id=%s user=%s tenant=%s", draft_id, user_id, tenant_id)
+    structured_log(log, logging.INFO, "approval_requested",
+                   action="correct", draft_id=draft_id, tenant_id=tenant_id, user_id=user_id, result="started")
     payload = {
         "account_code": req.account_code,
         "reason": req.reason,
@@ -187,6 +216,17 @@ async def delete_draft(draft_id: int, request: Request):
         log.info("action=delete_draft draft_id=%s tenant=%s", draft_id, tenant_id)
         return ok_response("Draft deleted", {"draft_id": draft_id})
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_route_failed",
+            action="delete",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            result="error",
+            error_code="DB_ERROR",
+            error=str(e),
+        )
         return error_response("DB error", "DB_ERROR", str(e))
 
 
@@ -217,6 +257,17 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
             )
         return ok_response("Draft updated", {"draft_id": draft_id})
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_route_failed",
+            action="update",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            result="error",
+            error_code="UPDATE_ERROR",
+            error=str(e),
+        )
         return error_response("Draft update failed", "UPDATE_ERROR", str(e))
 
 
@@ -246,6 +297,16 @@ async def preview_draft(payload: dict, request: Request):
             return await preview_posting_service(draft_id=int(draft_id), tenant_id=tenant_id)
         return build_preview_response(payload)
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_route_failed",
+            action="preview",
+            tenant_id=resolve_tenant_id(getattr(request.state, "tenant_id", None)),
+            result="error",
+            error_code="PREVIEW_ERROR",
+            error=str(e),
+        )
         return error_response("Preview failed", "PREVIEW_ERROR", str(e))
 
 
@@ -328,6 +389,16 @@ async def reclassify_unclassified(request: Request):
                     log.warning("unexpected error: %s", e)
         return ok_response("Reclassification complete", {"reclassified": updated, "total_unclassified": len(drafts)})
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_route_failed",
+            action="reclassify",
+            tenant_id=tenant_id,
+            result="error",
+            error_code="RECLASSIFY_ERROR",
+            error=str(e),
+        )
         return error_response("Reclassify failed", "RECLASSIFY_ERROR", str(e))
 
 
@@ -336,6 +407,7 @@ async def reclassify_unclassified(request: Request):
 async def batch_action(body: BatchActionRequest, request: Request):
     """Execute approve/reject/correct on multiple drafts at once."""
     require_permission(request, "approval:write")
+    user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.draft_ids:
         return error_response("No drafts selected", "BATCH_ERROR", "draft_ids is empty")
@@ -343,23 +415,108 @@ async def batch_action(body: BatchActionRequest, request: Request):
     if body.action not in valid_actions:
         return error_response("Invalid action", "BATCH_ERROR", f"action must be one of {valid_actions}")
 
-    status_map = {"approve": "approved", "reject": "rejected", "correct": "needs_correction"}
-    new_status = status_map[body.action]
+    idem_key = request.headers.get("X-Idempotent-Key")
+    batch_endpoint = f"batch:{body.action}:{','.join(str(x) for x in sorted(body.draft_ids))}:{body.reason}:{body.note}"
+    if idem_key:
+        hit = await idempotency_check(tenant_id, idem_key, batch_endpoint)
+        if hit is not None:
+            return hit
+
+    structured_log(
+        log,
+        logging.INFO,
+        "approval_batch_requested",
+        action=body.action,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        draft_count=len(body.draft_ids),
+        result="started",
+    )
 
     try:
-        async with get_conn() as conn:
-            st = await conn.execute(_q("""
-                UPDATE journal_drafts
-                SET status = %s, updated_at = NOW()
-                WHERE id = ANY(%s)
-                  AND tenant_id = %s
-                  AND status NOT IN ('approved', 'rejected', 'posted')
-            """), new_status, body.draft_ids, tenant_id)
-            affected = int(st.split()[-1])
-        log.info("batch_action action=%s affected=%s tenant=%s", body.action, affected, tenant_id)
-        return ok_response("Batch action complete", {"action": body.action, "affected": affected, "tenant_id": tenant_id})
+        results = []
+        affected = 0
+
+        if body.action in {"approve", "reject"}:
+            for draft_id in body.draft_ids:
+                if body.action == "approve":
+                    item = await approve_draft_service(draft_id, tenant_id=tenant_id)
+                else:
+                    item = await reject_draft_service(draft_id, body.reason, body.note, tenant_id=tenant_id)
+                item = _check_locked(item) or item
+                ok = bool(item.get("ok"))
+                if ok:
+                    affected += 1
+                results.append({
+                    "draft_id": draft_id,
+                    "ok": ok,
+                    "status": (item.get("data") or {}).get("status") if ok else None,
+                    "error": item.get("error") if not ok else None,
+                })
+        else:
+            new_status = "needs_correction"
+            async with get_conn() as conn:
+                rows = await conn.fetch(_q("""
+                    UPDATE journal_drafts
+                    SET status = %s, updated_at = NOW()
+                    WHERE id = ANY(%s)
+                      AND tenant_id = %s
+                      AND status NOT IN ('approved', 'rejected', 'posted')
+                    RETURNING id
+                """), new_status, body.draft_ids, tenant_id)
+            updated_ids = {int(r["id"]) for r in rows}
+            affected = len(updated_ids)
+            for draft_id in body.draft_ids:
+                ok = draft_id in updated_ids
+                results.append({
+                    "draft_id": draft_id,
+                    "ok": ok,
+                    "status": new_status if ok else None,
+                    "error": None if ok else {
+                        "code": "BATCH_ITEM_SKIPPED",
+                        "details": "Draft was already terminal or outside update scope",
+                    },
+                })
+
+        structured_log(
+            log,
+            logging.INFO,
+            "approval_batch_completed",
+            action=body.action,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            result="success",
+            affected=affected,
+            error_code=None,
+        )
+        cache_clear_prefix(f"approval_stats:{tenant_id}")
+        cache_clear_prefix(f"dashboard_live:{tenant_id}")
+        payload = {
+            "action": body.action,
+            "affected": affected,
+            "tenant_id": tenant_id,
+            "results": results,
+        }
+        if body.reason:
+            payload["reason"] = body.reason
+        if body.note:
+            payload["note"] = body.note
+        response = ok_response("Batch action complete", payload)
+        if idem_key:
+            await idempotency_store(tenant_id, idem_key, batch_endpoint, response)
+        return response
     except Exception as e:
-        log.error("batch_action error: %s", e)
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_batch_failed",
+            action=body.action,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            result="error",
+            error_code="BATCH_ERROR",
+            error=str(e),
+        )
         return error_response("Batch action failed", "BATCH_ERROR", str(e))
 
 

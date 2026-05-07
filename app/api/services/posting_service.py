@@ -8,6 +8,7 @@ from typing import Any, List, Optional
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+from app.api.observability import structured_log
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -79,6 +80,38 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
         payload["exchange_rate"] = 1.0
 
     return payload
+
+
+def _lines_to_journal_entries(lines: List[dict]) -> list[dict]:
+    entries: list[dict] = []
+    for idx, line in enumerate(lines, start=1):
+        account_code = str(line.get("account_code", "")).strip()
+        debit = _to_decimal(line.get("debit", 0) or 0)
+        credit = _to_decimal(line.get("credit", 0) or 0)
+        note = str(line.get("label", "") or "").strip()
+
+        if debit > 0:
+            entries.append(
+                {
+                    "line": idx,
+                    "dr": account_code,
+                    "cr": None,
+                    "amount": float(debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+                    "note": note,
+                }
+            )
+        elif credit > 0:
+            entries.append(
+                {
+                    "line": idx,
+                    "dr": None,
+                    "cr": account_code,
+                    "amount": float(credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+                    "note": note,
+                }
+            )
+
+    return entries
 
 
 def _fetch_draft(cur, draft_id: int, tenant_id: str):
@@ -255,11 +288,12 @@ async def create_journal_draft(
         raise ValueError(line_error)
 
     amount = _derive_amount_from_lines(lines)
+    journal_entries = _lines_to_journal_entries(lines)
 
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("""
             INSERT INTO journal_drafts
-            (tenant_id, date, description, partner, amount, currency, status, lines_json, source_document_id)
+            (tenant_id, date, description, partner, amount, currency, status, lines_json, journal_entries, source_document_id)
             VALUES (
                 %s,
                 COALESCE(%s::date, CURRENT_DATE),
@@ -269,9 +303,10 @@ async def create_journal_draft(
                 %s,
                 'pending_approval',
                 %s::jsonb,
+                %s::jsonb,
                 %s
             )
-            RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json
+            RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json, journal_entries
         """),
             tenant_id,
             date,
@@ -280,6 +315,7 @@ async def create_journal_draft(
             amount,
             currency,
             json.dumps(lines, ensure_ascii=False),
+            json.dumps(journal_entries, ensure_ascii=False),
             source_document_id,
         )
 
@@ -306,6 +342,7 @@ async def create_journal_draft(
             "currency": row["currency"],
             "status": row["status"],
             "lines": _normalize_lines(row["lines_json"]),
+            "journal_entries": row["journal_entries"],
         }
 
 
@@ -521,6 +558,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
     if target_normalized not in {"mock", "balance", "onec", "oris"}:
         return error_response("unsupported posting target", code="VALIDATION_ERROR")
 
+    structured_log(
+        log,
+        logging.INFO,
+        "posting_attempt_started",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        target=target_normalized,
+        result="started",
+    )
+
     try:
         async with get_conn() as conn:
             tr = conn.transaction()
@@ -542,6 +589,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 )
             except asyncpg.exceptions.LockNotAvailableError:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "posting_attempt_failed",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    target=target_normalized,
+                    result="error",
+                    error_code="DRAFT_LOCKED",
+                )
                 return error_response(
                     "Draft is being processed by another request",
                     code="DRAFT_LOCKED",
@@ -550,6 +607,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
 
             if not draft_row:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "posting_attempt_failed",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    target=target_normalized,
+                    result="error",
+                    error_code="NOT_FOUND",
+                )
                 return error_response(
                     f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
                     code="NOT_FOUND",
@@ -591,6 +658,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     )
                     if lock_val is not None:
                         await tr.rollback()
+                        structured_log(
+                            log,
+                            logging.WARNING,
+                            "posting_attempt_failed",
+                            draft_id=draft_id,
+                            tenant_id=tenant_id,
+                            target=target_normalized,
+                            result="error",
+                            error_code="PERIOD_LOCKED",
+                        )
                         return error_response(
                             "accounting period is locked",
                             code="PERIOD_LOCKED",
@@ -671,6 +748,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
             )
             if existing:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "posting_attempt_completed",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    target=target_normalized,
+                    result="error",
+                    error_code="POSTING_DUPLICATE_BLOCKED",
+                )
                 return error_response(
                     f"draft {draft_id} already posted to {target_normalized}",
                     code="POSTING_DUPLICATE_BLOCKED",
@@ -706,6 +793,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                         "status": readiness,
                     },
                     tenant_id=tenant_id,
+                )
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "posting_attempt_completed",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    target=target_normalized,
+                    result="error",
+                    error_code="CONNECTOR_NOT_READY",
                 )
                 return error_response(
                     f"{target_normalized} connector not ready",
@@ -774,6 +871,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     },
                     tenant_id=tenant_id,
                 )
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "posting_attempt_completed",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    target=target_normalized,
+                    result="success",
+                    error_code=None,
+                )
                 return ok_response(
                     f"draft {draft_id} posted to {target_normalized}",
                     {
@@ -797,6 +904,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 },
                 tenant_id=tenant_id,
             )
+            structured_log(
+                log,
+                logging.WARNING,
+                "posting_attempt_completed",
+                draft_id=draft_id,
+                tenant_id=tenant_id,
+                target=target_normalized,
+                result="error",
+                error_code="POSTING_FAILED",
+            )
             return error_response(
                 f"posting to {target_normalized} failed",
                 code="POSTING_FAILED",
@@ -808,4 +925,15 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 },
             )
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "posting_attempt_failed",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            target=target_normalized,
+            result="error",
+            error_code="POSTING_ERROR",
+            error=str(e),
+        )
         return error_response("Posting failed", "POSTING_ERROR", str(e))

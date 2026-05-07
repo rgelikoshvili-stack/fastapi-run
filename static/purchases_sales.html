@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hub - Purchases & Sales</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+a{color:inherit;text-decoration:none}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}
+.topbar a:hover{color:#fff}
+h1{font-size:1.05rem;font-weight:600}
+.container{max-width:1440px;margin:0 auto;padding:1.5rem}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-bottom:1.25rem}
+.kpi{background:#fff;border-radius:8px;padding:1rem 1.1rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #4361ee}
+.kpi.warn{border-left-color:#f72585}
+.kpi-label{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
+.kpi-val{font-size:1.55rem;font-weight:700;color:#1a1a2e;margin:.2rem 0}
+.kpi-sub{font-size:.75rem;color:#6c757d}
+.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1rem;background:#fff;border-radius:8px 8px 0 0;padding:.5rem .5rem 0}
+.tab{padding:.68rem 1.25rem;cursor:pointer;font-size:.9rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
+.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+.card{background:#fff;border-radius:0 8px 8px 8px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
+.card-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap}
+.card-title{font-weight:700;font-size:.95rem}
+.card-body{padding:1rem 1.25rem}
+.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+input,select,textarea{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .7rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#4361ee}
+textarea{min-height:80px;resize:vertical}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .85rem;border:none;border-radius:6px;cursor:pointer;font-size:.84rem;font-weight:500;transition:all .15s}
+.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
+.btn-outline{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-outline:hover{background:#f8f9fa}
+.btn-ghost{background:#f8f9fa;color:#495057;border:1px solid #dee2e6}.btn-ghost:hover{background:#eef1f5}
+.btn-sm{padding:.3rem .65rem;font-size:.8rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.list{display:grid;gap:.75rem}
+.split{display:grid;grid-template-columns:1.4fr .9fr;gap:1rem}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{padding:.55rem .7rem;border-bottom:1px solid #f0f2f5;vertical-align:top}
+th{background:#f8f9fa;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;white-space:nowrap}
+tbody tr:hover{background:#fafcff}
+.mono{font-family:'Courier New',monospace}
+.pill{display:inline-flex;align-items:center;padding:.18rem .5rem;border-radius:20px;font-size:.73rem;font-weight:600}
+.pill.sent,.pill.overdue{background:#fde8ef;color:#f72585}
+.pill.draft{background:#f0f2f5;color:#6c757d}
+.pill.paid,.pill.received{background:#d1f2e1;color:#198754}
+.pill.partial{background:#fff3cd;color:#856404}
+.pill.cancelled{background:#e9ecef;color:#495057}
+.empty{padding:2rem;text-align:center;color:#adb5bd}
+.section-note{font-size:.82rem;color:#6c757d}
+.mini-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin-top:.25rem}
+.mini{background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:.8rem}
+.mini .lbl{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.04em}
+.mini .val{font-size:1.1rem;font-weight:700;margin-top:.2rem}
+.line-grid{display:grid;grid-template-columns:1.2fr .6fr .7fr .8fr 1fr 32px;gap:.5rem;align-items:center;margin-bottom:.5rem}
+.line-grid select,.line-grid input,.line-grid textarea{width:100%}
+.rm{width:32px;height:32px;border:1px solid #dee2e6;border-radius:6px;background:#fff;color:#f72585;cursor:pointer}
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:1000;padding:1rem}
+.modal.open{display:flex}
+.sheet{background:#fff;border-radius:10px;max-width:980px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.18)}
+.sheet-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.sheet-body{padding:1rem 1.25rem}
+.sheet-title{font-weight:700}
+.x{background:none;border:none;font-size:1.2rem;color:#6c757d;cursor:pointer}
+.mt8{margin-top:.5rem}
+.mt12{margin-top:.75rem}
+.mb12{margin-bottom:.75rem}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid,.split{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}.line-grid{grid-template-columns:1fr 1fr 1fr 1fr}}
+@media(max-width:700px){.kpis{grid-template-columns:1fr}.tabs{overflow:auto}.line-grid{grid-template-columns:1fr 1fr}.topbar{padding:.75rem 1rem}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span style="color:#495057">›</span>
+  <a href="/static/reports.html">Reports</a>
+  <span style="color:#495057">›</span>
+  <h1>Purchases & Sales Workbench</h1>
+  <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn btn-outline" onclick="location.href='/static/inventory.html'">Inventory</button>
+    <button class="btn btn-outline" onclick="location.href='/static/outgoing_form.html'">New Sales Invoice</button>
+    <button class="btn btn-primary" onclick="openModal('poModal')">+ Purchase Order</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-label">Purchase Orders</div><div class="kpi-val" id="kPO">—</div><div class="kpi-sub">draft / sent / received</div></div>
+    <div class="kpi"><div class="kpi-label">Open Invoices</div><div class="kpi-val" id="kOpenInv">—</div><div class="kpi-sub">sent / overdue</div></div>
+    <div class="kpi warn"><div class="kpi-label">Overdue</div><div class="kpi-val" id="kOverdue">—</div><div class="kpi-sub">payment tracking</div></div>
+    <div class="kpi"><div class="kpi-label">Outstanding</div><div class="kpi-val" id="kOutstanding">—</div><div class="kpi-sub">GEL</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('purchases',this)">Purchases</div>
+    <div class="tab" onclick="switchTab('sales',this)">Sales</div>
+    <div class="tab" onclick="switchTab('payments',this)">Payments</div>
+  </div>
+
+  <div id="pane-purchases" class="tab-pane active">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Purchase Orders</span>
+        <div class="toolbar">
+          <select id="poStatus" onchange="loadPOs()">
+            <option value="">All</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="partial">Partial</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/inventory.html#po'">Open inventory tab</button>
+        </div>
+      </div>
+      <div class="card-body table-wrap">
+        <table>
+          <thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
+          <tbody id="poBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="pane-sales" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Sales Invoices</span>
+        <div class="toolbar">
+          <select id="invStatus" onchange="loadInvoices()">
+            <option value="">All</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="paid">Paid</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="overdue">Overdue</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="location.href='/static/outgoing_form.html'">Open detailed invoice builder</button>
+        </div>
+      </div>
+      <div class="card-body table-wrap">
+        <table>
+          <thead><tr><th>Invoice #</th><th>Partner</th><th>Date</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
+          <tbody id="invoiceBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="pane-payments" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Payments & Aging</span>
+        <div class="toolbar">
+          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/aging_report.html'">Aging report</button>
+          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/counterparty_ledger.html'">Counterparty ledger</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadPayments()">Refresh</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="mini-grid" id="paymentStats"></div>
+        <div class="mt12 table-wrap">
+          <table>
+            <thead><tr><th>Invoice #</th><th>Partner</th><th>Due</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
+            <tbody id="paymentBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="poModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <div class="sheet-title">Create Purchase Order</div>
+        <div class="section-note">Supplier, basic terms, and line items.</div>
+      </div>
+      <button class="x" onclick="closeModal('poModal')">×</button>
+    </div>
+    <div class="sheet-body">
+      <div class="grid">
+        <div>
+          <div class="section-note mb12">Header</div>
+          <div class="list">
+            <input id="poSupplier" placeholder="Supplier name">
+            <input id="poInn" placeholder="Supplier INN">
+            <input id="poNumber" placeholder="PO number (optional)">
+            <input id="poDate" type="date">
+            <input id="poExpected" type="date">
+            <textarea id="poNotes" placeholder="Notes"></textarea>
+          </div>
+        </div>
+        <div>
+          <div class="section-note mb12">Lines</div>
+          <div id="poLines"></div>
+          <button class="btn btn-ghost btn-sm mt8" onclick="addPoLine()">+ Add line</button>
+        </div>
+      </div>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
+        <button class="btn btn-outline" onclick="closeModal('poModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createPO()">Create PO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="receiveModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <div class="sheet-title" id="receiveTitle">Receive Purchase Order</div>
+        <div class="section-note">Enter received quantities for the open PO.</div>
+      </div>
+      <button class="x" onclick="closeModal('receiveModal')">×</button>
+    </div>
+    <div class="sheet-body">
+      <div id="receiveSummary" class="mini-grid"></div>
+      <div id="receiveLines" class="mt12"></div>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
+        <button class="btn btn-outline" onclick="closeModal('receiveModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitReceipt()">Receive PO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
+const TENANT=localStorage.getItem('tenant_id')||'';
+function hdr(){return {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
+async function api(path, opts={}){
+  const res=await fetch(path,{headers:hdr(),...opts});
+  if(res.status===401){localStorage.clear();location.href='/static/approval.html';return null;}
+  try{return await res.json();}catch(e){return null;}
+}
+function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function pill(status){return `<span class="pill ${String(status||'').toLowerCase()}">${esc(status||'unknown')}</span>`;}
+function switchTab(name, el){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('pane-'+name).classList.add('active');
+  el.classList.add('active');
+}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){['poModal','receiveModal'].forEach(closeModal);}});
+
+let inventoryItems=[];
+let activePO=null;
+
+function setTodayInputs(){
+  const today=new Date().toISOString().split('T')[0];
+  document.getElementById('poDate').value=today;
+}
+
+function addPoLine(data={}){
+  const wrap=document.createElement('div');
+  wrap.className='line-grid';
+  const options=['<option value="">Select item</option>'].concat(inventoryItems.map(i=>`<option value="${i.id}">${esc(i.item_code)} - ${esc(i.item_name)}</option>`)).join('');
+  wrap.innerHTML=`
+    <select class="po-item">${options}</select>
+    <input class="po-qty" type="number" min="0" step="0.001" placeholder="Qty" value="${data.quantity||''}">
+    <input class="po-price" type="number" min="0" step="0.01" placeholder="Unit price" value="${data.unit_price||''}">
+    <input class="po-line" type="number" min="1" step="1" placeholder="#" value="${data.line_number||''}">
+    <textarea class="po-note" placeholder="Notes">${esc(data.notes||'')}</textarea>
+    <button class="rm" type="button" title="Remove">×</button>
+  `;
+  wrap.querySelector('.rm').onclick=()=>wrap.remove();
+  if(data.item_id) wrap.querySelector('.po-item').value=String(data.item_id);
+  document.getElementById('poLines').appendChild(wrap);
+}
+
+function collectPoLines(){
+  const rows=[...document.querySelectorAll('#poLines .line-grid')];
+  return rows.map(r=>({
+    item_id:Number(r.querySelector('.po-item').value||0),
+    quantity:Number(r.querySelector('.po-qty').value||0),
+    unit_price:Number(r.querySelector('.po-price').value||0),
+    line_number:r.querySelector('.po-line').value?Number(r.querySelector('.po-line').value):null,
+    notes:r.querySelector('.po-note').value||null,
+  })).filter(x=>x.item_id&&x.quantity>0);
+}
+
+async function loadItems(){
+  const d=await api('/inventory/items?limit=200&offset=0');
+  inventoryItems=(d&&d.data&&d.data.items)?d.data.items:[];
+}
+
+async function loadPOs(){
+  const st=document.getElementById('poStatus').value;
+  const d=await api(`/inventory/purchase-orders?limit=100&offset=0${st?`&status=${encodeURIComponent(st)}`:''}`);
+  const orders=(d&&d.data&&d.data.orders)?d.data.orders:[];
+  document.getElementById('kPO').textContent=String(d?.data?.total ?? orders.length);
+  if(!orders.length){
+    document.getElementById('poBody').innerHTML='<tr><td colspan="6"><div class="empty">No purchase orders</div></td></tr>';
+    return;
+  }
+  document.getElementById('poBody').innerHTML=orders.map(o=>`
+    <tr>
+      <td class="mono">${esc(o.po_number||o.id)}</td>
+      <td>${esc(o.supplier_name||'—')}</td>
+      <td>${esc((o.po_date||'').toString().slice(0,10))}</td>
+      <td>${pill(o.status)}</td>
+      <td class="mono" style="text-align:right">${fmt(o.total_amount||0)}</td>
+      <td style="text-align:right">
+        <button class="btn btn-ghost btn-sm" onclick="openPO(${o.id})">Open</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function openPO(id){
+  const d=await api(`/inventory/purchase-orders/${id}`);
+  const order=d&&d.data;
+  if(!order) return;
+  activePO=order;
+  document.getElementById('receiveTitle').textContent=`Receive ${order.po_number||order.id}`;
+  document.getElementById('receiveSummary').innerHTML=`
+    <div class="mini"><div class="lbl">Supplier</div><div class="val">${esc(order.supplier_name||'—')}</div></div>
+    <div class="mini"><div class="lbl">Status</div><div class="val">${esc(order.status||'—')}</div></div>
+    <div class="mini"><div class="lbl">Total</div><div class="val">GEL ${fmt(order.total_amount||0)}</div></div>`;
+  const lines=order.lines||[];
+  document.getElementById('receiveLines').innerHTML=lines.length?lines.map(l=>`
+    <div class="line-grid" style="grid-template-columns:1.2fr .7fr .7fr .7fr 1fr">
+      <input disabled value="${esc(l.item_code||l.item_id)} - ${esc(l.item_name||'')}" />
+      <input class="recv-qty" type="number" min="0" step="0.001" value="${Number(l.quantity_ordered||0)-Number(l.quantity_received||0)}">
+      <input class="recv-price" type="number" min="0" step="0.01" value="${Number(l.unit_price||0)}">
+      <input class="recv-line-id" type="hidden" value="${l.id}">
+      <input disabled value="Ordered ${fmt(l.quantity_ordered||0)} / Recv ${fmt(l.quantity_received||0)}">
+    </div>
+  `).join(''):'<div class="empty">No order lines</div>';
+  openModal('receiveModal');
+}
+
+function openReceiveFromSelected(){ if(activePO) openPO(activePO.id); }
+
+async function submitReceipt(){
+  if(!activePO) return;
+  const rows=[...document.querySelectorAll('#receiveLines .line-grid')];
+  const lines=rows.map(r=>({
+    line_id:Number(r.querySelector('.recv-line-id').value||0),
+    quantity_received:Number(r.querySelector('.recv-qty').value||0),
+    unit_cost:Number(r.querySelector('.recv-price').value||0),
+  })).filter(x=>x.line_id&&x.quantity_received>0);
+  const d=await api(`/inventory/purchase-orders/${activePO.id}/receive`,{
+    method:'POST',
+    body:JSON.stringify({lines}),
+  });
+  if(d&&d.ok){closeModal('receiveModal'); await loadPOs(); await loadPayments();}
+}
+
+async function createPO(){
+  const payload={
+    supplier_name:document.getElementById('poSupplier').value.trim(),
+    supplier_inn:document.getElementById('poInn').value.trim(),
+    po_number:document.getElementById('poNumber').value.trim()||null,
+    po_date:document.getElementById('poDate').value||null,
+    expected_date:document.getElementById('poExpected').value||null,
+    notes:document.getElementById('poNotes').value.trim()||null,
+    lines:collectPoLines(),
+  };
+  const d=await api('/inventory/purchase-orders',{method:'POST',body:JSON.stringify(payload)});
+  if(d&&d.ok){closeModal('poModal'); await loadPOs();}
+}
+
+async function loadInvoices(){
+  const st=document.getElementById('invStatus').value;
+  const d=await api(`/invoices/list${st?`?status=${encodeURIComponent(st)}`:''}`);
+  const invoices=(d&&d.data&&d.data.invoices)?d.data.invoices:[];
+  document.getElementById('kOpenInv').textContent=String(invoices.filter(i=>['sent','overdue'].includes(String(i.status||'').toLowerCase())).length);
+  document.getElementById('invoiceBody').innerHTML=invoices.length?invoices.map(inv=>`
+    <tr>
+      <td class="mono">${esc(inv.invoice_number||inv.id)}</td>
+      <td>${esc(inv.partner||'—')}</td>
+      <td>${esc((inv.issue_date||'').toString().slice(0,10))}</td>
+      <td>${pill(inv.status)}</td>
+      <td class="mono" style="text-align:right">${fmt(inv.total||inv.total_amount||0)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="setInvoiceStatus(${inv.id},'sent')">Sent</button>
+        <button class="btn btn-ghost btn-sm" onclick="setInvoiceStatus(${inv.id},'paid')">Paid</button>
+        <button class="btn btn-ghost btn-sm" onclick="setInvoiceStatus(${inv.id},'cancelled')">Cancel</button>
+      </td>
+    </tr>`).join(''):'<tr><td colspan="6"><div class="empty">No invoices</div></td></tr>';
+}
+
+async function setInvoiceStatus(id, status){
+  const d=await api(`/invoices/${id}/status`,{method:'POST',body:JSON.stringify({status})});
+  if(d&&d.ok) await loadInvoices();
+}
+
+async function loadPayments(){
+  const d=await api('/invoices/stats/summary');
+  const s=d&&d.data?d.data:{};
+  document.getElementById('kOutstanding').textContent=fmt(s.outstanding_total||0);
+  document.getElementById('kOverdue').textContent=String(s.overdue_count||0);
+  document.getElementById('paymentStats').innerHTML=`
+    <div class="mini"><div class="lbl">Total invoices</div><div class="val">${s.total_invoices||0}</div></div>
+    <div class="mini"><div class="lbl">Paid</div><div class="val">${fmt(s.total_paid||0)}</div></div>
+    <div class="mini"><div class="lbl">Pending</div><div class="val">${fmt(s.total_pending||0)}</div></div>`;
+  const inv=await api('/invoices/list?status=overdue');
+  const overdue=(inv&&inv.data&&inv.data.invoices)?inv.data.invoices:[];
+  document.getElementById('paymentBody').innerHTML=overdue.length?overdue.map(x=>`
+    <tr>
+      <td class="mono">${esc(x.invoice_number||x.id)}</td>
+      <td>${esc(x.partner||'—')}</td>
+      <td>${esc((x.due_date||'').toString().slice(0,10))}</td>
+      <td>${pill(x.status)}</td>
+      <td class="mono" style="text-align:right">${fmt(x.total||x.total_amount||0)}</td>
+      <td style="text-align:right"><a class="btn btn-ghost btn-sm" href="/static/aging_report.html">Aging</a></td>
+    </tr>`).join(''):'<tr><td colspan="6"><div class="empty">No overdue invoices</div></td></tr>';
+}
+
+async function init(){
+  setTodayInputs();
+  await loadItems();
+  addPoLine();
+  await loadPOs();
+  await loadInvoices();
+  await loadPayments();
+}
+init();
+</script>
+</body>
+</html>

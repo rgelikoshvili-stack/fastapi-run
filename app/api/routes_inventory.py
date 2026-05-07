@@ -13,7 +13,7 @@ from app.api.services.inventory_service import (
     list_items, get_item, create_item, update_item,
     record_movement, get_movements, get_current_stock,
     calculate_valuation,
-    create_purchase_order, list_purchase_orders, receive_purchase_order,
+    create_purchase_order, list_purchase_orders, get_purchase_order, receive_purchase_order,
     list_warehouses, list_categories, create_warehouse, create_category,
 )
 
@@ -196,6 +196,19 @@ async def new_purchase_order(request: Request):
         return ok_response("Purchase order created", po)
     except Exception as e:
         return error_response("Failed to create PO", "DB_ERROR", str(e))
+
+
+@router.get("/purchase-orders/{po_id}")
+async def get_purchase_order_detail(po_id: int, request: Request):
+    require_permission(request, "inventory:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        order = await get_purchase_order(tenant_id, po_id)
+        if not order:
+            return error_response("Purchase order not found", "NOT_FOUND")
+        return ok_response("Purchase order", order)
+    except Exception as e:
+        return error_response("Failed to load purchase order", "DB_ERROR", str(e))
 
 
 @router.post("/purchase-orders/{po_id}/receive")

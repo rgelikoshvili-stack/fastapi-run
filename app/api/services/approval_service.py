@@ -7,6 +7,7 @@ import psycopg2.errors
 from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
+from app.api.observability import structured_log
 from app.api.services.entity_audit_service import log_entity_change, async_log_entity_change
 from app.api.metrics import APPROVAL_ACTIONS, APPROVAL_DURATION
 
@@ -17,13 +18,13 @@ def _ws_notify(tenant_id: str, event: str, draft_id: int, status: str):
     """Fire-and-forget WebSocket notification — never raises."""
     try:
         from app.api.routes_notifications_ws import manager
-        from datetime import datetime
+        from datetime import datetime, timezone
         msg = {
             "type": event,
             "draft_id": draft_id,
             "status": status,
             "tenant_id": tenant_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         try:
             loop = asyncio.get_running_loop()
@@ -163,6 +164,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
     memory_result = {"ok": False, "message": "not_run"}
     qa_result = {"ok": False, "score": 0, "issues": [], "recommendation": "unknown"}
 
+    structured_log(
+        log,
+        logging.INFO,
+        "approval_service_started",
+        action="approve",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        result="started",
+    )
+
     try:
         async with get_conn() as conn:
             tr = conn.transaction()
@@ -175,6 +186,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                 )
             except asyncpg.exceptions.LockNotAvailableError:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="approve",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="DRAFT_LOCKED",
+                )
                 return error_response(
                     "Draft locked", "DRAFT_LOCKED",
                     "Draft is being processed by another request. Try again in a moment.",
@@ -182,6 +203,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
             if not draft_row:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="approve",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="NOT_FOUND",
+                )
                 return error_response("Not found", "NOT_FOUND",
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
@@ -216,11 +247,31 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
             if draft["status"] == "approved":
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "approval_service_completed",
+                    action="approve",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="ALREADY_APPROVED",
+                )
                 return error_response("Already approved", "ALREADY_APPROVED",
                                       f"Draft {draft_id} is already approved")
 
             if draft["status"] == "rejected":
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "approval_service_completed",
+                    action="approve",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="ALREADY_REJECTED",
+                )
                 return error_response("Already rejected", "ALREADY_REJECTED",
                                       f"Draft {draft_id} is already rejected and cannot be approved")
 
@@ -250,6 +301,17 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                 if updated_row:
                     await tr.commit()
                     _ws_notify(tenant_id, "draft_awaiting_cfo", draft_id, "awaiting_cfo")
+                    structured_log(
+                        log,
+                        logging.INFO,
+                        "approval_service_completed",
+                        action="approve",
+                        draft_id=draft_id,
+                        tenant_id=tenant_id,
+                        result="success",
+                        status="awaiting_cfo",
+                        error_code=None,
+                    )
                     return ok_response("First approval done — awaiting CFO", {
                         "id": draft_id,
                         "status": "awaiting_cfo",
@@ -258,6 +320,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                     })
                 else:
                     await tr.rollback()
+                    structured_log(
+                        log,
+                        logging.WARNING,
+                        "approval_service_failed",
+                        action="approve",
+                        draft_id=draft_id,
+                        tenant_id=tenant_id,
+                        result="error",
+                        error_code="APPROVE_BLOCKED",
+                    )
                     return error_response("Approve blocked", "APPROVE_BLOCKED",
                                           f"Draft {draft_id} could not be approved for tenant {tenant_id}")
 
@@ -273,6 +345,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
             if not updated_row:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="approve",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="APPROVE_BLOCKED",
+                )
                 return error_response("Approve blocked", "APPROVE_BLOCKED",
                                       f"Draft {draft_id} could not be approved for tenant {tenant_id}")
 
@@ -324,6 +406,17 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                 log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_service_failed",
+            action="approve",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            result="error",
+            error_code="APPROVE_ERROR",
+            error=str(e),
+        )
         return error_response("Approve failed", "APPROVE_ERROR", str(e))
 
     pattern_update_result = {"updated": 0}
@@ -355,6 +448,16 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
 
     _ws_notify(tenant_id, "draft_approved", draft_id, "approved")
     APPROVAL_ACTIONS.labels(action="approve", tenant=tenant_id).inc()
+    structured_log(
+        log,
+        logging.INFO,
+        "approval_service_completed",
+        action="approve",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        result="success",
+        error_code=None,
+    )
 
     return ok_response(
         "Draft approved",
@@ -367,11 +470,21 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
     )
 
 
-async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str = "default"):
+async def reject_draft_service(draft_id: int, reason: str = "", note: str = "", tenant_id: str = "default"):
     import asyncpg
 
     draft = None
     updated = None
+
+    structured_log(
+        log,
+        logging.INFO,
+        "approval_service_started",
+        action="reject",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        result="started",
+    )
 
     try:
         async with get_conn() as conn:
@@ -385,6 +498,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
                 )
             except asyncpg.exceptions.LockNotAvailableError:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="reject",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="DRAFT_LOCKED",
+                )
                 return error_response(
                     "Draft locked", "DRAFT_LOCKED",
                     "Draft is being processed by another request. Try again in a moment.",
@@ -392,6 +515,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
 
             if not draft_row:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="reject",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="NOT_FOUND",
+                )
                 return error_response("Not found", "NOT_FOUND",
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
@@ -401,11 +534,31 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
 
             if draft["status"] == "rejected":
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "approval_service_completed",
+                    action="reject",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="ALREADY_REJECTED",
+                )
                 return error_response("Already rejected", "ALREADY_REJECTED",
                                       f"Draft {draft_id} is already rejected")
 
             if draft["status"] == "approved":
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "approval_service_completed",
+                    action="reject",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="ALREADY_APPROVED",
+                )
                 return error_response("Already approved", "ALREADY_APPROVED",
                                       f"Draft {draft_id} is already approved and cannot be rejected")
 
@@ -419,6 +572,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
 
             if not updated_row:
                 await tr.rollback()
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "approval_service_failed",
+                    action="reject",
+                    draft_id=draft_id,
+                    tenant_id=tenant_id,
+                    result="error",
+                    error_code="REJECT_BLOCKED",
+                )
                 return error_response("Reject blocked", "REJECT_BLOCKED",
                                       f"Draft {draft_id} could not be rejected for tenant {tenant_id}")
 
@@ -442,7 +605,7 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
                     final_reason=None,
                     feedback_type="reject",
                     corrected_by=None,
-                    notes=reason,
+                    notes="\n".join(x for x in [reason, note] if x),
                     tenant_id=tenant_id,
                 )
             except Exception as _fe:
@@ -453,12 +616,23 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
                     "journal_drafts", draft_id,
                     old_data=draft, new_data=updated,
                     actor=tenant_id, tenant_id=tenant_id, action="REJECT",
-                    details=reason or None,
+                    details={"reason": reason or None, "note": note or None},
                 )
             except Exception as _ae:
                 log.warning("audit log failed (non-fatal): %s", _ae)
 
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "approval_service_failed",
+            action="reject",
+            draft_id=draft_id,
+            tenant_id=tenant_id,
+            result="error",
+            error_code="REJECT_ERROR",
+            error=str(e),
+        )
         return error_response("Reject failed", "REJECT_ERROR", str(e))
 
     pattern_update_result = {"updated": 0}
@@ -485,6 +659,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
 
     _ws_notify(tenant_id, "draft_rejected", draft_id, "rejected")
     APPROVAL_ACTIONS.labels(action="reject", tenant=tenant_id).inc()
+    structured_log(
+        log,
+        logging.INFO,
+        "approval_service_completed",
+        action="reject",
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        result="success",
+        error_code=None,
+    )
 
     return ok_response(
         "Draft rejected",

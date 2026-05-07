@@ -1,5 +1,9 @@
 from fastapi import Request
 from app.api.services.auth_service import verify_token
+from app.api.observability import structured_log
+import logging
+
+log = logging.getLogger(__name__)
 
 PUBLIC_PATH_PREFIXES = (
     "/",
@@ -9,6 +13,7 @@ PUBLIC_PATH_PREFIXES = (
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
+    "/version",
     "/static",
 )
 
@@ -49,6 +54,26 @@ async def auth_middleware(request: Request, call_next):
             request.state.role = payload.get("role")
             if payload.get("tenant_id"):
                 request.state.tenant_id = payload.get("tenant_id")
+        else:
+            structured_log(
+                log,
+                logging.INFO,
+                "auth_token_invalid",
+                path=path,
+                tenant_id=getattr(request.state, "tenant_id", None),
+                result="denied",
+                error_code="INVALID_TOKEN",
+            )
+    elif path not in PUBLIC_PATH_PREFIXES and not any(path.startswith(p) for p in _DOWNLOAD_PREFIXES):
+        structured_log(
+            log,
+            logging.INFO,
+            "auth_token_missing",
+            path=path,
+            tenant_id=getattr(request.state, "tenant_id", None),
+            result="denied",
+            error_code="UNAUTHORIZED",
+        )
 
     response = await call_next(request)
     return response

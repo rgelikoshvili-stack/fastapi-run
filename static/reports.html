@@ -1,11 +1,133 @@
 <!DOCTYPE html>
-<html lang="ka">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="0; url=/financial_reports.html">
-<title>Bridge Hub — Reports</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hub - Reporting Workbench</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+a{color:inherit;text-decoration:none}
+.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}
+.topbar a:hover{color:#fff}
+h1{font-size:1.05rem;font-weight:600}
+.container{max-width:1440px;margin:0 auto;padding:1.5rem}
+.hero{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1.25rem 1.35rem;margin-bottom:1rem;border-left:4px solid #4361ee}
+.hero-title{font-size:1.15rem;font-weight:700}
+.hero-sub{margin-top:.25rem;color:#6c757d;font-size:.9rem}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:1rem}
+.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1rem 1.1rem;min-height:124px;display:flex;flex-direction:column;justify-content:space-between}
+.card h3{font-size:.95rem;margin-bottom:.35rem}
+.card p{font-size:.84rem;color:#6c757d;line-height:1.4}
+.link-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.8rem}
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .85rem;border-radius:6px;font-size:.84rem;font-weight:500;border:1px solid #dee2e6;background:#f8f9fa;color:#495057}
+.btn.primary{background:#4361ee;color:#fff;border-color:#4361ee}
+.btn:hover{background:#eef1f5}
+.btn.primary:hover{background:#3a56d4}
+.section{margin-top:1.25rem;background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.07);overflow:hidden}
+.section-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap}
+.section-title{font-weight:700;font-size:.95rem}
+.section-body{padding:1rem 1.25rem}
+.chip-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
+.chip{border:1px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;background:#f8f9fa}
+.chip .lbl{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
+.chip .val{font-size:1rem;font-weight:700;margin-top:.2rem}
+.list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1rem}
+.item{border:1px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;background:#fff}
+.item .title{font-weight:600;margin-bottom:.2rem}
+.item .sub{font-size:.84rem;color:#6c757d;line-height:1.4}
+@media(max-width:1100px){.grid,.chip-grid,.list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.grid,.chip-grid,.list{grid-template-columns:1fr}.topbar{padding:.75rem 1rem}}
+</style>
 </head>
 <body>
-<p>Redirecting to <a href="/financial_reports.html">Financial Reports</a>…</p>
+<div class="topbar">
+  <a href="/static/approval.html">← Dashboard</a>
+  <span style="color:#495057">›</span>
+  <h1>Reporting Workbench</h1>
+  <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn primary" onclick="location.href='/static/financial_reports.html'">Open financial workbench</button>
+    <button class="btn" onclick="location.href='/static/purchases_sales.html'">Purchases & Sales</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="hero">
+    <div class="hero-title">Unified reporting hub</div>
+    <div class="hero-sub">Fast access to financial statements, ledgers, tax surfaces, and operational drill-downs.</div>
+    <div class="link-row">
+      <a class="btn primary" href="/static/financial_reports.html">Financial statements</a>
+      <a class="btn" href="/static/counterparty_ledger.html">Counterparty ledger</a>
+      <a class="btn" href="/static/aging_report.html">AR/AP aging</a>
+      <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
+      <a class="btn" href="/static/vat_declaration.html">VAT declaration</a>
+      <a class="btn" href="/static/inventory.html">Inventory</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div>
+        <h3>Financial Statements</h3>
+        <p>P&L, Balance Sheet, and reconciliation workbench for posted ledger state.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/financial_reports.html">Open</a>
+        <a class="btn" href="/static/journal.html">Journal</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>Operational Reports</h3>
+        <p>Counterparty, payroll, inventory, and aging surfaces used by accounting ops.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/counterparty_ledger.html">Open</a>
+        <a class="btn" href="/static/payroll_ledger.html">Payroll</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>Tax & Compliance</h3>
+        <p>VAT, invoice extraction, and RS.ge-related declaration surfaces.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/vat_declaration.html">Open</a>
+        <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>Workflow Entry Points</h3>
+        <p>Jump into inventory, purchase orders, and sales invoice creation without leaving the hub.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/inventory.html">Inventory</a>
+        <a class="btn" href="/static/purchases_sales.html">Purchases & Sales</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <div class="section-title">Workbench Map</div>
+      <div class="section-title" style="font-size:.82rem;color:#6c757d;font-weight:500">One page, one entry point</div>
+    </div>
+    <div class="section-body">
+      <div class="chip-grid">
+        <div class="chip"><div class="lbl">Trial balance</div><div class="val">Posted ledger only</div></div>
+        <div class="chip"><div class="lbl">Account ledger</div><div class="val">Drill-down by account</div></div>
+        <div class="chip"><div class="lbl">Cash flow</div><div class="val">Bank transactions</div></div>
+      </div>
+      <div class="list">
+        <div class="item"><div class="title">Balance Sheet / P&L</div><div class="sub">Use the financial workbench for posted balances, drill-downs, and reconciliation checks.</div></div>
+        <div class="item"><div class="title">Counterparty & Aging</div><div class="sub">Use AR/AP aging plus counterparty ledger to track open items and overdue balances.</div></div>
+        <div class="item"><div class="title">Payroll & Inventory</div><div class="sub">Payroll ledger, inventory valuation, and reorder reporting stay available as separate operational surfaces.</div></div>
+        <div class="item"><div class="title">Tax work</div><div class="sub">VAT register, declarations, and invoice documents remain under the tax/compliance path.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

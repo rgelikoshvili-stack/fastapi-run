@@ -3,8 +3,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+import logging
 import io
 from app.api.db import get_conn, _q
+from app.api.response_utils import ok_response, error_response
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 
@@ -14,8 +16,10 @@ from app.api.services.payroll_service import (
     generate_payroll_drafts,
     generate_rsge_xml,
 )
+from app.api.observability import structured_log
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
+log = logging.getLogger(__name__)
 
 
 # ========== Models ==========
@@ -45,7 +49,11 @@ def payroll_calculate(req: PayrollRequest, request: Request):
     require_permission(request, "payroll:write")
 
     employees = [e.dict() for e in req.employees]
-    return calculate_payroll(employees, req.period)
+    payroll = calculate_payroll(employees, req.period)
+    structured_log(log, logging.INFO, "payroll_calculated",
+                   tenant_id=resolve_tenant_id(getattr(request.state, "tenant_id", None)),
+                   period=req.period, employee_count=len(employees), result="success")
+    return ok_response("Payroll calculated", {"payroll": payroll})
 
 
 @router.post("/calculate/single")
@@ -58,6 +66,9 @@ def payroll_calculate_single(req: SingleEmployeeRequest, request: Request):
         employee_id=req.employee_id,
         period=req.period,
     )
+    structured_log(log, logging.INFO, "payroll_calculated_single",
+                   tenant_id=resolve_tenant_id(getattr(request.state, "tenant_id", None)),
+                   period=req.period, employee_id=req.employee_id, result="success")
     return ok_response("ok", {"employee": result})
 
 
@@ -75,12 +86,11 @@ async def payroll_generate_drafts(req: PayrollRequest, request: Request):
 
     drafts = await generate_payroll_drafts(payroll, tenant_id=tenant_id)
 
-    return {
-        "ok": True,
+    return ok_response("Payroll drafts generated", {
         "tenant_id": tenant_id,
         "payroll": payroll,
         "drafts": drafts,
-    }
+    })
 
 
 @router.post("/rs-ge-xml")
@@ -138,15 +148,14 @@ async def payroll_history(
               )
         """), tenant_id, "%salary%", "%payroll%", "%ხელფას%", "%შრომის ანაზღაურ%") or 0
 
-    return {
-        "ok": True,
+    return ok_response("Payroll history", {
         "tenant_id": tenant_id,
         "count": len(items),
         "total": total,
         "limit": limit,
         "offset": offset,
         "items": items,
-    }
+    })
 
 
 @router.post("/payslip-pdf")
@@ -247,8 +256,7 @@ def payroll_payslip_pdf(req: PayrollRequest, request: Request):
 def payroll_status(request: Request):
     require_permission(request, "payroll:read")
 
-    return {
-        "ok": True,
+    return ok_response("Payroll status", {
         "status": "active",
         "features": [
             "calculate",
@@ -258,4 +266,4 @@ def payroll_status(request: Request):
             "history",
             "payslip-pdf",
         ],
-    }
+    })

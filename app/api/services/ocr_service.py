@@ -230,6 +230,132 @@ def extract_invoice_fields(filename: str, data: bytes) -> dict:
 # Draft creation with VAT line breakdown
 # ---------------------------------------------------------------------------
 
+def _prepare_invoice_draft_data(invoice_fields: dict, tenant_id: str, source_type: str, force: bool) -> dict:
+    amount = invoice_fields.get("amount")
+    if not amount:
+        return {"ok": False, "error": "თანხა ვერ ამოიღო ინვოისიდან"}
+
+    partner = invoice_fields.get("partner") or ""
+    date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
+    vat_amount = invoice_fields.get("vat_amount")
+    net_amount = invoice_fields.get("net_amount") or amount
+
+    inv_num = invoice_fields.get("invoice_number")
+    inv_num = str(inv_num) if (inv_num and str(inv_num).lower() not in ("none", "null", "")) else None
+    clean_partner = partner.strip() if partner and partner.lower() not in ("none", "null") else None
+
+    if inv_num and clean_partner:
+        description = f"Invoice {inv_num} \u2014 {clean_partner}"
+    elif clean_partner:
+        description = f"Invoice \u2014 {clean_partner}"
+    elif inv_num:
+        description = f"Invoice #{inv_num}"
+    else:
+        description = "Invoice (OCR)"
+
+    from app.policy.localization.georgia_pack import get_account
+    combined = description.lower() + " " + (partner or "").lower()
+    if any(k in combined for k in ["communal", "კომუნალ", "electricity", "water", "gas", "გაზი", "elektro"]):
+        debit_account = "7210"
+    elif any(k in combined for k in ["payroll", "salary", "ხელფასი", "wages"]):
+        debit_account = "6100"
+    elif any(k in combined for k in ["rent", "იჯარა", "lease", "ქირა"]):
+        debit_account = "7220"
+    elif any(k in combined for k in ["transport", "delivery", "მიტანა", "courier", "logistics"]):
+        debit_account = "7130"
+    else:
+        debit_account = get_account("cost_of_service") or "7110"
+    credit_account = get_account("accounts_payable") or "3310"
+
+    journal_entries = None
+    if vat_amount and vat_amount > 0 and net_amount and net_amount > 0:
+        journal_entries = json.dumps([
+            {
+                "line": 1,
+                "debit_account": debit_account,
+                "credit_account": None,
+                "amount": round(float(net_amount), 2),
+                "description": f"Net expense \u2014 {description}",
+            },
+            {
+                "line": 2,
+                "debit_account": "1430",
+                "credit_account": None,
+                "amount": round(float(vat_amount), 2),
+                "description": "Input VAT (დღგ)",
+            },
+            {
+                "line": 3,
+                "debit_account": None,
+                "credit_account": credit_account,
+                "amount": round(float(amount), 2),
+                "description": "Accounts payable \u2014 total",
+            },
+        ])
+
+    return {
+        "ok": True,
+        "date": date,
+        "description": description,
+        "partner": partner,
+        "amount": amount,
+        "net_amount": net_amount,
+        "vat_amount": vat_amount,
+        "debit_account": debit_account,
+        "credit_account": credit_account,
+        "journal_entries": journal_entries,
+        "tenant_id": tenant_id,
+        "source_type": source_type,
+        "force": force,
+    }
+
+
+def _duplicate_draft_response(duplicate: dict) -> dict:
+    return {
+        "ok": False,
+        "duplicate": True,
+        "draft_id": duplicate["id"],
+        "message": "⚠️ ეს ინვოისი უკვე დამუშავებულია!",
+        "existing_draft": {
+            "id": duplicate["id"],
+            "description": duplicate["description"],
+            "amount": float(duplicate["amount"]),
+            "status": duplicate["status"],
+            "created_at": str(duplicate["created_at"]),
+        },
+        "action_required": "confirm_reprocess",
+        "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
+    }
+
+
+def _draft_created_response(draft_id: int, draft_data: dict) -> dict:
+    journal_entries = draft_data["journal_entries"]
+    vat_amount = draft_data["vat_amount"]
+    return {
+        "ok": True,
+        "draft_id": draft_id,
+        "date": draft_data["date"],
+        "description": draft_data["description"],
+        "partner": draft_data["partner"],
+        "amount": draft_data["amount"],
+        "net_amount": round(float(draft_data["net_amount"]), 2),
+        "vat_amount": round(float(vat_amount), 2) if vat_amount else None,
+        "debit_account": draft_data["debit_account"],
+        "credit_account": draft_data["credit_account"],
+        "journal_entries": json.loads(journal_entries) if journal_entries else None,
+        "confidence": 0.85,
+        "status": "pending_approval",
+        "tenant_id": draft_data["tenant_id"],
+        "forced": draft_data["force"],
+    }
+
+
+def _is_missing_journal_entries_column(exc: Exception) -> bool:
+    if exc.__class__.__name__ in {"UndefinedColumn", "UndefinedColumnError"}:
+        return True
+    return "journal_entries" in str(exc).lower() and "does not exist" in str(exc).lower()
+
+
 def create_draft_from_invoice(
     invoice_fields: dict,
     tenant_id: str = "default",
@@ -244,70 +370,9 @@ def create_draft_from_invoice(
     from app.api.db import get_db
     import psycopg2.extras
 
-    amount = invoice_fields.get("amount")
-    if not amount:
-        return {"ok": False, "error": "თანხა ვერ ამოიღო ინვოისიდან"}
-
-    partner = invoice_fields.get("partner") or ""
-    date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
-    vat_amount = invoice_fields.get("vat_amount")
-    net_amount = invoice_fields.get("net_amount") or amount
-
-    _inv_num = invoice_fields.get("invoice_number")
-    _inv_num = str(_inv_num) if (_inv_num and str(_inv_num).lower() not in ("none", "null", "")) else None
-    _partner = partner.strip() if partner and partner.lower() not in ("none", "null") else None
-
-    if _inv_num and _partner:
-        description = f"Invoice {_inv_num} — {_partner}"
-    elif _partner:
-        description = f"Invoice — {_partner}"
-    elif _inv_num:
-        description = f"Invoice #{_inv_num}"
-    else:
-        description = "Invoice (OCR)"
-
-    from app.policy.localization.georgia_pack import get_account
-    _desc_lower = description.lower()
-    _partner_lower = (partner or "").lower()
-    _combined = _desc_lower + " " + _partner_lower
-    if any(k in _combined for k in ["communal", "კომუნალ", "electricity", "water", "gas", "გაზი", "elektro"]):
-        debit_account = "7210"
-    elif any(k in _combined for k in ["payroll", "salary", "ხელფასი", "wages"]):
-        debit_account = "6100"
-    elif any(k in _combined for k in ["rent", "იჯარა", "lease", "ქირა"]):
-        debit_account = "7220"
-    elif any(k in _combined for k in ["transport", "delivery", "მიტანა", "courier", "logistics"]):
-        debit_account = "7130"
-    else:
-        debit_account = get_account("cost_of_service") or "7110"
-    credit_account = get_account("accounts_payable") or "3310"
-
-    # Build journal_entries JSONB for VAT breakdown
-    journal_entries = None
-    if vat_amount and vat_amount > 0 and net_amount and net_amount > 0:
-        journal_entries = json.dumps([
-            {
-                "line": 1,
-                "debit_account": debit_account,
-                "credit_account": None,
-                "amount": round(float(net_amount), 2),
-                "description": f"Net expense — {description}",
-            },
-            {
-                "line": 2,
-                "debit_account": "1430",
-                "credit_account": None,
-                "amount": round(float(vat_amount), 2),
-                "description": "Input VAT (დღგ)",
-            },
-            {
-                "line": 3,
-                "debit_account": None,
-                "credit_account": credit_account,
-                "amount": round(float(amount), 2),
-                "description": "Accounts payable — total",
-            },
-        ])
+    draft_data = _prepare_invoice_draft_data(invoice_fields, tenant_id, source_type, force)
+    if not draft_data["ok"]:
+        return draft_data
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -321,25 +386,11 @@ def create_draft_from_invoice(
                   AND created_at >= NOW() - INTERVAL '30 days'
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, (tenant_id, amount))
+            """, (tenant_id, draft_data["amount"]))
             duplicate = cur.fetchone()
 
             if duplicate:
-                return {
-                    "ok": False,
-                    "duplicate": True,
-                    "draft_id": duplicate["id"],
-                    "message": "⚠️ ეს ინვოისი უკვე დამუშავებულია!",
-                    "existing_draft": {
-                        "id": duplicate["id"],
-                        "description": duplicate["description"],
-                        "amount": float(duplicate["amount"]),
-                        "status": duplicate["status"],
-                        "created_at": str(duplicate["created_at"]),
-                    },
-                    "action_required": "confirm_reprocess",
-                    "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
-                }
+                return _duplicate_draft_response(duplicate)
 
         # Try inserting with journal_entries column first, fallback without
         try:
@@ -356,12 +407,14 @@ def create_draft_from_invoice(
                     %s, %s, %s, NOW()
                 ) RETURNING id
             """, (
-                date, description, partner, amount,
-                debit_account, credit_account, debit_account,
+                draft_data["date"], draft_data["description"], draft_data["partner"], draft_data["amount"],
+                draft_data["debit_account"], draft_data["credit_account"], draft_data["debit_account"],
                 "invoice_ocr", 0.85, "pending_approval",
-                source_type, tenant_id, journal_entries,
+                source_type, tenant_id, draft_data["journal_entries"],
             ))
-        except Exception:
+        except Exception as exc:
+            if not _is_missing_journal_entries_column(exc):
+                raise
             conn.rollback()
             cur.execute("""
                 INSERT INTO journal_drafts (
@@ -376,8 +429,8 @@ def create_draft_from_invoice(
                     %s, %s, NOW()
                 ) RETURNING id
             """, (
-                date, description, partner, amount,
-                debit_account, credit_account, debit_account,
+                draft_data["date"], draft_data["description"], draft_data["partner"], draft_data["amount"],
+                draft_data["debit_account"], draft_data["credit_account"], draft_data["debit_account"],
                 "invoice_ocr", 0.85, "pending_approval",
                 source_type, tenant_id,
             ))
@@ -385,23 +438,7 @@ def create_draft_from_invoice(
         draft_id = cur.fetchone()["id"]
         conn.commit()
 
-        return {
-            "ok": True,
-            "draft_id": draft_id,
-            "date": date,
-            "description": description,
-            "partner": partner,
-            "amount": amount,
-            "net_amount": round(float(net_amount), 2),
-            "vat_amount": round(float(vat_amount), 2) if vat_amount else None,
-            "debit_account": debit_account,
-            "credit_account": credit_account,
-            "journal_entries": json.loads(journal_entries) if journal_entries else None,
-            "confidence": 0.85,
-            "status": "pending_approval",
-            "tenant_id": tenant_id,
-            "forced": force,
-        }
+        return _draft_created_response(draft_id, draft_data)
     except Exception as e:
         conn.rollback()
         return {"ok": False, "error": str(e)}
@@ -419,52 +456,9 @@ async def create_draft_from_invoice_async(
     """Async asyncpg version of create_draft_from_invoice for use in async route handlers."""
     from app.api.db import get_conn, _q
 
-    amount = invoice_fields.get("amount")
-    if not amount:
-        return {"ok": False, "error": "თანხა ვერ ამოიღო ინვოისიდან"}
-
-    partner = invoice_fields.get("partner") or ""
-    date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
-    vat_amount = invoice_fields.get("vat_amount")
-    net_amount = invoice_fields.get("net_amount") or amount
-
-    _inv_num = invoice_fields.get("invoice_number")
-    _inv_num = str(_inv_num) if (_inv_num and str(_inv_num).lower() not in ("none", "null", "")) else None
-    _partner = partner.strip() if partner and partner.lower() not in ("none", "null") else None
-
-    if _inv_num and _partner:
-        description = f"Invoice {_inv_num} — {_partner}"
-    elif _partner:
-        description = f"Invoice — {_partner}"
-    elif _inv_num:
-        description = f"Invoice #{_inv_num}"
-    else:
-        description = "Invoice (OCR)"
-
-    from app.policy.localization.georgia_pack import get_account
-    _combined = description.lower() + " " + (partner or "").lower()
-    if any(k in _combined for k in ["communal", "კომუნალ", "electricity", "water", "gas", "გაზი", "elektro"]):
-        debit_account = "7210"
-    elif any(k in _combined for k in ["payroll", "salary", "ხელფასი", "wages"]):
-        debit_account = "6100"
-    elif any(k in _combined for k in ["rent", "იჯარა", "lease", "ქირა"]):
-        debit_account = "7220"
-    elif any(k in _combined for k in ["transport", "delivery", "მიტანა", "courier", "logistics"]):
-        debit_account = "7130"
-    else:
-        debit_account = get_account("cost_of_service") or "7110"
-    credit_account = get_account("accounts_payable") or "3310"
-
-    journal_entries = None
-    if vat_amount and vat_amount > 0 and net_amount and net_amount > 0:
-        journal_entries = json.dumps([
-            {"line": 1, "debit_account": debit_account, "credit_account": None,
-             "amount": round(float(net_amount), 2), "description": f"Net expense — {description}"},
-            {"line": 2, "debit_account": "1430", "credit_account": None,
-             "amount": round(float(vat_amount), 2), "description": "Input VAT (დღგ)"},
-            {"line": 3, "debit_account": None, "credit_account": credit_account,
-             "amount": round(float(amount), 2), "description": "Accounts payable — total"},
-        ])
+    draft_data = _prepare_invoice_draft_data(invoice_fields, tenant_id, source_type, force)
+    if not draft_data["ok"]:
+        return draft_data
 
     try:
         async with get_conn() as conn:
@@ -475,19 +469,9 @@ async def create_draft_from_invoice_async(
                     WHERE tenant_id = %s AND ABS(amount - %s) < 0.01
                       AND created_at >= NOW() - INTERVAL '30 days'
                     ORDER BY created_at DESC LIMIT 1
-                """), tenant_id, amount)
+                """), tenant_id, draft_data["amount"])
                 if dup:
-                    return {
-                        "ok": False, "duplicate": True, "draft_id": dup["id"],
-                        "message": "⚠️ ეს ინვოისი უკვე დამუშავებულია!",
-                        "existing_draft": {
-                            "id": dup["id"], "description": dup["description"],
-                            "amount": float(dup["amount"]), "status": dup["status"],
-                            "created_at": str(dup["created_at"]),
-                        },
-                        "action_required": "confirm_reprocess",
-                        "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
-                    }
+                    return _duplicate_draft_response(dup)
 
             try:
                 draft_id = await conn.fetchval(_q("""
@@ -499,12 +483,14 @@ async def create_draft_from_invoice_async(
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     RETURNING id
                 """),
-                    date, description, partner, amount,
-                    debit_account, credit_account, debit_account,
+                    draft_data["date"], draft_data["description"], draft_data["partner"], draft_data["amount"],
+                    draft_data["debit_account"], draft_data["credit_account"], draft_data["debit_account"],
                     "invoice_ocr", 0.85, "pending_approval",
-                    source_type, tenant_id, journal_entries,
+                    source_type, tenant_id, draft_data["journal_entries"],
                 )
-            except Exception:
+            except Exception as exc:
+                if not _is_missing_journal_entries_column(exc):
+                    raise
                 draft_id = await conn.fetchval(_q("""
                     INSERT INTO journal_drafts (
                         date, description, partner, amount,
@@ -514,22 +500,13 @@ async def create_draft_from_invoice_async(
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     RETURNING id
                 """),
-                    date, description, partner, amount,
-                    debit_account, credit_account, debit_account,
+                    draft_data["date"], draft_data["description"], draft_data["partner"], draft_data["amount"],
+                    draft_data["debit_account"], draft_data["credit_account"], draft_data["debit_account"],
                     "invoice_ocr", 0.85, "pending_approval",
                     source_type, tenant_id,
                 )
 
-        return {
-            "ok": True, "draft_id": draft_id,
-            "date": date, "description": description, "partner": partner,
-            "amount": amount, "net_amount": round(float(net_amount), 2),
-            "vat_amount": round(float(vat_amount), 2) if vat_amount else None,
-            "debit_account": debit_account, "credit_account": credit_account,
-            "journal_entries": json.loads(journal_entries) if journal_entries else None,
-            "confidence": 0.85, "status": "pending_approval",
-            "tenant_id": tenant_id, "forced": force,
-        }
+        return _draft_created_response(draft_id, draft_data)
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

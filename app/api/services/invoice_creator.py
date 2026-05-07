@@ -290,6 +290,33 @@ def finalize(conn, tenant_id: str, invoice_id: int) -> dict:
         },
     ]
 
+    cur.execute(
+        """
+        INSERT INTO journal_drafts
+            (tenant_id, date, description, partner, amount,
+             debit_account, credit_account, account_code,
+             reason, confidence, status, source_type, journal_entries)
+        VALUES (%s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, 'pending_approval', 'sales_invoice', %s)
+        RETURNING id
+        """,
+        (
+            tenant_id,
+            now_date,
+            f"Outgoing invoice {invoice_number}",
+            inv["buyer_name"],
+            inv["total_amount"],
+            "1210",
+            "6110",
+            "1210",
+            "sales_invoice_finalized",
+            0.95,
+            json.dumps(journal_entries),
+        ),
+    )
+    journal_draft_id = cur.fetchone()[0]
+
     # ── Mark finalized ─────────────────────────────────────────────────────
     cur.execute(
         """
@@ -319,6 +346,7 @@ def finalize(conn, tenant_id: str, invoice_id: int) -> dict:
         "vat_amount": float(inv["vat_amount"] or 0),
         "total_amount": float(inv["total_amount"] or 0),
         "journal_entries": journal_entries,
+        "journal_draft_id": journal_draft_id,
         "comment": comment,
     }
 

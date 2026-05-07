@@ -5,7 +5,7 @@ Bridge Hub — Client Portal
 კლიენტი ხედავს მხოლოდ საკუთარ ტრანზაქციებს.
 Core approval logic არ ეხება.
 """
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from app.api.authz import require_permission
@@ -126,6 +126,7 @@ async def client_transactions(
 async def client_upload(
     request: Request,
     file: UploadFile = File(...),
+    force: bool = Query(False),
 ):
     """
     კლიენტი ატვირთავს დოკუმენტს.
@@ -158,6 +159,7 @@ async def client_upload(
             fields,
             tenant_id=tenant_id,
             source_type="client_upload",
+            force=force,
         )
     else:
         try:

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Query, Request
+import logging
 from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.authz import require_permission
 from app.api.security import limiter
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.tenant_context import resolve_tenant_id
 from app.api.services.ledger_service import (
     get_account_ledger,
@@ -12,8 +13,10 @@ from app.api.services.ledger_service import (
     get_payroll_ledger,
     get_journal_entries,
 )
+from app.api.observability import structured_log
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+log = logging.getLogger(__name__)
 
 
 @router.get("/monthly")
@@ -188,11 +191,45 @@ async def counterparty_ledger_report(
 async def payroll_ledger_report(
     request: Request,
     employee_id: Optional[str] = Query(None, description="Employee personal tax number"),
-    year: Optional[int] = Query(None),
+    year: Optional[int] = Query(None, ge=1900, le=2100),
 ):
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    structured_log(
+        log,
+        logging.INFO,
+        "payroll_report_requested",
+        tenant_id=tenant_id,
+        employee_id=employee_id,
+        year=year,
+        result="started",
+        error_code=None,
+    )
+    if employee_id is not None:
+        employee_id = employee_id.strip()
+        if employee_id and not employee_id.isdigit():
+            structured_log(
+                log,
+                logging.INFO,
+                "payroll_report_rejected",
+                tenant_id=tenant_id,
+                employee_id=employee_id,
+                year=year,
+                result="denied",
+                error_code="INVALID_FILTER",
+            )
+            return http_error(422, "Employee ID must contain digits only", "INVALID_FILTER", {"employee_id": employee_id})
     data = await get_payroll_ledger(tenant_id, employee_id, year)
+    structured_log(
+        log,
+        logging.INFO,
+        "payroll_report_completed",
+        tenant_id=tenant_id,
+        employee_id=employee_id,
+        year=year,
+        result="success",
+        error_code=None,
+    )
     return ok_response("Payroll ledger", {"report": "payroll_ledger", **data})
 
 

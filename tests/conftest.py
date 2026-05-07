@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 os.environ["TEST_MODE"] = "1"
-os.environ.setdefault("JWT_SECRET", "test-secret-for-ci")
+if len(os.environ.get("JWT_SECRET", "").encode("utf-8")) < 32:
+    os.environ["JWT_SECRET"] = "test-secret-for-ci-32-bytes-minimum"
 os.environ.setdefault("DATABASE_URL", "")
 
 # Skip marker for tests that require a live DATABASE_URL

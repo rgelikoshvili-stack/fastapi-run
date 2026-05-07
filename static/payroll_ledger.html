@@ -106,6 +106,8 @@ tbody td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
       </button>
     </div>
 
+    <div id="errorBox" style="display:none;margin-bottom:18px;padding:12px 14px;border:1px solid #efb4b4;border-left:3px solid var(--red);border-radius:var(--r);background:#fef2f2;color:var(--red);font-size:13px;line-height:1.5"></div>
+
     <div class="summary" id="summary" style="display:none">
       <div class="scard">
         <div class="slbl">სულ ჩანაწერი</div>
@@ -150,6 +152,34 @@ tbody td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function setPayrollError(message) {
+  const box = document.getElementById('errorBox');
+  if (!box) return;
+  if (!message) {
+    box.style.display = 'none';
+    box.textContent = '';
+    return;
+  }
+  box.textContent = message;
+  box.style.display = 'block';
+}
+
+async function apiRequest(path, options = {}) {
+  const headers = Object.assign({}, options.headers || {}, token() ? { Authorization: 'Bearer ' + token() } : {});
+  if (window.BHApi && typeof window.BHApi.request === 'function') {
+    return window.BHApi.request(path, Object.assign({}, options, { headers }));
+  }
+  const init = Object.assign({}, options, { headers });
+  const res = await fetch(path, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data?.error?.details || data?.message || res.statusText || 'Request failed');
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
+}
 
 try {
   const pl = JSON.parse(atob(token().split('.')[1]));
@@ -180,12 +210,11 @@ async function runReport(){
   const url = '/reports/payroll' + ([...p].length ? '?' + p.toString() : '');
 
   try {
-    const res = await fetch(url, {headers:{'Authorization':'Bearer '+token()}});
-    const d = await res.json();
-    if(!d.ok) throw new Error(d.detail || 'შეცდომა');
+    const d = await apiRequest(url);
+    if(!d.ok) throw new Error(d?.error?.details || d?.message || 'შეცდომა');
     renderReport(d, emp, year);
   } catch(e){
-    alert('შეცდომა: ' + e.message);
+    setPayrollError('შეცდომა: ' + e.message);
   } finally {
     document.getElementById('btnTxt').textContent = 'ჩვენება';
     btn.disabled = false;
@@ -193,6 +222,7 @@ async function runReport(){
 }
 
 function renderReport(d, emp, year){
+  setPayrollError('');
   document.getElementById('sumCount').textContent  = d.count;
   document.getElementById('sumWages').textContent  = fmt(d.total_wages);
   document.getElementById('sumFilter').textContent = `${emp||'ყველა'} / ${year||'ყველა'}`;
@@ -229,6 +259,10 @@ function renderReport(d, emp, year){
 runReport();
 </script>
 
+<script src="/static/js/core/api.js"></script>
+<script src="/static/js/core/modal.js"></script>
+<script src="/static/js/core/toast.js"></script>
+<script src="/static/js/core/debounce.js"></script>
 <script src="/static/js/sidebar.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {

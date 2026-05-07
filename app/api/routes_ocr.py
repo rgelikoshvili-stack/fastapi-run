@@ -43,6 +43,7 @@ async def extract_from_file(
 async def extract_and_create_draft(
     request: Request,
     file: UploadFile = File(...),
+    force: bool = Query(False),
 ):
     """PDF/Excel-იდან ინვოისის ამოღება + Draft-ის ავტომატური შექმნა."""
     require_permission(request, "ocr:write")
@@ -60,7 +61,7 @@ async def extract_and_create_draft(
     if not fields.get("amount"):
         return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
 
-    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id)
+    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id, force=force)
     return ok_response("Draft created", {"tenant_id": tenant_id, "filename": file.filename,
             "extracted_fields": fields, "draft": draft})
 

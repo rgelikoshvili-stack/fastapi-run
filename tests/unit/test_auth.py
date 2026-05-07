@@ -4,11 +4,12 @@ import time
 import pytest
 import jwt
 
-os.environ.setdefault("JWT_SECRET", "test-secret-for-ci")
+if len(os.environ.get("JWT_SECRET", "").encode("utf-8")) < 32:
+    os.environ["JWT_SECRET"] = "test-secret-for-ci-32-bytes-minimum"
 os.environ.setdefault("TEST_MODE", "1")
 os.environ.setdefault("DATABASE_URL", "")
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "test-secret-for-ci")
+JWT_SECRET = os.environ.get("JWT_SECRET", "test-secret-for-ci-32-bytes-minimum")
 ALGORITHM  = "HS256"
 
 
@@ -61,7 +62,11 @@ def test_expired_token_rejected():
 
 
 def test_wrong_secret_rejected():
-    token = jwt.encode({"sub": "x", "exp": int(time.time()) + 3600}, "wrong-secret", algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": "x", "exp": int(time.time()) + 3600},
+        "wrong-secret-for-ci-32-bytes-minimum",
+        algorithm=ALGORITHM,
+    )
     with pytest.raises(jwt.InvalidSignatureError):
         _decode(token)
 
@@ -116,3 +121,22 @@ def test_invalid_token_returns_401():
     c = TestClient(app, headers={"Authorization": "Bearer totally-invalid-token"})
     resp = c.get("/api/approval/list")
     assert resp.status_code in (401, 403, 422)
+
+
+def test_jwt_secret_rejects_short_secret_outside_test_mode(monkeypatch):
+    from app.api.services import auth_service
+
+    monkeypatch.setenv("JWT_SECRET", "short-secret")
+    monkeypatch.delenv("TEST_MODE", raising=False)
+
+    with pytest.raises(RuntimeError, match="at least 32 bytes"):
+        auth_service._load_jwt_secret()
+
+
+def test_jwt_secret_allows_short_secret_in_test_mode(monkeypatch):
+    from app.api.services import auth_service
+
+    monkeypatch.setenv("JWT_SECRET", "short-secret")
+    monkeypatch.setenv("TEST_MODE", "1")
+
+    assert auth_service._load_jwt_secret() == "short-secret"

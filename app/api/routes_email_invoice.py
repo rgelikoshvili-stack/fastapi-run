@@ -3,7 +3,7 @@ import logging
 app/api/routes_email_invoice.py
 Bridge Hub — Email → Invoice Routes
 """
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
@@ -84,14 +84,14 @@ def process_all(req: ProcessEmailRequest, request: Request):
 
 
 @router.post("/manual-upload")
-async def manual_upload(request: Request, file: UploadFile = File(...)):
+async def manual_upload(request: Request, file: UploadFile = File(...), force: bool = Query(False)):
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await file.read()
     fields = extract_invoice_fields(file.filename, data)
     if not fields.get("amount"):
         return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
-    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id, force=False)
+    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id, force=force)
     if draft.get("duplicate"):
         existing = draft.get("existing_draft", {})
         return error_response(f"⚠️ ეს ინვოისი უკვე გატარებულია! Draft #{existing.get('id')}", "DUPLICATE", str(existing))

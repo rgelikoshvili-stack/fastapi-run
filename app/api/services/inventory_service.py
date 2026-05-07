@@ -10,6 +10,7 @@ from typing import Optional
 
 import psycopg2
 from app.api.db import get_conn, _q
+from app.api.services.posting_service import create_journal_draft
 
 log = logging.getLogger(__name__)
 
@@ -472,8 +473,35 @@ async def list_purchase_orders(tenant_id: str, status: Optional[str] = None,
     return {"orders": [dict(r) for r in rows], "total": total}
 
 
+async def get_purchase_order(tenant_id: str, po_id: int) -> Optional[dict]:
+    async with get_conn() as conn:
+        order = await conn.fetchrow(_q("""
+            SELECT id, tenant_id, po_number, supplier_name, supplier_inn,
+                   po_date, expected_date, received_date, status,
+                   subtotal, vat_amount, total_amount, notes, created_at, updated_at
+            FROM purchase_orders
+            WHERE id = %s AND tenant_id = %s
+        """), po_id, tenant_id)
+        if not order:
+            return None
+        lines = await conn.fetch(_q("""
+            SELECT pol.id, pol.item_id, ii.item_code, ii.item_name,
+                   pol.quantity_ordered, pol.quantity_received, pol.unit_price,
+                   pol.line_number, pol.notes
+            FROM purchase_order_lines pol
+            JOIN inventory_items ii ON ii.id = pol.item_id
+            WHERE pol.po_id = %s
+            ORDER BY COALESCE(pol.line_number, pol.id), pol.id
+        """), po_id)
+
+    result = dict(order)
+    result["lines"] = [dict(r) for r in lines]
+    return result
+
+
 async def receive_purchase_order(tenant_id: str, po_id: int, lines_received: list) -> dict:
     received_count = 0
+    draft_ids = []
     async with get_conn() as conn:
         for line in lines_received:
             line_id = line["line_id"]
@@ -505,6 +533,20 @@ async def receive_purchase_order(tenant_id: str, po_id: int, lines_received: lis
             """), tenant_id, item_id, qty, cost, f"PO-{po_id}")
             received_count += 1
 
+            if qty > 0 and cost > 0:
+                line_total = round(qty * cost, 2)
+                draft = await create_journal_draft(
+                    description=f"Purchase order {po_id} receipt for item {item_id}",
+                    lines=[
+                        {"account_code": "1310", "debit": line_total, "credit": 0},
+                        {"account_code": "3110", "debit": 0, "credit": line_total},
+                    ],
+                    tenant_id=tenant_id,
+                    partner="Inventory receipt",
+                    source_document_id=po_id,
+                )
+                draft_ids.append(draft["id"])
+
         await conn.execute(_q("""
             UPDATE purchase_orders SET status = CASE
                 WHEN (SELECT SUM(quantity_ordered - quantity_received) FROM purchase_order_lines WHERE po_id=%s) <= 0
@@ -514,7 +556,7 @@ async def receive_purchase_order(tenant_id: str, po_id: int, lines_received: lis
             WHERE id=%s AND tenant_id=%s
         """), po_id, po_id, tenant_id)
 
-    return {"po_id": po_id, "lines_received": received_count}
+    return {"po_id": po_id, "lines_received": received_count, "draft_ids": draft_ids}
 
 
 # ── Warehouses & Categories ───────────────────────────────────────────────────

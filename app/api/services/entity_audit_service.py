@@ -149,6 +149,35 @@ async def get_entity_history_async(conn, entity_type: str, entity_id,
         return []
 
 
+async def async_log_entity_change(
+    entity_type: str,
+    entity_id,
+    old_data: Optional[dict],
+    new_data: Optional[dict],
+    actor: str,
+    tenant_id: str,
+    action: str = "UPDATE",
+    details: str = None,
+):
+    """asyncpg version of log_entity_change — no psycopg2 conn required."""
+    from app.api.db import get_conn, _q
+    try:
+        async with get_conn() as conn:
+            await conn.execute(_q("""
+                INSERT INTO audit_log
+                    (actor, role, action, resource, resource_id,
+                     old_value, new_value, status, details, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """),
+                actor, "system", action, entity_type, str(entity_id),
+                json.dumps(old_data, default=str) if old_data else None,
+                json.dumps(new_data, default=str) if new_data else None,
+                "success", details, tenant_id,
+            )
+    except Exception as e:
+        log.warning("async audit write failed entity=%s id=%s: %s", entity_type, entity_id, e)
+
+
 def get_entity_history(conn, entity_type: str, entity_id,
                        tenant_id: str, limit: int = 50) -> list:
     """Fetch full audit history for a single entity."""

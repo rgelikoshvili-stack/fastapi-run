@@ -7,7 +7,7 @@ import psycopg2.errors
 from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
-from app.api.services.entity_audit_service import log_entity_change
+from app.api.services.entity_audit_service import log_entity_change, async_log_entity_change
 from app.api.metrics import APPROVAL_ACTIONS, APPROVAL_DURATION
 
 log = logging.getLogger(__name__)
@@ -314,16 +314,12 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
             except Exception as _me:
                 log.warning("memory/patterns update failed (non-fatal): %s", _me)
 
-            # Audit log — separate psycopg2 conn so INSERT is actually committed (fixes pre-existing bug)
             try:
-                _audit_conn = get_db()
-                try:
-                    log_entity_change(_audit_conn, "journal_drafts", draft_id,
-                                      old_data=draft, new_data=updated,
-                                      actor=tenant_id, tenant_id=tenant_id, action="APPROVE")
-                    _audit_conn.commit()
-                finally:
-                    _audit_conn.close()
+                await async_log_entity_change(
+                    "journal_drafts", draft_id,
+                    old_data=draft, new_data=updated,
+                    actor=tenant_id, tenant_id=tenant_id, action="APPROVE",
+                )
             except Exception as _ae:
                 log.warning("audit log failed (non-fatal): %s", _ae)
 
@@ -453,15 +449,12 @@ async def reject_draft_service(draft_id: int, reason: str = "", tenant_id: str =
                 log.warning("save_feedback failed (non-fatal): %s", _fe)
 
             try:
-                _audit_conn = get_db()
-                try:
-                    log_entity_change(_audit_conn, "journal_drafts", draft_id,
-                                      old_data=draft, new_data=updated,
-                                      actor=tenant_id, tenant_id=tenant_id, action="REJECT",
-                                      details=reason or None)
-                    _audit_conn.commit()
-                finally:
-                    _audit_conn.close()
+                await async_log_entity_change(
+                    "journal_drafts", draft_id,
+                    old_data=draft, new_data=updated,
+                    actor=tenant_id, tenant_id=tenant_id, action="REJECT",
+                    details=reason or None,
+                )
             except Exception as _ae:
                 log.warning("audit log failed (non-fatal): %s", _ae)
 

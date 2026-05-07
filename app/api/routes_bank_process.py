@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, UploadFile, File, Request
 
 from app.api.tenant_context import resolve_tenant_id
@@ -11,4 +13,8 @@ router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
 async def process_bank_file(request: Request, file: UploadFile = File(...)):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     content = await file.read()
-    return process_bank_file_workflow(file.filename or "", content, tenant_id=tenant_id)
+    filename = file.filename or ""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, lambda: process_bank_file_workflow(filename, content, tenant_id=tenant_id)
+    )

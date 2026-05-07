@@ -21,3 +21,16 @@ def test_version_endpoint_is_public_and_reports_build_metadata(monkeypatch):
     assert data["commit_sha"] == "abc123def456"
     assert data["build_time"] == "2026-05-07T12:34:56Z"
     assert data["environment"] == "production"
+
+
+def test_version_endpoint_is_public_without_token(monkeypatch):
+    monkeypatch.setenv("COMMIT_SHA", "abc123def456")
+    monkeypatch.setenv("BUILD_TIME", "2026-05-07T12:34:56Z")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    client = TestClient(app)
+    response = client.get("/version")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["app"] == "Bridge Hub"

@@ -13,8 +13,11 @@ PUBLIC_PATH_PREFIXES = (
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
-    "/version",
     "/static",
+)
+
+PUBLIC_GET_PATHS = (
+    "/version",
 )
 
 _DOWNLOAD_PREFIXES = (
@@ -26,7 +29,11 @@ _DOWNLOAD_PREFIXES = (
 
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
+    method = request.method
 
+    if method == "GET" and path in PUBLIC_GET_PATHS:
+        request.state.authenticated = False
+        return await call_next(request)
     if any(path == p or path.startswith(p + "/") for p in PUBLIC_PATH_PREFIXES):
         request.state.authenticated = False
         return await call_next(request)

@@ -18,7 +18,6 @@ async def rbac_middleware(request: Request, call_next):
         "/docs",
         "/openapi.json",
         "/health",
-        "/version",
         "/static",
         "/favicon",
         "/api/ai/",
@@ -28,6 +27,9 @@ async def rbac_middleware(request: Request, call_next):
         "/debug/ai-routing",
         "/hub-map",
     )
+
+    if method == "GET" and path == "/version":
+        return await call_next(request)
 
     # public endpoints
     if path == "/" or path.startswith(public_prefixes):

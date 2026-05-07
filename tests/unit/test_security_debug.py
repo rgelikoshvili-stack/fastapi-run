@@ -143,6 +143,24 @@ def test_metrics_unauthenticated_gets_401():
     )
 
 
+def test_approval_queue_unauthenticated_gets_401_or_403():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    resp = client.get("/approval/queue")
+    assert resp.status_code in (401, 403)
+
+
+def test_metrics_route_unauthenticated_gets_401_or_403():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code in (401, 403)
+
+
 # ── P2-3: CORS must use explicit allowlists ────────────────────────────────────
 
 def test_cors_methods_not_wildcard():

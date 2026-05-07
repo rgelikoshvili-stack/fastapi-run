@@ -5,9 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import date as _date
 from typing import Any, List, Optional
 
-import psycopg2.extras
-
-from app.api.db import get_db, get_conn, _q
+from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.services.posting_helpers import (
@@ -242,7 +240,7 @@ def _post_via_connector(target_normalized: str, payload: dict, tenant_id: str) -
     return connector.post(payload)
 
 
-def create_journal_draft(
+async def create_journal_draft(
     description: str,
     lines: List[dict],
     tenant_id: str = "default",
@@ -258,66 +256,57 @@ def create_journal_draft(
 
     amount = _derive_amount_from_lines(lines)
 
-    conn = get_db()
-    try:
-        with conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO journal_drafts
-                    (tenant_id, date, description, partner, amount, currency, status, lines_json, source_document_id)
-                    VALUES (
-                        %s,
-                        COALESCE(%s::date, CURRENT_DATE),
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        'pending_approval',
-                        %s::jsonb,
-                        %s
-                    )
-                    RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json
-                    """,
-                    (
-                        tenant_id,
-                        date,
-                        description,
-                        partner,
-                        amount,
-                        currency,
-                        json.dumps(lines, ensure_ascii=False),
-                        source_document_id,
-                    ),
-                )
-                row = cur.fetchone()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
+            INSERT INTO journal_drafts
+            (tenant_id, date, description, partner, amount, currency, status, lines_json, source_document_id)
+            VALUES (
+                %s,
+                COALESCE(%s::date, CURRENT_DATE),
+                %s,
+                %s,
+                %s,
+                %s,
+                'pending_approval',
+                %s::jsonb,
+                %s
+            )
+            RETURNING id, tenant_id, date, description, partner, amount, currency, status, lines_json
+        """),
+            tenant_id,
+            date,
+            description,
+            partner,
+            amount,
+            currency,
+            json.dumps(lines, ensure_ascii=False),
+            source_document_id,
+        )
 
-                log_event(
-                    "draft_created",
-                    {
-                        "entity_type": "journal_draft",
-                        "entity_id": row["id"],
-                        "description": description,
-                        "amount": amount,
-                        "currency": currency,
-                        "lines_count": len(lines),
-                    },
-                    tenant_id=tenant_id,
-                )
+        log_event(
+            "draft_created",
+            {
+                "entity_type": "journal_draft",
+                "entity_id": row["id"],
+                "description": description,
+                "amount": amount,
+                "currency": currency,
+                "lines_count": len(lines),
+            },
+            tenant_id=tenant_id,
+        )
 
-                return {
-                    "id": row["id"],
-                    "tenant_id": row["tenant_id"],
-                    "date": str(row["date"]) if row["date"] else None,
-                    "description": row["description"],
-                    "partner": row["partner"],
-                    "amount": float(row["amount"] or 0),
-                    "currency": row["currency"],
-                    "status": row["status"],
-                    "lines": _normalize_lines(row["lines_json"]),
-                }
-    finally:
-        conn.close()
+        return {
+            "id": row["id"],
+            "tenant_id": row["tenant_id"],
+            "date": str(row["date"]) if row["date"] else None,
+            "description": row["description"],
+            "partner": row["partner"],
+            "amount": float(row["amount"] or 0),
+            "currency": row["currency"],
+            "status": row["status"],
+            "lines": _normalize_lines(row["lines_json"]),
+        }
 
 
 async def get_approved_drafts_service(limit: int = 100, offset: int = 0, tenant_id: str = "default"):

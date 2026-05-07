@@ -3,7 +3,7 @@
 Tests run without DATABASE_URL (pure unit) — party resolution and INN matching logic.
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock
 
 from app.api.services.document_extractor import ExtractedDocument, ExtractedParty
 from app.api.services.party_resolver import resolve_party, OurRole
@@ -34,64 +34,72 @@ def _make_doc(buyer_inn=None, seller_inn=None):
 
 @pytest.fixture(autouse=True)
 def mock_load_tenant():
-    with patch("app.api.services.party_resolver._load_tenant", return_value=_TENANT):
+    with patch("app.api.services.party_resolver._load_tenant", AsyncMock(return_value=_TENANT)):
         yield
 
 
 # ── Smoke test 1: buyer_inn = ours → BUYER (purchase) ────────────────────────
-def test_buyer_inn_matches_ours():
+@pytest.mark.asyncio
+async def test_buyer_inn_matches_ours():
     doc = _make_doc(buyer_inn=OUR_INN, seller_inn="123456789")
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.BUYER, f"Expected BUYER, got {result.our_role}"
     assert result.counterparty_inn == "123456789"
 
 
 # ── Smoke test 2: seller_inn = ours → SELLER (sale) ──────────────────────────
-def test_seller_inn_matches_ours():
+@pytest.mark.asyncio
+async def test_seller_inn_matches_ours():
     doc = _make_doc(buyer_inn="987654321", seller_inn=OUR_INN)
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.SELLER, f"Expected SELLER, got {result.our_role}"
     assert result.counterparty_inn == "987654321"
 
 
 # ── Smoke test 3: neither INN is ours → FOREIGN (pending_human_review) ───────
-def test_foreign_document_blocked():
+@pytest.mark.asyncio
+async def test_foreign_document_blocked():
     doc = _make_doc(buyer_inn="111111111", seller_inn="222222222")
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.FOREIGN, f"Expected FOREIGN, got {result.our_role}"
 
 
 # ── Smoke test 4: both INNs missing → FOREIGN ────────────────────────────────
-def test_no_inns_is_foreign():
+@pytest.mark.asyncio
+async def test_no_inns_is_foreign():
     doc = _make_doc(buyer_inn=None, seller_inn=None)
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.FOREIGN
 
 
 # ── Smoke test 5: internal transfer ──────────────────────────────────────────
-def test_both_sides_ours_is_internal():
+@pytest.mark.asyncio
+async def test_both_sides_ours_is_internal():
     doc = _make_doc(buyer_inn=OUR_INN, seller_inn=OUR_INN)
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.INTERNAL
 
 
 # ── Fix 2: graduated FOREIGN confidence ──────────────────────────────────────
-def test_foreign_confidence_both_inns():
+@pytest.mark.asyncio
+async def test_foreign_confidence_both_inns():
     doc = _make_doc(buyer_inn="111222333", seller_inn="444555666")
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.FOREIGN
     assert result.confidence == pytest.approx(0.50)
 
 
-def test_foreign_confidence_one_inn():
+@pytest.mark.asyncio
+async def test_foreign_confidence_one_inn():
     doc = _make_doc(buyer_inn="111222333", seller_inn=None)
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.FOREIGN
     assert result.confidence == pytest.approx(0.35)
 
 
-def test_foreign_confidence_no_inns():
+@pytest.mark.asyncio
+async def test_foreign_confidence_no_inns():
     doc = _make_doc(buyer_inn=None, seller_inn=None)
-    result = resolve_party(doc, "default")
+    result = await resolve_party(doc, "default")
     assert result.our_role == OurRole.FOREIGN
     assert result.confidence == pytest.approx(0.10)

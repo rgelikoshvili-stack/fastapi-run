@@ -122,7 +122,7 @@ def _format_sources(results) -> List[str]:
     return [f"{r.get('category', 'kb')}: {r.get('source', 'unknown')}" for r in results]
 
 
-def _create_draft_from_result(result: dict, tenant_id: str, source_document_id: Optional[int] = None) -> dict:
+async def _create_draft_from_result(result: dict, tenant_id: str, source_document_id: Optional[int] = None) -> dict:
     lines = result.get("lines", []) or []
     if not isinstance(lines, list) or not lines:
         raise ValueError("draft lines are missing")
@@ -132,7 +132,7 @@ def _create_draft_from_result(result: dict, tenant_id: str, source_document_id: 
     currency = str(result.get("currency") or "GEL").strip() or "GEL"
     draft_date = result.get("date")
 
-    return create_journal_draft(
+    return await create_journal_draft(
         description=description,
         lines=lines,
         tenant_id=tenant_id,
@@ -383,7 +383,7 @@ async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) 
 
     if result.get("lines"):
         try:
-            draft = _create_draft_from_result(result, tenant_id, source_document_id=doc_id)
+            draft = await _create_draft_from_result(result, tenant_id, source_document_id=doc_id)
             draft_id = draft.get("id")
         except Exception:
             draft_id = None
@@ -502,7 +502,7 @@ async def handle_ai_chat(
             result = build_journal_from_text(message)
 
             if result.get("lines"):
-                draft = _create_draft_from_result(result, tenant_id)
+                draft = await _create_draft_from_result(result, tenant_id)
                 return {
                     "answer": (
                         f"{result.get('message', 'გატარება მომზადდა')}\n\n"

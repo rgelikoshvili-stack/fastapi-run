@@ -1,27 +1,40 @@
 """tests/unit/test_email_collector.py — Email collector service unit tests."""
-from unittest.mock import MagicMock, patch
+import asyncio
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # ── 1. get_all_active_tenants returns list ────────────────────────────────────
 
 def test_get_all_active_tenants_returns_list():
-    from app.api.services.email_collector import get_all_active_tenants
-    conn = MagicMock()
-    cur = MagicMock().__enter__ = MagicMock()
-    mock_cm = MagicMock()
-    mock_cm.__enter__ = MagicMock(return_value=MagicMock(fetchall=MagicMock(return_value=[("tenant_a",), ("tenant_b",)])))
-    mock_cm.__exit__ = MagicMock(return_value=False)
-    conn.cursor.return_value = mock_cm
-    with patch("app.api.services.email_collector._get_db", return_value=conn):
-        result = get_all_active_tenants()
+    from app.api.services import email_collector
+
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[{"tenant_id": "tenant_a"}, {"tenant_id": "tenant_b"}])
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.email_collector.get_conn", _ctx):
+        result = asyncio.run(email_collector.get_all_active_tenants())
+
     assert isinstance(result, list)
+    assert "tenant_a" in result
 
 
 def test_get_all_active_tenants_returns_empty_on_db_error():
     """DB failure must return [] not raise."""
-    from app.api.services.email_collector import get_all_active_tenants
-    with patch("app.api.services.email_collector._get_db", side_effect=Exception("DB down")):
-        result = get_all_active_tenants()
+    from app.api.services import email_collector
+
+    @asynccontextmanager
+    async def _ctx_err():
+        raise Exception("DB down")
+        yield  # unreachable but makes it a generator
+
+    with patch("app.api.services.email_collector.get_conn", _ctx_err):
+        result = asyncio.run(email_collector.get_all_active_tenants())
+
     assert result == []
 
 

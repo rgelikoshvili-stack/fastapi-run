@@ -24,10 +24,10 @@ class EmailCredentials(BaseModel):
 
 
 @router.get("/status")
-def email_collector_status(request: Request):
+async def email_collector_status(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    creds = get_tenant_email_credentials(tenant_id)
+    creds = await get_tenant_email_credentials(tenant_id)
     if creds:
         return ok_response("ok", {"configured": True, "email": creds["email"]})
     return ok_response("ok", {"configured": False})
@@ -40,14 +40,13 @@ def test_connection(body: EmailCredentials, request: Request):
 
 
 @router.post("/credentials")
-def save_credentials(body: EmailCredentials, request: Request):
+async def save_credentials(body: EmailCredentials, request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    # Validate credentials before saving
     test = test_imap_connection(body.email, body.app_password)
     if not test.get("ok"):
         return error_response(test.get("error", "IMAP connection failed"), "ERROR", "")
-    saved = save_tenant_email_credentials(tenant_id, body.email, body.app_password)
+    saved = await save_tenant_email_credentials(tenant_id, body.email, body.app_password)
     if saved:
         return ok_response("ok", {"message": "Credentials saved and IMAP connection verified"})
     return error_response("DB save failed", "ERROR", "")

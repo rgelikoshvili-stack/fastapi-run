@@ -12,7 +12,7 @@ from email.header import decode_header
 from typing import Optional
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -21,18 +21,14 @@ IMAP_PORT = 993
 ALLOWED_EXTS = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx")
 
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
-
-def _get_db():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL not configured")
-    return psycopg2.connect(url)
-
+# ── Table bootstrap (sync DDL, called from main.py startup) ──────────────────
 
 def _ensure_tables():
     """Create tenant_email_credentials and email_documents tables if missing."""
-    conn = _get_db()
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        return
+    conn = psycopg2.connect(url)
     with conn.cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tenant_email_credentials (
@@ -62,29 +58,25 @@ def _ensure_tables():
     conn.close()
 
 
-def get_tenant_email_credentials(tenant_id: str) -> Optional[dict]:
+# ── DB helpers (asyncpg) ──────────────────────────────────────────────────────
+
+async def get_tenant_email_credentials(tenant_id: str) -> Optional[dict]:
     try:
-        conn = _get_db()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
                 "SELECT email, app_password FROM tenant_email_credentials "
-                "WHERE tenant_id = %s AND active = TRUE",
-                (tenant_id,),
-            )
-            row = cur.fetchone()
-        conn.close()
+                "WHERE tenant_id = %s AND active = TRUE"
+            ), tenant_id)
         return dict(row) if row else None
     except Exception as e:
         log.warning("get_tenant_email_credentials: %s", e)
         return None
 
 
-def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_password: str) -> bool:
+async def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_password: str) -> bool:
     try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
+        async with get_conn() as conn:
+            await conn.execute(_q("""
                 INSERT INTO tenant_email_credentials (tenant_id, email, app_password, updated_at)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (tenant_id) DO UPDATE
@@ -92,69 +84,63 @@ def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_password:
                         app_password = EXCLUDED.app_password,
                         active = TRUE,
                         updated_at = EXCLUDED.updated_at
-                """,
-                (tenant_id, email_addr, app_password, datetime.now(timezone.utc)),
-            )
-        conn.commit()
-        conn.close()
+            """), tenant_id, email_addr, app_password, datetime.now(timezone.utc))
         return True
     except Exception as e:
         log.error("save_tenant_email_credentials: %s", e)
         return False
 
 
-def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
+async def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
     try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM email_documents WHERE tenant_id=%s AND message_uid=%s AND filename=%s",
-                (tenant_id, message_uid, filename),
-            )
-            found = cur.fetchone() is not None
-        conn.close()
-        return found
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
+                "SELECT 1 FROM email_documents WHERE tenant_id=%s AND message_uid=%s AND filename=%s"
+            ), tenant_id, message_uid, filename)
+        return row is not None
     except Exception:
         return False
 
 
-def _save_email_document(
+async def _save_email_document(
     tenant_id: str, message_uid: str, filename: str,
     raw_bytes: bytes, raw_text: str = "",
 ) -> int:
-    conn = _get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             INSERT INTO email_documents (tenant_id, message_uid, filename, raw_bytes, raw_text, status)
             VALUES (%s, %s, %s, %s, %s, 'pending')
             ON CONFLICT (tenant_id, message_uid, filename) DO UPDATE
                 SET status = 'pending', raw_text = EXCLUDED.raw_text
             RETURNING id
-            """,
-            (tenant_id, message_uid, filename, psycopg2.Binary(raw_bytes), raw_text),
-        )
-        doc_id = cur.fetchone()[0]
-    conn.commit()
-    conn.close()
-    return doc_id
+        """), tenant_id, message_uid, filename, raw_bytes, raw_text)
+    return row["id"]
 
 
-def _update_doc_draft(doc_id: int, draft_id: int, status: str = "processed"):
+async def _update_doc_draft(doc_id: int, draft_id: int, status: str = "processed"):
     try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE email_documents SET draft_id=%s, status=%s WHERE id=%s",
-                (draft_id, status, doc_id),
-            )
-        conn.commit()
-        conn.close()
+        async with get_conn() as conn:
+            await conn.execute(_q(
+                "UPDATE email_documents SET draft_id=%s, status=%s WHERE id=%s"
+            ), draft_id, status, doc_id)
     except Exception as e:
         log.warning("_update_doc_draft: %s", e)
 
 
-# ── IMAP helpers ──────────────────────────────────────────────────────────────
+async def get_all_active_tenants() -> list:
+    """Return list of tenant_ids that have active email credentials."""
+    try:
+        async with get_conn() as conn:
+            rows = await conn.fetch(
+                "SELECT tenant_id FROM tenant_email_credentials WHERE active = TRUE"
+            )
+        return [r["tenant_id"] for r in rows]
+    except Exception as e:
+        log.warning("get_all_active_tenants: %s", e)
+        return []
+
+
+# ── IMAP helpers (sync — no async IMAP library) ───────────────────────────────
 
 def _decode_header_str(value: str) -> str:
     parts = decode_header(value or "")
@@ -167,7 +153,7 @@ def _decode_header_str(value: str) -> str:
     return "".join(result)
 
 
-def _extract_pdf_attachments(msg) -> list[dict]:
+def _extract_pdf_attachments(msg) -> list:
     """Return list of {filename, data} for supported attachments."""
     attachments = []
     for part in msg.walk():
@@ -196,10 +182,9 @@ def _extract_text_from_pdf(data: bytes) -> str:
     except Exception as e:
         log.warning("unexpected error: %s", e)
     try:
-        # fallback: raw bytes scan for readable text
         text = data.decode("latin-1", errors="replace")
         import re
-        readable = re.findall(r'[\x20-\x7e\u10d0-\u10ff]{4,}', text)
+        readable = re.findall(r'[\x20-\x7eა-ჿ]{4,}', text)
         return " ".join(readable[:200])
     except Exception:
         return ""
@@ -229,13 +214,11 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
     """
     from app.api.services.ai_processor import ai_process_document
 
-    creds = get_tenant_email_credentials(tenant_id)
+    creds = await get_tenant_email_credentials(tenant_id)
     if not creds:
         return {"status": "no_credentials", "tenant_id": tenant_id}
 
-    import socket
     try:
-        # 8-second socket timeout prevents blocking the event loop when credentials are wrong
         mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=8)
         mail.login(creds["email"], creds["app_password"])
         mail.select("INBOX")
@@ -268,7 +251,7 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                 filename = att["filename"]
                 file_data = att["data"]
 
-                if _already_processed(tenant_id, uid, filename):
+                if await _already_processed(tenant_id, uid, filename):
                     log.info("skip duplicate: %s / %s", tenant_id, filename)
                     continue
 
@@ -276,7 +259,7 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                 if filename.lower().endswith(".pdf"):
                     raw_text = _extract_text_from_pdf(file_data)
 
-                doc_id = _save_email_document(tenant_id, uid, filename, file_data, raw_text)
+                doc_id = await _save_email_document(tenant_id, uid, filename, file_data, raw_text)
 
                 ai_result = await ai_process_document(
                     tenant_id=tenant_id,
@@ -285,7 +268,7 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                 )
 
                 if ai_result.get("ok"):
-                    _update_doc_draft(doc_id, ai_result["draft_id"])
+                    await _update_doc_draft(doc_id, ai_result["draft_id"])
                     processed.append({
                         "filename": filename,
                         "draft_id": ai_result["draft_id"],
@@ -293,10 +276,9 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                         "confidence": ai_result.get("confidence"),
                     })
                 else:
-                    _update_doc_draft(doc_id, 0, "ai_failed")
+                    await _update_doc_draft(doc_id, 0, "ai_failed")
                     errors.append({"filename": filename, "error": ai_result.get("error")})
 
-            # Mark as seen after processing
             mail.store(msg_id, "+FLAGS", "\\Seen")
 
         except Exception as e:
@@ -313,19 +295,3 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
         "drafts": processed,
         "error_details": errors,
     }
-
-
-def get_all_active_tenants() -> list[str]:
-    """Return list of tenant_ids that have active email credentials."""
-    try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT tenant_id FROM tenant_email_credentials WHERE active = TRUE"
-            )
-            rows = cur.fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    except Exception as e:
-        log.warning("get_all_active_tenants: %s", e)
-        return []

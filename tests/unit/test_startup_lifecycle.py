@@ -16,9 +16,10 @@ def test_lifespan_uses_structured_logging_not_prints():
     import main
 
     source = inspect.getsource(main.lifespan)
+    maintenance_source = inspect.getsource(main._run_startup_maintenance)
     assert "print(" not in source
     assert "log.info" in source
-    assert "log.warning" in source
+    assert "log.warning" in source or "log.warning" in maintenance_source
 
 
 def test_background_tasks_log_unhandled_failures():
@@ -28,3 +29,13 @@ def test_background_tasks_log_unhandled_failures():
     callback_source = inspect.getsource(main._log_background_task_result)
     assert "add_done_callback(_log_background_task_result)" in source
     assert "log.exception" in callback_source
+
+
+def test_slow_startup_maintenance_runs_after_lifespan_yield():
+    import main
+
+    lifespan_source = inspect.getsource(main.lifespan)
+    maintenance_source = inspect.getsource(main._run_startup_maintenance)
+    assert "asyncio.create_task(_run_startup_maintenance()" in lifespan_source
+    assert "await loop.run_in_executor(None, _run_db_migrations)" not in lifespan_source
+    assert "await loop.run_in_executor(None, _run_db_migrations)" in maintenance_source

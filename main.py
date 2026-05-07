@@ -281,24 +281,20 @@ async def _cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # ── startup ────────────────────────────────────────────────────────────────
-    log.info("action=startup_begin")
+async def _run_startup_maintenance() -> None:
+    """Run slow startup maintenance after the server starts listening."""
     try:
         from app.api.db import get_pool
         await get_pool()
         log.info("action=asyncpg_pool_ready")
     except Exception as e:
         log.warning("action=asyncpg_pool_init_failed non_fatal=true error=%s", e)
-    background_tasks = _create_background_tasks()
-    app.state.background_tasks = background_tasks
+
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, _run_db_migrations)
     except Exception:
-        await _cancel_background_tasks(background_tasks)
-        raise
+        log.exception("action=db_migration_failed non_fatal=true")
     try:
         await loop.run_in_executor(None, _ensure_email_tables)
         log.info("action=email_collector_tables_ready")
@@ -324,6 +320,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.integrations.nbg_api import sync_rates_to_db
         from app.api.db import get_db_sync as _get_db_sync
+
         def _nbg_sync():
             conn = _get_db_sync()
             try:
@@ -331,6 +328,7 @@ async def lifespan(app: FastAPI):
                 log.info("action=nbg_startup_sync currencies=%s", n)
             finally:
                 conn.close()
+
         await loop.run_in_executor(None, _nbg_sync)
     except Exception as e:
         log.warning("action=nbg_startup_sync_failed non_fatal=true error=%s", e)
@@ -340,6 +338,17 @@ async def lifespan(app: FastAPI):
         log.info("action=knowledge_base_loaded")
     except Exception as e:
         log.warning("action=knowledge_base_load_failed error=%s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── startup ────────────────────────────────────────────────────────────────
+    log.info("action=startup_begin")
+    background_tasks = _create_background_tasks()
+    maintenance_task = asyncio.create_task(_run_startup_maintenance(), name="startup_maintenance")
+    maintenance_task.add_done_callback(_log_background_task_result)
+    background_tasks.append(maintenance_task)
+    app.state.background_tasks = background_tasks
 
     try:
         yield

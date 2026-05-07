@@ -353,37 +353,31 @@ async def _process_single_file(file, tenant_id: str, session_id: Optional[str]) 
     doc_id: Optional[int] = None
     try:
         import hashlib, json as _json
-        from app.api.db import get_db as _get_db
+        from app.api.db import get_conn as _get_conn, _q as _q_
         _mime = (
             "application/pdf" if suffix.lower() == ".pdf"
             else f"image/{suffix[1:].lower()}" if suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
             else "application/octet-stream"
         )
         _hash = hashlib.sha256(raw_bytes).hexdigest()
-        _conn = _get_db()
-        _cur = _conn.cursor()
-        try:
-            _cur.execute(
-                "SELECT id FROM processed_documents WHERE tenant_id = %s AND file_hash = %s LIMIT 1",
-                (tenant_id, _hash),
+        async with _get_conn() as _conn:
+            _existing = await _conn.fetchrow(
+                _q_("SELECT id FROM processed_documents WHERE tenant_id = %s AND file_hash = %s LIMIT 1"),
+                tenant_id, _hash,
             )
-            _existing = _cur.fetchone()
             if _existing:
-                doc_id = _existing[0]
+                doc_id = _existing["id"]
             else:
-                _cur.execute(
-                    """INSERT INTO processed_documents
+                doc_id = await _conn.fetchval(_q_("""
+                    INSERT INTO processed_documents
                        (tenant_id, file_hash, file_name, file_size_bytes, mime_type,
                         extraction_method, raw_text, extracted_data, file_content)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (tenant_id, _hash, file.filename, len(raw_bytes), _mime,
-                     "ai_chat", (result.get("text") or "")[:10000],
-                     _json.dumps(result), raw_bytes),
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                """),
+                    tenant_id, _hash, file.filename, len(raw_bytes), _mime,
+                    "ai_chat", (result.get("text") or "")[:10000],
+                    _json.dumps(result), raw_bytes,
                 )
-                doc_id = _cur.fetchone()[0]
-            _conn.commit()
-        finally:
-            _cur.close(); _conn.close()
     except Exception as _de:
         log.warning("processed_documents save failed (non-fatal): %s", _de)
 

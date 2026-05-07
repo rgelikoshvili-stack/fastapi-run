@@ -69,7 +69,7 @@ def _select_tools(message: str, draft_id: Optional[int], intents: set) -> List[s
     return selected[:6]  # cap at 6 tools per turn
 
 
-def _run_selected_tools(
+async def _run_selected_tools(
     tool_names: List[str],
     params: dict,
     tenant_id: str,
@@ -81,7 +81,7 @@ def _run_selected_tools(
 
     for name in tool_names:
         try:
-            result = run_tool(name, params, tenant_id)
+            result = await run_tool(name, params, tenant_id)
             if result and not result.get("error"):
                 results[name] = result
         except Exception as e:
@@ -138,8 +138,12 @@ async def orchestrate(
     sources = sources or []
     memory_result = memory_result or {}
 
-    # 1. DB context
-    db_ctx = build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
+    # 1. DB context (sync psycopg2 — run in executor to avoid blocking event loop)
+    import asyncio as _asyncio
+    loop = _asyncio.get_running_loop()
+    db_ctx = await loop.run_in_executor(
+        None, lambda: build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
+    )
 
     if draft_id is not None and db_ctx.get("not_found"):
         return {
@@ -157,7 +161,7 @@ async def orchestrate(
     intents: set = set(db_ctx.get("intents", []))
     tool_params = {"draft_id": draft_id} if draft_id else {}
     tool_names = _select_tools(message, draft_id, intents)
-    tool_results = _run_selected_tools(tool_names, tool_params, tenant_id)
+    tool_results = await _run_selected_tools(tool_names, tool_params, tenant_id)
     tool_block = _format_tool_results(tool_results)
 
     # 3. Compose full context for Claude

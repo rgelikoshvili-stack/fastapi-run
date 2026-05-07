@@ -11,9 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import psycopg2.extras
-
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +30,10 @@ TOOL_DESCRIPTIONS = {
     "prepare_posting_preview":  "Prepare a posting preview to Balance.ge or 1C (human must confirm)",
 }
 
+TOOL_NAMES = list(TOOL_DESCRIPTIONS)
 
-def run_tool(tool_name: str, params: dict, tenant_id: str) -> dict:
+
+async def run_tool(tool_name: str, params: dict, tenant_id: str) -> dict:
     """
     Dispatch a tool call. Returns structured result.
     Never executes write operations.
@@ -42,7 +42,7 @@ def run_tool(tool_name: str, params: dict, tenant_id: str) -> dict:
     if not fn:
         return {"error": f"Unknown tool: {tool_name}", "available": list(TOOL_DESCRIPTIONS)}
     try:
-        return fn(params, tenant_id)
+        return await fn(params, tenant_id)
     except Exception as e:
         log.error("tool %s failed: %s", tool_name, e)
         return {"error": str(e), "tool": tool_name}
@@ -52,27 +52,19 @@ def run_tool(tool_name: str, params: dict, tenant_id: str) -> dict:
 # Tool implementations
 # ─────────────────────────────────────────────────────────────
 
-def _explain_draft(params: dict, tenant_id: str) -> dict:
+async def _explain_draft(params: dict, tenant_id: str) -> dict:
     draft_id = params.get("draft_id")
     if not draft_id:
         return {"error": "draft_id required"}
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("""
             SELECT id, description, amount, partner, account_code,
                    debit_account, credit_account, status, confidence,
                    source_type, date, created_at, reason
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
-            """,
-            (int(draft_id), tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+        """), int(draft_id), tenant_id)
 
     if not row:
         return {"found": False, "message": f"Draft #{draft_id} ვერ მოიძებნა სისტემაში"}
@@ -106,13 +98,10 @@ def _explain_draft(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _show_risks(params: dict, tenant_id: str) -> dict:
+async def _show_risks(params: dict, tenant_id: str) -> dict:
     limit = int(params.get("limit", 10))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        rows = [_safe(r) for r in await conn.fetch(_q("""
             SELECT id, description, amount, partner, status, confidence,
                    debit_account, credit_account, created_at
             FROM journal_drafts
@@ -128,12 +117,7 @@ def _show_risks(params: dict, tenant_id: str) -> dict:
                 CASE WHEN confidence < 0.75 THEN 0 ELSE 1 END,
                 amount DESC
             LIMIT %s
-            """,
-            (tenant_id, limit),
-        )
-        rows = [_safe(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
+        """), tenant_id, limit)]
 
     risks = []
     for r in rows:
@@ -156,13 +140,10 @@ def _show_risks(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _show_pending_tasks(params: dict, tenant_id: str) -> dict:
+async def _show_pending_tasks(params: dict, tenant_id: str) -> dict:
     limit = int(params.get("limit", 20))
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+    async with get_conn() as conn:
+        rows = [_safe(r) for r in await conn.fetch(_q("""
             SELECT id, description, amount, partner, status,
                    confidence, created_at, source_type
             FROM journal_drafts
@@ -174,19 +155,12 @@ def _show_pending_tasks(params: dict, tenant_id: str) -> dict:
                      ELSE 2 END,
                 created_at ASC
             LIMIT %s
-            """,
-            (tenant_id, limit),
-        )
-        rows = [_safe(r) for r in cur.fetchall()]
+        """), tenant_id, limit)]
 
-        cur.execute(
-            "SELECT COUNT(*) as cnt FROM journal_drafts "
-            "WHERE tenant_id=%s AND status IN ('pending_approval','drafted','pending_human_review')",
-            (tenant_id,),
-        )
-        total = cur.fetchone()["cnt"]
-    finally:
-        cur.close(); conn.close()
+        total = await conn.fetchval(_q(
+            "SELECT COUNT(*) FROM journal_drafts "
+            "WHERE tenant_id=%s AND status IN ('pending_approval','drafted','pending_human_review')"
+        ), tenant_id) or 0
 
     return {
         "approval_required": False,
@@ -197,12 +171,9 @@ def _show_pending_tasks(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _financial_summary(params: dict, tenant_id: str) -> dict:
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+async def _financial_summary(params: dict, tenant_id: str) -> dict:
+    async with get_conn() as conn:
+        row = _safe(await conn.fetchrow(_q("""
             SELECT
                 COUNT(*) as total_drafts,
                 COUNT(CASE WHEN status IN ('approved','auto_approved') THEN 1 END) as approved,
@@ -215,19 +186,12 @@ def _financial_summary(params: dict, tenant_id: str) -> dict:
                 COALESCE(AVG(confidence), 0) as avg_confidence
             FROM journal_drafts
             WHERE tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        row = _safe(cur.fetchone())
+        """), tenant_id))
 
-        cur.execute(
+        banks = [_safe(r) for r in await conn.fetch(_q(
             "SELECT name, balance, currency FROM bank_accounts "
-            "WHERE tenant_id=%s ORDER BY balance DESC LIMIT 5",
-            (tenant_id,),
-        )
-        banks = [_safe(r) for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
+            "WHERE tenant_id=%s ORDER BY balance DESC LIMIT 5"
+        ), tenant_id)]
 
     rev = float(row.get("revenue") or 0)
     exp = float(row.get("expenses") or 0)
@@ -250,12 +214,9 @@ def _financial_summary(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _tax_summary(params: dict, tenant_id: str) -> dict:
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
-            """
+async def _tax_summary(params: dict, tenant_id: str) -> dict:
+    async with get_conn() as conn:
+        row = _safe(await conn.fetchrow(_q("""
             SELECT
                 COALESCE(SUM(CASE WHEN credit_account='3310' THEN amount ELSE 0 END),0) as vat_payable,
                 COALESCE(SUM(CASE WHEN credit_account='3320' THEN amount ELSE 0 END),0) as pit_payable,
@@ -264,12 +225,7 @@ def _tax_summary(params: dict, tenant_id: str) -> dict:
                 COALESCE(SUM(CASE WHEN credit_account='3350' THEN amount ELSE 0 END),0) as withholding_payable
             FROM journal_drafts
             WHERE tenant_id = %s AND status IN ('approved','auto_approved')
-            """,
-            (tenant_id,),
-        )
-        row = _safe(cur.fetchone())
-    finally:
-        cur.close(); conn.close()
+        """), tenant_id))
 
     return {
         "approval_required": False,
@@ -284,65 +240,49 @@ def _tax_summary(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _search_documents(params: dict, tenant_id: str) -> dict:
+async def _search_documents(params: dict, tenant_id: str) -> dict:
     query = (params.get("query") or "").strip()
     if not query:
         return {"error": "query required"}
     limit = int(params.get("limit", 10))
-
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    like = f"%{query}%"
     results = []
 
-    # Search journal_drafts
-    try:
-        cur.execute(
-            """
-            SELECT id, description, amount, partner, status, 'draft' as source_table
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND (description ILIKE %s OR partner ILIKE %s)
-            ORDER BY created_at DESC LIMIT %s
-            """,
-            (tenant_id, f"%{query}%", f"%{query}%", limit),
-        )
-        results += [_safe(r) for r in cur.fetchall()]
-    except Exception as e:
-        log.debug("search drafts: %s", e)
+    async with get_conn() as conn:
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, description, amount, partner, status, 'draft' as source_table
+                FROM journal_drafts
+                WHERE tenant_id = %s AND (description ILIKE %s OR partner ILIKE %s)
+                ORDER BY created_at DESC LIMIT %s
+            """), tenant_id, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search drafts: %s", e)
 
-    # Search invoices
-    try:
-        cur.execute(
-            """
-            SELECT id, number as description, partner, total as amount,
-                   status, 'invoice' as source_table
-            FROM invoices
-            WHERE tenant_id = %s AND (partner ILIKE %s OR number ILIKE %s)
-            ORDER BY created_at DESC LIMIT %s
-            """,
-            (tenant_id, f"%{query}%", f"%{query}%", limit),
-        )
-        results += [_safe(r) for r in cur.fetchall()]
-    except Exception as e:
-        log.debug("search invoices: %s", e)
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, number as description, partner, total as amount,
+                       status, 'invoice' as source_table
+                FROM invoices
+                WHERE tenant_id = %s AND (partner ILIKE %s OR number ILIKE %s)
+                ORDER BY created_at DESC LIMIT %s
+            """), tenant_id, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search invoices: %s", e)
 
-    # Search outgoing_invoices
-    try:
-        cur.execute(
-            """
-            SELECT id, invoice_number as description, partner_name as partner,
-                   total_amount as amount, status, 'outgoing_invoice' as source_table
-            FROM outgoing_invoices
-            WHERE tenant_id = %s AND (partner_name ILIKE %s OR invoice_number ILIKE %s)
-            ORDER BY issue_date DESC LIMIT %s
-            """,
-            (tenant_id, f"%{query}%", f"%{query}%", limit),
-        )
-        results += [_safe(r) for r in cur.fetchall()]
-    except Exception as e:
-        log.debug("search outgoing: %s", e)
-
-    cur.close(); conn.close()
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, invoice_number as description, partner_name as partner,
+                       total_amount as amount, status, 'outgoing_invoice' as source_table
+                FROM outgoing_invoices
+                WHERE tenant_id = %s AND (partner_name ILIKE %s OR invoice_number ILIKE %s)
+                ORDER BY issue_date DESC LIMIT %s
+            """), tenant_id, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search outgoing: %s", e)
 
     return {
         "approval_required": False,
@@ -353,23 +293,17 @@ def _search_documents(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _prepare_approval_preview(params: dict, tenant_id: str) -> dict:
+async def _prepare_approval_preview(params: dict, tenant_id: str) -> dict:
     draft_id = params.get("draft_id")
     if not draft_id:
         return {"error": "draft_id required"}
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT id, description, amount, partner, status, confidence, "
             "debit_account, credit_account, account_code "
-            "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-            (int(draft_id), tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+            "FROM journal_drafts WHERE id=%s AND tenant_id=%s"
+        ), int(draft_id), tenant_id)
 
     if not row:
         return {"found": False, "message": f"Draft #{draft_id} ვერ მოიძებნა"}
@@ -395,24 +329,18 @@ def _prepare_approval_preview(params: dict, tenant_id: str) -> dict:
     }
 
 
-def _prepare_posting_preview(params: dict, tenant_id: str) -> dict:
+async def _prepare_posting_preview(params: dict, tenant_id: str) -> dict:
     draft_id = params.get("draft_id")
     target = params.get("target", "balance_ge")
     if not draft_id:
         return {"error": "draft_id required"}
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute(
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q(
             "SELECT id, description, amount, partner, status, confidence, "
             "debit_account, credit_account, date "
-            "FROM journal_drafts WHERE id=%s AND tenant_id=%s",
-            (int(draft_id), tenant_id),
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close(); conn.close()
+            "FROM journal_drafts WHERE id=%s AND tenant_id=%s"
+        ), int(draft_id), tenant_id)
 
     if not row:
         return {"found": False, "message": f"Draft #{draft_id} ვერ მოიძებნა"}

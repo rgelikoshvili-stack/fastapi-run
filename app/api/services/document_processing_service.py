@@ -455,7 +455,7 @@ async def _process_document_background(
                 await _mark_doc_status(doc_id, "duplicate", tenant_id)
                 return
 
-        party = resolve_party(extracted, tenant_id)
+        party = await resolve_party(extracted, tenant_id)
 
         if party.our_role == OurRole.FOREIGN:
             seller_name = extracted.seller.name or extracted.seller.inn or "უცნობი გამყიდველი"

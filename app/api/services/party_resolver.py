@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Optional
 
 from app.api.services.document_extractor import ExtractedDocument, ExtractedParty
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -33,44 +33,32 @@ class PartyResolution:
     warnings: list = field(default_factory=list)
 
 
-def _load_tenant(tenant_id: str) -> dict:
-    conn = get_db()
+async def _load_tenant(tenant_id: str) -> dict:
+    _TENANT_COLS = "company_inn, company_name_legal, company_name_aliases, owner_personal_id, company_type, is_vat_payer"
     try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT company_inn, company_name_legal, company_name_aliases,
-                   owner_personal_id, company_type, is_vat_payer
-            FROM tenants WHERE tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            # Fallback: tenant_id might be the company INN itself
-            cur.execute(
-                """
-                SELECT company_inn, company_name_legal, company_name_aliases,
-                       owner_personal_id, company_type, is_vat_payer
-                FROM tenants WHERE company_inn = %s
-                """,
-                (tenant_id,),
+        async with get_conn() as conn:
+            row = await conn.fetchrow(
+                _q(f"SELECT {_TENANT_COLS} FROM tenants WHERE tenant_id = %s"), tenant_id
             )
-            row = cur.fetchone()
+            if not row:
+                row = await conn.fetchrow(
+                    _q(f"SELECT {_TENANT_COLS} FROM tenants WHERE company_inn = %s"), tenant_id
+                )
         if not row:
             return {"inn": "", "name": tenant_id, "aliases": [], "owner_personal_id": None,
                     "company_type": "legal_entity", "is_vat_payer": True}
         return {
-            "inn": row[0] or "",
-            "name": row[1] or tenant_id,
-            "aliases": row[2] or [],
-            "owner_personal_id": row[3],
-            "company_type": row[4] or "legal_entity",
-            "is_vat_payer": bool(row[5]),
+            "inn": row["company_inn"] or "",
+            "name": row["company_name_legal"] or tenant_id,
+            "aliases": row["company_name_aliases"] or [],
+            "owner_personal_id": row["owner_personal_id"],
+            "company_type": row["company_type"] or "legal_entity",
+            "is_vat_payer": bool(row["is_vat_payer"]),
         }
-    finally:
-        cur.close()
-        conn.close()
+    except Exception as e:
+        log.warning("_load_tenant failed: %s", e)
+        return {"inn": "", "name": tenant_id, "aliases": [], "owner_personal_id": None,
+                "company_type": "legal_entity", "is_vat_payer": True}
 
 
 def _normalize_name(name: str) -> str:
@@ -112,8 +100,8 @@ def _is_us(party: ExtractedParty, tenant: dict) -> bool:
     return False
 
 
-def resolve_party(doc: ExtractedDocument, tenant_id: str) -> PartyResolution:
-    tenant = _load_tenant(tenant_id)
+async def resolve_party(doc: ExtractedDocument, tenant_id: str) -> PartyResolution:
+    tenant = await _load_tenant(tenant_id)
     warnings = []
 
     seller_is_us = _is_us(doc.seller, tenant)

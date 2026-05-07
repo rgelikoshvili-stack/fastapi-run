@@ -1,7 +1,7 @@
 import json
 import logging
 
-from app.api.db import get_db, get_conn, _q
+from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.services.learning_service import apply_correct_learning
 from app.api.services.transaction_memory_service import save_transaction_memory

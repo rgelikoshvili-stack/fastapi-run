@@ -20,7 +20,16 @@ def _load_jwt_secret() -> str:
     return secret
 
 
-SECRET_KEY = _load_jwt_secret()
+_SECRET_KEY_CACHE: str | None = None
+
+
+def _get_secret_key() -> str:
+    """Lazy loader — resolves JWT_SECRET on first call, not at module import.
+    Prevents startup crash when JWT_SECRET is not yet in env during container init."""
+    global _SECRET_KEY_CACHE
+    if _SECRET_KEY_CACHE is None:
+        _SECRET_KEY_CACHE = _load_jwt_secret()
+    return _SECRET_KEY_CACHE
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
@@ -41,7 +50,7 @@ def _create_access_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)).timestamp()),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def _create_refresh_token(user: dict) -> str:
@@ -54,7 +63,7 @@ def _create_refresh_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def create_access_token(payload_extra: dict) -> str:
@@ -65,7 +74,7 @@ def create_access_token(payload_extra: dict) -> str:
         "exp": int((now + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)).timestamp()),
         **payload_extra,
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def create_refresh_token(payload_extra: dict) -> str:
@@ -76,7 +85,7 @@ def create_refresh_token(payload_extra: dict) -> str:
         "exp": int((now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
         **payload_extra,
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def _resolve_tenant_id(tenant_id: str) -> str:
@@ -133,7 +142,7 @@ def login(email: str, password: str, tenant_id: str = "default") -> dict:
 
 def verify_token(token: str, expected_type: str = "access") -> dict | None:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
         if payload.get("type") != expected_type:
             return None
         return payload

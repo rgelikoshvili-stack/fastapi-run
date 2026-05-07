@@ -144,7 +144,7 @@ jobs:
             --cpu 2 \
             --concurrency 100 \
             --timeout 300 \
-            --set-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
+            --update-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
             --quiet
 
       - name: Smoke test - health check

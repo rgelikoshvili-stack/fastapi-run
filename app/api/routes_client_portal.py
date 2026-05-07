@@ -149,12 +149,12 @@ async def client_upload(
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="ფაილი 10MB-ზე მეტია")
 
-    from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+    from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice_async
     fields = extract_invoice_fields(file.filename, data)
 
     if fields.get("amount"):
         fields["partner"] = client_id
-        draft = create_draft_from_invoice(
+        draft = await create_draft_from_invoice_async(
             fields,
             tenant_id=tenant_id,
             source_type="client_upload",

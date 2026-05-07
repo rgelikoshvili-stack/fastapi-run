@@ -410,6 +410,130 @@ def create_draft_from_invoice(
         conn.close()
 
 
+async def create_draft_from_invoice_async(
+    invoice_fields: dict,
+    tenant_id: str = "default",
+    source_type: str = "invoice_ocr",
+    force: bool = False,
+) -> dict:
+    """Async asyncpg version of create_draft_from_invoice for use in async route handlers."""
+    from app.api.db import get_conn, _q
+
+    amount = invoice_fields.get("amount")
+    if not amount:
+        return {"ok": False, "error": "თანხა ვერ ამოიღო ინვოისიდან"}
+
+    partner = invoice_fields.get("partner") or ""
+    date = invoice_fields.get("date") or datetime.now().strftime("%Y-%m-%d")
+    vat_amount = invoice_fields.get("vat_amount")
+    net_amount = invoice_fields.get("net_amount") or amount
+
+    _inv_num = invoice_fields.get("invoice_number")
+    _inv_num = str(_inv_num) if (_inv_num and str(_inv_num).lower() not in ("none", "null", "")) else None
+    _partner = partner.strip() if partner and partner.lower() not in ("none", "null") else None
+
+    if _inv_num and _partner:
+        description = f"Invoice {_inv_num} — {_partner}"
+    elif _partner:
+        description = f"Invoice — {_partner}"
+    elif _inv_num:
+        description = f"Invoice #{_inv_num}"
+    else:
+        description = "Invoice (OCR)"
+
+    from app.policy.localization.georgia_pack import get_account
+    _combined = description.lower() + " " + (partner or "").lower()
+    if any(k in _combined for k in ["communal", "კომუნალ", "electricity", "water", "gas", "გაზი", "elektro"]):
+        debit_account = "7210"
+    elif any(k in _combined for k in ["payroll", "salary", "ხელფასი", "wages"]):
+        debit_account = "6100"
+    elif any(k in _combined for k in ["rent", "იჯარა", "lease", "ქირა"]):
+        debit_account = "7220"
+    elif any(k in _combined for k in ["transport", "delivery", "მიტანა", "courier", "logistics"]):
+        debit_account = "7130"
+    else:
+        debit_account = get_account("cost_of_service") or "7110"
+    credit_account = get_account("accounts_payable") or "3310"
+
+    journal_entries = None
+    if vat_amount and vat_amount > 0 and net_amount and net_amount > 0:
+        journal_entries = json.dumps([
+            {"line": 1, "debit_account": debit_account, "credit_account": None,
+             "amount": round(float(net_amount), 2), "description": f"Net expense — {description}"},
+            {"line": 2, "debit_account": "1430", "credit_account": None,
+             "amount": round(float(vat_amount), 2), "description": "Input VAT (დღგ)"},
+            {"line": 3, "debit_account": None, "credit_account": credit_account,
+             "amount": round(float(amount), 2), "description": "Accounts payable — total"},
+        ])
+
+    try:
+        async with get_conn() as conn:
+            if not force:
+                dup = await conn.fetchrow(_q("""
+                    SELECT id, description, amount, status, created_at
+                    FROM journal_drafts
+                    WHERE tenant_id = %s AND ABS(amount - %s) < 0.01
+                      AND created_at >= NOW() - INTERVAL '30 days'
+                    ORDER BY created_at DESC LIMIT 1
+                """), tenant_id, amount)
+                if dup:
+                    return {
+                        "ok": False, "duplicate": True, "draft_id": dup["id"],
+                        "message": "⚠️ ეს ინვოისი უკვე დამუშავებულია!",
+                        "existing_draft": {
+                            "id": dup["id"], "description": dup["description"],
+                            "amount": float(dup["amount"]), "status": dup["status"],
+                            "created_at": str(dup["created_at"]),
+                        },
+                        "action_required": "confirm_reprocess",
+                        "hint": "გამოიყენე force=true ხელახლა დასამუშავებლად",
+                    }
+
+            try:
+                draft_id = await conn.fetchval(_q("""
+                    INSERT INTO journal_drafts (
+                        date, description, partner, amount,
+                        debit_account, credit_account, account_code,
+                        reason, confidence, status,
+                        source_type, tenant_id, journal_entries, created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    RETURNING id
+                """),
+                    date, description, partner, amount,
+                    debit_account, credit_account, debit_account,
+                    "invoice_ocr", 0.85, "pending_approval",
+                    source_type, tenant_id, journal_entries,
+                )
+            except Exception:
+                draft_id = await conn.fetchval(_q("""
+                    INSERT INTO journal_drafts (
+                        date, description, partner, amount,
+                        debit_account, credit_account, account_code,
+                        reason, confidence, status,
+                        source_type, tenant_id, created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    RETURNING id
+                """),
+                    date, description, partner, amount,
+                    debit_account, credit_account, debit_account,
+                    "invoice_ocr", 0.85, "pending_approval",
+                    source_type, tenant_id,
+                )
+
+        return {
+            "ok": True, "draft_id": draft_id,
+            "date": date, "description": description, "partner": partner,
+            "amount": amount, "net_amount": round(float(net_amount), 2),
+            "vat_amount": round(float(vat_amount), 2) if vat_amount else None,
+            "debit_account": debit_account, "credit_account": credit_account,
+            "journal_entries": json.loads(journal_entries) if journal_entries else None,
+            "confidence": 0.85, "status": "pending_approval",
+            "tenant_id": tenant_id, "forced": force,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

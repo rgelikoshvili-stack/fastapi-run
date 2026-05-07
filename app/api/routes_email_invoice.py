@@ -19,7 +19,7 @@ from app.api.services.email_invoice_service import (
     process_email_invoices,
     get_email_status,
 )
-from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice_async
 from app.api.authz import require_permission
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ async def manual_upload(request: Request, file: UploadFile = File(...)):
     fields = extract_invoice_fields(file.filename, data)
     if not fields.get("amount"):
         return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
-    draft = create_draft_from_invoice(fields, tenant_id=tenant_id, force=False)
+    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id, force=False)
     if draft.get("duplicate"):
         existing = draft.get("existing_draft", {})
         return error_response(f"⚠️ ეს ინვოისი უკვე გატარებულია! Draft #{existing.get('id')}", "DUPLICATE", str(existing))

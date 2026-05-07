@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Query
 from app.api.tenant_context import resolve_tenant_id
 from app.api.security import limiter
 from app.api.authz import require_permission
-from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice_async
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
@@ -60,7 +60,7 @@ async def extract_and_create_draft(
     if not fields.get("amount"):
         return error_response("თანხა ვერ ამოიღო", "AMOUNT_MISSING", str(fields))
 
-    draft = create_draft_from_invoice(fields, tenant_id=tenant_id)
+    draft = await create_draft_from_invoice_async(fields, tenant_id=tenant_id)
     return ok_response("Draft created", {"tenant_id": tenant_id, "filename": file.filename,
             "extracted_fields": fields, "draft": draft})
 

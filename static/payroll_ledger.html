@@ -148,10 +148,19 @@ tbody td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   </div>
 </div>
 
+<script src="/static/js/core/api.js"></script>
+<script src="/static/js/core/modal.js"></script>
+<script src="/static/js/core/toast.js"></script>
+<script src="/static/js/core/debounce.js"></script>
 <script>
 const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function showPayrollToast(message, type = 'error') {
+  if (window.BHToast && typeof window.BHToast.show === 'function') {
+    window.BHToast.show(message, type);
+  }
+}
 function setPayrollError(message) {
   const box = document.getElementById('errorBox');
   if (!box) return;
@@ -201,20 +210,29 @@ async function runReport(){
   const emp  = document.getElementById('fEmp').value.trim();
   const year = document.getElementById('fYear').value;
   const btn  = document.getElementById('btnRun');
+  setPayrollError('');
+  if (emp && !/^\d+$/.test(emp)) {
+    const msg = 'თანამშრომლის INN უნდა შეიცავდეს მხოლოდ ციფრებს';
+    setPayrollError(msg);
+    showPayrollToast(msg, 'error');
+    return;
+  }
   document.getElementById('btnTxt').innerHTML = '<span class="spin"></span>ჩატვირთვა…';
   btn.disabled = true;
 
   const p = new URLSearchParams();
   if(emp)  p.set('employee_id', emp);
   if(year) p.set('year', year);
-  const url = '/reports/payroll' + ([...p].length ? '?' + p.toString() : '');
+  const url = '/payroll/ledger' + ([...p].length ? '?' + p.toString() : '');
 
   try {
     const d = await apiRequest(url);
     if(!d.ok) throw new Error(d?.error?.details || d?.message || 'შეცდომა');
-    renderReport(d, emp, year);
+    renderReport(d.data || {}, emp, year);
   } catch(e){
-    setPayrollError('შეცდომა: ' + e.message);
+    const msg = 'შეცდომა: ' + e.message;
+    setPayrollError(msg);
+    showPayrollToast(msg, 'error');
   } finally {
     document.getElementById('btnTxt').textContent = 'ჩვენება';
     btn.disabled = false;
@@ -223,25 +241,26 @@ async function runReport(){
 
 function renderReport(d, emp, year){
   setPayrollError('');
-  document.getElementById('sumCount').textContent  = d.count;
-  document.getElementById('sumWages').textContent  = fmt(d.total_wages);
+  const lines = Array.isArray(d.lines) ? d.lines : [];
+  document.getElementById('sumCount').textContent  = d.count || 0;
+  document.getElementById('sumWages').textContent  = fmt(d.total_wages || 0);
   document.getElementById('sumFilter').textContent = `${emp||'ყველა'} / ${year||'ყველა'}`;
   document.getElementById('summary').style.display = '';
 
-  if(!d.lines || d.lines.length === 0){
+  if(lines.length === 0){
     document.getElementById('tblWrap').style.display = 'none';
     document.getElementById('emptyMsg').style.display = '';
     return;
   }
 
-  document.getElementById('tblCount').textContent = `${d.count} ჩანაწერი`;
+  document.getElementById('tblCount').textContent = `${d.count || lines.length} ჩანაწერი`;
   document.getElementById('tblWrap').style.display = '';
   document.getElementById('emptyMsg').style.display = 'none';
 
   const tbody = document.getElementById('tblBody');
   tbody.innerHTML = '';
 
-  for(const ln of d.lines){
+  for(const ln of lines){
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${esc(ln.date||'—')}</td>
@@ -259,10 +278,6 @@ function renderReport(d, emp, year){
 runReport();
 </script>
 
-<script src="/static/js/core/api.js"></script>
-<script src="/static/js/core/modal.js"></script>
-<script src="/static/js/core/toast.js"></script>
-<script src="/static/js/core/debounce.js"></script>
 <script src="/static/js/sidebar.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {

@@ -20,6 +20,24 @@ EMPLOYER_PENSION_EXPENSE_ACCOUNT = "7220"
 EMPLOYER_PENSION_PAYABLE_ACCOUNT = "3335"
 
 
+def normalize_payroll_report_filters(
+    employee_id: Optional[str] = None,
+    year: Optional[int] = None,
+) -> tuple[Optional[str], Optional[int]]:
+    """Normalize payroll ledger filters shared by report and payroll routes."""
+    normalized_employee_id = employee_id.strip() if employee_id is not None else None
+    if normalized_employee_id == "":
+        normalized_employee_id = None
+    if normalized_employee_id is not None:
+        if not normalized_employee_id.isdigit():
+            raise ValueError("Employee ID must contain digits only")
+        if len(normalized_employee_id) > 32:
+            raise ValueError("Employee ID is too long")
+    if year is not None and (year < 1900 or year > 2100):
+        raise ValueError("Year must be between 1900 and 2100")
+    return normalized_employee_id, year
+
+
 # ========== Payroll Calculation ==========
 
 def calculate_employee_payroll(

@@ -13,6 +13,7 @@ from app.api.services.ledger_service import (
     get_payroll_ledger,
     get_journal_entries,
 )
+from app.api.services.payroll_service import normalize_payroll_report_filters
 from app.api.observability import structured_log
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -205,20 +206,20 @@ async def payroll_ledger_report(
         result="started",
         error_code=None,
     )
-    if employee_id is not None:
-        employee_id = employee_id.strip()
-        if employee_id and not employee_id.isdigit():
-            structured_log(
-                log,
-                logging.INFO,
-                "payroll_report_rejected",
-                tenant_id=tenant_id,
-                employee_id=employee_id,
-                year=year,
-                result="denied",
-                error_code="INVALID_FILTER",
-            )
-            return http_error(422, "Employee ID must contain digits only", "INVALID_FILTER", {"employee_id": employee_id})
+    try:
+        employee_id, year = normalize_payroll_report_filters(employee_id, year)
+    except ValueError as exc:
+        structured_log(
+            log,
+            logging.INFO,
+            "payroll_report_rejected",
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            year=year,
+            result="denied",
+            error_code="INVALID_FILTER",
+        )
+        return http_error(422, str(exc), "INVALID_FILTER", {"employee_id": employee_id, "year": year})
     data = await get_payroll_ledger(tenant_id, employee_id, year)
     structured_log(
         log,

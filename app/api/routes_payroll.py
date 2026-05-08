@@ -6,7 +6,7 @@ from datetime import datetime
 import logging
 import io
 from app.api.db import get_conn, _q
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 
@@ -15,7 +15,9 @@ from app.api.services.payroll_service import (
     calculate_payroll,
     generate_payroll_drafts,
     generate_rsge_xml,
+    normalize_payroll_report_filters,
 )
+from app.api.services.ledger_service import get_payroll_ledger
 from app.api.observability import structured_log
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -156,6 +158,23 @@ async def payroll_history(
         "offset": offset,
         "items": items,
     })
+
+
+@router.get("/ledger")
+async def payroll_ledger(
+    request: Request,
+    employee_id: Optional[str] = Query(None, description="Employee personal tax number"),
+    year: Optional[int] = Query(None, ge=1900, le=2100),
+):
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        employee_id, year = normalize_payroll_report_filters(employee_id, year)
+    except ValueError as exc:
+        return http_error(422, str(exc), "INVALID_FILTER", {"employee_id": employee_id, "year": year})
+
+    data = await get_payroll_ledger(tenant_id, employee_id, year)
+    return ok_response("Payroll ledger", {"report": "payroll_ledger", "tenant_id": tenant_id, **data})
 
 
 @router.post("/payslip-pdf")

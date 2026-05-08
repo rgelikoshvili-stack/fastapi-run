@@ -697,6 +697,15 @@ async def get_audit_service(limit: int, offset: int, tenant_id: str):
 def autopilot_approve_service(
     tenant_id: str, confidence_threshold: float = AUTOPILOT_MIN_CONFIDENCE
 ):
+    structured_log(
+        log,
+        logging.INFO,
+        "autopilot_approval_started",
+        tenant_id=tenant_id,
+        action="autopilot_approve",
+        result="started",
+        error_code=None,
+    )
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -733,6 +742,16 @@ def autopilot_approve_service(
         raw_candidates = [dict(r) for r in cur.fetchall()]
 
     except Exception as e:
+        structured_log(
+            log,
+            logging.ERROR,
+            "autopilot_approval_failed",
+            tenant_id=tenant_id,
+            action="autopilot_approve",
+            result="error",
+            error_code="AUTOPILOT_ERROR",
+            error=str(e),
+        )
         return error_response("Autopilot query failed", "AUTOPILOT_ERROR", str(e))
     finally:
         cur.close()
@@ -781,6 +800,18 @@ def autopilot_approve_service(
             candidates.append(draft)
 
     if not candidates:
+        structured_log(
+            log,
+            logging.INFO,
+            "autopilot_approval_completed",
+            tenant_id=tenant_id,
+            action="autopilot_approve",
+            result="success",
+            approved_count=0,
+            failed_count=0,
+            skipped_count=len(skipped),
+            error_code=None,
+        )
         return ok_response(
             "Autopilot: nothing to approve",
             {
@@ -817,6 +848,16 @@ def autopilot_approve_service(
 
             if updated:
                 approved_ids.append(draft_id)
+                structured_log(
+                    log,
+                    logging.INFO,
+                    "autopilot_approval_item_completed",
+                    tenant_id=tenant_id,
+                    draft_id=draft_id,
+                    action="autopilot_approve",
+                    result="success",
+                    error_code=None,
+                )
                 log_event(
                     "draft_auto_approved",
                     {
@@ -833,13 +874,47 @@ def autopilot_approve_service(
                 )
             else:
                 failed_ids.append(draft_id)
+                structured_log(
+                    log,
+                    logging.WARNING,
+                    "autopilot_approval_item_failed",
+                    tenant_id=tenant_id,
+                    draft_id=draft_id,
+                    action="autopilot_approve",
+                    result="error",
+                    error_code="AUTOPILOT_NOT_UPDATED",
+                )
 
-        except Exception:
+        except Exception as e:
             conn2.rollback()
             failed_ids.append(draft_id)
+            structured_log(
+                log,
+                logging.ERROR,
+                "autopilot_approval_item_failed",
+                tenant_id=tenant_id,
+                draft_id=draft_id,
+                action="autopilot_approve",
+                result="error",
+                error_code="AUTOPILOT_ITEM_ERROR",
+                error=str(e),
+            )
         finally:
             cur2.close()
             conn2.close()
+
+    structured_log(
+        log,
+        logging.INFO,
+        "autopilot_approval_completed",
+        tenant_id=tenant_id,
+        action="autopilot_approve",
+        result="success" if not failed_ids else "partial",
+        approved_count=len(approved_ids),
+        failed_count=len(failed_ids),
+        skipped_count=len(skipped),
+        error_code=None if not failed_ids else "AUTOPILOT_PARTIAL_FAILURE",
+    )
 
     return ok_response(
         "Autopilot complete",

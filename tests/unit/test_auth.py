@@ -86,6 +86,16 @@ def test_missing_token_returns_401(client):
     assert resp.status_code in (401, 403)
 
 
+def test_auth_me_missing_token_returns_401():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    bare_client = TestClient(app)
+    resp = bare_client.get("/auth/me")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "AUTH_ERROR"
+
+
 # ── Role-based access ─────────────────────────────────────────────────────────
 
 def test_viewer_role_token():

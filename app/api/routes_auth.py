@@ -12,7 +12,7 @@ from typing import Optional, Literal
 
 from app.api.models.user import create_user, create_users_table, get_user, hash_password, verify_password
 from app.api.services.auth_service import login, verify_token, refresh_token, create_access_token, create_refresh_token
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
@@ -292,11 +292,11 @@ async def auth_signup(data: FullRegisterRequest, request: Request):
 async def auth_me(authorization: Optional[str] = Header(None)):
     token = _extract_bearer_token(authorization)
     if not token:
-        return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")
+        return http_error(401, "Unauthorized", "AUTH_ERROR", "Missing bearer token")
 
     payload = verify_token(token, expected_type="access")
     if not payload:
-        return error_response("Unauthorized", "AUTH_ERROR", "Invalid token")
+        return http_error(401, "Unauthorized", "AUTH_ERROR", "Invalid token")
 
     tenant_id = payload.get("tenant_id")
     company_name = None

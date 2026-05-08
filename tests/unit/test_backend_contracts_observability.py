@@ -88,6 +88,29 @@ def test_permission_denial_logging_hooks_exist():
     assert "auth_token_invalid" in auth_src
 
 
+def test_autopilot_approval_emits_structured_logs():
+    import app.api.services.approval_service as mod
+
+    src = inspect.getsource(mod.autopilot_approve_service)
+    assert "structured_log(" in src
+    assert "autopilot_approval_started" in src
+    assert "autopilot_approval_item_completed" in src
+    assert "autopilot_approval_item_failed" in src
+    assert "autopilot_approval_completed" in src
+    assert "token" not in src.lower()
+
+
+def test_batch_completion_log_includes_per_item_counts():
+    from app.api import routes_approval
+
+    src = inspect.getsource(routes_approval.batch_action)
+    assert "approval_batch_completed" in src
+    assert "succeeded_count" in src
+    assert "failed_count" in src
+    assert "skipped_count" in src
+    assert "BATCH_PARTIAL_FAILURE" in src
+
+
 def test_hardening_doc_exists():
     assert Path("docs/code-quality-hardening.md").exists()
 

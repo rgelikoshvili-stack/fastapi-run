@@ -478,17 +478,6 @@ async def batch_action(body: BatchActionRequest, request: Request):
                     },
                 })
 
-        structured_log(
-            log,
-            logging.INFO,
-            "approval_batch_completed",
-            action=body.action,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            result="success",
-            affected=affected,
-            error_code=None,
-        )
         cache_clear_prefix(f"approval_stats:{tenant_id}")
         cache_clear_prefix(f"dashboard_live:{tenant_id}")
         succeeded = []
@@ -527,6 +516,20 @@ async def batch_action(body: BatchActionRequest, request: Request):
             payload["reason"] = body.reason
         if body.note:
             payload["note"] = body.note
+        structured_log(
+            log,
+            logging.INFO,
+            "approval_batch_completed",
+            action=body.action,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            result="success" if not failed and not skipped else "partial",
+            affected=affected,
+            succeeded_count=len(succeeded),
+            failed_count=len(failed),
+            skipped_count=len(skipped),
+            error_code=None if not failed and not skipped else "BATCH_PARTIAL_FAILURE",
+        )
         response = ok_response("Batch action complete", payload)
         if idem_key:
             await idempotency_store(tenant_id, idem_key, batch_endpoint, response)

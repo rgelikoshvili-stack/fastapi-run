@@ -1329,7 +1329,7 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         </div>
         <div class="qa" onclick="approveAll()">
           <svg viewBox="0 0 24 24"><path d="M5 13l4 4 10-10"/></svg>
-          <div class="qal">ყველა</div>
+          <div class="qal">ამ გვერდის დამტკიცება</div>
         </div>
         <input type="file" id="ocr-file" style="display:none" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" onchange="doOCR(this)"/>
       </div>
@@ -3217,7 +3217,8 @@ async function approve(id) {
   if (typeof window.approveWithPreview === 'function') {
     return window.approveWithPreview(id, doApprove);
   }
-  return doApprove();
+  toast('Posting preview module is not loaded; approval is blocked.', 'err');
+  return null;
 }
 window.approve = approve;
 
@@ -3291,11 +3292,11 @@ async function submitBulkApprove() {
   }
   if (btn) btn.disabled = true;
   try {
-    let ok = 0, fail = 0;
-    for (const id of ids) {
-      const d = await api('/approval/approve/' + id, 'POST');
-      if (d) ok++; else fail++;
-    }
+    const d = await api('/approval/batch-action', 'POST', { action: 'approve', draft_ids: ids });
+    if (!d) throw new Error('batch approval failed');
+    const data = d.data || d;
+    const ok = data.succeeded?.length ?? data.affected ?? 0;
+    const fail = (data.failed?.length || 0) + (data.skipped?.length || 0);
     toast(`✓ დამტკიცდა ${ok}, ვერ ${fail}`, fail ? 'warn' : 'ok');
     closeModal();
     window._bulkApproveIds = [];
@@ -3381,7 +3382,6 @@ async function submitAutopilotSetup() {
   closeModal();
   apTimer = setInterval(autoApproveHigh, 60000);
   toast('🤖 Autopilot enabled', 'ok');
-  await autoApproveHigh();
 }
 
 /* ═════════ CASHFLOW ═════════ */

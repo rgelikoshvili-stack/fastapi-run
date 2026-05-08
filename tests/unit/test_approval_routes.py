@@ -73,6 +73,10 @@ def test_batch_action_exists():
     src = inspect.getsource(mod)
     assert "batch" in src.lower()
     assert "tenant_id" in src
+    assert '"succeeded": succeeded' in src
+    assert '"failed": failed' in src
+    assert '"skipped": skipped' in src
+    assert '"items": items' in src
 
 
 def test_reject_contract_accepts_note():

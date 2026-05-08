@@ -491,10 +491,36 @@ async def batch_action(body: BatchActionRequest, request: Request):
         )
         cache_clear_prefix(f"approval_stats:{tenant_id}")
         cache_clear_prefix(f"dashboard_live:{tenant_id}")
+        succeeded = []
+        failed = []
+        skipped = []
+        items = []
+        for result in results:
+            draft_id = result.get("draft_id")
+            error = result.get("error") or {}
+            code = error.get("code") if isinstance(error, dict) else None
+            status = "succeeded" if result.get("ok") else ("skipped" if code == "BATCH_ITEM_SKIPPED" else "failed")
+            item = {
+                "draft_id": draft_id,
+                "status": status,
+                "result_status": result.get("status"),
+                "error": None if result.get("ok") else error,
+            }
+            items.append(item)
+            if status == "succeeded":
+                succeeded.append(draft_id)
+            elif status == "skipped":
+                skipped.append(item)
+            else:
+                failed.append(item)
         payload = {
             "action": body.action,
             "affected": affected,
             "tenant_id": tenant_id,
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+            "items": items,
             "results": results,
         }
         if body.reason:

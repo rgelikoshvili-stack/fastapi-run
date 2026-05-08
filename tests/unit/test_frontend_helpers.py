@@ -14,6 +14,12 @@ def test_frontend_helper_files_export_expected_globals():
     assert "window.BHModal" in modal
     assert "window.BHToast" in toast
     assert "window.BHDebounce" in debounce
+    assert "buildEnvelopeError" in api
+    assert "payload.ok === false" in api
+    assert "sessionExpired = response.status === 401" in api
+    assert "permissionDenied = response.status === 403" in api
+    assert "serverError = response.status >= 500" in api
+    assert "networkError = true" in api
 
 
 def test_approval_page_loads_frontend_helpers():
@@ -44,6 +50,7 @@ def test_shadow_preview_disables_confirm_when_preview_missing():
     shadow = (ROOT / "js" / "pages" / "shadow_posting.js").read_text(encoding="utf-8")
     assert "const canConfirm = !!p;" in shadow
     assert "disabled aria-disabled=\"true\"" in shadow
+    assert "window.BHApi.get('/posting/preview/' + draftId)" in shadow
 
 
 def test_approval_page_uses_debounced_search_and_confirmation_modals():
@@ -52,6 +59,9 @@ def test_approval_page_uses_debounced_search_and_confirmation_modals():
     assert "pendingRequestSeq" in approval
     assert "bulk-approve-confirm" in approval
     assert "autopilot-confirm" in approval
+    assert "ამ გვერდის დამტკიცება" in approval
+    assert "approval is blocked" in approval
+    assert "await autoApproveHigh();" not in approval
 
 
 def test_reporting_and_trade_hubs_exist():

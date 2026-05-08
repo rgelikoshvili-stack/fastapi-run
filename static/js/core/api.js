@@ -61,19 +61,37 @@
       payload = await response.text();
     }
 
-    if (response.ok) return payload;
+    if (response.ok) {
+      if (payload && typeof payload === 'object' && payload.ok === false) {
+        throw buildEnvelopeError(payload, response.status);
+      }
+      return payload;
+    }
 
-    const message = payload && typeof payload === 'object'
-      ? (payload.message || payload.error?.details || payload.error?.message || response.statusText || 'Request failed')
-      : (response.statusText || 'Request failed');
-    const error = new Error(message);
-    error.status = response.status;
-    error.body = payload;
-    error.code = payload && typeof payload === 'object' ? (payload.error?.code || '') : '';
+    const error = payload && typeof payload === 'object'
+      ? buildEnvelopeError(payload, response.status, response.statusText)
+      : new Error(response.statusText || 'Request failed');
+    if (!error.status) error.status = response.status;
+    if (error.body === undefined) error.body = payload;
+    if (error.code === undefined) error.code = '';
     error.sessionExpired = response.status === 401;
     error.permissionDenied = response.status === 403;
     error.serverError = response.status >= 500;
     throw error;
+  }
+
+  function buildEnvelopeError(payload, status, fallbackMessage) {
+    const message = payload && typeof payload === 'object'
+      ? (payload.message || payload.error?.details || payload.error?.message || fallbackMessage || 'Request failed')
+      : (fallbackMessage || 'Request failed');
+    const error = new Error(message);
+    error.status = status;
+    error.body = payload;
+    error.code = payload && typeof payload === 'object' ? (payload.error?.code || '') : '';
+    error.sessionExpired = status === 401;
+    error.permissionDenied = status === 403;
+    error.serverError = status >= 500;
+    return error;
   }
 
   async function get(path, options) {

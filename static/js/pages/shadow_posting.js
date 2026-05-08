@@ -6,6 +6,14 @@
   const TIMEOUT_MS = 5000;
 
   async function _getPreview(draftId) {
+    if (window.BHApi && typeof window.BHApi.get === 'function') {
+      try {
+        return await window.BHApi.get('/posting/preview/' + draftId);
+      } catch (_) {
+        return null;
+      }
+    }
+
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {

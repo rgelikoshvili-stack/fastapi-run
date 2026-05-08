@@ -84,7 +84,7 @@ tbody tr:hover{background:#fafcff}
   <h1>Purchases & Sales Workbench</h1>
   <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
     <button class="btn btn-outline" onclick="location.href='/static/inventory.html'">Inventory</button>
-    <button class="btn btn-outline" onclick="location.href='/static/outgoing_form.html'">New Sales Invoice</button>
+    <button class="btn btn-outline" onclick="openModal('salesModal')">New Sales Invoice</button>
     <button class="btn btn-primary" onclick="openModal('poModal')">+ Purchase Order</button>
   </div>
 </div>
@@ -98,9 +98,35 @@ tbody tr:hover{background:#fafcff}
   </div>
 
   <div class="tabs">
+    <div class="tab" onclick="switchTab('partners',this)">Partners</div>
     <div class="tab active" onclick="switchTab('purchases',this)">Purchases</div>
     <div class="tab" onclick="switchTab('sales',this)">Sales</div>
     <div class="tab" onclick="switchTab('payments',this)">Payments</div>
+  </div>
+
+  <div id="pane-partners" class="tab-pane">
+    <div class="grid">
+      <div class="card">
+        <div class="card-head"><span class="card-title">Suppliers</span><button class="btn btn-primary btn-sm" onclick="createPartner('supplier')">+ Supplier</button></div>
+        <div class="card-body">
+          <div class="grid mb12">
+            <input id="supplierName" placeholder="Supplier name">
+            <input id="supplierTax" placeholder="INN / tax ID">
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="supplierBody"></tbody></table></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Customers</span><button class="btn btn-primary btn-sm" onclick="createPartner('customer')">+ Customer</button></div>
+        <div class="card-body">
+          <div class="grid mb12">
+            <input id="customerName" placeholder="Customer name">
+            <input id="customerTax" placeholder="INN / tax ID">
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="customerBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="pane-purchases" class="tab-pane active">
@@ -141,7 +167,8 @@ tbody tr:hover{background:#fafcff}
             <option value="cancelled">Cancelled</option>
             <option value="overdue">Overdue</option>
           </select>
-          <button class="btn btn-primary btn-sm" onclick="location.href='/static/outgoing_form.html'">Open detailed invoice builder</button>
+          <button class="btn btn-primary btn-sm" onclick="openModal('salesModal')">Create invoice</button>
+          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/outgoing_form.html'">Detailed builder</button>
         </div>
       </div>
       <div class="card-body table-wrap">
@@ -232,11 +259,47 @@ tbody tr:hover{background:#fafcff}
   </div>
 </div>
 
+<div class="modal" id="salesModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <div class="sheet-title">Create Sales Invoice</div>
+        <div class="section-note">Creates an outgoing invoice and a pending approval journal draft.</div>
+      </div>
+      <button class="x" onclick="closeModal('salesModal')">×</button>
+    </div>
+    <div class="sheet-body">
+      <div class="grid">
+        <div class="list">
+          <select id="salesType"><option value="service">Service</option><option value="goods">Goods</option></select>
+          <input id="salesBuyer" placeholder="Customer name">
+          <input id="salesInn" placeholder="Customer INN">
+          <input id="salesEmail" placeholder="Customer email">
+          <input id="salesDate" type="date">
+          <input id="salesDue" type="date">
+        </div>
+        <div>
+          <div id="salesLines"></div>
+          <button class="btn btn-ghost btn-sm mt8" onclick="addSalesLine()">+ Add line</button>
+        </div>
+      </div>
+      <div class="mt12" id="salesResult"></div>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
+        <button class="btn btn-outline" onclick="closeModal('salesModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createSalesInvoice()">Create invoice + draft</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
 function hdr(){return {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
 async function api(path, opts={}){
+  if(window.BHApi){
+    return await window.BHApi.request(path,{...opts,headers:{...(opts.headers||{}),'X-Tenant-ID':TENANT}});
+  }
   const res=await fetch(path,{headers:hdr(),...opts});
   if(res.status===401){localStorage.clear();location.href='/static/approval.html';return null;}
   try{return await res.json();}catch(e){return null;}
@@ -252,7 +315,7 @@ function switchTab(name, el){
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){['poModal','receiveModal'].forEach(closeModal);}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){['poModal','receiveModal','salesModal'].forEach(closeModal);}});
 
 let inventoryItems=[];
 let activePO=null;
@@ -260,6 +323,7 @@ let activePO=null;
 function setTodayInputs(){
   const today=new Date().toISOString().split('T')[0];
   document.getElementById('poDate').value=today;
+  document.getElementById('salesDate').value=today;
 }
 
 function addPoLine(data={}){
@@ -297,7 +361,7 @@ async function loadItems(){
 
 async function loadPOs(){
   const st=document.getElementById('poStatus').value;
-  const d=await api(`/inventory/purchase-orders?limit=100&offset=0${st?`&status=${encodeURIComponent(st)}`:''}`);
+  const d=await api(`/trade/purchase-orders?limit=100&offset=0${st?`&status=${encodeURIComponent(st)}`:''}`);
   const orders=(d&&d.data&&d.data.orders)?d.data.orders:[];
   document.getElementById('kPO').textContent=String(d?.data?.total ?? orders.length);
   if(!orders.length){
@@ -313,13 +377,15 @@ async function loadPOs(){
       <td class="mono" style="text-align:right">${fmt(o.total_amount||0)}</td>
       <td style="text-align:right">
         <button class="btn btn-ghost btn-sm" onclick="openPO(${o.id})">Open</button>
+        ${o.status==='draft'?`<button class="btn btn-ghost btn-sm" onclick="setPOStatus(${o.id},'sent')">Send</button>`:''}
+        ${!['received','cancelled'].includes(o.status)?`<button class="btn btn-ghost btn-sm" onclick="setPOStatus(${o.id},'cancelled')">Cancel</button>`:''}
       </td>
     </tr>`).join('');
 }
 
 async function openPO(id){
-  const d=await api(`/inventory/purchase-orders/${id}`);
-  const order=d&&d.data;
+  const d=await api(`/trade/purchase-orders/${id}`);
+  const order=d&&d.data&&d.data.purchase_order;
   if(!order) return;
   activePO=order;
   document.getElementById('receiveTitle').textContent=`Receive ${order.po_number||order.id}`;
@@ -367,8 +433,87 @@ async function createPO(){
     notes:document.getElementById('poNotes').value.trim()||null,
     lines:collectPoLines(),
   };
-  const d=await api('/inventory/purchase-orders',{method:'POST',body:JSON.stringify(payload)});
+  const d=await api('/trade/purchase-orders',{method:'POST',body:JSON.stringify(payload)});
   if(d&&d.ok){closeModal('poModal'); await loadPOs();}
+}
+
+async function setPOStatus(id,status){
+  const d=await api(`/trade/purchase-orders/${id}/status`,{method:'PATCH',body:JSON.stringify({status})});
+  if(d&&d.ok) await loadPOs();
+}
+
+function renderPartnerRows(kind, items){
+  const body=document.getElementById(kind+'Body');
+  body.innerHTML=items.length?items.map(p=>`
+    <tr>
+      <td>${esc(p.name||'—')}</td>
+      <td>${esc(p.tax_id||'—')}</td>
+      <td>${pill(p.status||'active')}</td>
+      <td style="text-align:right">${p.status!=='inactive'?`<button class="btn btn-ghost btn-sm" onclick="deactivatePartner('${kind}',${p.id})">Inactive</button>`:''}</td>
+    </tr>`).join(''):'<tr><td colspan="4"><div class="empty">No records</div></td></tr>';
+}
+
+async function loadPartners(){
+  const suppliers=await api('/trade/suppliers?limit=100');
+  const customers=await api('/trade/customers?limit=100');
+  renderPartnerRows('supplier', suppliers?.data?.items||[]);
+  renderPartnerRows('customer', customers?.data?.items||[]);
+}
+
+async function createPartner(kind){
+  const nameEl=document.getElementById(kind+'Name');
+  const taxEl=document.getElementById(kind+'Tax');
+  const name=nameEl.value.trim();
+  if(!name) return;
+  const d=await api(`/trade/${kind}s`,{method:'POST',body:JSON.stringify({name,tax_id:taxEl.value.trim()||null})});
+  if(d&&d.ok){nameEl.value='';taxEl.value='';await loadPartners();}
+}
+
+async function deactivatePartner(kind,id){
+  const d=await api(`/trade/${kind}s/${id}`,{method:'DELETE'});
+  if(d&&d.ok) await loadPartners();
+}
+
+function addSalesLine(data={}){
+  const wrap=document.createElement('div');
+  wrap.className='line-grid';
+  wrap.style.gridTemplateColumns='1.4fr .7fr .8fr 32px';
+  wrap.innerHTML=`
+    <input class="sales-desc" placeholder="Description" value="${esc(data.description||'')}">
+    <input class="sales-qty" type="number" min="0" step="0.001" placeholder="Qty" value="${data.qty||1}">
+    <input class="sales-price" type="number" min="0" step="0.01" placeholder="Unit price" value="${data.unit_price||''}">
+    <button class="rm" type="button" title="Remove">×</button>`;
+  wrap.querySelector('.rm').onclick=()=>wrap.remove();
+  document.getElementById('salesLines').appendChild(wrap);
+}
+
+function collectSalesLines(){
+  return [...document.querySelectorAll('#salesLines .line-grid')].map(r=>({
+    description:r.querySelector('.sales-desc').value.trim(),
+    qty:Number(r.querySelector('.sales-qty').value||0),
+    unit_price:Number(r.querySelector('.sales-price').value||0),
+  })).filter(x=>x.description&&x.qty>0);
+}
+
+async function createSalesInvoice(){
+  const lines=collectSalesLines();
+  const result=document.getElementById('salesResult');
+  if(!lines.length){result.innerHTML='<span style="color:#f72585">Add at least one line</span>';return;}
+  const payload={
+    invoice_type:document.getElementById('salesType').value,
+    buyer_name:document.getElementById('salesBuyer').value.trim(),
+    buyer_inn:document.getElementById('salesInn').value.trim()||null,
+    buyer_email:document.getElementById('salesEmail').value.trim()||null,
+    invoice_date:document.getElementById('salesDate').value||null,
+    due_date:document.getElementById('salesDue').value||null,
+    line_items:lines,
+  };
+  if(!payload.buyer_name){result.innerHTML='<span style="color:#f72585">Customer name is required</span>';return;}
+  const d=await api('/trade/sales-invoices',{method:'POST',body:JSON.stringify(payload)});
+  if(!d?.ok){result.innerHTML=`<span style="color:#f72585">${esc(d?.message||'Invoice creation failed')}</span>`;return;}
+  result.innerHTML=`Invoice ${esc(d.data?.invoice?.invoice_number||'')} created · journal draft #${esc(d.data?.journal_draft_id||'')}`;
+  await loadInvoices();
+  await loadPayments();
 }
 
 async function loadInvoices(){
@@ -398,13 +543,14 @@ async function setInvoiceStatus(id, status){
 
 async function loadPayments(){
   const d=await api('/invoices/stats/summary');
+  const credit=await api('/trade/credit-status');
   const s=d&&d.data?d.data:{};
   document.getElementById('kOutstanding').textContent=fmt(s.outstanding_total||0);
   document.getElementById('kOverdue').textContent=String(s.overdue_count||0);
   document.getElementById('paymentStats').innerHTML=`
     <div class="mini"><div class="lbl">Total invoices</div><div class="val">${s.total_invoices||0}</div></div>
     <div class="mini"><div class="lbl">Paid</div><div class="val">${fmt(s.total_paid||0)}</div></div>
-    <div class="mini"><div class="lbl">Pending</div><div class="val">${fmt(s.total_pending||0)}</div></div>`;
+    <div class="mini"><div class="lbl">Credit rows</div><div class="val">${(credit?.data?.items||[]).length}</div></div>`;
   const inv=await api('/invoices/list?status=overdue');
   const overdue=(inv&&inv.data&&inv.data.invoices)?inv.data.invoices:[];
   document.getElementById('paymentBody').innerHTML=overdue.length?overdue.map(x=>`
@@ -422,6 +568,8 @@ async function init(){
   setTodayInputs();
   await loadItems();
   addPoLine();
+  addSalesLine();
+  await loadPartners();
   await loadPOs();
   await loadInvoices();
   await loadPayments();

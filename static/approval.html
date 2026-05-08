@@ -2741,6 +2741,11 @@ function logout() {
   showLoginModal();
 }
 
+function authHeaders(extra = {}) {
+  return TOKEN ? { 'Authorization': 'Bearer ' + TOKEN, ...extra } : { ...extra };
+}
+window.authHeaders = authHeaders;
+
 async function loadCompanyInfo() {
   try {
     const r = await fetch(BASE + '/auth/me', { headers: authHeaders() });
@@ -2884,7 +2889,7 @@ async function loadKPI(forceRefresh) {
   }
   const d = await api('/dashboard/live/kpi');
   if (!d || !d.ok) return;
-  const k = d.kpi || {};
+  const k = d.kpi || d.data?.kpi || d.data || {};
   try { sessionStorage.setItem(KPI_CACHE_KEY, JSON.stringify({ data: k, ts: Date.now() })); } catch (_) {}
   _renderKPIs(k);
 }

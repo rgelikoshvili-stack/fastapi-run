@@ -12,12 +12,21 @@ from app.api.services.inventory_service import (
     ensure_inventory_tables,
     list_items, get_item, create_item, update_item,
     record_movement, get_movements, get_current_stock,
-    calculate_valuation,
+    calculate_valuation, get_stock_report,
     create_purchase_order, list_purchase_orders, get_purchase_order, receive_purchase_order,
     list_warehouses, list_categories, create_warehouse, create_category,
 )
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
+
+def _inventory_error(message: str, exc: Exception):
+    code = str(exc)
+    if code in {"ITEM_NOT_FOUND", "INVALID_MOVEMENT_TYPE", "INVALID_QUANTITY", "INVALID_UNIT_COST", "INVALID_UNIT_PRICE"}:
+        return error_response(message, code, code)
+    if code == "INSUFFICIENT_STOCK":
+        return error_response("Insufficient stock", "INSUFFICIENT_STOCK", code)
+    return error_response(message, "DB_ERROR", code)
 
 # ── Items ─────────────────────────────────────────────────────────────────────
 
@@ -127,7 +136,7 @@ async def add_movement(request: Request):
         mv = await record_movement(tenant_id, body)
         return ok_response("Movement recorded", mv)
     except Exception as e:
-        return error_response("Failed to record movement", "DB_ERROR", str(e))
+        return _inventory_error("Failed to record movement", e)
 
 
 @router.get("/movements")
@@ -149,6 +158,17 @@ async def get_movement_history(
         return ok_response("Stock movements", result)
     except Exception as e:
         return error_response("Failed to load movements", "DB_ERROR", str(e))
+
+
+@router.get("/stock-report")
+async def stock_report(request: Request, low_stock: bool = False):
+    require_permission(request, "inventory:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        result = await get_stock_report(tenant_id, low_stock_only=low_stock)
+        return ok_response("Inventory stock report", result)
+    except Exception as e:
+        return error_response("Stock report failed", "DB_ERROR", str(e))
 
 
 # ── Valuation ─────────────────────────────────────────────────────────────────
@@ -195,7 +215,7 @@ async def new_purchase_order(request: Request):
         po = await create_purchase_order(tenant_id, body)
         return ok_response("Purchase order created", po)
     except Exception as e:
-        return error_response("Failed to create PO", "DB_ERROR", str(e))
+        return _inventory_error("Failed to create PO", e)
 
 
 @router.get("/purchase-orders/{po_id}")

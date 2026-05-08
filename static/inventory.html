@@ -108,7 +108,7 @@ tbody tr.low-stock{background:#fff3f5}
       <div class="card-head">
         <span class="card-title">ნივთების სია</span>
         <div class="toolbar">
-          <input class="search" type="text" id="searchInput" placeholder="🔍 ძებნა..." oninput="loadItems()">
+          <input class="search" type="text" id="searchInput" placeholder="🔍 ძებნა..." oninput="debouncedLoadItems()">
           <select id="catFilter" onchange="loadItems()" style="width:140px">
             <option value="">ყველა კატეგ.</option>
           </select>
@@ -384,19 +384,32 @@ tbody tr.low-stock{background:#fff3f5}
   </div>
 </div>
 
+<script src="/static/js/core/api.js"></script>
+<script src="/static/js/core/toast.js"></script>
+<script src="/static/js/core/modal.js"></script>
+<script src="/static/js/core/debounce.js"></script>
 <script>
 const BASE = '';
 const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const TENANT = localStorage.getItem('tenant_id') || '';
+window.TOKEN = TOKEN;
 
 function headers(){ return {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT}; }
 
 async function api(path, method='GET', body=null){
   try{
+    if(window.BHApi){
+      return await window.BHApi.request(path,{method,headers:{'X-Tenant-ID':TENANT},body:body||undefined});
+    }
     const r = await fetch(BASE+path,{method,headers:headers(),body:body?JSON.stringify(body):undefined});
     if(r.status===401){localStorage.clear();location.href='/static/login.html';return null;}
     return await r.json();
-  }catch(e){console.error(e);return null;}
+  }catch(e){
+    if(e&&e.sessionExpired){localStorage.clear();location.href='/static/login.html';return null;}
+    console.error(e);
+    toast((e&&e.message)||'შეცდომა','error');
+    return e&&e.body?e.body:null;
+  }
 }
 
 function fmt(n){return Number(n||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -483,6 +496,8 @@ function renderEmptyItems(){
   document.getElementById('itemsBody').innerHTML=`<tr><td colspan="10"><div class="empty"><div class="empty-icon">📦</div>ნივთები არ მოიძებნა</div></td></tr>`;
 }
 
+const debouncedLoadItems = window.BHDebounce ? window.BHDebounce(loadItems, 250) : loadItems;
+
 // ── ITEM SAVE ──────────────────────────────────────────────────────────────
 let editingItemId=null;
 
@@ -528,7 +543,7 @@ async function editItem(id){
 async function saveItem(){
   const code=document.getElementById('fItemCode').value.trim();
   const name=document.getElementById('fItemName').value.trim();
-  if(!code||!name){alert('კოდი და სახელი სავალდებულოა');return;}
+  if(!code||!name){toast('კოდი და სახელი სავალდებულოა','warn');return;}
   const body={
     item_code:code,item_name:name,
     description:document.getElementById('fDesc').value,
@@ -543,7 +558,7 @@ async function saveItem(){
   const method=editingItemId?'PUT':'POST';
   const d=await api(path,method,body);
   if(d&&d.ok){toast('✅ შენახულია');closeModal('itemModal');loadItems();}
-  else alert((d&&d.error&&d.error.details)||'შეცდომა');
+  else toast((d&&d.error&&d.error.details)||'შეცდომა','error');
 }
 
 // ── MOVEMENTS ─────────────────────────────────────────────────────────────
@@ -611,7 +626,7 @@ async function saveMovement(){
   const item_id=document.getElementById('mItem').value;
   const qty=parseFloat(document.getElementById('mQty').value);
   const movement_type=document.getElementById('mType').value;
-  if(!item_id||!qty){alert('ნივთი და რაოდენობა სავალდებულოა');return;}
+  if(!item_id||!qty){toast('ნივთი და რაოდენობა სავალდებულოა','warn');return;}
   const body={
     item_id:parseInt(item_id),movement_type,quantity:qty,
     unit_cost:parseFloat(document.getElementById('mCost').value)||0,
@@ -621,7 +636,7 @@ async function saveMovement(){
   };
   const d=await api('/inventory/movements','POST',body);
   if(d&&d.ok){toast('✅ მოძრაობა ჩაიწერა');closeModal('movModal');loadItems();}
-  else alert((d&&d.error&&d.error.details)||(d&&d.message)||'შეცდომა');
+  else toast((d&&d.error&&d.error.details)||(d&&d.message)||'შეცდომა','error');
 }
 
 // ── VALUATION ─────────────────────────────────────────────────────────────
@@ -709,7 +724,7 @@ async function savePO(){
   };
   const d=await api('/inventory/purchase-orders','POST',body);
   if(d&&d.ok){toast('✅ შეკვეთა შეიქმნა');closeModal('poModal');loadPOs();}
-  else alert((d&&d.error&&d.error.details)||'შეცდომა');
+  else toast((d&&d.error&&d.error.details)||'შეცდომა','error');
 }
 
 // ── CATEGORIES & TOAST ─────────────────────────────────────────────────────
@@ -722,6 +737,10 @@ async function loadCategories(){
 }
 
 function toast(msg,type='ok'){
+  if(window.BHToast){
+    window.BHToast.show(msg,type);
+    return;
+  }
   const t=document.createElement('div');
   t.style.cssText='position:fixed;bottom:1.5rem;right:1.5rem;background:'+(type==='ok'?'#198754':'#f72585')+';color:#fff;padding:.75rem 1.25rem;border-radius:8px;font-size:.88rem;font-weight:500;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15)';
   t.textContent=msg;
@@ -733,8 +752,7 @@ async function loadReorder(){
   const tbody=document.getElementById('reorderBody');
   tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1rem;color:#6c757d">იტვირთება...</td></tr>';
   try{
-    const r=await fetch('/inventory/reorder-report',{headers:{'Authorization':'Bearer '+localStorage.getItem('access_token'),'X-Tenant-ID':localStorage.getItem('tenant_id')||''}});
-    const d=await r.json();
+    const d=await api('/inventory/reorder-report');
     const items=(d.data||d).items||[];
     const total=(d.data||d).total_reorder_value||0;
     document.getElementById('reorderSummary').textContent=

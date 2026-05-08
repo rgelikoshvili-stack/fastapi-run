@@ -103,3 +103,116 @@ def test_fifo_no_stock():
     assert result["quantity"] == 0
     assert result["total_value"] == 0
     assert result["avg_cost"] == 0
+
+
+def test_create_item_includes_tenant_scope():
+    from app.api.services import inventory_service
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value={"id": 77})
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.inventory_service.get_conn", _ctx):
+        result = asyncio.run(inventory_service.create_item("tenant_a", {
+            "item_code": "SKU-1",
+            "item_name": "Test item",
+        }))
+
+    assert result["tenant_id"] == "tenant_a"
+    assert conn.fetchrow.await_args.args[1] == "tenant_a"
+
+
+def test_record_movement_rejects_cross_tenant_item():
+    from app.api.services import inventory_service
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.inventory_service.get_conn", _ctx):
+        try:
+            asyncio.run(inventory_service.record_movement("tenant_a", {
+                "item_id": 99,
+                "movement_type": "in",
+                "quantity": 1,
+                "unit_cost": 10,
+            }))
+        except ValueError as exc:
+            assert str(exc) == "ITEM_NOT_FOUND"
+        else:
+            raise AssertionError("cross-tenant or missing item must be rejected")
+
+
+def test_record_movement_creates_journal_draft_for_accounting_impact():
+    from app.api.services import inventory_service
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=[
+        {"id": 5, "item_code": "SKU-1", "item_name": "Test item"},
+        {"id": 88},
+    ])
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    with patch("app.api.services.inventory_service.get_conn", _ctx), \
+         patch("app.api.services.inventory_service.create_journal_draft", AsyncMock(return_value={"id": 123})) as draft_mock:
+        result = asyncio.run(inventory_service.record_movement("tenant_a", {
+            "item_id": 5,
+            "movement_type": "in",
+            "quantity": 2,
+            "unit_cost": 7,
+        }))
+
+    assert result["journal_draft_id"] == 123
+    draft_mock.assert_awaited_once()
+    kwargs = draft_mock.await_args.kwargs
+    assert kwargs["tenant_id"] == "tenant_a"
+    assert kwargs["source_document_id"] == 88
+    assert kwargs["lines"] == [
+        {"account_code": "1310", "debit": 14.0, "credit": 0},
+        {"account_code": "3110", "debit": 0, "credit": 14.0},
+    ]
+
+
+def test_stock_report_structure():
+    from app.api.services import inventory_service
+
+    with patch("app.api.services.inventory_service.list_items", AsyncMock(return_value={
+        "items": [
+            {"current_stock": 3, "purchase_price": 4, "reorder_level": 5},
+            {"current_stock": 2, "purchase_price": 10, "reorder_level": 1},
+        ],
+        "total": 2,
+        "low_stock_count": 1,
+    })):
+        result = asyncio.run(inventory_service.get_stock_report("tenant_a"))
+
+    assert result["total"] == 2
+    assert result["reported_count"] == 2
+    assert result["total_qty"] == 5
+    assert result["total_stock_value"] == 32
+
+
+def test_inventory_movement_history_join_is_tenant_scoped():
+    import inspect
+    from app.api.services import inventory_service
+
+    src = inspect.getsource(inventory_service.get_movements)
+    assert "i.tenant_id = m.tenant_id" in src
+
+
+def test_inventory_unauthenticated_gets_401_or_403():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    resp = client.get("/inventory/items")
+    assert resp.status_code in (401, 403)

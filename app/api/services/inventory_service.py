@@ -14,6 +14,9 @@ from app.api.services.posting_service import create_journal_draft
 
 log = logging.getLogger(__name__)
 
+MOVEMENT_TYPES = {"in", "out", "transfer", "adjustment"}
+ACCOUNTING_MOVEMENT_TYPES = {"in", "out", "adjustment"}
+
 
 # ── Table bootstrap (sync, DDL — kept psycopg2) ──────────────────────────────
 
@@ -249,7 +252,37 @@ async def update_item(tenant_id: str, item_id: int, data: dict) -> Optional[dict
 # ── Stock movements ───────────────────────────────────────────────────────────
 
 async def record_movement(tenant_id: str, data: dict) -> dict:
+    item_id = int(data["item_id"])
+    movement_type = str(data["movement_type"])
+    quantity = float(data["quantity"])
+    unit_cost = float(data.get("unit_cost") or 0)
+
+    if movement_type not in MOVEMENT_TYPES:
+        raise ValueError("INVALID_MOVEMENT_TYPE")
+    if quantity <= 0:
+        raise ValueError("INVALID_QUANTITY")
+    if unit_cost < 0:
+        raise ValueError("INVALID_UNIT_COST")
+
     async with get_conn() as conn:
+        item = await conn.fetchrow(_q("""
+            SELECT id, item_code, item_name
+            FROM inventory_items
+            WHERE id = %s AND tenant_id = %s AND is_active = TRUE
+        """), item_id, tenant_id)
+        if not item:
+            raise ValueError("ITEM_NOT_FOUND")
+
+        if movement_type == "out":
+            available = await conn.fetchval(_q("""
+                SELECT COALESCE(SUM(CASE WHEN movement_type IN ('in','transfer') THEN quantity
+                                         ELSE -quantity END), 0)
+                FROM stock_movements
+                WHERE tenant_id = %s AND item_id = %s
+            """), tenant_id, item_id)
+            if float(available or 0) < quantity:
+                raise ValueError("INSUFFICIENT_STOCK")
+
         row = await conn.fetchrow(_q("""
             INSERT INTO stock_movements
                 (tenant_id, item_id, movement_type, quantity, unit_cost,
@@ -258,14 +291,49 @@ async def record_movement(tenant_id: str, data: dict) -> dict:
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
         """), tenant_id,
-            data["item_id"], data["movement_type"],
-            data["quantity"], data.get("unit_cost", 0),
+            item_id, movement_type,
+            quantity, unit_cost,
             data.get("warehouse_from"), data.get("warehouse_to"),
             data.get("reference_type"), data.get("reference_doc"),
             data.get("movement_date") or date.today().isoformat(),
             data.get("notes"),
         )
-    return {**data, "id": row["id"]}
+
+    draft_id = None
+    amount = round(quantity * unit_cost, 2)
+    if amount > 0 and movement_type in ACCOUNTING_MOVEMENT_TYPES:
+        draft = await create_journal_draft(
+            description=f"Inventory {movement_type} movement #{row['id']} for {item['item_code']}",
+            lines=_movement_journal_lines(movement_type, amount),
+            tenant_id=tenant_id,
+            partner="Inventory movement",
+            source_document_id=row["id"],
+        )
+        draft_id = draft["id"]
+
+    return {
+        **data,
+        "id": row["id"],
+        "item_id": item_id,
+        "movement_type": movement_type,
+        "quantity": quantity,
+        "unit_cost": unit_cost,
+        "tenant_id": tenant_id,
+        "journal_draft_id": draft_id,
+        "draft_id": draft_id,
+    }
+
+
+def _movement_journal_lines(movement_type: str, amount: float) -> list[dict]:
+    if movement_type == "in":
+        return [
+            {"account_code": "1310", "debit": amount, "credit": 0},
+            {"account_code": "3110", "debit": 0, "credit": amount},
+        ]
+    return [
+        {"account_code": "7110", "debit": amount, "credit": 0},
+        {"account_code": "1310", "debit": 0, "credit": amount},
+    ]
 
 
 async def get_movements(tenant_id: str, item_id: Optional[int] = None,
@@ -298,7 +366,7 @@ async def get_movements(tenant_id: str, item_id: Optional[int] = None,
                    m.quantity * m.unit_cost AS total_value,
                    m.reference_doc, m.movement_date, m.notes, m.created_at
             FROM stock_movements m
-            JOIN inventory_items i ON i.id = m.item_id
+            JOIN inventory_items i ON i.id = m.item_id AND i.tenant_id = m.tenant_id
             WHERE {where_sql}
             ORDER BY m.movement_date DESC, m.id DESC
             LIMIT ${lim_p} OFFSET ${off_p}
@@ -349,6 +417,24 @@ async def calculate_valuation(tenant_id: str, method: str = "fifo",
     return {"method": method, "as_of": as_of,
             "total_value": round(total_value, 2), "total_qty": total_qty,
             "items": [it for it in valued if it["quantity"] > 0]}
+
+
+async def get_stock_report(tenant_id: str, low_stock_only: bool = False) -> dict:
+    result = await list_items(tenant_id, low_stock=low_stock_only, limit=10000, offset=0)
+    items = result.get("items", [])
+    total_qty = sum(float(it.get("current_stock") or 0) for it in items)
+    total_stock_value = sum(
+        float(it.get("current_stock") or 0) * float(it.get("purchase_price") or 0)
+        for it in items
+    )
+    return {
+        "items": items,
+        "total": result.get("total", 0),
+        "reported_count": len(items),
+        "low_stock_count": result.get("low_stock_count", 0),
+        "total_qty": round(total_qty, 3),
+        "total_stock_value": round(total_stock_value, 2),
+    }
 
 
 async def _in_out_movements(tenant_id: str, item_id: int, as_of: str):
@@ -424,6 +510,22 @@ async def create_purchase_order(tenant_id: str, data: dict) -> dict:
             ), tenant_id)
             data["po_number"] = f"PO-{date.today().year}-{n:04d}"
 
+        normalized_lines = []
+        for line in data.get("lines", []):
+            item_id = int(line["item_id"])
+            qty = float(line["quantity"])
+            price = float(line["unit_price"])
+            if qty <= 0:
+                raise ValueError("INVALID_QUANTITY")
+            if price < 0:
+                raise ValueError("INVALID_UNIT_PRICE")
+            item_exists = await conn.fetchval(_q(
+                "SELECT 1 FROM inventory_items WHERE id = %s AND tenant_id = %s AND is_active = TRUE"
+            ), item_id, tenant_id)
+            if not item_exists:
+                raise ValueError("ITEM_NOT_FOUND")
+            normalized_lines.append((item_id, qty, price, line.get("line_number"), line.get("notes")))
+
         row = await conn.fetchrow(_q("""
             INSERT INTO purchase_orders
                 (tenant_id, po_number, supplier_name, supplier_inn,
@@ -439,13 +541,13 @@ async def create_purchase_order(tenant_id: str, data: dict) -> dict:
         )
         po_id = row["id"]
 
-        for line in data.get("lines", []):
+        for item_id, qty, price, line_number, notes in normalized_lines:
             await conn.execute(_q("""
                 INSERT INTO purchase_order_lines
                     (po_id, item_id, quantity_ordered, unit_price, line_number, notes)
                 VALUES (%s,%s,%s,%s,%s,%s)
-            """), po_id, line["item_id"], line["quantity"],
-                line["unit_price"], line.get("line_number"), line.get("notes"),
+            """), po_id, item_id, qty,
+                price, line_number, notes,
             )
     return {**data, "id": po_id}
 
@@ -489,10 +591,11 @@ async def get_purchase_order(tenant_id: str, po_id: int) -> Optional[dict]:
                    pol.quantity_ordered, pol.quantity_received, pol.unit_price,
                    pol.line_number, pol.notes
             FROM purchase_order_lines pol
-            JOIN inventory_items ii ON ii.id = pol.item_id
-            WHERE pol.po_id = %s
+            JOIN purchase_orders po ON po.id = pol.po_id
+            JOIN inventory_items ii ON ii.id = pol.item_id AND ii.tenant_id = po.tenant_id
+            WHERE pol.po_id = %s AND po.tenant_id = %s
             ORDER BY COALESCE(pol.line_number, pol.id), pol.id
-        """), po_id)
+        """), po_id, tenant_id)
 
     result = dict(order)
     result["lines"] = [dict(r) for r in lines]
@@ -512,6 +615,7 @@ async def receive_purchase_order(tenant_id: str, po_id: int, lines_received: lis
                 "SELECT pol.item_id, pol.quantity_ordered, pol.quantity_received "
                 "FROM purchase_order_lines pol "
                 "JOIN purchase_orders po ON po.id = pol.po_id "
+                "JOIN inventory_items ii ON ii.id = pol.item_id AND ii.tenant_id = po.tenant_id "
                 "WHERE pol.id = %s AND po.tenant_id = %s"
             ), line_id, tenant_id)
             if not row:

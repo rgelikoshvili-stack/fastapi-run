@@ -13,9 +13,15 @@ from app.api.authz import require_permission
 from app.api.services.payroll_service import (
     calculate_employee_payroll,
     calculate_payroll,
+    create_payroll_run,
+    finalize_payroll_run,
+    get_payroll_period_report,
+    get_payroll_run,
     generate_payroll_drafts,
     generate_rsge_xml,
+    list_payroll_runs,
     normalize_payroll_report_filters,
+    validate_payroll_period,
 )
 from app.api.services.ledger_service import get_payroll_ledger
 from app.api.observability import structured_log
@@ -41,6 +47,11 @@ class SingleEmployeeRequest(BaseModel):
     gross_salary: float
     employee_id: Optional[str] = None
     period: Optional[str] = None
+
+
+class PayrollRunCreateRequest(BaseModel):
+    period: str
+    employee_ids: Optional[List[int]] = None
 
 
 # ===============================
@@ -92,6 +103,47 @@ async def payroll_generate_drafts(req: PayrollRequest, request: Request):
         "tenant_id": tenant_id,
         "payroll": payroll,
         "drafts": drafts,
+    })
+
+
+@router.post("/runs")
+async def payroll_create_run(req: PayrollRunCreateRequest, request: Request):
+    require_permission(request, "payroll:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        data = await create_payroll_run(tenant_id, req.period, req.employee_ids)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "NO_ACTIVE_EMPLOYEES":
+            return http_error(404, "No active employees found", "NO_ACTIVE_EMPLOYEES")
+        return http_error(422, code, "INVALID_PAYROLL_RUN")
+    except Exception as exc:
+        structured_log(log, logging.ERROR, "payroll_run_create_failed",
+                       tenant_id=tenant_id, period=req.period, error_type=type(exc).__name__)
+        return error_response("Payroll run creation failed", "PAYROLL_RUN_ERROR", "")
+    return ok_response("Payroll run created", {"tenant_id": tenant_id, "run": data})
+
+
+@router.post("/runs/{run_id}/finalize")
+async def payroll_finalize_run(run_id: int, request: Request):
+    require_permission(request, "payroll:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        data = await finalize_payroll_run(tenant_id, run_id)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "PAYROLL_RUN_NOT_FOUND":
+            return http_error(404, "Payroll run not found", "PAYROLL_RUN_NOT_FOUND")
+        return http_error(409, code, "PAYROLL_RUN_FINALIZE_FAILED")
+    except Exception as exc:
+        structured_log(log, logging.ERROR, "payroll_run_finalize_failed",
+                       tenant_id=tenant_id, run_id=run_id, error_type=type(exc).__name__)
+        return error_response("Payroll run finalization failed", "PAYROLL_RUN_ERROR", "")
+    return ok_response("Payroll run finalized", {
+        "tenant_id": tenant_id,
+        "run": data,
+        "approval_required": True,
+        "posted": False,
     })
 
 
@@ -158,6 +210,41 @@ async def payroll_history(
         "offset": offset,
         "items": items,
     })
+
+
+@router.get("/runs")
+async def payroll_runs(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    data = await list_payroll_runs(tenant_id, limit=limit, offset=offset)
+    return ok_response("Payroll runs", {"tenant_id": tenant_id, **data})
+
+
+@router.get("/runs/report")
+async def payroll_runs_report(request: Request, period: str = Query(...)):
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        period = validate_payroll_period(period)
+    except ValueError as exc:
+        return http_error(422, str(exc), "INVALID_PERIOD")
+    data = await get_payroll_period_report(tenant_id, period)
+    return ok_response("Payroll period report", {"tenant_id": tenant_id, **data})
+
+
+@router.get("/runs/{run_id}")
+async def payroll_run_detail(run_id: int, request: Request):
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    try:
+        data = await get_payroll_run(tenant_id, run_id)
+    except ValueError:
+        return http_error(404, "Payroll run not found", "PAYROLL_RUN_NOT_FOUND")
+    return ok_response("Payroll run", {"tenant_id": tenant_id, "run": data})
 
 
 @router.get("/ledger")

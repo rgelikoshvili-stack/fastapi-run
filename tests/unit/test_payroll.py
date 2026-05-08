@@ -198,6 +198,18 @@ def test_payroll_service_includes_employer_pension_in_totals():
     assert result["totals"]["total_employer_cost"] == 3060.0
 
 
+def test_payroll_service_gross_1000_net_780_with_employee_pension():
+    from app.api.services.payroll_service import calculate_employee_payroll
+
+    result = calculate_employee_payroll(1000, "Nino", employee_id="01001001001", period="2026-05")
+
+    assert result["pit_20pct"] == 200.0
+    assert result["payg_2pct"] == 20.0
+    assert result["employer_pension_2pct"] == 20.0
+    assert result["net_salary"] == 780.0
+    assert result["total_employer_cost"] == 1020.0
+
+
 class _FakePayrollCursor:
     def __init__(self):
         self.calls = []
@@ -254,6 +266,12 @@ def _make_payroll_conn():
     conn._inserted = inserted
 
     @asynccontextmanager
+    async def _tx():
+        yield conn
+
+    conn.transaction = MagicMock(return_value=_tx())
+
+    @asynccontextmanager
     async def _ctx():
         yield conn
 
@@ -277,6 +295,117 @@ def test_generate_payroll_drafts_creates_employer_pension_entry(monkeypatch):
     assert pension["amount"] == 60.0
     assert pension["debit_account"] == "7220"
     assert pension["credit_account"] == "3335"
+
+
+def test_payroll_run_queries_are_tenant_scoped():
+    from pathlib import Path
+
+    source = Path("app/api/services/payroll_service.py").read_text(encoding="utf-8")
+
+    assert "FROM employees" in source
+    assert "WHERE tenant_id = %s AND status = 'active'" in source
+    assert "FROM payroll_runs" in source
+    assert "WHERE id = %s AND tenant_id = %s" in source
+    assert "JOIN payroll_runs pr" in source
+    assert "pr.id = line.run_id AND pr.tenant_id = line.tenant_id" in source
+
+
+def _payroll_run(status="draft", draft_ids=None):
+    return {
+        "id": 7,
+        "tenant_id": "tenant-a",
+        "period": "2026-05",
+        "status": status,
+        "draft_ids": draft_ids or [],
+        "lines": [
+            {
+                "employee_name": "Nino",
+                "employee_id": "EMP-1",
+                "personal_number": "01001001001",
+                "gross_salary": 1000,
+                "pit_20pct": 200,
+                "employee_pension_2pct": 20,
+                "employer_pension_2pct": 20,
+                "net_salary": 780,
+                "total_employer_cost": 1020,
+            }
+        ],
+    }
+
+
+def _make_finalize_conn(claimed_id=7):
+    conn = AsyncMock()
+    conn.execute = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=claimed_id)
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx, conn
+
+
+def test_payroll_run_finalization_creates_journal_drafts_only(monkeypatch):
+    from app.api.services import payroll_service
+
+    draft_run = _payroll_run("draft")
+    updated_run = _payroll_run("pending_approval", draft_ids=[101, 102, 103, 104])
+    get_run = AsyncMock(side_effect=[draft_run, updated_run])
+    generate = AsyncMock(return_value={"ok": True, "draft_ids": [101, 102, 103, 104]})
+    ctx, conn = _make_finalize_conn()
+    monkeypatch.setattr(payroll_service, "get_payroll_run", get_run)
+    monkeypatch.setattr(payroll_service, "generate_payroll_drafts", generate)
+    monkeypatch.setattr(payroll_service, "get_conn", ctx)
+
+    result = asyncio.run(payroll_service.finalize_payroll_run("tenant-a", 7))
+
+    assert result["status"] == "pending_approval"
+    assert result["drafts"]["draft_ids"] == [101, 102, 103, 104]
+    generate.assert_awaited_once()
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.await_args_list)
+    assert "UPDATE payroll_runs" in executed_sql
+    assert conn.fetchval.await_args.args[1:] == (7, "tenant-a")
+
+
+def test_payroll_run_repeated_finalization_does_not_duplicate_drafts(monkeypatch):
+    from app.api.services import payroll_service
+
+    finalized_run = _payroll_run("pending_approval", draft_ids=[101, 102, 103, 104])
+    get_run = AsyncMock(return_value=finalized_run)
+    generate = AsyncMock(return_value={"ok": True, "draft_ids": [201, 202, 203, 204]})
+    monkeypatch.setattr(payroll_service, "get_payroll_run", get_run)
+    monkeypatch.setattr(payroll_service, "generate_payroll_drafts", generate)
+
+    result = asyncio.run(payroll_service.finalize_payroll_run("tenant-a", 7))
+
+    assert result["status"] == "pending_approval"
+    assert result["already_finalized"] is True
+    assert result["drafts"]["drafts_created"] == 0
+    assert result["drafts"]["draft_ids"] == [101, 102, 103, 104]
+    generate.assert_not_awaited()
+
+
+def test_payroll_run_concurrent_finalization_loser_does_not_create_drafts(monkeypatch):
+    from app.api.services import payroll_service
+
+    draft_run = _payroll_run("draft")
+    finalizing_run = _payroll_run("finalizing")
+    get_run = AsyncMock(side_effect=[draft_run, finalizing_run])
+    generate = AsyncMock(return_value={"ok": True, "draft_ids": [201, 202, 203, 204]})
+    ctx, conn = _make_finalize_conn(claimed_id=None)
+    monkeypatch.setattr(payroll_service, "get_payroll_run", get_run)
+    monkeypatch.setattr(payroll_service, "generate_payroll_drafts", generate)
+    monkeypatch.setattr(payroll_service, "get_conn", ctx)
+
+    try:
+        asyncio.run(payroll_service.finalize_payroll_run("tenant-a", 7))
+    except ValueError as exc:
+        assert str(exc) == "PAYROLL_RUN_FINALIZATION_IN_PROGRESS"
+    else:
+        raise AssertionError("Expected concurrent finalize loser to be rejected")
+
+    conn.fetchval.assert_awaited_once()
+    generate.assert_not_awaited()
 
 
 def test_payroll_journal_entries_each_balanced(monkeypatch):

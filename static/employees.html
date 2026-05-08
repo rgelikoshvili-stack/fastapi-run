@@ -22,7 +22,7 @@ h1{font-size:1.1rem;font-weight:600}
 .btn-sm{padding:.35rem .75rem;font-size:.82rem}
 .btn-success{background:#198754;color:#fff}.btn-success:hover{background:#157347}
 .filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
-input[type=text],input[type=email],input[type=number],input[type=date],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
+input[type=text],input[type=email],input[type=number],input[type=date],input[type=month],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
 input:focus,select:focus{border-color:#4361ee}
 /* Stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
@@ -53,6 +53,11 @@ tr:hover td{background:#fafafa}
 /* Pension panel */
 .pension-panel{background:#f0f7ff;border:1px solid #b8d4f8;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
 .pension-panel h3{font-size:.9rem;font-weight:700;margin-bottom:.85rem;color:#1a3c6e}
+.payroll-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.payroll-actions{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
+.result-panel{background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:.85rem;margin-top:.85rem;font-size:.85rem;line-height:1.7;min-height:42px}
+.result-panel table{font-size:.82rem;margin-top:.5rem}
+@media(max-width:800px){.stats,.payroll-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -85,12 +90,64 @@ tr:hover td{background:#fafafa}
     <div id="pensionResult" style="margin-top:.75rem;font-size:.85rem"></div>
   </div>
 
+  <!-- Payroll ERP -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">სახელფასო მოდული</span>
+      <a class="btn btn-ghost btn-sm" href="/static/payroll_ledger.html">ლეჯერი</a>
+    </div>
+    <div class="card-body">
+      <div class="payroll-grid">
+        <div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>პერიოდი</label>
+              <input type="month" id="payrollPeriod"/>
+            </div>
+            <div class="form-field">
+              <label>ბრუტო ხელფასი</label>
+              <input type="number" id="payrollGross" value="1000" min="0" step="0.01"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>თანამშრომელი</label>
+              <input type="text" id="payrollName" value="Nino"/>
+            </div>
+            <div class="form-field">
+              <label>პირადი ნომერი</label>
+              <input type="text" id="payrollEmployeeId" placeholder="01001001001"/>
+            </div>
+          </div>
+          <div class="payroll-actions">
+            <button class="btn btn-primary" onclick="calculatePayrollSingle()">გამოთვლა</button>
+            <button class="btn btn-success" onclick="createPayrollRun()">Payroll run</button>
+            <button class="btn btn-ghost" onclick="finalizePayrollRun()">დრაფტები</button>
+          </div>
+          <div id="calcResult" class="result-panel">აირჩიეთ პერიოდი და შეამოწმეთ ხელფასის ფორმულა.</div>
+          <div id="runResult" class="result-panel">Payroll run ჯერ არ არის შექმნილი.</div>
+        </div>
+        <div>
+          <div class="payroll-actions">
+            <div class="form-field" style="margin-bottom:0">
+              <label>თვიური ანგარიში</label>
+              <input type="month" id="reportPeriod"/>
+            </div>
+            <button class="btn btn-primary" onclick="loadPayrollReport()">ანგარიში</button>
+          </div>
+          <div id="complianceResult" class="result-panel">საგადასახადო შეჯამება გამოჩნდება ანგარიშის ჩატვირთვის შემდეგ.</div>
+          <div id="reportResult" class="result-panel">თვიური payroll ანგარიში ჯერ არ არის ჩატვირთული.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Employees list -->
   <div class="card">
     <div class="card-head">
       <span class="card-title">👥 თანამშრომელთა სია</span>
       <div class="filters">
-        <input type="text" id="searchQ" placeholder="ძიება…" oninput="loadEmployees()" style="width:200px"/>
+        <input type="text" id="searchQ" placeholder="ძიება…" oninput="debouncedLoadEmployees()" style="width:200px"/>
         <select id="statusFilter" onchange="loadEmployees()">
           <option value="active">აქტიური</option>
           <option value="all">ყველა</option>
@@ -152,16 +209,29 @@ tr:hover td{background:#fafafa}
   </div>
 </div>
 
+<script src="/static/js/core/api.js"></script>
+<script src="/static/js/core/toast.js"></script>
+<script src="/static/js/core/modal.js"></script>
+<script src="/static/js/core/debounce.js"></script>
 <script>
 const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const TENANT = localStorage.getItem('tenant_id') || '';
+let currentPayrollRunId = null;
+window.TOKEN = TOKEN;
 function hdr(){return{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,'X-Tenant-ID':TENANT};}
+function notify(message,type='info'){
+  if(window.BHToast){window.BHToast.show(message,type);return;}
+  console[type === 'error' ? 'error' : 'log'](message);
+}
 
 async function api(path, opts={}){
   try{
+    if(window.BHApi){
+      return await window.BHApi.request(path,{...opts,headers:{...(opts.headers||{}),'X-Tenant-ID':TENANT}});
+    }
     const r = await fetch(path, {headers:hdr(), ...opts});
     return await r.json();
-  }catch(e){console.error(e);return null;}
+  }catch(e){notify(e.message || 'Request failed','error');return null;}
 }
 
 function fmt(n){return Number(n||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -169,7 +239,10 @@ function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // Init
 document.addEventListener('DOMContentLoaded',()=>{
-  document.getElementById('pensionPeriod').value=new Date().toISOString().slice(0,7);
+  const month = new Date().toISOString().slice(0,7);
+  document.getElementById('pensionPeriod').value=month;
+  document.getElementById('payrollPeriod').value=month;
+  document.getElementById('reportPeriod').value=month;
   loadEmployees();
 });
 
@@ -217,6 +290,8 @@ async function loadEmployees(){
       <tbody>${rows}</tbody>
     </table>`;
 }
+
+const debouncedLoadEmployees = window.BHDebounce ? window.BHDebounce(loadEmployees, 250) : loadEmployees;
 
 function updateStats(items){
   const active = items.filter(e=>e.status==='active');
@@ -283,6 +358,80 @@ async function generatePortalToken(id, name){
   if(!d?.ok){alert('შეცდომა: '+(d?.message||''));return;}
   const url = window.location.origin + d.data.portal_url;
   prompt(`🔗 ${name}-ის პორტალის ლინკი (30 დღე):`, url);
+}
+
+async function calculatePayrollSingle(){
+  const period = document.getElementById('payrollPeriod').value;
+  const gross = Number(document.getElementById('payrollGross').value || 0);
+  const name = document.getElementById('payrollName').value.trim() || 'Employee';
+  const employee_id = document.getElementById('payrollEmployeeId').value.trim() || null;
+  const el = document.getElementById('calcResult');
+  if(!period || gross <= 0){el.innerHTML='<span style="color:#dc3545">შეიყვანეთ პერიოდი და ბრუტო ხელფასი</span>';return;}
+  const d = await api('/payroll/calculate/single', {
+    method:'POST',
+    body:JSON.stringify({period,gross_salary:gross,name,employee_id})
+  });
+  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'გამოთვლა ვერ შესრულდა')}</span>`;return;}
+  const emp = d.data?.employee || {};
+  el.innerHTML=`ბრუტო: <b>₾${fmt(emp.gross_salary)}</b> · PIT 20%: <b>₾${fmt(emp.pit_20pct)}</b> · `+
+    `თანამ. საპენსიო 2%: <b>₾${fmt(emp.payg_2pct)}</b> · დამსაქ. საპენსიო 2%: <b>₾${fmt(emp.employer_pension_2pct)}</b> · `+
+    `ნეტო: <b>₾${fmt(emp.net_salary)}</b>`;
+}
+
+async function createPayrollRun(){
+  const period = document.getElementById('payrollPeriod').value;
+  const el = document.getElementById('runResult');
+  if(!period){el.innerHTML='<span style="color:#dc3545">აირჩიეთ პერიოდი</span>';return;}
+  const d = await api('/payroll/runs', {method:'POST', body:JSON.stringify({period})});
+  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'Payroll run ვერ შეიქმნა')}</span>`;return;}
+  const run = d.data?.run || {};
+  currentPayrollRunId = run.id;
+  el.innerHTML=`Run #${run.id} · სტატუსი: <b>${esc(run.status)}</b> · თანამშრომლები: <b>${run.employee_count || 0}</b> · `+
+    `ბრუტო: <b>₾${fmt(run.total_gross)}</b> · ნეტო: <b>₾${fmt(run.total_net)}</b>`;
+  loadPayrollReport();
+}
+
+async function finalizePayrollRun(){
+  const el = document.getElementById('runResult');
+  if(!currentPayrollRunId){el.innerHTML='<span style="color:#dc3545">ჯერ შექმენით payroll run</span>';return;}
+  const d = await api(`/payroll/runs/${currentPayrollRunId}/finalize`, {method:'POST'});
+  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'დრაფტები ვერ შეიქმნა')}</span>`;return;}
+  const run = d.data?.run || {};
+  const drafts = run.drafts || {};
+  el.innerHTML=`Run #${run.id} · სტატუსი: <b>${esc(run.status)}</b> · journal drafts: <b>${(drafts.draft_ids || []).length}</b> · `+
+    `approval required: <b>${d.data?.approval_required ? 'yes' : 'no'}</b> · posted: <b>${d.data?.posted ? 'yes' : 'no'}</b>`;
+  loadPayrollReport();
+}
+
+function renderCompliance(totals={}, count=0){
+  document.getElementById('complianceResult').innerHTML =
+    `თანამშრომლები: <b>${count}</b> · PIT 20%: <b>₾${fmt(totals.pit)}</b> · `+
+    `თანამ. საპენსიო 2%: <b>₾${fmt(totals.employee_pension)}</b> · `+
+    `დამსაქ. საპენსიო 2%: <b>₾${fmt(totals.employer_pension)}</b> · `+
+    `ნეტო გადასარიცხი: <b>₾${fmt(totals.net)}</b>`;
+}
+
+async function loadPayrollReport(){
+  const period = document.getElementById('reportPeriod').value || document.getElementById('payrollPeriod').value;
+  const el = document.getElementById('reportResult');
+  if(!period){el.innerHTML='<span style="color:#dc3545">აირჩიეთ პერიოდი</span>';return;}
+  const d = await api(`/payroll/runs/report?period=${encodeURIComponent(period)}`);
+  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'ანგარიში ვერ ჩაიტვირთა')}</span>`;return;}
+  const data = d.data || {};
+  renderCompliance(data.totals || {}, data.count || 0);
+  const lines = data.lines || [];
+  if(!lines.length){el.innerHTML='<span style="color:#6c757d">ამ პერიოდში payroll ჩანაწერები არ არის</span>';return;}
+  const rows = lines.slice(0,25).map(line=>`
+    <tr>
+      <td>${esc(line.employee_name)}</td>
+      <td>₾${fmt(line.gross_salary)}</td>
+      <td>₾${fmt(line.pit_20pct)}</td>
+      <td>₾${fmt(line.employee_pension_2pct)}</td>
+      <td>₾${fmt(line.employer_pension_2pct)}</td>
+      <td>₾${fmt(line.net_salary)}</td>
+      <td>${esc(line.status || '')}</td>
+    </tr>`).join('');
+  el.innerHTML=`<table><thead><tr><th>თანამშრომელი</th><th>ბრუტო</th><th>PIT</th><th>თანამ. 2%</th><th>დამსაქ. 2%</th><th>ნეტო</th><th>სტატუსი</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 async function runPensionTransfer(){

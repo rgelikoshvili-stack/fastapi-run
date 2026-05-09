@@ -1,21 +1,30 @@
-﻿import os, psycopg2
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
-cur = conn.cursor()
-cur.execute("DROP TABLE IF EXISTS users")
-cur.execute("""
-    CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255) NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        tenant_id VARCHAR(100) DEFAULT 'default',
-        role VARCHAR(50) DEFAULT 'accountant',
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        last_login TIMESTAMP,
-        UNIQUE(email, tenant_id)
+"""Quarantined legacy users migration.
+
+This script previously dropped and recreated the users table. It is retained
+only as a traceable placeholder so accidental manual execution cannot destroy
+auth data. User/auth schema changes must be handled by reviewed, additive
+migrations instead.
+"""
+
+from __future__ import annotations
+
+import sys
+
+
+ARCHIVED_DANGEROUS_SQL = """
+-- Archived historical behavior. Do not execute.
+-- DROP TABLE IF EXISTS users;
+-- CREATE TABLE users (...);
+"""
+
+
+def main() -> int:
+    sys.stderr.write(
+        "scripts/run_users_migration.py is quarantined and must not be executed. "
+        "Use a reviewed additive auth schema migration instead.\n"
     )
-""")
-conn.commit()
-cur.close()
-conn.close()
-print("Done!")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

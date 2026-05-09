@@ -75,6 +75,16 @@ def test_balance_sheet_zero_is_balanced():
     assert abs(assets - le) < 0.05
 
 
+def test_task9_balance_sheet_equation_is_exposed():
+    with patch("app.api.services.financial_statements_service.get_conn",
+               _make_get_conn()):
+        from app.api.services.financial_statements_service import build_balance_sheet
+        result = asyncio.run(build_balance_sheet("tenant-a", "2026-05-31"))
+    data = result.get("data", {})
+    assert data["balanced"] is True
+    assert data["assets"]["total"] == data["total_liabilities_and_equity"]
+
+
 # ── 5. P&L is tenant-isolated (different tenants → independent queries) ───────
 
 def test_pnl_is_tenant_scoped_structurally():
@@ -128,6 +138,87 @@ def test_financial_statements_use_posted_entries_only():
     assert "jd.status = 'posted'" in src
     assert "approved" not in src
     assert "auto_approved" not in src
+
+
+def test_pnl_endpoint_supports_period_comparison():
+    import app.api.routes_financial_statements as mod
+    src = inspect.getsource(mod.profit_and_loss)
+    helper_src = inspect.getsource(mod._profit_and_loss_response)
+    assert "compare_from" in src
+    assert "compare_to" in src
+    assert '"comparison"' in helper_src
+    assert '"variance"' in helper_src
+
+
+def test_financial_statement_alias_routes_exist():
+    import app.api.routes_financial_statements as mod
+    paths = {route.path for route in mod.financial_statements_alias_router.routes}
+    assert "/financial-statements/pnl" in paths
+    assert "/financial-statements/balance-sheet" in paths
+
+
+def test_trial_balance_has_opening_turnover_closing_structure():
+    rows = [
+        {"account_code": "1210", "side": "debit", "bucket": "opening", "total": 100},
+        {"account_code": "1210", "side": "debit", "bucket": "period", "total": 250},
+        {"account_code": "1210", "side": "credit", "bucket": "period", "total": 40},
+        {"account_code": "6110", "side": "credit", "bucket": "period", "total": 210},
+    ]
+    with patch("app.api.services.ledger_service.get_conn", _make_get_conn(rows)):
+        from app.api.services.ledger_service import get_trial_balance
+        result = asyncio.run(get_trial_balance("tenant-a", "2026-05-01", "2026-05-31"))
+
+    account = next(item for item in result["accounts"] if item["account_code"] == "1210")
+    assert account["opening_balance"] == 100
+    assert account["debit_turnover"] == 250
+    assert account["credit_turnover"] == 40
+    assert account["closing_balance"] == 310
+    assert result["total_debit"] == 250
+    assert result["total_credit"] == 250
+    assert result["balanced"] is True
+
+
+def test_account_ledger_accepts_counterparty_filter_and_stays_posted_only():
+    from app.api import routes_reports
+    from app.api.services import ledger_service
+
+    route_src = inspect.getsource(routes_reports.ledger_report)
+    service_src = inspect.getsource(ledger_service.get_account_ledger)
+    assert "counterparty" in route_src
+    assert "counterparty_inn" in service_src
+    assert "jd.status = 'posted'" in service_src
+    assert "jd.counterparty_inn = %s" in service_src
+
+
+def test_cashflow_report_structure_is_tenant_scoped():
+    import app.api.routes_reports as mod
+    src = inspect.getsource(mod.cashflow_report)
+    assert "tenant_id = %s" in src
+    assert '"cash_in"' in src
+    assert '"cash_out"' in src
+    assert '"net_cashflow"' in src
+
+
+def test_vat_register_structure_and_posted_only():
+    import app.api.routes_tax as mod
+    src = inspect.getsource(mod.vat_register)
+    assert "tenant_id = %s" in src
+    assert "status = 'posted'" in src
+    assert '"input_vat"' in src
+    assert '"output_vat"' in src
+    assert '"net_vat_payable"' in src
+    assert '"rs_ge"' in src
+
+
+def test_period_closing_dashboard_routes_are_reused():
+    import app.api.routes_period_lock as lock_mod
+    import app.api.routes_closing as close_mod
+    assert lock_mod.router.prefix == "/accounting/periods"
+    assert close_mod.router.prefix == "/accounting"
+    assert any(route.path == "/accounting/periods" for route in lock_mod.router.routes)
+    assert any(route.path == "/accounting/close-period/preview" for route in close_mod.router.routes)
+    preview_src = inspect.getsource(close_mod.preview_close)
+    assert "status = 'posted'" in preview_src
 
 
 def test_monthly_report_filters_pipeline_runs_by_tenant():
@@ -192,6 +283,29 @@ def test_audit_trail_has_rate_limiter():
     idx_audit = module_src.index("async def audit_trail")
     snippet = module_src[max(0, idx_audit - 80):idx_audit]
     assert "limiter.limit" in snippet
+
+
+def test_counterparty_report_is_tenant_scoped_and_posted_only():
+    from app.api.services import ledger_service
+    src = inspect.getsource(ledger_service.get_counterparty_ledger)
+    assert "jd.tenant_id = %s" in src
+    assert "jd.counterparty_inn = %s" in src
+    assert "jd.status = 'posted'" in src
+
+
+def test_reporting_endpoints_unauthenticated_get_401_or_403():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    responses = [
+        client.get("/reports/trial-balance"),
+        client.get("/reports/ledger/1210"),
+        client.get("/reports/journal"),
+        client.get("/reports/counterparty/204123456"),
+        client.get("/tax/vat-register?year=2026&month=5"),
+    ]
+    assert all(resp.status_code in (401, 403) for resp in responses)
 
 
 def test_annual_report_has_rate_limiter():

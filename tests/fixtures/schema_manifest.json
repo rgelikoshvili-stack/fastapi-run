@@ -1,6 +1,6 @@
 {
   "schema_manifest_version": "1.0",
-  "baseline_head": "3b5aafa2371fd657c94e386785facc50ed3b93c8",
+  "baseline_head": "9f7a22c5e3698538ad31115ff2f9ce3e521b98c0",
   "purpose": "Non-destructive schema ownership inventory for migration stabilization planning.",
   "tables": [
     {
@@ -318,26 +318,26 @@
     {
       "table_name": "customers",
       "owner_module": "crm/trade",
-      "current_creation_source": "app/startup/migrations.py",
-      "migration_coverage": "none",
+      "current_creation_source": "app/storage/migrations/007_trade_partner_schema.sql plus app/startup/migrations.py",
+      "migration_coverage": "partial",
       "runtime_created": true,
       "has_tenant_id": true,
       "has_indexes": true,
       "has_audit_fields": "partial",
       "risk": "high",
-      "recommended_next_action": "Move to ordered trade migration and clarify customer/supplier model."
+      "recommended_next_action": "Keep runtime compatibility until cutover; clarify customer/supplier model before removing startup DDL."
     },
     {
       "table_name": "customer_interactions",
       "owner_module": "crm",
-      "current_creation_source": "app/startup/migrations.py",
-      "migration_coverage": "none",
+      "current_creation_source": "app/storage/migrations/007_trade_partner_schema.sql plus app/startup/migrations.py",
+      "migration_coverage": "partial",
       "runtime_created": true,
       "has_tenant_id": true,
-      "has_indexes": "unknown",
+      "has_indexes": true,
       "has_audit_fields": "partial",
       "risk": "medium",
-      "recommended_next_action": "Move to ordered CRM migration."
+      "recommended_next_action": "Keep runtime compatibility until cutover and verify customer interaction query coverage."
     },
     {
       "table_name": "outgoing_invoices",

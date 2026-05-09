@@ -321,7 +321,7 @@ async def vat_register(request: Request, year: Optional[int] = None, month: Opti
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conditions = ["tenant_id = %s", "status = 'posted'"]
+    conditions = ["tenant_id = %s", "status = 'posted'", "date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"]
     params: list = [tenant_id]
     if year is not None:
         conditions.append("EXTRACT(YEAR FROM date::date) = %s")
@@ -338,20 +338,54 @@ async def vat_register(request: Request, year: Optional[int] = None, month: Opti
             FROM journal_drafts
             WHERE {where}
               AND (
-                    account_code IN ('1760', '3311', '3410', '1230', '1231')
-                 OR debit_account IN ('1760', '3311', '3410', '1230', '1231')
-                 OR credit_account IN ('1760', '3311', '3410', '1230', '1231')
+                    account_code IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                 OR debit_account IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                 OR credit_account IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                 OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(COALESCE(journal_entries, '[]'::jsonb)) AS entry
+                    WHERE entry->>'dr' IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                       OR entry->>'cr' IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                 )
               )
             ORDER BY created_at DESC, id DESC
         """), *params)]
 
-    total_vat = round(sum(float(r.get("vat_amount") or 0) for r in rows), 2)
+    input_accounts = {"1760", "3311"}
+    output_accounts = {"3310", "3410", "1230", "1231"}
+    input_vat = 0.0
+    output_vat = 0.0
+    for row in rows:
+        vat = float(row.get("vat_amount") or 0)
+        account_values = {
+            str(row.get("account_code") or ""),
+            str(row.get("debit_account") or ""),
+            str(row.get("credit_account") or ""),
+        }
+        if account_values & input_accounts:
+            input_vat += vat
+        elif account_values & output_accounts:
+            output_vat += vat
+        else:
+            output_vat += vat
+
+    input_vat = round(input_vat, 2)
+    output_vat = round(output_vat, 2)
+    total_vat = round(output_vat - input_vat, 2)
     return ok_response("VAT register", {
         "tenant_id": tenant_id,
         "year": year,
         "month": month,
+        "period": f"{year}-{month:02d}" if year and month else str(year or ""),
         "count": len(rows),
+        "input_vat": input_vat,
+        "output_vat": output_vat,
+        "net_vat_payable": total_vat,
         "total_vat": total_vat,
+        "rs_ge": {
+            "workflow": "review_posted_entries_then_prepare_rs_ge_vat_return",
+            "form": "RS Form 10",
+        },
         "items": rows,
     })
 
@@ -378,6 +412,7 @@ class WithholdingRequest(BaseModel):
 @router.post("/rs-ge/vat-return")
 def rs_ge_vat_return(body: VatReturnRequest, request: Request):
     """Build RS Form 10 (VAT Return) payload ready for rs.ge portal upload."""
+    require_permission(request, "reports:read")
     from decimal import Decimal
     from app.integrations.rs_ge_api import build_vat_return, verify_taxpayer_inn
     v = verify_taxpayer_inn(body.inn)

@@ -58,7 +58,11 @@ h1{font-size:1.05rem;font-weight:600}
     <div class="hero-sub">Fast access to financial statements, ledgers, tax surfaces, and operational drill-downs.</div>
     <div class="link-row">
       <a class="btn primary" href="/static/financial_reports.html">Financial statements</a>
+      <a class="btn" href="/static/ledger.html">Account card</a>
+      <a class="btn" href="/static/trial_balance.html">Trial balance</a>
+      <a class="btn" href="/static/journal.html">Posted journal</a>
       <a class="btn" href="/static/counterparty_ledger.html">Counterparty ledger</a>
+      <a class="btn" href="/static/accounting_tools.html">Period closing</a>
       <a class="btn" href="/static/aging_report.html">AR/AP aging</a>
       <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
       <a class="btn" href="/static/vat_declaration.html">VAT declaration</a>
@@ -79,6 +83,26 @@ h1{font-size:1.05rem;font-weight:600}
     </div>
     <div class="card">
       <div>
+        <h3>Account Card / Ledger</h3>
+        <p>Account-level movements with period filters, opening balance, turnover, and closing balance.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/ledger.html">Open</a>
+        <a class="btn" href="/static/trial_balance.html">Trial Balance</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>Posted Journal</h3>
+        <p>Posted journal entries only, with document-level drill-down and correction entry points.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/journal.html">Open</a>
+        <a class="btn" href="/reports/journal">API</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
         <h3>Operational Reports</h3>
         <p>Counterparty, payroll, inventory, and aging surfaces used by accounting ops.</p>
       </div>
@@ -95,6 +119,26 @@ h1{font-size:1.05rem;font-weight:600}
       <div class="link-row">
         <a class="btn primary" href="/static/vat_declaration.html">Open</a>
         <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>VAT Register</h3>
+        <p>Posted VAT movements by period with Georgian RS.ge declaration workflow surfaces.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/vat_declaration.html">Open</a>
+        <a class="btn" href="/tax/vat-register">API</a>
+      </div>
+    </div>
+    <div class="card">
+      <div>
+        <h3>Period Closing</h3>
+        <p>Period locks and close-period preview dashboard without changing posting behavior.</p>
+      </div>
+      <div class="link-row">
+        <a class="btn primary" href="/static/accounting_tools.html">Open</a>
+        <a class="btn" href="/accounting/close-period/preview?year=2026">Preview API</a>
       </div>
     </div>
     <div class="card">

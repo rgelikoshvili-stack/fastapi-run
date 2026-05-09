@@ -153,10 +153,11 @@ async def ledger_report(
     request: Request,
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    counterparty: Optional[str] = Query(None, description="Counterparty INN filter"),
 ):
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    data = await get_account_ledger(tenant_id, account_code, date_from, date_to)
+    data = await get_account_ledger(tenant_id, account_code, date_from, date_to, counterparty)
     return ok_response("Ledger report", {"report": "ledger", **data})
 
 

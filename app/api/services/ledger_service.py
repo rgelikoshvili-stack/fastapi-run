@@ -31,13 +31,46 @@ async def get_account_ledger(
     account_code: str,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    counterparty_inn: Optional[str] = None,
 ) -> dict:
     """
     Returns all debit/credit movements for one account_code with running balance.
-    Opening balance is 0 (no separate opening-balance table exists yet).
+    Opening balance is computed from posted entries before date_from when provided.
     """
     params: list = [tenant_id, account_code, account_code]
     period = _period_conditions(date_from, date_to, params)
+    counterparty_filter = ""
+    if counterparty_inn:
+        counterparty_filter = " AND jd.counterparty_inn = %s"
+        params.append(counterparty_inn)
+
+    opening = Decimal("0")
+    if date_from:
+        opening_params: list = [tenant_id, account_code, account_code, date_from]
+        opening_counterparty = ""
+        if counterparty_inn:
+            opening_counterparty = " AND jd.counterparty_inn = %s"
+            opening_params.append(counterparty_inn)
+        opening_sql = _q(f"""
+            SELECT
+                entry->>'dr' AS dr,
+                entry->>'cr' AS cr,
+                COALESCE(SUM((entry->>'amount')::numeric), 0) AS total
+            FROM journal_drafts jd
+            CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
+            WHERE jd.tenant_id = %s
+              AND jd.status = 'posted'
+              AND (entry->>'dr' = %s OR entry->>'cr' = %s)
+              AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+              AND jd.date::date < %s
+              {opening_counterparty}
+            GROUP BY entry->>'dr', entry->>'cr'
+        """)
+        async with get_conn() as conn:
+            opening_rows = await conn.fetch(opening_sql, *opening_params)
+        for r in opening_rows:
+            amt = Decimal(str(r["total"] or 0))
+            opening += amt if r["dr"] == account_code else -amt
 
     sql = _q(f"""
         SELECT
@@ -55,6 +88,7 @@ async def get_account_ledger(
           AND jd.status = 'posted'
           AND (entry->>'dr' = %s OR entry->>'cr' = %s)
           {period}
+          {counterparty_filter}
         ORDER BY
             CASE WHEN jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
                  THEN jd.date::date ELSE jd.created_at::date END,
@@ -65,7 +99,7 @@ async def get_account_ledger(
         rows = await conn.fetch(sql, *params)
 
     lines = []
-    running = Decimal("0")
+    running = opening
     total_dr = Decimal("0")
     total_cr = Decimal("0")
 
@@ -91,9 +125,10 @@ async def get_account_ledger(
 
     return {
         "account_code": account_code,
+        "counterparty_inn": counterparty_inn,
         "date_from": date_from,
         "date_to": date_to,
-        "opening_balance": 0.0,
+        "opening_balance": float(opening),
         "total_debit": float(total_dr),
         "total_credit": float(total_cr),
         "closing_balance": float(running),
@@ -110,41 +145,66 @@ async def get_trial_balance(
     date_to: Optional[str] = None,
 ) -> dict:
     """
-    Aggregates all journal_entries into a trial balance grouped by account_code.
-    Returns debit total, credit total per account; totals must be equal.
+    Aggregates posted journal_entries into a trial balance grouped by account_code.
+    Rows include opening balance, period debit/credit turnover, and closing balance.
     """
-    params: list = [tenant_id]
-    period = _period_conditions(date_from, date_to, params)
+    where_params: list = [tenant_id]
+    date_to_filter = ""
+    if date_to:
+        date_to_filter = " AND jd.date::date <= %s"
+        where_params.append(date_to)
 
     sql = _q(f"""
         SELECT
             entry->>'dr'                    AS account_code,
             'debit'                         AS side,
+            CASE
+                WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
+                THEN 'opening'
+                ELSE 'period'
+            END                              AS bucket,
             SUM((entry->>'amount')::numeric) AS total
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
           AND jd.status = 'posted'
-          {period}
+          AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+          {date_to_filter}
         GROUP BY entry->>'dr'
+               , CASE
+                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
+                    THEN 'opening'
+                    ELSE 'period'
+                 END
 
         UNION ALL
 
         SELECT
             entry->>'cr'                    AS account_code,
             'credit'                        AS side,
+            CASE
+                WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
+                THEN 'opening'
+                ELSE 'period'
+            END                              AS bucket,
             SUM((entry->>'amount')::numeric) AS total
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
           AND jd.status = 'posted'
-          {period}
+          AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+          {date_to_filter}
         GROUP BY entry->>'cr'
+               , CASE
+                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
+                    THEN 'opening'
+                    ELSE 'period'
+                 END
         ORDER BY account_code, side
     """)
 
-    # duplicate params for second half of UNION
-    params_full = params + params
+    branch_params = [date_from, date_from, *where_params, date_from, date_from]
+    params_full = branch_params + branch_params
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params_full)
@@ -153,15 +213,42 @@ async def get_trial_balance(
     for r in rows:
         code = r["account_code"] or ""
         if code not in accounts:
-            accounts[code] = {"account_code": code, "debit": 0.0, "credit": 0.0}
-        if r["side"] == "debit":
-            accounts[code]["debit"] += float(r["total"] or 0)
+            accounts[code] = {
+                "account_code": code,
+                "opening_debit": 0.0,
+                "opening_credit": 0.0,
+                "debit_turnover": 0.0,
+                "credit_turnover": 0.0,
+            }
+        bucket = "opening" if r["bucket"] == "opening" else "period"
+        if bucket == "opening" and r["side"] == "debit":
+            accounts[code]["opening_debit"] += float(r["total"] or 0)
+        elif bucket == "opening":
+            accounts[code]["opening_credit"] += float(r["total"] or 0)
+        elif r["side"] == "debit":
+            accounts[code]["debit_turnover"] += float(r["total"] or 0)
         else:
-            accounts[code]["credit"] += float(r["total"] or 0)
+            accounts[code]["credit_turnover"] += float(r["total"] or 0)
 
-    items = sorted(accounts.values(), key=lambda x: x["account_code"])
-    grand_dr = sum(i["debit"] for i in items)
-    grand_cr = sum(i["credit"] for i in items)
+    items = []
+    for raw in sorted(accounts.values(), key=lambda x: x["account_code"]):
+        opening_balance = raw["opening_debit"] - raw["opening_credit"]
+        closing_balance = opening_balance + raw["debit_turnover"] - raw["credit_turnover"]
+        items.append({
+            "account_code": raw["account_code"],
+            "opening_balance": round(opening_balance, 2),
+            "debit_turnover": round(raw["debit_turnover"], 2),
+            "credit_turnover": round(raw["credit_turnover"], 2),
+            "closing_balance": round(closing_balance, 2),
+            "debit": round(raw["debit_turnover"], 2),
+            "credit": round(raw["credit_turnover"], 2),
+            "net": round(closing_balance, 2),
+        })
+
+    grand_dr = sum(i["debit_turnover"] for i in items)
+    grand_cr = sum(i["credit_turnover"] for i in items)
+    opening_total = sum(i["opening_balance"] for i in items)
+    closing_total = sum(i["closing_balance"] for i in items)
 
     return {
         "date_from": date_from,
@@ -169,11 +256,9 @@ async def get_trial_balance(
         "total_debit": round(grand_dr, 2),
         "total_credit": round(grand_cr, 2),
         "balanced": round(grand_dr, 2) == round(grand_cr, 2),
-        "accounts": [
-            {**i, "debit": round(i["debit"], 2), "credit": round(i["credit"], 2),
-             "net": round(i["debit"] - i["credit"], 2)}
-            for i in items
-        ],
+        "opening_total": round(opening_total, 2),
+        "closing_total": round(closing_total, 2),
+        "accounts": items,
         "count": len(items),
     }
 

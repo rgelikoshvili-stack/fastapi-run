@@ -46,6 +46,7 @@ def register_routers(app: FastAPI) -> None:
     from app.api import routes_reconciliation
     from app.api import routes_reports
     from app.api.routes_financial_statements import router as financial_statements_router
+    from app.api.routes_financial_statements import financial_statements_alias_router
     from app.api.routes_fixed_assets import router as fixed_assets_router
     from app.api import routes_security
     from app.api import routes_webhooks_v2
@@ -154,6 +155,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(routes_rbac.router)
     app.include_router(routes_reconciliation.router)
     app.include_router(financial_statements_router)
+    app.include_router(financial_statements_alias_router)
     app.include_router(routes_reports.router)
     app.include_router(fixed_assets_router)
     app.include_router(routes_security.router)

@@ -6,6 +6,7 @@ execute SQL, connect to a database, or run migrations.
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -107,6 +108,29 @@ def _iter_text_files(paths: list[Path]):
                 yield path
 
 
+def _python_execute_string_literals(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="ignore"))
+    literals: list[str] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        func_name = ""
+        if isinstance(func, ast.Attribute):
+            func_name = func.attr
+        elif isinstance(func, ast.Name):
+            func_name = func.id
+        if func_name not in {"execute", "executemany"}:
+            continue
+        if not node.args:
+            continue
+        first_arg = node.args[0]
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            literals.append(first_arg.value)
+    return literals
+
+
 def test_schema_manifest_exists_and_has_table_records():
     manifest = _load_manifest()
     tables = _tables(manifest)
@@ -170,21 +194,40 @@ def test_schema_manifest_risk_rules():
             )
 
 
-def test_migration_file_inventory_and_destructive_script_detection():
+def test_migration_file_inventory_and_quarantined_destructive_script_detection():
     existing_locations = [path for path in MIGRATION_LOCATIONS if path.exists()]
     assert existing_locations, "no migration-like locations found"
 
     discovered = list(_iter_text_files(existing_locations))
     assert discovered, "migration-like locations contain no readable .py or .sql files"
 
-    destructive = []
+    drop_table_mentions = []
     for path in discovered:
         text = path.read_text(encoding="utf-8", errors="ignore").upper()
         if "DROP TABLE" in text:
-            destructive.append(path.relative_to(ROOT).as_posix())
+            drop_table_mentions.append(path.relative_to(ROOT).as_posix())
 
-    assert destructive, "expected destructive scripts to remain detectable for migration hardening"
-    assert "scripts/run_users_migration.py" in destructive
+    assert "scripts/run_users_migration.py" in drop_table_mentions
+
+    quarantined = ROOT / "scripts" / "run_users_migration.py"
+    text = quarantined.read_text(encoding="utf-8", errors="ignore")
+    assert "quarantined" in text.lower()
+    assert "psycopg2.connect" not in text
+    assert "conn.commit" not in text
+
+    executable_drop_users = []
+    for path in _iter_text_files([ROOT / "scripts"]):
+        if path.suffix.lower() != ".py":
+            continue
+        for literal in _python_execute_string_literals(path):
+            normalized = " ".join(literal.lower().split())
+            if "drop table if exists users" in normalized:
+                executable_drop_users.append(path.relative_to(ROOT).as_posix())
+
+    assert not executable_drop_users, (
+        "active scripts must not execute DROP TABLE IF EXISTS users: "
+        f"{executable_drop_users}"
+    )
 
 
 def test_runtime_ddl_sources_are_detected_and_manifested():

@@ -9,11 +9,11 @@
       "current_creation_source": "scripts/run_tenant_tables_migration.py plus app/startup/migrations.py and storage migration alters",
       "migration_coverage": "partial",
       "runtime_created": true,
-      "has_tenant_id": "partial",
+      "has_tenant_id": "unknown",
       "has_indexes": "partial",
       "has_audit_fields": "partial",
       "risk": "high",
-      "recommended_next_action": "Canonicalize tenant table in formal migration and reconcile duplicate definitions."
+      "recommended_next_action": "Canonicalize tenant table in formal migration and reconcile duplicate definitions; root tenant registry is not scoped by another tenant."
     },
     {
       "table_name": "tenant_settings",
@@ -381,11 +381,11 @@
       "current_creation_source": "app/startup/migrations_tables.py",
       "migration_coverage": "none",
       "runtime_created": true,
-      "has_tenant_id": "partial",
+      "has_tenant_id": "unknown",
       "has_indexes": "unknown",
       "has_audit_fields": "partial",
       "risk": "high",
-      "recommended_next_action": "Move to ordered migration after invoice model review."
+      "recommended_next_action": "Move to ordered migration after invoice model review and confirm tenant scope through parent invoice relationship."
     },
     {
       "table_name": "period_locks",
@@ -513,7 +513,7 @@
       "current_creation_source": "app/api/services/webhook_service.py",
       "migration_coverage": "none",
       "runtime_created": true,
-      "has_tenant_id": "partial",
+      "has_tenant_id": true,
       "has_indexes": "unknown",
       "has_audit_fields": "partial",
       "risk": "medium",

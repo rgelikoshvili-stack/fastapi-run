@@ -52,6 +52,18 @@
       "recommended_next_action": "Quarantine destructive users migration and create safe additive auth migration."
     },
     {
+      "table_name": "password_reset_tokens",
+      "owner_module": "auth",
+      "current_creation_source": "app/api/routes_auth.py",
+      "migration_coverage": "none",
+      "runtime_created": true,
+      "has_tenant_id": true,
+      "has_indexes": "unknown",
+      "has_audit_fields": "partial",
+      "risk": "high",
+      "recommended_next_action": "Add to auth schema contract with expiry, used-token, tenant, and token uniqueness indexes before formal migration."
+    },
+    {
       "table_name": "journal_drafts",
       "owner_module": "approval/accounting",
       "current_creation_source": "base schema plus storage SQL, root migration, startup migrations, and service ALTERs",
@@ -504,8 +516,8 @@
       "has_tenant_id": true,
       "has_indexes": true,
       "has_audit_fields": "partial",
-      "risk": "medium",
-      "recommended_next_action": "Move to formal integration migration."
+      "risk": "high",
+      "recommended_next_action": "Move to formal integration migration after webhook signing secret masking and rotation review."
     },
     {
       "table_name": "webhook_deliveries",

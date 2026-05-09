@@ -342,14 +342,14 @@
     {
       "table_name": "outgoing_invoices",
       "owner_module": "sales",
-      "current_creation_source": "app/storage/migrations/004_outgoing_invoices.sql plus app/startup/migrations.py and app/api/services/invoice_creator.py",
+      "current_creation_source": "app/storage/migrations/004_outgoing_invoices.sql plus app/storage/migrations/008_outgoing_invoice_columns.sql plus app/startup/migrations.py, app/api/services/invoice_creator.py, and app/api/routes_aging.py",
       "migration_coverage": "partial",
       "runtime_created": true,
       "has_tenant_id": true,
       "has_indexes": true,
       "has_audit_fields": "partial",
       "risk": "medium",
-      "recommended_next_action": "Consolidate all outgoing invoice columns into one ordered migration chain."
+      "recommended_next_action": "Keep runtime compatibility until cutover; defer status constraint and legacy invoice model decisions."
     },
     {
       "table_name": "invoice_counters",

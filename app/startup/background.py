@@ -39,16 +39,64 @@ async def _monitored_loop(name: str, fn, interval: int, max_failures: int = _TAS
         await asyncio.sleep(sleep_for)
 
 
+def _get_active_tenant_ids() -> list[str]:
+    """Return all non-inactive tenant IDs from the tenants table.
+
+    Uses psycopg2 sync connection (same pattern as autopilot_approve_service).
+    Excludes 'inactive' and 'suspended' tenants; includes active, trial, and
+    expired states so autopilot can still run for those tenants.
+    Falls back to ['default'] on any DB error so autopilot always runs.
+    """
+    _log = logging.getLogger("bg.autopilot")
+    try:
+        from app.api.db import get_db
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT tenant_id FROM tenants "
+                "WHERE status IS NULL OR status NOT IN ('inactive', 'suspended')"
+            )
+            rows = cur.fetchall()
+            cur.close()
+            ids = [r[0] for r in rows]
+            return ids if ids else ["default"]
+        finally:
+            conn.close()
+    except Exception as exc:
+        _log.warning(
+            "task=autopilot _get_active_tenant_ids failed: %s — falling back to ['default']",
+            exc,
+        )
+        return ["default"]
+
+
 async def autopilot_loop():
     from app.api.services.approval_service import autopilot_approve_service
     log = logging.getLogger("bg.autopilot")
 
     async def _run():
-        log.info("task=autopilot running")
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: autopilot_approve_service("default"))
-        log.info("task=autopilot approved=%s", result)
-        return result
+        tenant_ids = await loop.run_in_executor(None, _get_active_tenant_ids)
+        log.info("task=autopilot starting tenants=%d", len(tenant_ids))
+        total_approved = 0
+        for tenant_id in tenant_ids:
+            try:
+                result = await loop.run_in_executor(
+                    None, lambda t=tenant_id: autopilot_approve_service(t)
+                )
+                approved = result.get("approved", 0) if isinstance(result, dict) else 0
+                total_approved += approved
+                if approved:
+                    log.info("task=autopilot tenant=%s approved=%d", tenant_id, approved)
+            except Exception as exc:
+                log.warning("task=autopilot tenant=%s error=%s", tenant_id, exc)
+        log.info(
+            "task=autopilot done total_approved=%d tenants=%d",
+            total_approved,
+            len(tenant_ids),
+        )
+        return {"total_approved": total_approved, "tenants": len(tenant_ids)}
 
     await _monitored_loop("autopilot", _run, interval=60)
 

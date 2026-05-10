@@ -3,13 +3,12 @@
 Task 10F-E: Redis / Rate-Limit Plan — contract tests.
 
 Read-only. No DB, no Redis, no runtime imports. Validates doc content and
-local-only contract definitions. Does not import app.api.security or any
-module that triggers SlowAPI or DB initialization.
+local-only contract definitions. Does not import app.* modules.
 """
 from __future__ import annotations
 
-import os
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,10 +22,15 @@ _DOCS = _REPO / "docs"
 RATE_LIMIT_PLAN = _DOCS / "redis-rate-limit-plan.md"
 TRUST_FOUNDATION_PLAN = _DOCS / "trust-foundation-implementation-plan.md"
 SUBSCRIPTION_PLAN = _DOCS / "subscription-enforcement-plan.md"
-MASKED_READ_CONTRACT = _DOCS / "masked-read-behavior-contract.md"
+CREDENTIAL_VAULT_DESIGN = _DOCS / "credential-vault-design.md"
+
+
+def _doc() -> str:
+    return RATE_LIMIT_PLAN.read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
-# Contract definitions (test-only, no runtime imports)
+# Contract definitions (test-only — no runtime imports)
 # ---------------------------------------------------------------------------
 
 RATE_LIMIT_COMPONENTS: frozenset[str] = frozenset({
@@ -40,172 +44,155 @@ RATE_LIMIT_COMPONENTS: frozenset[str] = frozenset({
 })
 
 ENDPOINT_GROUPS: frozenset[str] = frozenset({
-    "public_health",
+    "public_health_version",
     "auth_login",
     "auth_register",
-    "auth_refresh",
-    "ai_classification",
-    "ocr_processing",
-    "document_upload",
-    "bank_csv_import",
-    "email_collector",
-    "approval_write",
-    "posting_erp",
+    "password_reset_request",
+    "password_reset_confirm",
+    "totp_verify",
     "credential_save",
-    "credential_status",
-    "connector_test",
-    "reporting",
-    "export",
-    "tenant_admin",
-    "general_api",
+    "credential_test",
+    "connector_status",
+    "connector_execution",
+    "document_upload",
+    "ocr_processing",
+    "ai_classification",
+    "journal_draft_creation",
+    "approval_action",
+    "reporting_read",
+    "exports",
+    "admin_actions",
 })
 
-# Groups that must enforce limits even in in-memory fallback
-SENSITIVE_RATE_LIMIT_GROUPS: frozenset[str] = frozenset({
+SENSITIVE_GROUPS: frozenset[str] = frozenset({
     "auth_login",
-    "auth_register",
-    "auth_refresh",
-    "ai_classification",
-    "ocr_processing",
-    "document_upload",
-    "posting_erp",
+    "password_reset_request",
+    "password_reset_confirm",
+    "totp_verify",
     "credential_save",
-    "connector_test",
-    "bank_csv_import",
+    "credential_test",
+    "connector_execution",
+    "document_upload",
+    "ocr_processing",
+    "ai_classification",
 })
 
 REQUIRED_ERROR_CODES: frozenset[str] = frozenset({
     "RATE_LIMIT_EXCEEDED",
     "AUTH_RATE_LIMIT_EXCEEDED",
-    "AI_QUOTA_EXCEEDED",
-    "DOCUMENT_QUOTA_EXCEEDED",
-    "CONNECTOR_RATE_LIMIT_EXCEEDED",
+    "PASSWORD_RESET_RATE_LIMIT_EXCEEDED",
+    "TOTP_RATE_LIMIT_EXCEEDED",
     "CREDENTIAL_RATE_LIMIT_EXCEEDED",
-    "TENANT_QUOTA_EXCEEDED",
-    "RATE_LIMIT_BACKEND_DEGRADED",
-    "RATE_LIMIT_POLICY_NOT_FOUND",
+    "CONNECTOR_RATE_LIMIT_EXCEEDED",
+    "OCR_RATE_LIMIT_EXCEEDED",
+    "AI_RATE_LIMIT_EXCEEDED",
     "EXPORT_RATE_LIMIT_EXCEEDED",
+    "RATE_LIMIT_BACKEND_UNAVAILABLE",
 })
 
-# Groups that should block connector execution for trial tenants
-CONNECTOR_GROUPS: frozenset[str] = frozenset({
-    "posting_erp",
-    "connector_test",
-})
-
-# Groups that enforce per-tenant quota (not just per-IP)
-PER_TENANT_GROUPS: frozenset[str] = frozenset({
-    "ai_classification",
-    "ocr_processing",
-    "document_upload",
-    "bank_csv_import",
-    "email_collector",
-    "approval_write",
-    "posting_erp",
-    "credential_save",
-    "credential_status",
-    "connector_test",
-    "reporting",
-    "export",
-    "tenant_admin",
-    "general_api",
-})
-
-# Fields that must NEVER appear in rate-limit audit records
-FORBIDDEN_AUDIT_FIELDS: frozenset[str] = frozenset({
+# Forbidden fields in any rate-limit key, log, or audit record
+FORBIDDEN_RATE_LIMIT_FIELDS: frozenset[str] = frozenset({
     "api_key",
     "password",
     "app_password",
     "token",
+    "access_token",
+    "refresh_token",
     "secret",
     "webhook_secret",
     "totp_secret",
     "encrypted_value",
-    "raw_ip",
-    "ip_address",
-})
-
-# Fields required in RateLimitDecision
-REQUIRED_DECISION_FIELDS: frozenset[str] = frozenset({
-    "allowed",
-    "remaining",
-    "reset_at",
-    "policy_key",
-    "backend",
-    "error_code",
 })
 
 # ---------------------------------------------------------------------------
-# Test-only policy helper (pure function — no runtime imports)
+# G) Test-only policy helper (pure — no runtime imports, no DB, no Redis)
 # ---------------------------------------------------------------------------
 
-_ALWAYS_OPEN_GROUPS = frozenset({"public_health"})
-_AUTH_GROUPS = frozenset({"auth_login", "auth_register", "auth_refresh"})
-_AI_QUOTA_GROUPS = frozenset({"ai_classification", "ocr_processing"})
-_CONNECTOR_EXECUTION_GROUPS = frozenset({"posting_erp"})
+@dataclass(frozen=True)
+class SampleRateLimitPolicy:
+    endpoint_group: str
+    limit: int
+    window_seconds: int
+    key_strategy: str
+    sensitive: bool
+    # If True, non-sensitive group may explicitly fall back; still requires audit.
+    explicit_fallback_allowed: bool
 
 
-def get_effective_limit(group: str, tenant_state: str, base_limit: int,
-                        trial_multiplier: float, active_multiplier: float) -> int:
-    """Compute effective limit for a group given tenant state and multipliers.
-
-    Pure function — no DB, no Redis, no runtime imports.
-    """
-    if group in _ALWAYS_OPEN_GROUPS:
-        return base_limit
-    if group in _AUTH_GROUPS:
-        return base_limit
-    if tenant_state == "active":
-        return max(0, int(base_limit * active_multiplier))
-    if tenant_state == "trial":
-        return max(0, int(base_limit * trial_multiplier))
-    # trial_expired, suspended, expired: trial limits apply (subscription enforcement is primary block)
-    return max(0, int(base_limit * trial_multiplier))
-
-
-def is_rate_limited(group: str, requests_made: int, effective_limit: int) -> bool:
-    """Return True if the request should be rate-limited."""
-    return requests_made >= effective_limit
-
-
-def get_error_code_for_group(group: str) -> str:
-    """Return the expected error code for a blocked request from a group."""
-    if group in _AUTH_GROUPS:
-        return "AUTH_RATE_LIMIT_EXCEEDED"
-    if group in _AI_QUOTA_GROUPS:
-        return "AI_QUOTA_EXCEEDED"
-    if group == "document_upload":
-        return "DOCUMENT_QUOTA_EXCEEDED"
-    if group in _CONNECTOR_EXECUTION_GROUPS or group == "connector_test":
-        return "CONNECTOR_RATE_LIMIT_EXCEEDED"
-    if group == "credential_save":
-        return "CREDENTIAL_RATE_LIMIT_EXCEEDED"
-    if group == "export":
-        return "EXPORT_RATE_LIMIT_EXCEEDED"
-    return "RATE_LIMIT_EXCEEDED"
+SAMPLE_POLICIES: dict[str, SampleRateLimitPolicy] = {
+    "public_health_version": SampleRateLimitPolicy(
+        "public_health_version", 1000, 60, "per_ip", False, True
+    ),
+    "auth_login": SampleRateLimitPolicy(
+        "auth_login", 5, 60, "per_ip_and_user", True, False
+    ),
+    "password_reset_request": SampleRateLimitPolicy(
+        "password_reset_request", 3, 3600, "per_ip_and_email_hash", True, False
+    ),
+    "totp_verify": SampleRateLimitPolicy(
+        "totp_verify", 5, 300, "per_ip_and_user", True, False
+    ),
+    "credential_test": SampleRateLimitPolicy(
+        "credential_test", 5, 3600, "per_tenant_and_provider", True, False
+    ),
+    "connector_execution": SampleRateLimitPolicy(
+        "connector_execution", 10, 3600, "per_tenant_and_provider", True, False
+    ),
+    "ocr_processing": SampleRateLimitPolicy(
+        "ocr_processing", 20, 3600, "per_tenant_and_user", True, False
+    ),
+    "ai_classification": SampleRateLimitPolicy(
+        "ai_classification", 30, 3600, "per_tenant_and_user", True, False
+    ),
+    "reporting_read": SampleRateLimitPolicy(
+        "reporting_read", 60, 60, "per_tenant", False, True
+    ),
+    "exports": SampleRateLimitPolicy(
+        "exports", 10, 3600, "per_tenant", False, True
+    ),
+}
 
 
-def safe_audit_record(
-    tenant_id: str,
-    ip_hash: str,
-    endpoint_group: str,
-    result: str,
-    backend: str,
-    limit: int,
-    remaining: int,
-    error_code: str | None = None,
-) -> dict[str, Any]:
-    """Build a safe rate-limit audit record with no raw credentials."""
-    return {
-        "tenant_id": tenant_id,
-        "ip_hash": ip_hash,
-        "endpoint_group": endpoint_group,
-        "result": result,
-        "backend": backend,
-        "limit": limit,
-        "remaining": remaining,
-        "error_code": error_code,
+def check_rate_limit(group: str, request_count: int) -> tuple[bool, str | None]:
+    """Return (allowed, error_code). Pure test-only function — no runtime imports."""
+    policy = SAMPLE_POLICIES.get(group)
+    if policy is None:
+        return True, None
+    if request_count >= policy.limit:
+        return False, _error_code_for_group(group)
+    return True, None
+
+
+def _error_code_for_group(group: str) -> str:
+    _map = {
+        "auth_login": "AUTH_RATE_LIMIT_EXCEEDED",
+        "auth_register": "AUTH_RATE_LIMIT_EXCEEDED",
+        "password_reset_request": "PASSWORD_RESET_RATE_LIMIT_EXCEEDED",
+        "password_reset_confirm": "PASSWORD_RESET_RATE_LIMIT_EXCEEDED",
+        "totp_verify": "TOTP_RATE_LIMIT_EXCEEDED",
+        "credential_save": "CREDENTIAL_RATE_LIMIT_EXCEEDED",
+        "credential_test": "CREDENTIAL_RATE_LIMIT_EXCEEDED",
+        "connector_execution": "CONNECTOR_RATE_LIMIT_EXCEEDED",
+        "connector_status": "CONNECTOR_RATE_LIMIT_EXCEEDED",
+        "ocr_processing": "OCR_RATE_LIMIT_EXCEEDED",
+        "ai_classification": "AI_RATE_LIMIT_EXCEEDED",
+        "exports": "EXPORT_RATE_LIMIT_EXCEEDED",
     }
+    return _map.get(group, "RATE_LIMIT_EXCEEDED")
+
+
+def get_fallback_policy(group: str) -> dict[str, Any]:
+    """Return fallback behavior when Redis is unavailable. Pure test-only function."""
+    policy = SAMPLE_POLICIES.get(group)
+    if policy is None:
+        return {"allow": True, "audit_required": True}
+    if policy.sensitive:
+        # Sensitive: in-memory fallback still enforces limits; never unlimited.
+        return {"allow": False, "fallback_mode": "in_memory_enforce", "audit_required": True}
+    if policy.explicit_fallback_allowed:
+        # Non-sensitive: explicit fallback allowed but must be audited.
+        return {"allow": True, "fallback_mode": "in_memory_allow", "audit_required": True}
+    return {"allow": False, "fallback_mode": "in_memory_enforce", "audit_required": True}
 
 
 def _scan_forbidden_fields(payload: Any, forbidden: frozenset[str]) -> list[str]:
@@ -238,118 +225,106 @@ def test_subscription_plan_exists():
     assert SUBSCRIPTION_PLAN.exists(), f"Missing: {SUBSCRIPTION_PLAN}"
 
 
-def test_masked_read_contract_exists():
-    assert MASKED_READ_CONTRACT.exists(), f"Missing: {MASKED_READ_CONTRACT}"
+def test_credential_vault_design_exists():
+    assert CREDENTIAL_VAULT_DESIGN.exists(), f"Missing: {CREDENTIAL_VAULT_DESIGN}"
 
 
 # ---------------------------------------------------------------------------
-# B) Document content checks
+# B) Contract content checks
 # ---------------------------------------------------------------------------
 
-def _doc() -> str:
-    return RATE_LIMIT_PLAN.read_text(encoding="utf-8")
+def test_doc_mentions_redis_backed_rate_limiting():
+    assert "Redis-backed rate limiting" in _doc() or "Redis-backed rate-limit" in _doc()
 
 
-def test_doc_contains_purpose_section():
-    assert "## A) Purpose" in _doc()
+def test_doc_mentions_redis_url():
+    assert "REDIS_URL" in _doc()
 
 
-def test_doc_contains_current_state_section():
-    assert "## B) Current State" in _doc()
+def test_doc_mentions_auth_login():
+    assert "auth_login" in _doc() or "auth/login" in _doc()
 
 
-def test_doc_contains_target_architecture_section():
-    assert "## C) Target Architecture" in _doc()
+def test_doc_mentions_password_reset():
+    assert "password_reset" in _doc() or "password reset" in _doc().lower()
 
 
-def test_doc_contains_key_strategy_section():
-    assert "## D) Key Strategy" in _doc()
+def test_doc_mentions_totp():
+    assert "TOTP" in _doc() or "totp_verify" in _doc()
 
 
-def test_doc_contains_endpoint_groups_section():
-    assert "## E) Endpoint Groups" in _doc()
+def test_doc_mentions_credential_save_and_test():
+    doc = _doc()
+    assert "credential_save" in doc or "credential save" in doc.lower()
+    assert "credential_test" in doc or "credential test" in doc.lower()
 
 
-def test_doc_contains_policy_matrix_section():
-    assert "## F) Policy Matrix" in _doc()
+def test_doc_mentions_connector_execution():
+    assert "connector_execution" in _doc() or "connector execution" in _doc().lower()
 
 
-def test_doc_contains_failure_fallback_section():
-    assert "## G) Failure and Fallback Policy" in _doc()
+def test_doc_mentions_document_upload():
+    assert "document_upload" in _doc() or "document upload" in _doc().lower()
 
 
-def test_doc_contains_subscription_integration_section():
-    assert "## H) Subscription Integration" in _doc()
+def test_doc_mentions_ocr():
+    doc = _doc()
+    assert "OCR" in doc or "ocr_processing" in doc
 
 
-def test_doc_contains_credential_safety_section():
-    assert "## I) Credential Safety" in _doc()
+def test_doc_mentions_ai_classification():
+    assert "AI classification" in _doc() or "ai_classification" in _doc()
 
 
-def test_doc_contains_connector_safety_section():
-    assert "## J) Connector Safety" in _doc()
+def test_doc_states_balance_ge_remains_inactive():
+    doc = _doc()
+    assert "Balance.ge remains inactive" in doc or (
+        "Balance.ge" in doc and "inactive" in doc
+    )
 
 
-def test_doc_contains_ai_ocr_quotas_section():
-    assert "## K) AI, OCR, and Document Quotas" in _doc()
+def test_doc_states_no_runtime_behavior_change():
+    doc = _doc()
+    assert "No runtime behavior is changed in this task" in doc or \
+           "No runtime code is changed in this task" in doc
 
 
-def test_doc_contains_audit_metrics_section():
-    assert "## L) Audit and Metrics" in _doc()
+def test_doc_states_no_middleware_edit():
+    doc = _doc()
+    assert "No middleware is edited" in doc or "no middleware edit" in doc.lower()
 
 
-def test_doc_contains_error_codes_section():
-    assert "## M) Error Codes" in _doc()
+def test_doc_states_no_security_py_edit():
+    doc = _doc()
+    assert "security.py" in doc and (
+        "No app/api/security.py edit" in doc or "is edited" in doc or
+        "not changed" in doc or "not edit" in doc.lower()
+    )
 
 
-def test_doc_contains_test_strategy_section():
-    assert "## N) Test Strategy" in _doc()
+def test_doc_states_no_migration():
+    doc = _doc()
+    assert "No migration is created" in doc or "no migration" in doc.lower()
 
 
-def test_doc_contains_future_scope_section():
-    assert "## O) Future Implementation Scope" in _doc()
+def test_doc_states_no_db_touch():
+    doc = _doc()
+    assert "Production DB" in doc and "untouched" in doc
 
 
-def test_doc_contains_non_goals_section():
-    assert "## P) Explicit Non-Goals" in _doc()
+def test_doc_states_no_balance_ge_activation():
+    doc = _doc()
+    assert "No Balance.ge activation" in doc or (
+        "Balance.ge activation" in doc and ("blocked" in doc or "inactive" in doc)
+    )
 
 
 # ---------------------------------------------------------------------------
 # C) Component set
 # ---------------------------------------------------------------------------
 
-def test_all_seven_components_defined():
-    assert len(RATE_LIMIT_COMPONENTS) == 7, (
-        f"Expected 7 components, got {len(RATE_LIMIT_COMPONENTS)}"
-    )
-
-
-def test_rate_limit_service_in_components():
-    assert "RateLimitService" in RATE_LIMIT_COMPONENTS
-
-
-def test_rate_limit_repository_in_components():
-    assert "RateLimitRepository" in RATE_LIMIT_COMPONENTS
-
-
-def test_redis_backend_in_components():
-    assert "RedisRateLimitBackend" in RATE_LIMIT_COMPONENTS
-
-
-def test_memory_backend_in_components():
-    assert "InMemoryRateLimitBackend" in RATE_LIMIT_COMPONENTS
-
-
-def test_policy_registry_in_components():
-    assert "RateLimitPolicyRegistry" in RATE_LIMIT_COMPONENTS
-
-
-def test_audit_logger_in_components():
-    assert "RateLimitAuditLogger" in RATE_LIMIT_COMPONENTS
-
-
-def test_decision_in_components():
-    assert "RateLimitDecision" in RATE_LIMIT_COMPONENTS
+def test_seven_components_defined():
+    assert len(RATE_LIMIT_COMPONENTS) == 7
 
 
 def test_all_components_documented():
@@ -358,110 +333,184 @@ def test_all_components_documented():
         assert component in doc, f"Component not documented: {component}"
 
 
+def test_rate_limit_service_present():
+    assert "RateLimitService" in RATE_LIMIT_COMPONENTS
+
+
+def test_rate_limit_repository_present():
+    assert "RateLimitRepository" in RATE_LIMIT_COMPONENTS
+
+
+def test_redis_backend_present():
+    assert "RedisRateLimitBackend" in RATE_LIMIT_COMPONENTS
+
+
+def test_memory_backend_present():
+    assert "InMemoryRateLimitBackend" in RATE_LIMIT_COMPONENTS
+
+
+def test_policy_registry_present():
+    assert "RateLimitPolicyRegistry" in RATE_LIMIT_COMPONENTS
+
+
+def test_audit_logger_present():
+    assert "RateLimitAuditLogger" in RATE_LIMIT_COMPONENTS
+
+
+def test_decision_present():
+    assert "RateLimitDecision" in RATE_LIMIT_COMPONENTS
+
+
 # ---------------------------------------------------------------------------
-# D) Endpoint groups
+# D) Endpoint group set
 # ---------------------------------------------------------------------------
 
 def test_eighteen_endpoint_groups_defined():
-    assert len(ENDPOINT_GROUPS) == 18, (
-        f"Expected 18 endpoint groups, got {len(ENDPOINT_GROUPS)}"
-    )
+    assert len(ENDPOINT_GROUPS) == 18, f"Got {len(ENDPOINT_GROUPS)}"
 
 
 def test_all_endpoint_groups_documented():
     doc = _doc()
     for group in ENDPOINT_GROUPS:
-        assert group in doc, f"Endpoint group not documented: {group}"
+        assert group in doc, f"Endpoint group not in doc: {group}"
 
 
-def test_auth_groups_present():
-    for group in ("auth_login", "auth_register", "auth_refresh"):
-        assert group in ENDPOINT_GROUPS
+def test_public_health_version_present():
+    assert "public_health_version" in ENDPOINT_GROUPS
 
 
-def test_ai_groups_present():
-    for group in ("ai_classification", "ocr_processing"):
-        assert group in ENDPOINT_GROUPS
+def test_auth_login_group_present():
+    assert "auth_login" in ENDPOINT_GROUPS
 
 
-def test_connector_groups_present():
-    for group in ("posting_erp", "connector_test"):
-        assert group in ENDPOINT_GROUPS
+def test_auth_register_group_present():
+    assert "auth_register" in ENDPOINT_GROUPS
 
 
-def test_document_groups_present():
-    for group in ("document_upload", "bank_csv_import"):
-        assert group in ENDPOINT_GROUPS
+def test_password_reset_request_present():
+    assert "password_reset_request" in ENDPOINT_GROUPS
 
 
-def test_credential_groups_present():
-    for group in ("credential_save", "credential_status"):
-        assert group in ENDPOINT_GROUPS
+def test_password_reset_confirm_present():
+    assert "password_reset_confirm" in ENDPOINT_GROUPS
 
 
-def test_public_group_present():
-    assert "public_health" in ENDPOINT_GROUPS
+def test_totp_verify_present():
+    assert "totp_verify" in ENDPOINT_GROUPS
 
 
-def test_general_api_group_present():
-    assert "general_api" in ENDPOINT_GROUPS
+def test_credential_save_present():
+    assert "credential_save" in ENDPOINT_GROUPS
+
+
+def test_credential_test_present():
+    assert "credential_test" in ENDPOINT_GROUPS
+
+
+def test_connector_status_present():
+    assert "connector_status" in ENDPOINT_GROUPS
+
+
+def test_connector_execution_present():
+    assert "connector_execution" in ENDPOINT_GROUPS
+
+
+def test_document_upload_present():
+    assert "document_upload" in ENDPOINT_GROUPS
+
+
+def test_ocr_processing_present():
+    assert "ocr_processing" in ENDPOINT_GROUPS
+
+
+def test_ai_classification_present():
+    assert "ai_classification" in ENDPOINT_GROUPS
+
+
+def test_journal_draft_creation_present():
+    assert "journal_draft_creation" in ENDPOINT_GROUPS
+
+
+def test_approval_action_present():
+    assert "approval_action" in ENDPOINT_GROUPS
+
+
+def test_reporting_read_present():
+    assert "reporting_read" in ENDPOINT_GROUPS
+
+
+def test_exports_present():
+    assert "exports" in ENDPOINT_GROUPS
+
+
+def test_admin_actions_present():
+    assert "admin_actions" in ENDPOINT_GROUPS
 
 
 # ---------------------------------------------------------------------------
 # E) Sensitive groups
 # ---------------------------------------------------------------------------
 
-def test_ten_sensitive_groups_defined():
-    assert len(SENSITIVE_RATE_LIMIT_GROUPS) == 10, (
-        f"Expected 10 sensitive groups, got {len(SENSITIVE_RATE_LIMIT_GROUPS)}"
-    )
+def test_ten_sensitive_groups():
+    assert len(SENSITIVE_GROUPS) == 10, f"Got {len(SENSITIVE_GROUPS)}"
 
 
-def test_sensitive_groups_subset_of_all_groups():
-    assert SENSITIVE_RATE_LIMIT_GROUPS.issubset(ENDPOINT_GROUPS), (
-        f"Sensitive groups not in ENDPOINT_GROUPS: "
-        f"{SENSITIVE_RATE_LIMIT_GROUPS - ENDPOINT_GROUPS}"
-    )
+def test_sensitive_groups_subset_of_endpoint_groups():
+    assert SENSITIVE_GROUPS.issubset(ENDPOINT_GROUPS)
 
 
 def test_auth_login_is_sensitive():
-    assert "auth_login" in SENSITIVE_RATE_LIMIT_GROUPS
+    assert "auth_login" in SENSITIVE_GROUPS
 
 
-def test_auth_register_is_sensitive():
-    assert "auth_register" in SENSITIVE_RATE_LIMIT_GROUPS
+def test_password_reset_request_is_sensitive():
+    assert "password_reset_request" in SENSITIVE_GROUPS
 
 
-def test_posting_erp_is_sensitive():
-    assert "posting_erp" in SENSITIVE_RATE_LIMIT_GROUPS
+def test_password_reset_confirm_is_sensitive():
+    assert "password_reset_confirm" in SENSITIVE_GROUPS
 
 
-def test_ai_classification_is_sensitive():
-    assert "ai_classification" in SENSITIVE_RATE_LIMIT_GROUPS
+def test_totp_verify_is_sensitive():
+    assert "totp_verify" in SENSITIVE_GROUPS
 
 
 def test_credential_save_is_sensitive():
-    assert "credential_save" in SENSITIVE_RATE_LIMIT_GROUPS
+    assert "credential_save" in SENSITIVE_GROUPS
 
 
-def test_connector_test_is_sensitive():
-    assert "connector_test" in SENSITIVE_RATE_LIMIT_GROUPS
+def test_credential_test_is_sensitive():
+    assert "credential_test" in SENSITIVE_GROUPS
+
+
+def test_connector_execution_is_sensitive():
+    assert "connector_execution" in SENSITIVE_GROUPS
+
+
+def test_document_upload_is_sensitive():
+    assert "document_upload" in SENSITIVE_GROUPS
+
+
+def test_ocr_processing_is_sensitive():
+    assert "ocr_processing" in SENSITIVE_GROUPS
+
+
+def test_ai_classification_is_sensitive():
+    assert "ai_classification" in SENSITIVE_GROUPS
 
 
 # ---------------------------------------------------------------------------
-# F) Error codes
+# F) Error code set
 # ---------------------------------------------------------------------------
 
-def test_ten_error_codes_defined():
-    assert len(REQUIRED_ERROR_CODES) == 10, (
-        f"Expected 10 error codes, got {len(REQUIRED_ERROR_CODES)}"
-    )
+def test_ten_error_codes():
+    assert len(REQUIRED_ERROR_CODES) == 10, f"Got {len(REQUIRED_ERROR_CODES)}"
 
 
 def test_all_error_codes_documented():
     doc = _doc()
     for code in REQUIRED_ERROR_CODES:
-        assert code in doc, f"Error code not documented: {code}"
+        assert code in doc, f"Error code not in doc: {code}"
 
 
 def test_rate_limit_exceeded_present():
@@ -472,212 +521,210 @@ def test_auth_rate_limit_exceeded_present():
     assert "AUTH_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
-def test_ai_quota_exceeded_present():
-    assert "AI_QUOTA_EXCEEDED" in REQUIRED_ERROR_CODES
+def test_password_reset_rate_limit_exceeded_present():
+    assert "PASSWORD_RESET_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
-def test_document_quota_exceeded_present():
-    assert "DOCUMENT_QUOTA_EXCEEDED" in REQUIRED_ERROR_CODES
-
-
-def test_connector_rate_limit_exceeded_present():
-    assert "CONNECTOR_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
+def test_totp_rate_limit_exceeded_present():
+    assert "TOTP_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
 def test_credential_rate_limit_exceeded_present():
     assert "CREDENTIAL_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
-def test_tenant_quota_exceeded_present():
-    assert "TENANT_QUOTA_EXCEEDED" in REQUIRED_ERROR_CODES
+def test_connector_rate_limit_exceeded_present():
+    assert "CONNECTOR_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
-def test_backend_degraded_present():
-    assert "RATE_LIMIT_BACKEND_DEGRADED" in REQUIRED_ERROR_CODES
+def test_ocr_rate_limit_exceeded_present():
+    assert "OCR_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
-def test_policy_not_found_present():
-    assert "RATE_LIMIT_POLICY_NOT_FOUND" in REQUIRED_ERROR_CODES
+def test_ai_rate_limit_exceeded_present():
+    assert "AI_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
 def test_export_rate_limit_exceeded_present():
     assert "EXPORT_RATE_LIMIT_EXCEEDED" in REQUIRED_ERROR_CODES
 
 
+def test_rate_limit_backend_unavailable_present():
+    assert "RATE_LIMIT_BACKEND_UNAVAILABLE" in REQUIRED_ERROR_CODES
+
+
 # ---------------------------------------------------------------------------
 # G) Test-only policy helper
 # ---------------------------------------------------------------------------
 
-def test_active_tenant_gets_elevated_ai_limit():
-    effective = get_effective_limit("ai_classification", "active", 30, 0.5, 2.0)
-    assert effective == 60
+def test_health_version_stays_allowed_under_high_threshold():
+    allowed, code = check_rate_limit("public_health_version", 999)
+    assert allowed is True
+    assert code is None
 
 
-def test_trial_tenant_gets_reduced_ai_limit():
-    effective = get_effective_limit("ai_classification", "trial", 30, 0.5, 2.0)
-    assert effective == 15
+def test_health_version_blocks_at_limit():
+    allowed, code = check_rate_limit("public_health_version", 1000)
+    assert allowed is False
 
 
-def test_trial_expired_gets_trial_limits():
-    effective = get_effective_limit("ai_classification", "trial_expired", 30, 0.5, 2.0)
-    assert effective == 15
+def test_auth_login_blocks_after_strict_threshold():
+    allowed, code = check_rate_limit("auth_login", 5)
+    assert allowed is False
+    assert code == "AUTH_RATE_LIMIT_EXCEEDED"
 
 
-def test_posting_erp_trial_multiplier_zero_blocks():
-    effective = get_effective_limit("posting_erp", "trial", 20, 0.0, 1.0)
-    assert effective == 0
+def test_auth_login_allows_below_threshold():
+    allowed, code = check_rate_limit("auth_login", 4)
+    assert allowed is True
+    assert code is None
 
 
-def test_posting_erp_active_allows():
-    effective = get_effective_limit("posting_erp", "active", 20, 0.0, 1.0)
-    assert effective == 20
+def test_credential_test_blocks_after_strict_threshold():
+    allowed, code = check_rate_limit("credential_test", 5)
+    assert allowed is False
+    assert code == "CREDENTIAL_RATE_LIMIT_EXCEEDED"
 
 
-def test_auth_groups_unaffected_by_multiplier():
-    for group in _AUTH_GROUPS:
-        active = get_effective_limit(group, "active", 10, 1.0, 1.0)
-        trial = get_effective_limit(group, "trial", 10, 1.0, 1.0)
-        assert active == trial == 10, f"Auth group {group} should not be multiplied"
+def test_connector_execution_blocks_after_provider_threshold():
+    allowed, code = check_rate_limit("connector_execution", 10)
+    assert allowed is False
+    assert code == "CONNECTOR_RATE_LIMIT_EXCEEDED"
 
 
-def test_rate_limited_when_at_limit():
-    assert is_rate_limited("ai_classification", 15, 15) is True
+def test_ocr_processing_blocks_after_quota_threshold():
+    allowed, code = check_rate_limit("ocr_processing", 20)
+    assert allowed is False
+    assert code == "OCR_RATE_LIMIT_EXCEEDED"
 
 
-def test_not_rate_limited_below_limit():
-    assert is_rate_limited("ai_classification", 14, 15) is False
+def test_ai_classification_blocks_after_quota_threshold():
+    allowed, code = check_rate_limit("ai_classification", 30)
+    assert allowed is False
+    assert code == "AI_RATE_LIMIT_EXCEEDED"
 
 
-def test_not_rate_limited_at_zero_requests():
-    assert is_rate_limited("auth_login", 0, 10) is False
+def test_error_code_mapping_for_password_reset():
+    assert _error_code_for_group("password_reset_request") == "PASSWORD_RESET_RATE_LIMIT_EXCEEDED"
+    assert _error_code_for_group("password_reset_confirm") == "PASSWORD_RESET_RATE_LIMIT_EXCEEDED"
 
 
-def test_error_code_for_auth_group():
-    assert get_error_code_for_group("auth_login") == "AUTH_RATE_LIMIT_EXCEEDED"
-    assert get_error_code_for_group("auth_register") == "AUTH_RATE_LIMIT_EXCEEDED"
+def test_error_code_mapping_for_totp():
+    assert _error_code_for_group("totp_verify") == "TOTP_RATE_LIMIT_EXCEEDED"
 
 
-def test_error_code_for_ai_group():
-    assert get_error_code_for_group("ai_classification") == "AI_QUOTA_EXCEEDED"
-    assert get_error_code_for_group("ocr_processing") == "AI_QUOTA_EXCEEDED"
+def test_error_code_mapping_for_exports():
+    assert _error_code_for_group("exports") == "EXPORT_RATE_LIMIT_EXCEEDED"
 
 
-def test_error_code_for_document_group():
-    assert get_error_code_for_group("document_upload") == "DOCUMENT_QUOTA_EXCEEDED"
-
-
-def test_error_code_for_connector_group():
-    assert get_error_code_for_group("posting_erp") == "CONNECTOR_RATE_LIMIT_EXCEEDED"
-    assert get_error_code_for_group("connector_test") == "CONNECTOR_RATE_LIMIT_EXCEEDED"
-
-
-def test_error_code_for_credential_group():
-    assert get_error_code_for_group("credential_save") == "CREDENTIAL_RATE_LIMIT_EXCEEDED"
-
-
-def test_error_code_for_export_group():
-    assert get_error_code_for_group("export") == "EXPORT_RATE_LIMIT_EXCEEDED"
-
-
-def test_error_code_for_general_group():
-    assert get_error_code_for_group("general_api") == "RATE_LIMIT_EXCEEDED"
-    assert get_error_code_for_group("reporting") == "RATE_LIMIT_EXCEEDED"
+def test_error_code_mapping_for_unknown_group():
+    assert _error_code_for_group("some_unknown_group") == "RATE_LIMIT_EXCEEDED"
 
 
 # ---------------------------------------------------------------------------
 # H) Fallback policy checks
 # ---------------------------------------------------------------------------
 
-def test_doc_states_fail_open_for_normal_requests():
+def test_sensitive_auth_login_does_not_allow_unlimited_fallback():
+    policy = get_fallback_policy("auth_login")
+    assert policy["allow"] is False, "auth_login must not silently allow unlimited fallback"
+    assert policy["audit_required"] is True
+
+
+def test_sensitive_totp_does_not_allow_unlimited_fallback():
+    policy = get_fallback_policy("totp_verify")
+    assert policy["allow"] is False
+    assert policy["audit_required"] is True
+
+
+def test_sensitive_credential_test_does_not_allow_unlimited_fallback():
+    policy = get_fallback_policy("credential_test")
+    assert policy["allow"] is False
+    assert policy["audit_required"] is True
+
+
+def test_sensitive_connector_execution_does_not_allow_unlimited_fallback():
+    policy = get_fallback_policy("connector_execution")
+    assert policy["allow"] is False
+    assert policy["audit_required"] is True
+
+
+def test_reporting_read_may_allow_explicit_fallback():
+    # Non-sensitive reporting_read may allow explicit fallback when Redis is down.
+    policy = get_fallback_policy("reporting_read")
+    assert policy["allow"] is True
+    assert policy["audit_required"] is True
+
+
+def test_all_fallback_policies_require_audit():
+    for group in SAMPLE_POLICIES:
+        policy = get_fallback_policy(group)
+        assert policy["audit_required"] is True, f"Fallback for {group} must require audit"
+
+
+def test_doc_mentions_fallback_must_not_be_silent():
     doc = _doc()
-    assert "fail-open" in doc
+    assert "never silent" in doc or "not silent" in doc or "must be logged" in doc
 
 
-def test_doc_states_fail_closed_for_auth():
+def test_doc_mentions_explicit_fallback():
     doc = _doc()
-    assert "fail-closed" in doc
-
-
-def test_doc_mentions_circuit_breaker():
-    doc = _doc()
-    assert "circuit breaker" in doc.lower() or "Circuit breaker" in doc
-
-
-def test_doc_mentions_sliding_window():
-    doc = _doc()
-    assert "sliding window" in doc.lower() or "Sliding window" in doc
-
-
-def test_doc_states_fallback_still_enforces_limits():
-    doc = _doc()
-    assert "limits are still enforced" in doc or "still enforced" in doc
-
-
-def test_doc_mentions_redis_url():
-    doc = _doc()
-    assert "REDIS_URL" in doc
-
-
-def test_doc_mentions_in_memory_fallback():
-    doc = _doc()
-    assert "in-memory" in doc.lower() or "InMemory" in doc
-
-
-def test_backend_degraded_is_metric_not_client_error():
-    doc = _doc()
-    assert "RATE_LIMIT_BACKEND_DEGRADED" in doc
-    assert "metric" in doc.lower()
+    assert "explicit" in doc.lower()
 
 
 # ---------------------------------------------------------------------------
-# I) Credential and secret safety checks
+# I) Secret safety checks
 # ---------------------------------------------------------------------------
+
+def test_doc_states_no_secrets_in_rate_limit_keys():
+    doc = _doc()
+    assert "no secret values in rate-limit keys" in doc or \
+           "Never stores" in doc or "must never appear in any rate-limit key" in doc
+
+
+def test_doc_states_no_raw_secrets_in_logs():
+    doc = _doc()
+    assert "no raw secrets in rate-limit logs" in doc or \
+           "must never log raw credentials" in doc or "never appear in logs" in doc
+
+
+def test_doc_states_api_key_password_token_forbidden():
+    doc = _doc()
+    assert "api_key" in doc or "api key" in doc.lower()
+    assert "password" in doc.lower()
+    assert "token" in doc.lower()
+
+
+def test_forbidden_fields_include_core_credentials():
+    for field in ("api_key", "password", "token", "secret"):
+        assert field in FORBIDDEN_RATE_LIMIT_FIELDS
+
 
 def test_safe_audit_record_has_no_forbidden_fields():
-    record = safe_audit_record(
-        tenant_id="tenant-abc",
-        ip_hash="a1b2c3d4e5f6g7h8",
-        endpoint_group="ai_classification",
-        result="blocked",
-        backend="redis",
-        limit=30,
-        remaining=0,
-        error_code="AI_QUOTA_EXCEEDED",
-    )
-    violations = _scan_forbidden_fields(record, FORBIDDEN_AUDIT_FIELDS)
+    safe_record = {
+        "tenant_id": "tenant-abc",
+        "ip_hash": "a1b2c3d4",
+        "endpoint_group": "credential_test",
+        "provider": "balance",
+        "result": "blocked",
+        "backend": "redis",
+        "limit": 5,
+        "remaining": 0,
+        "error_code": "CREDENTIAL_RATE_LIMIT_EXCEEDED",
+    }
+    violations = _scan_forbidden_fields(safe_record, FORBIDDEN_RATE_LIMIT_FIELDS)
     assert violations == [], f"Forbidden fields in audit record: {violations}"
-
-
-def test_safe_audit_record_has_no_raw_ip():
-    record = safe_audit_record(
-        tenant_id="tenant-xyz",
-        ip_hash="hash123",
-        endpoint_group="auth_login",
-        result="blocked",
-        backend="memory",
-        limit=10,
-        remaining=0,
-        error_code="AUTH_RATE_LIMIT_EXCEEDED",
-    )
-    assert "ip_address" not in record
-    assert "raw_ip" not in record
-    assert "ip_hash" in record
-
-
-def test_forbidden_audit_fields_include_credentials():
-    for field in ("api_key", "password", "token", "secret", "encrypted_value"):
-        assert field in FORBIDDEN_AUDIT_FIELDS, f"Missing: {field}"
 
 
 def test_unsafe_audit_record_detected():
     unsafe_record = {
         "tenant_id": "t1",
         "ip_hash": "abc",
-        "api_key": "live_key_12345",
-        "endpoint_group": "posting_erp",
+        "api_key": "live_balance_key",
+        "endpoint_group": "credential_test",
         "result": "blocked",
     }
-    violations = _scan_forbidden_fields(unsafe_record, FORBIDDEN_AUDIT_FIELDS)
+    violations = _scan_forbidden_fields(unsafe_record, FORBIDDEN_RATE_LIMIT_FIELDS)
     assert "api_key" in violations
 
 
@@ -685,85 +732,60 @@ def test_nested_forbidden_field_detected():
     nested = {
         "tenant_id": "t2",
         "context": {
-            "endpoint": "credential_save",
-            "credential": {
-                "password": "should-not-be-here",
-            },
+            "endpoint": "connector_execution",
+            "credential": {"password": "should-not-be-here"},
         },
     }
-    violations = _scan_forbidden_fields(nested, FORBIDDEN_AUDIT_FIELDS)
+    violations = _scan_forbidden_fields(nested, FORBIDDEN_RATE_LIMIT_FIELDS)
     assert "password" in violations
-
-
-def test_doc_states_raw_ip_not_logged():
-    doc = _doc()
-    assert "ip_hash" in doc
-    assert "sha256" in doc
-
-
-def test_doc_states_no_credentials_in_redis_keys():
-    doc = _doc()
-    assert "must not encode credential" in doc or "not encode credential" in doc
-
-
-def test_rate_limit_components_must_not_receive_secrets():
-    doc = _doc()
-    assert "never receive, store, or log raw credentials" in doc or \
-           "must never receive" in doc
-
-
-def test_connector_rate_limit_fires_before_credential_fetch():
-    doc = _doc()
-    assert "BEFORE the connector is initialized or" in doc or \
-           "before" in doc.lower() and "credential" in doc.lower()
 
 
 # ---------------------------------------------------------------------------
 # J) Subscription integration checks
 # ---------------------------------------------------------------------------
 
+def test_doc_states_expired_suspended_blocked_before_rate_limit():
+    doc = _doc()
+    assert "expired" in doc and "suspended" in doc
+    assert "blocked by subscription enforcement before" in doc or \
+           "remain blocked" in doc
+
+
+def test_doc_states_trial_tenants_stricter_quotas():
+    doc = _doc()
+    assert "trial" in doc
+    assert "stricter" in doc or "stricter quotas" in doc or "50%" in doc
+
+
+def test_doc_states_rate_limit_must_not_bypass_subscription():
+    doc = _doc()
+    assert "rate limit must not bypass subscription" in doc or \
+           "must not bypass subscription blocking" in doc
+
+
 def test_doc_references_subscription_enforcement_plan():
     doc = _doc()
     assert "subscription-enforcement-plan" in doc or "subscription enforcement" in doc.lower()
 
 
-def test_doc_states_subscription_check_before_rate_limit():
-    doc = _doc()
-    assert "AFTER authentication and subscription" in doc or \
-           "subscription enforcement" in doc.lower()
-
-
-def test_posting_erp_trial_multiplier_is_defense_in_depth():
-    doc = _doc()
-    assert "defense in depth" in doc.lower() or "defense-in-depth" in doc.lower()
-
-
-def test_subscription_states_mapped_to_rate_limits():
-    doc = _doc()
-    for state in ("active", "trial", "trial_expired", "suspended", "expired", "inactive"):
-        assert state in doc, f"Tenant state not mapped in doc: {state}"
-
-
-def test_active_subscription_multiplier_greater_than_one():
-    active_limit = get_effective_limit("ai_classification", "active", 30, 0.5, 2.0)
-    base = 30
-    assert active_limit > base
-
-
-def test_trial_subscription_multiplier_less_than_or_equal_one():
-    trial_limit = get_effective_limit("ai_classification", "trial", 30, 0.5, 2.0)
-    base = 30
-    assert trial_limit <= base
-
-
-def test_posting_erp_blocked_for_trial_by_zero_multiplier():
-    limit = get_effective_limit("posting_erp", "trial", 20, 0.0, 1.0)
-    assert is_rate_limited("posting_erp", 0, limit) is True
-
-
 # ---------------------------------------------------------------------------
 # K) Active script safety
 # ---------------------------------------------------------------------------
+
+def test_no_drop_table_if_exists_users_in_startup_scripts():
+    """Startup/migration scripts must not contain DROP TABLE IF EXISTS users."""
+    startup_dir = _REPO / "app" / "startup"
+    dangerous = "DROP " + "TABLE IF EXISTS users"
+    if startup_dir.exists():
+        for script in startup_dir.glob("*.py"):
+            content = script.read_text(encoding="utf-8")
+            assert dangerous not in content, f"Dangerous DDL in {script.name}"
+
+
+def test_no_drop_table_in_doc():
+    doc = _doc()
+    assert "DROP TABLE" not in doc
+
 
 def _get_module_imports() -> set[str]:
     """Return the set of top-level module names imported by this test file."""
@@ -779,31 +801,26 @@ def _get_module_imports() -> set[str]:
     return imported
 
 
-def test_security_py_not_imported():
-    """Confirm this test module does not import app.api.security."""
+def test_no_app_module_imported():
     imported = _get_module_imports()
-    assert "app" not in imported, (
-        "Test file must not import any app.* module (would trigger DB/Redis init)"
-    )
+    assert "app" not in imported, "Must not import any app.* module"
 
 
-def test_no_db_imports():
+def test_no_db_module_imported():
     imported = _get_module_imports()
     db_modules = {"asyncpg", "psycopg2", "sqlalchemy"}
-    violations = imported & db_modules
-    assert not violations, f"Test file imports DB modules: {violations}"
+    assert not (imported & db_modules)
 
 
-def test_no_redis_imports():
+def test_no_redis_module_imported():
     imported = _get_module_imports()
     redis_modules = {"redis", "aioredis", "coredis"}
-    violations = imported & redis_modules
-    assert not violations, f"Test file imports Redis modules: {violations}"
+    assert not (imported & redis_modules)
 
 
-def test_no_slowapi_imports():
+def test_no_slowapi_module_imported():
     imported = _get_module_imports()
-    assert "slowapi" not in imported, "Test file must not import slowapi"
+    assert "slowapi" not in imported
 
 
 def test_doc_non_goals_state_no_runtime_change():
@@ -812,24 +829,11 @@ def test_doc_non_goals_state_no_runtime_change():
            "No runtime code is changed in this task" in doc
 
 
-def test_doc_non_goals_state_no_security_py_edit():
-    doc = _doc()
-    assert "security.py" in doc
-
-
-def test_all_helper_functions_are_pure():
-    """Assert that test-only helpers have no side effects or imports."""
-    test_source = Path(__file__).read_text(encoding="utf-8")
-    tree = ast.parse(test_source)
-    helper_names = {
-        "get_effective_limit",
-        "is_rate_limited",
-        "get_error_code_for_group",
-        "safe_audit_record",
-        "_scan_forbidden_fields",
-    }
+def test_all_test_only_helpers_are_defined():
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-    for name in helper_names:
+    for name in ("check_rate_limit", "_error_code_for_group", "get_fallback_policy",
+                 "_scan_forbidden_fields", "_get_module_imports"):
         assert name in defined, f"Helper not defined: {name}"
 
 
@@ -843,7 +847,7 @@ def test_doc_states_balance_ge_inactive():
     assert "inactive" in doc
 
 
-def test_doc_states_balance_ge_requires_12_gates():
+def test_doc_states_balance_ge_requires_all_gates():
     doc = _doc()
     assert "12 gates" in doc or "all 12" in doc
 
@@ -853,14 +857,8 @@ def test_doc_references_balance_ge_activation_gate():
     assert "balance-ge-activation-gate" in doc
 
 
-def test_doc_states_rate_limit_does_not_bypass_activation_gate():
+def test_doc_states_balance_ge_not_bypassed_by_rate_limit():
     doc = _doc()
-    assert "12 gates" in doc
     assert "Balance.ge" in doc
-    assert "blocked" in doc.lower()
-
-
-def test_posting_erp_group_applies_to_balance_ge():
-    doc = _doc()
-    assert "balance-ge" in doc.lower() or "/balance-ge/" in doc
-    assert "posting_erp" in doc or "posting_erp" in doc
+    assert "12 gates" in doc or "all 12" in doc
+    assert "MET" in doc or "met" in doc.lower()

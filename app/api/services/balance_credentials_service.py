@@ -105,3 +105,31 @@ async def get_credentials_status(tenant_id: str) -> dict:
         "api_base": creds.get("api_base", ""),
         "mode": "live" if configured else "demo",
     }
+
+
+async def get_vault_status(tenant_id: str) -> dict:
+    """Return safe masked credential status using the vault service.
+
+    Never returns api_key, password, token, secret, or encrypted_value.
+    If the vault has no record for this tenant, returns demo/not_configured.
+    Falls back to a safe default on any error — never raises to callers.
+
+    This is the safe replacement for get_credentials_status() in status/settings
+    endpoints once the vault is live. The old get_credentials_status() is kept
+    for backward compatibility during the transition.
+    """
+    try:
+        from app.api.services.credential_vault_service import CredentialVaultService
+        async with get_conn() as conn:
+            svc = CredentialVaultService()
+            status = await svc.get_status(conn, tenant_id, "balance", "api_key")
+    except Exception as exc:
+        log.warning("get_vault_status vault lookup failed tenant=%s: %s", tenant_id, type(exc).__name__)
+        status = {"configured": False, "status": "not_configured"}
+
+    # Safety filter: ensure no secret field can leak regardless of upstream changes
+    _FORBIDDEN = {"api_key", "password", "token", "secret", "encrypted_value", "raw_secret"}
+    safe = {k: v for k, v in status.items() if k.lower() not in _FORBIDDEN}
+    safe.setdefault("provider", "balance")
+    safe.setdefault("mode", "live" if safe.get("configured") else "demo")
+    return safe

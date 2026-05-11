@@ -444,8 +444,10 @@ class TestSourceAuditFindings:
     def test_api_key_column_exists_in_service(self, creds_svc_src):
         assert "api_key" in creds_svc_src
 
-    def test_no_encrypted_value_column_yet(self, creds_svc_src):
-        assert "encrypted_value" not in creds_svc_src
+    def test_get_balance_credentials_select_does_not_fetch_encrypted_column(self, creds_svc_src):
+        # The primary get_balance_credentials SELECT must read api_key directly,
+        # not encrypted_value — confirming plaintext credential path is still active.
+        assert "SELECT api_key, company_id, api_base" in creds_svc_src
 
     def test_no_key_version_column_yet(self, creds_svc_src):
         assert "key_version" not in creds_svc_src

@@ -158,6 +158,7 @@ from app.core.router_registry import register_routers
 from app.api.middleware.auth_middleware import auth_middleware
 from app.api.middleware.audit_log_middleware import audit_log_middleware
 from app.api.middleware.correlation_middleware import correlation_middleware
+from app.api.middleware.subscription_middleware import subscription_middleware
 
 register_routers(app)
 
@@ -188,6 +189,7 @@ app.add_middleware(SlowAPIMiddleware)
 # Starlette executes HTTP middleware in reverse registration order.
 app.middleware("http")(correlation_middleware)  # registered first; Starlette wraps later middleware outside it
 app.middleware("http")(audit_log_middleware)
+app.middleware("http")(subscription_middleware)  # runs after rbac in execution; tenant_id set by tenant_middleware
 app.middleware("http")(rbac_middleware)
 app.middleware("http")(auth_middleware)
 app.middleware("http")(tenant_middleware)

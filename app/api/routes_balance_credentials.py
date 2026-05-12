@@ -12,6 +12,7 @@ from app.api.services.balance_credentials_service import (
     get_credentials_status,
     save_balance_credentials,
 )
+from app.api.services.credential_response_sanitizer import sanitize_credential_response
 
 router = APIRouter(prefix="/balance-credentials", tags=["balance-credentials"])
 
@@ -26,7 +27,8 @@ class BalanceCredsPayload(BaseModel):
 async def get_status(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return ok_response("ok", await get_credentials_status(tenant_id))
+    status = await get_credentials_status(tenant_id)
+    return ok_response("ok", sanitize_credential_response(status))
 
 
 @router.post("/save")

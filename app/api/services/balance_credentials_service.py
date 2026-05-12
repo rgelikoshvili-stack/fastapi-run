@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.api.db import get_conn, _q
+from app.api.services.credential_response_sanitizer import sanitize_credential_response
 
 log = logging.getLogger(__name__)
 
@@ -95,16 +96,17 @@ async def save_balance_credentials(
 
 
 async def get_credentials_status(tenant_id: str) -> dict:
-    """Return status summary for settings UI."""
+    """Return status summary for settings UI — never includes raw api_key."""
     creds = await get_balance_credentials(tenant_id)
     configured = bool(creds.get("api_key"))
-    return {
+    raw = {
         "configured": configured,
         "source": creds.get("source", "none"),
         "company_id": creds.get("company_id", ""),
         "api_base": creds.get("api_base", ""),
         "mode": "live" if configured else "demo",
     }
+    return sanitize_credential_response(raw)
 
 
 async def get_vault_status(tenant_id: str) -> dict:
@@ -127,9 +129,7 @@ async def get_vault_status(tenant_id: str) -> dict:
         log.warning("get_vault_status vault lookup failed tenant=%s: %s", tenant_id, type(exc).__name__)
         status = {"configured": False, "status": "not_configured"}
 
-    # Safety filter: ensure no secret field can leak regardless of upstream changes
-    _FORBIDDEN = {"api_key", "password", "token", "secret", "encrypted_value", "raw_secret"}
-    safe = {k: v for k, v in status.items() if k.lower() not in _FORBIDDEN}
+    safe = sanitize_credential_response(status)
     safe.setdefault("provider", "balance")
     safe.setdefault("mode", "live" if safe.get("configured") else "demo")
     return safe

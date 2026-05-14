@@ -14,7 +14,7 @@ from fastapi import APIRouter, UploadFile, File, Request, Query
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, get_db, _q
 from app.api.security import limiter
 from app.api.services.storage_service import upload_file as gcs_upload, safe_download
 from app.api.metrics import FILE_PREVIEW_DURATION
@@ -33,6 +33,22 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 log = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _mark_doc_status(doc_id: int, status: str, tenant_id: str) -> None:
+    # Sync backward-compat wrapper used by legacy unit tests and background helpers
+    # that run outside the async event loop. The primary async version lives in
+    # document_processing_service._mark_doc_status.
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE processed_documents SET status = %s WHERE id = %s",
+            (status, doc_id),
+        )
+        conn.commit()
+    except Exception as e:
+        log.warning("_mark_doc_status failed: %s", e)
 
 
 @router.post("/upload")

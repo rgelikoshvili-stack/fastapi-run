@@ -3,6 +3,7 @@ IAS 1-compliant P&L and Balance Sheet from posted journal entries only.
 """
 from __future__ import annotations
 import logging
+import os
 from typing import Optional
 from datetime import date
 
@@ -10,6 +11,132 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 
 log = logging.getLogger(__name__)
+
+# ── Feature-flag helpers ───────────────────────────────────────────────────
+
+STANDARD_NET_STATUSES = ("posted", "correction")
+FORBIDDEN_STATUSES = frozenset({
+    "draft", "approved", "auto_approved",
+    "simulated_success", "mock_posting", "dry_run",
+})
+
+
+def _posted_ledger_reports_enabled() -> bool:
+    """Return True only when POSTED_LEDGER_REPORTS_ENABLED is explicitly set."""
+    return os.getenv("POSTED_LEDGER_REPORTS_ENABLED", "").lower() in ("1", "true", "yes")
+
+
+def _require_tenant_id(tenant_id: str) -> None:
+    """Raise ValueError when tenant_id is absent or empty (fail closed)."""
+    if not tenant_id:
+        raise ValueError("tenant_id is required and must not be empty")
+
+
+def _assert_no_silent_fallback(sql: str) -> None:
+    """Raise ValueError if the posted-ledger SQL references journal_drafts."""
+    if "journal_drafts" in sql:
+        raise ValueError(
+            "Posted-ledger query must not reference journal_drafts — no silent fallback allowed"
+        )
+
+
+# ── Posted-ledger query builders (return SQL + params, never execute) ──────
+
+def _build_pnl_posted_ledger_query(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> tuple[str, list]:
+    """Return (sql, params) for P&L from journal_entry_headers + journal_entry_lines."""
+    _require_tenant_id(tenant_id)
+    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
+    date_filter = ""
+    if date_from:
+        params.append(date_from)
+        date_filter += f" AND jeh.entry_date >= ${len(params)}"
+    if date_to:
+        params.append(date_to)
+        date_filter += f" AND jeh.entry_date <= ${len(params)}"
+    sql = f"""
+        SELECT jel.account_code,
+               jel.account_type,
+               SUM(jel.debit)  AS total_debit,
+               SUM(jel.credit) AS total_credit,
+               MAX(jeh.source_draft_id)    AS source_draft_id,
+               MAX(jeh.posting_log_id)     AS posting_log_id,
+               MAX(jeh.evidence_bundle_id) AS evidence_bundle_id
+        FROM journal_entry_lines jel
+        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        WHERE jeh.tenant_id = $1
+          AND jeh.status = ANY($2)
+          AND jel.account_type IN ('income', 'expense')
+          {date_filter}
+        GROUP BY jel.account_code, jel.account_type
+        ORDER BY jel.account_code
+    """
+    _assert_no_silent_fallback(sql)
+    return sql, params
+
+
+def _build_balance_sheet_posted_ledger_query(
+    tenant_id: str,
+    as_of: Optional[str],
+) -> tuple[str, list]:
+    """Return (sql, params) for Balance Sheet from journal_entry_headers + journal_entry_lines."""
+    _require_tenant_id(tenant_id)
+    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
+    as_of_filter = ""
+    if as_of:
+        params.append(as_of)
+        as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
+    sql = f"""
+        SELECT jel.account_code,
+               jel.account_type,
+               SUM(jel.debit)  AS total_debit,
+               SUM(jel.credit) AS total_credit
+        FROM journal_entry_lines jel
+        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        WHERE jeh.tenant_id = $1
+          AND jeh.status = ANY($2)
+          AND jel.account_type IN ('asset', 'liability', 'equity')
+          {as_of_filter}
+        GROUP BY jel.account_code, jel.account_type
+        ORDER BY jel.account_code
+    """
+    _assert_no_silent_fallback(sql)
+    return sql, params
+
+
+def _build_cashflow_posted_ledger_query(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> tuple[str, list]:
+    """Return (sql, params) for Cashflow from journal_entry_headers + journal_entry_lines."""
+    _require_tenant_id(tenant_id)
+    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
+    date_filter = ""
+    if date_from:
+        params.append(date_from)
+        date_filter += f" AND jeh.entry_date >= ${len(params)}"
+    if date_to:
+        params.append(date_to)
+        date_filter += f" AND jeh.entry_date <= ${len(params)}"
+    sql = f"""
+        SELECT jel.cashflow_category,
+               SUM(jel.debit)  AS total_debit,
+               SUM(jel.credit) AS total_credit
+        FROM journal_entry_lines jel
+        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        WHERE jeh.tenant_id = $1
+          AND jeh.status = ANY($2)
+          AND jel.account_code LIKE '1%'
+          {date_filter}
+        GROUP BY jel.cashflow_category
+        ORDER BY jel.cashflow_category
+    """
+    _assert_no_silent_fallback(sql)
+    return sql, params
 
 # ── Account classification map ─────────────────────────────────────────────
 # Each account: net = debit - credit for assets/expenses; credit - debit for liabilities/equity/revenue
@@ -137,11 +264,71 @@ async def _get_trial_balance(
     return balances  # positive = net debit balance
 
 
+async def _build_pnl_from_posted_ledger(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> dict:
+    """Execute posted-ledger P&L query; fail closed if tables unavailable."""
+    _require_tenant_id(tenant_id)
+    sql, params = _build_pnl_posted_ledger_query(tenant_id, date_from, date_to)
+    try:
+        async with get_conn() as conn:
+            rows = await conn.fetch(sql, *params)
+    except Exception as e:
+        log.error("Posted-ledger P&L unavailable: %s", e)
+        return error_response("Posted-ledger P&L unavailable", "POSTED_LEDGER_UNAVAILABLE", str(e))
+
+    revenue_lines, cogs_lines, opex_lines = [], [], []
+    for row in rows:
+        code = row["account_code"]
+        acct_type = row.get("account_type", "")
+        total_dr = float(row["total_debit"] or 0)
+        total_cr = float(row["total_credit"] or 0)
+        audit = {
+            "source_draft_id": row.get("source_draft_id"),
+            "posting_log_id": row.get("posting_log_id"),
+            "evidence_bundle_id": row.get("evidence_bundle_id"),
+        }
+        pnl_meta = _PNL.get(code)
+        if acct_type == "income":
+            amount = round(total_cr - total_dr, 2)
+            revenue_lines.append({"account_code": code,
+                                   "label": pnl_meta[1] if pnl_meta else code,
+                                   "amount": amount, **audit})
+        elif acct_type == "expense":
+            amount = round(total_dr - total_cr, 2)
+            section = pnl_meta[0] if pnl_meta else "opex"
+            label = pnl_meta[1] if pnl_meta else code
+            line = {"account_code": code, "label": label, "amount": amount, **audit}
+            (cogs_lines if section == "cogs" else opex_lines).append(line)
+
+    total_revenue = round(sum(l["amount"] for l in revenue_lines), 2)
+    total_cogs    = round(sum(l["amount"] for l in cogs_lines), 2)
+    gross_profit  = round(total_revenue - total_cogs, 2)
+    total_opex    = round(sum(l["amount"] for l in opex_lines), 2)
+    ebit          = round(gross_profit - total_opex, 2)
+
+    return ok_response("P&L built (posted ledger)", {
+        "source": "posted_ledger",
+        "period": {"from": date_from, "to": date_to},
+        "revenue":      {"lines": revenue_lines, "total": total_revenue},
+        "cogs":         {"lines": cogs_lines,    "total": total_cogs},
+        "gross_profit": gross_profit,
+        "opex":         {"lines": opex_lines,    "total": total_opex},
+        "ebit":         ebit,
+        "currency":     "GEL",
+    })
+
+
 async def build_profit_and_loss(
     tenant_id: str,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> dict:
+    if _posted_ledger_reports_enabled():
+        return await _build_pnl_from_posted_ledger(tenant_id, date_from, date_to)
+
     try:
         tb = await _get_trial_balance(tenant_id, date_from, date_to)
     except Exception as e:
@@ -180,7 +367,76 @@ async def build_profit_and_loss(
     })
 
 
+async def _build_balance_sheet_from_posted_ledger(
+    tenant_id: str,
+    as_of: Optional[str],
+) -> dict:
+    """Execute posted-ledger Balance Sheet query; fail closed if tables unavailable."""
+    _require_tenant_id(tenant_id)
+    sql, params = _build_balance_sheet_posted_ledger_query(tenant_id, as_of)
+    try:
+        async with get_conn() as conn:
+            rows = await conn.fetch(sql, *params)
+    except Exception as e:
+        log.error("Posted-ledger Balance Sheet unavailable: %s", e)
+        return error_response("Posted-ledger Balance Sheet unavailable",
+                              "POSTED_LEDGER_UNAVAILABLE", str(e))
+
+    sections: dict = {
+        "assets":      {"current": [], "non_current": []},
+        "liabilities": {"current": [], "non_current": []},
+        "equity":      {"equity":  []},
+    }
+    for row in rows:
+        code = row["account_code"]
+        acct_type = row.get("account_type", "")
+        total_dr = float(row["total_debit"] or 0)
+        total_cr = float(row["total_credit"] or 0)
+        bs_meta = _BALANCE_SHEET.get(code)
+        group = acct_type if acct_type in sections else "assets"
+        sub = bs_meta[1] if bs_meta else ("current" if group != "equity" else "equity")
+        if group not in sections or sub not in sections.get(group, {}):
+            continue
+        amount = round((total_dr - total_cr) if group == "assets" else (total_cr - total_dr), 2)
+        sections[group][sub].append({
+            "account_code": code,
+            "label": bs_meta[2] if bs_meta else code,
+            "amount": amount,
+        })
+
+    total_current_assets    = round(sum(l["amount"] for l in sections["assets"]["current"]), 2)
+    total_noncurrent_assets = round(sum(l["amount"] for l in sections["assets"]["non_current"]), 2)
+    total_assets            = round(total_current_assets + total_noncurrent_assets, 2)
+    total_current_liab      = round(sum(l["amount"] for l in sections["liabilities"]["current"]), 2)
+    total_noncurrent_liab   = round(sum(l["amount"] for l in sections["liabilities"]["non_current"]), 2)
+    total_liabilities       = round(total_current_liab + total_noncurrent_liab, 2)
+    total_equity            = round(sum(l["amount"] for l in sections["equity"]["equity"]), 2)
+    total_le                = round(total_liabilities + total_equity, 2)
+
+    return ok_response("Balance Sheet built (posted ledger)", {
+        "source": "posted_ledger",
+        "as_of": as_of or date.today().isoformat(),
+        "assets": {
+            "current":     {"lines": sections["assets"]["current"],     "total": total_current_assets},
+            "non_current": {"lines": sections["assets"]["non_current"], "total": total_noncurrent_assets},
+            "total":       total_assets,
+        },
+        "liabilities": {
+            "current":     {"lines": sections["liabilities"]["current"],     "total": total_current_liab},
+            "non_current": {"lines": sections["liabilities"]["non_current"], "total": total_noncurrent_liab},
+            "total":       total_liabilities,
+        },
+        "equity": {"lines": sections["equity"]["equity"], "total": total_equity},
+        "total_liabilities_and_equity": total_le,
+        "balanced": abs(total_assets - total_le) < 0.05,
+        "currency": "GEL",
+    })
+
+
 async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> dict:
+    if _posted_ledger_reports_enabled():
+        return await _build_balance_sheet_from_posted_ledger(tenant_id, as_of)
+
     try:
         tb = await _get_trial_balance(tenant_id, None, as_of)
     except Exception as e:

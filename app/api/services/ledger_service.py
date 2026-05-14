@@ -8,9 +8,46 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 from app.api.db import get_conn, _q
+from app.api.services.financial_statements_service import (
+    _posted_ledger_reports_enabled,
+    _require_tenant_id,
+    _assert_no_silent_fallback,
+    STANDARD_NET_STATUSES,
+)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
+
+def _build_trial_balance_posted_ledger_query(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> tuple[str, list]:
+    """Return (sql, params) for Trial Balance from journal_entry_headers + journal_entry_lines."""
+    _require_tenant_id(tenant_id)
+    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
+    date_filter = ""
+    if date_from:
+        params.append(date_from)
+        date_filter += f" AND jeh.entry_date >= ${len(params)}"
+    if date_to:
+        params.append(date_to)
+        date_filter += f" AND jeh.entry_date <= ${len(params)}"
+    sql = f"""
+        SELECT jel.account_code,
+               SUM(jel.debit)  AS total_debit,
+               SUM(jel.credit) AS total_credit
+        FROM journal_entry_lines jel
+        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        WHERE jeh.tenant_id = $1
+          AND jeh.status = ANY($2)
+          {date_filter}
+        GROUP BY jel.account_code
+        ORDER BY jel.account_code
+    """
+    _assert_no_silent_fallback(sql)
+    return sql, params
 
 def _period_conditions(date_from: Optional[str], date_to: Optional[str], params: list) -> str:
     """Appends date-range filters for journal_drafts.date (text column)."""
@@ -139,6 +176,58 @@ async def get_account_ledger(
 
 # ── 2. Trial Balance ────────────────────────────────────────────────────────
 
+async def _get_trial_balance_from_posted_ledger(
+    tenant_id: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> dict:
+    """Execute posted-ledger Trial Balance query; fail closed if tables unavailable."""
+    _require_tenant_id(tenant_id)
+    sql, params = _build_trial_balance_posted_ledger_query(tenant_id, date_from, date_to)
+    try:
+        async with get_conn() as conn:
+            rows = await conn.fetch(sql, *params)
+    except Exception as e:
+        return {
+            "error": "POSTED_LEDGER_UNAVAILABLE",
+            "detail": str(e),
+            "date_from": date_from,
+            "date_to": date_to,
+            "accounts": [],
+            "count": 0,
+        }
+
+    items = []
+    for row in rows:
+        dr = float(row["total_debit"] or 0)
+        cr = float(row["total_credit"] or 0)
+        items.append({
+            "account_code": row["account_code"],
+            "opening_balance": 0.0,
+            "debit_turnover": round(dr, 2),
+            "credit_turnover": round(cr, 2),
+            "closing_balance": round(dr - cr, 2),
+            "debit": round(dr, 2),
+            "credit": round(cr, 2),
+            "net": round(dr - cr, 2),
+        })
+
+    grand_dr = round(sum(i["debit_turnover"] for i in items), 2)
+    grand_cr = round(sum(i["credit_turnover"] for i in items), 2)
+    return {
+        "source": "posted_ledger",
+        "date_from": date_from,
+        "date_to": date_to,
+        "total_debit": grand_dr,
+        "total_credit": grand_cr,
+        "balanced": grand_dr == grand_cr,
+        "opening_total": 0.0,
+        "closing_total": round(grand_dr - grand_cr, 2),
+        "accounts": items,
+        "count": len(items),
+    }
+
+
 async def get_trial_balance(
     tenant_id: str,
     date_from: Optional[str] = None,
@@ -148,6 +237,9 @@ async def get_trial_balance(
     Aggregates posted journal_entries into a trial balance grouped by account_code.
     Rows include opening balance, period debit/credit turnover, and closing balance.
     """
+    if _posted_ledger_reports_enabled():
+        return await _get_trial_balance_from_posted_ledger(tenant_id, date_from, date_to)
+
     where_params: list = [tenant_id]
     date_to_filter = ""
     if date_to:

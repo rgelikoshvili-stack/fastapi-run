@@ -2,274 +2,304 @@
 
 ## 1. Purpose
 
-Task 11C-H19 defines the formal approval plan and readiness checklist for the
-future production migration from `journal_drafts`-based financial reports to the
-`journal_entry_headers` / `journal_entry_lines` posted-ledger report path.
+Task 11C-H19 defines the formal production approval plan for eventually migrating
+official financial reports from the legacy `journal_drafts`-derived behavior to
+posted-ledger report mode using `journal_entry_headers` and `journal_entry_lines`.
 
-**This document is a planning artifact only.**  No production switch occurs in H19.
-No feature flag is enabled in production.  No DB is accessed.  No Cloud Run
-configuration is changed.  All verification in this task is documentation and
-contract-test only.
+**H19 is docs and contract tests only.**
+
+- H19 does not enable the production feature flag.
+- H19 does not change production runtime behavior.
+- H19 does not execute SQL or migrations.
+- H19 does not touch production DB or Cloud Run DB.
+- H19 does not activate Balance.ge.
+- H19 does not change credentials, connector behavior, or infrastructure.
 
 ---
 
-## 2. Safety Scope
+## 2. Background / H1–H18 Chain
 
-| Constraint | Status |
+The following tasks collectively established the full safety evidence base for a
+future production report migration:
+
+| Task | Description |
 |---|---|
-| Production feature flag (`POSTED_LEDGER_REPORTS_ENABLED`) remains OFF | required |
-| No production Cloud Run config changes | required |
-| No production DB access | required |
-| No Cloud Run DB access | required |
-| No SQL execution | required |
-| No migration execution | required |
-| No Balance.ge activation | required |
-| No credentials changed | required |
-| No connector behavior changed | required |
-| No infrastructure changed | required |
-| No posting behavior changed | required |
-| No approval logic changed | required |
-| No UI/static files changed | required |
+| H1  | Found report ledger integrity risks — `journal_drafts` includes unposted entries |
+| H2  | Defined posted journal entries schema contract (`journal_entry_headers`, `journal_entry_lines`) |
+| H3  | Defined safe schema migration plan (SQL contract without execution) |
+| H4  | Created SQL migration contract; migration not executed |
+| H5  | Defined posting service ledger write contract for ERP connector dispatch |
+| H6  | Added posting ledger write mock tests |
+| H7  | Defined reports posted-ledger read contract |
+| H8  | Added report query mock tests |
+| H9  | Defined reversal/correction contract — `reversed` entries excluded from net totals |
+| H10 | Defined evidence/audit export linkage (`evidence_bundle_id`, `audit_event_id`) |
+| H11 | Defined controlled local/test migration execution plan |
+| H12 | Attempted local/test migration execution; blocked when disposable PostgreSQL was unavailable |
+| H13 | Defined runtime report migration plan with feature flag gate |
+| H14 | Added report service query mock tests |
+| H15 | Added feature-flagged runtime posted-ledger report path; production default OFF |
+| H16 | Verified posted-ledger behavior with local/test fixture data only |
+| H17 | Verified report UI/API drill-down contract end-to-end |
+| H18 | Defined controlled non-production runtime switch and production guard |
+| H19 | Defines production approval plan only (this document) |
 
 ---
 
 ## 3. Production Non-Action Statement
 
-H19 does **not** execute the production migration.  The tasks H1–H18 collectively
-establish the full safety evidence base.  H19 documents what must be true before
-any authorised approver may grant production enablement.
+H19 takes no production action.  The following constraints are absolute:
 
-The actual production switch (setting `POSTED_LEDGER_REPORTS_ENABLED=1` on the
-live Cloud Run service) is deferred to a future task that has not been assigned
-a task identifier yet and must not be started without the explicit go-ahead
-documented in Section 7 of this plan.
-
----
-
-## 4. H1–H18 Completion Chain
-
-The following tasks must all be merged and live-verified before production approval
-may be considered:
-
-| Task | Description | Status |
-|---|---|---|
-| H1  | posted-ledger schema design | required |
-| H2  | journal_entry_headers DDL | required |
-| H3  | journal_entry_lines DDL | required |
-| H4  | posting service integration | required |
-| H5  | ERP connector safety | required |
-| H6  | tenant isolation contract | required |
-| H7  | RBAC permission map | required |
-| H8  | audit log middleware | required |
-| H9  | approval flow contract | required |
-| H10 | period lock contract | required |
-| H11 | fail-closed error contract | required |
-| H12 | status filter contract | required |
-| H13 | reversal/correction chain | required |
-| H14 | evidence bundle linkage | required |
-| H15 | feature flag gate | required |
-| H16 | fixture verification | required |
-| H17 | UI/API drill-down contract | required |
-| H18 | controlled nonprod runtime switch | required |
-
-All 18 tasks above must have a merged PR and a confirmed live SHA before the
-production approval gate in Section 7 is opened.
+- `POSTED_LEDGER_REPORTS_ENABLED` production flag remains OFF.
+- No Cloud Run env var changes.
+- No production DB connection.
+- No Cloud Run DB connection.
+- No SQL execution.
+- No migration execution.
+- No Balance.ge activation.
+- No connector changes.
+- No credential changes.
+- No infrastructure changes.
+- No posting or approval runtime changes.
+- No UI/static file changes.
+- H19 does not start H20.
 
 ---
 
-## 5. Report Types in Scope
+## 4. Preconditions Before Any Future Production Switch
 
-The following 11 official financial report types are included in the production
-migration scope.  All 11 must be verified on the posted-ledger path before the
-go/no-go decision:
+All of the following must be satisfied and documented before any authorised approver
+may enable `POSTED_LEDGER_REPORTS_ENABLED` in production:
 
-| # | Report Type | Key Tables |
-|---|---|---|
-| 1  | profit_and_loss | journal_entry_headers, journal_entry_lines |
-| 2  | balance_sheet | journal_entry_headers, journal_entry_lines |
-| 3  | cash_flow | journal_entry_headers, journal_entry_lines |
-| 4  | trial_balance | journal_entry_headers, journal_entry_lines |
-| 5  | accounts_payable_aging | journal_entry_headers, journal_entry_lines |
-| 6  | accounts_receivable_aging | journal_entry_headers, journal_entry_lines |
-| 7  | general_ledger | journal_entry_headers, journal_entry_lines |
-| 8  | tax_summary | journal_entry_headers, journal_entry_lines |
-| 9  | payroll_summary | journal_entry_headers, journal_entry_lines |
-| 10 | budget_vs_actual | journal_entry_headers, journal_entry_lines |
-| 11 | audit_trail | journal_entry_headers, journal_entry_lines |
+- [ ] Disposable local/test DB migration verified — schema applied in isolated environment, no production data
+- [ ] Staging or non-production switch completed and verified — all 11 report types confirmed on posted-ledger path
+- [ ] Posted ledger tables (`journal_entry_headers`, `journal_entry_lines`) present in production DB and validated
+- [ ] Old vs new report comparison completed with zero critical discrepancies or approved exception list
+- [ ] Accountant/business owner sign-off obtained and documented
+- [ ] Technical owner sign-off documented
+- [ ] Rollback plan approved — tested and rehearsed before production switch
+- [ ] Monitoring plan approved — dashboard live, alerts configured
+- [ ] Support/on-call plan approved — responsible engineer named and reachable during switch window
+- [ ] Feature flag enablement window approved by engineering lead
+- [ ] Production backup/PITR confirmed for the target period
 
 ---
 
-## 6. Old vs New Report Path Comparison
+## 5. Required Data / Ledger Preconditions
 
-| Property | Legacy path (`journal_drafts`) | Posted-ledger path |
-|---|---|---|
-| Data source | `journal_drafts` table | `journal_entry_headers` + `journal_entry_lines` |
-| Entry status | all statuses (including draft) | `STANDARD_NET_STATUSES` only: `posted`, `correction` |
-| Reversed entries | included in totals | excluded from net totals |
-| `tenant_id` enforcement | per-query filter | strict; `ValueError` on empty |
-| Fail-closed on missing tables | no (fallback behaviour) | yes → `POSTED_LEDGER_UNAVAILABLE` |
-| Drill-down chain | not available | full chain: `ledger_line_id` → `journal_entry_id` → `source_draft_id` → `posting_log_id` → `evidence_bundle_id` |
-| Response source tag | absent | `data.source == "posted_ledger"` |
-| Audit evidence link | absent | `evidence_bundle_id` (nullable) + `audit_event_id` |
-| ACCA/IFRS compliance | partial | full (`STANDARD_NET_STATUSES` enforced) |
-| Rollback path | N/A (is the legacy path) | unset flag → legacy path resumes immediately |
+Before the production migration, the following data conditions must be verified:
+
+- `journal_entry_headers` and `journal_entry_lines` present and populated for all active tenants
+- `tenant_id` populated and enforced on every row
+- `posted`, `correction`, `reversed`, and `voided` status rules validated
+- `STANDARD_NET_STATUSES` (`posted`, `correction`) confirmed as the basis for official net totals
+- No `journal_drafts` fallback in posted-ledger production mode
+- `evidence_bundle_id`, `posting_log_id`, and `source_draft_id` linkage verified end-to-end
+- Reversal/correction chains verified (`reversal_of_id`, `correction_of_id`)
+- Cashflow classification verified for all applicable entries
+- VAT/tax fields verified for completeness
+- Period/date filters verified against expected reporting ranges
+
+---
+
+## 6. Old vs New Report Comparison Plan
+
+For each of the 11 official report types, a side-by-side comparison must be run
+against the same tenant, the same period/date range, and production-equivalent
+test data before any production switch is approved.
+
+| # | Report Type | Legacy Source | New Source | Comparison Required |
+|---|---|---|---|---|
+| 1  | Trial Balance | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 2  | Profit & Loss Summary | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 3  | Profit & Loss Detail | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 4  | Balance Sheet Summary | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 5  | Balance Sheet Detail | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 6  | VAT Register | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 7  | Account Ledger | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 8  | Counterparty Ledger | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 9  | Payroll Ledger | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 10 | Journal Entries List | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+| 11 | Cashflow | journal_drafts | journal_entry_headers + journal_entry_lines | yes |
+
+For each report type the comparison process must:
+
+1. Capture legacy result (feature flag OFF) for the target tenant and period.
+2. Capture posted-ledger result (feature flag ON in non-prod) for the same tenant and period.
+3. Calculate variance for all numeric totals.
+4. Document variance reason for any non-zero variance.
+5. Obtain accountant review and sign-off on the comparison results.
 
 ---
 
 ## 7. Approval Gates
 
-All eight gates below must be satisfied before any authorised approver may sign
-off on production enablement:
+All eight gates below must be satisfied and countersigned before production enablement:
 
-| Gate | Description | Approver |
-|---|---|---|
-| G1 | H1–H18 all merged and live-verified | Engineering Lead |
-| G2 | Non-production staging test completed with real non-prod DB | Engineering Lead + QA |
-| G3 | All 11 report types verified on posted-ledger path in staging | QA Lead |
-| G4 | No `journal_drafts` references in any report query executed in staging | Engineering Lead |
-| G5 | Fail-closed behavior confirmed in staging: `POSTED_LEDGER_UNAVAILABLE` raised when tables absent | QA Lead |
-| G6 | Rollback test passed: unset flag → legacy path resumes within one restart | Engineering Lead |
-| G7 | Monitoring plan executed: no unexpected errors in non-prod logs for ≥ 24 hours post-switch | On-call Engineer |
-| G8 | Final production approval sign-off document completed and countersigned | CTO or delegated approver |
-
----
-
-## 8. Go / No-Go Checklist
-
-Before enabling `POSTED_LEDGER_REPORTS_ENABLED` on the production Cloud Run service:
-
-- [ ] All 8 approval gates (G1–G8) satisfied and documented
-- [ ] Confirmed environment is `production` Cloud Run service, not a test revision
-- [ ] Non-prod staging run completed with test data only
-- [ ] `journal_entry_headers` and `journal_entry_lines` tables present in production DB
-- [ ] All 11 report types return correct totals in staging
-- [ ] Reversal/correction exclusion confirmed: `reversed` entries absent from net totals
-- [ ] Tenant isolation spot-checked: cross-tenant rows absent from all report responses
-- [ ] Drill-down chain verified end-to-end in staging (report row → audit evidence)
-- [ ] Fail-closed behavior explicitly retested in staging immediately before production switch
-- [ ] Rollback plan rehearsed and confirmed working (Section 11)
-- [ ] Monitoring dashboard active and alerts configured (Section 10)
-- [ ] On-call engineer aware and reachable during switch window
-- [ ] No Balance.ge production calls during switch window
-- [ ] No connector activation during switch window
-- [ ] No credentials changed during switch window
-- [ ] Switch window communicated to all relevant stakeholders
+| Gate | Name | Description | Approver |
+|---|---|---|---|
+| G1 | Technical Readiness | H1–H18 all merged and live-verified; posted-ledger path deployed and tested in non-prod | Engineering Lead |
+| G2 | Migration / Schema Readiness | Schema validated; `journal_entry_headers` and `journal_entry_lines` present; schema readiness confirmed | Engineering Lead |
+| G3 | Report Comparison Readiness | Old vs new comparison completed for all 11 report types; variances documented | QA Lead |
+| G4 | Accounting / Business Sign-off | Accountant review and business sign-off documented; exception list approved if needed | Business Owner |
+| G5 | Security / Privacy Review | Tenant isolation, RBAC, no raw secrets, evidence bundle access scoped; privacy review complete | Security Lead |
+| G6 | Rollback Readiness | Rollback rehearsed: feature flag OFF restores legacy path within one restart; verified | Engineering Lead |
+| G7 | Production Change Approval | CTO or delegated approver sign-off; change window documented; stakeholders notified | CTO |
+| G8 | Post-Switch Monitoring Approval | Monitoring dashboard live; alert thresholds set; on-call engineer assigned and reachable | On-call Lead |
 
 ---
 
-## 9. Production Enablement Command (For Reference Only — Do Not Execute in H19)
+## 8. Rollback Plan
 
-The following command is documented here for reference.  It must not be executed
-as part of H19 or any task before all approval gates are satisfied:
+The rollback is non-destructive: unsetting the feature flag immediately restores
+the legacy `journal_drafts` report path.
 
-```
-# REFERENCE ONLY — DO NOT EXECUTE WITHOUT FULL APPROVAL
-gcloud run services update fastapi-run \
-  --region europe-west1 \
-  --update-env-vars POSTED_LEDGER_REPORTS_ENABLED=1
-```
+**Steps:**
 
-Any execution of this command without documented gate sign-off is a protocol
-violation and must be reverted immediately.
+1. Unset `POSTED_LEDGER_REPORTS_ENABLED` (set to `""` or remove from Cloud Run env vars).
+2. Restart the service — legacy path resumes within one cold start.
+3. Confirm via `/health` that `POSTED_LEDGER_REPORTS_ENABLED` is absent or `false`.
+4. Do not drop `journal_entry_headers` or `journal_entry_lines` tables.
+5. Preserve all audit logs, evidence bundles, and posting logs.
+6. File an incident report: time of enablement, time of rollback, observed error, affected tenants.
+7. Rollback owner: the on-call engineer who initiated the production switch.
+8. Rollback trigger conditions: any unexpected error, any `POSTED_LEDGER_UNAVAILABLE` event, any tenant isolation violation, any report discrepancy flagged by business users.
+9. Rollback communication plan: notify engineering lead, business owner, and on-call immediately.
+10. Post-rollback verification: run smoke checks on legacy report endpoints to confirm totals match pre-switch state.
+
+**Non-destructive guarantee:** no DB migration or schema change is required for rollback.
+The feature flag controls only the query path — unsetting it is sufficient.
 
 ---
 
-## 10. Monitoring Plan
+## 9. Monitoring Plan
 
-After production enablement (future task, not H19):
+After any future production enablement (not in H19):
 
 | Signal | Threshold | Action |
 |---|---|---|
+| `/version` SHA | Does not match expected commit | Investigate before proceeding |
+| `/health` status | Not 200 | Immediate rollback |
+| Feature flag state in `/health` | Absent or not enabled | Do not proceed |
 | `POSTED_LEDGER_UNAVAILABLE` error rate | > 0 in first 10 minutes | Immediate rollback |
-| Report endpoint 5xx rate | > baseline | Rollback + incident |
-| `journal_drafts` query log entries from report path | any | Immediate rollback |
-| Response time p95 on `/reports/*` | > 2× pre-switch baseline | Investigate; rollback if not resolved in 30 min |
-| Tenant isolation violations in logs | any | Immediate rollback + security incident |
-| Missing `data.source == "posted_ledger"` tag in report responses | any | Rollback |
+| Report endpoint latency (p95) | > 2× pre-switch baseline | Investigate; rollback if unresolved in 30 min |
+| Error rate on `/reports/*` | > baseline | Rollback + incident |
+| `journal_drafts` query log entries from report path | Any | Immediate rollback |
+| Tenant isolation violations in logs | Any | Immediate rollback + security incident |
+| Missing `data.source == "posted_ledger"` in responses | Any | Rollback |
+| 401/403 auth behavior regression | Any | Rollback |
+| Raw secrets exposure in any report payload | Any | Immediate rollback + security incident |
+| Balance.ge remains unchanged | Any activation | Immediate rollback |
+| Audit/evidence drilldown chain broken | Any | Rollback |
 
 Monitoring window: minimum 24 hours of clean logs before considering the switch stable.
 
 ---
 
-## 11. Rollback Plan
-
-If production enablement causes any unexpected behaviour:
-
-1. Unset the flag immediately:
-   ```
-   gcloud run services update fastapi-run \
-     --region europe-west1 \
-     --update-env-vars POSTED_LEDGER_REPORTS_ENABLED=""
-   ```
-2. Restart the service — legacy `journal_drafts` path resumes within one cold start.
-3. Confirm via `/health` that `POSTED_LEDGER_REPORTS_ENABLED` is absent or `false`.
-4. File an incident report with:
-   - Time of enablement
-   - Time of rollback
-   - Observed error
-   - Tenant(s) affected (if any)
-5. No DB migration or schema change required — the flag controls only the query path.
-6. Do not re-enable without a new approval cycle starting from Gate G5.
-
----
-
-## 12. Security and Compliance Requirements
+## 10. Security / Privacy Gates
 
 | Requirement | Detail |
 |---|---|
-| Tenant isolation | All report queries must carry `WHERE tenant_id = $N`; verified in H6 |
-| No raw secrets in payloads | `api_key`, `password`, `token`, `secret` forbidden in all report responses; verified in H17 |
-| RBAC enforcement | `require_permission` must be called on all report endpoints; verified in H7 |
-| ACCA/IFRS status filter | Only `STANDARD_NET_STATUSES` in net totals; verified in H12 |
-| Audit trail | `evidence_bundle_id` linkage verified in H14 and H17 |
-| No silent fallback | `_assert_no_silent_fallback` enforced; verified in H16 and H17 |
+| `tenant_id` mandatory | All report queries carry `WHERE tenant_id = $N`; empty `tenant_id` raises `ValueError` |
+| No raw secrets in payloads | `api_key`, `password`, `token`, `secret` forbidden in all report responses |
+| RBAC enforcement | `require_permission` called on all report endpoints; verified in H7 |
+| Tenant isolation | Cross-tenant rows filtered before response; verified in H6 and H17 |
+| 401/403 behavior confirmed | Unauthenticated/unauthorised requests blocked on all drilldown endpoints |
+| Evidence bundle access scoped | `evidence_bundle_id` links accessible only to the owning tenant |
+| Posting log access scoped | `posting_log_id` links accessible only to the owning tenant |
+| Audit trail access scoped | `audit_event_id` links accessible only to the owning tenant |
+| No credentials changed | All connector credentials unchanged during and after switch |
+| No connector behavior changed | Balance.ge remains `demo_mode` unless separately approved |
+| Privacy review sign-off | Security lead confirms no PII exposure through drill-down payloads |
 
 ---
 
-## 13. Non-goals
+## 11. Go / No-Go Checklist
+
+Before enabling `POSTED_LEDGER_REPORTS_ENABLED` on the production Cloud Run service:
+
+- [ ] All 8 approval gates (G1–G8) satisfied and documented
+- [ ] All unit tests green — 0 failures across full test suite
+- [ ] Staging or non-production switch verified for all 11 report types
+- [ ] Production backup/PITR confirmed for the target period
+- [ ] All sign-offs collected (engineering, accounting/business, security, CTO)
+- [ ] No critical unresolved discrepancies in old vs new comparison
+- [ ] Rollback tested and confirmed — legacy path restored within one restart
+- [ ] Monitoring ready — dashboard live, alerts configured, on-call assigned
+- [ ] Support owner assigned and reachable during switch window
+- [ ] Change window approved and communicated to stakeholders
+- [ ] Feature flag change reviewed — no other flags toggled simultaneously
+- [ ] Communication prepared — affected tenants notified if required
+
+---
+
+## 12. Production Switch Procedure — Future Only (Not Executed in H19)
+
+The following procedure is documented for reference only.  It must not be executed
+as part of H19.  Execution requires all approval gates to be satisfied.
+
+1. Confirm commit SHA matches expected live SHA.
+2. Confirm environment is production Cloud Run service.
+3. Confirm production backup/PITR is current.
+4. Enable flag only within the approved change window:
+   ```
+   # REFERENCE ONLY — DO NOT EXECUTE WITHOUT FULL APPROVAL
+   gcloud run services update fastapi-run \
+     --region europe-west1 \
+     --update-env-vars POSTED_LEDGER_REPORTS_ENABLED=1
+   ```
+5. Run smoke checks immediately after enablement.
+6. Run report comparison spot checks for at least two tenants.
+7. Monitor for 24 hours; rollback if any threshold exceeded.
+
+---
+
+## 13. Post-Switch Verification — Future Only
+
+After production enablement (future task, not H19):
+
+- Confirm `/version` SHA matches expected commit.
+- Confirm `/health` returns 200 and flag is reported as active.
+- Confirm protected endpoints return 401/403 without valid auth.
+- Confirm report endpoints return correct totals with valid auth.
+- Run comparison spot checks for key tenants.
+- Verify drill-down chain: report row → `ledger_line_id` → `journal_entry_id` → `source_draft_id` → `posting_log_id` → `evidence_bundle_id` → `audit_event_id`.
+- Verify no raw secrets in any report response payload.
+- Confirm Balance.ge has not been activated.
+
+---
+
+## 14. Non-Goals for H19
 
 This task does **not**:
 
-- Switch production to posted-ledger reports
-- Access production DB
-- Execute any DB migration
+- Execute any production switch
+- Execute any SQL
+- Run any migrations
+- Connect to any DB
+- Touch production DB or Cloud Run DB
+- Change any Cloud Run environment variables
 - Activate Balance.ge or any ERP connector
-- Change posting service logic
-- Change approval service logic
-- Implement any UI/static pages
-- Run staging or deploy a new Cloud Run revision
-- Start any post-H19 production-enabling task
+- Change any connector behavior
+- Change any credentials
+- Change any infrastructure
+- Change any runtime code
+- Change any UI or static files
+- Change posting behavior
+- Change approval logic
+- Start H20
 
 ---
 
-## 14. Verification Plan
+## 15. Next Task
 
-- Documentation completeness contract tests only — no DB, no network, no Cloud Run mutation.
-- All 29 contract tests run locally in-memory, no external dependencies.
-- Approval gate completeness verified by test enumeration.
-- Report type coverage verified by test enumeration.
-- Go/no-go checklist item count verified by test.
-- H1–H18 chain completeness verified by test enumeration.
+Only after PR merge, deploy, and live verification:
 
----
+**11C-H20 — Staging Environment Readiness Plan**
 
-## 15. Test Results
+OR, if the project does not have staging infrastructure yet:
 
-| Suite | Command | Result |
-|---|---|---|
-| H19 targeted | `pytest tests/unit/test_production_report_migration_approval_plan_contract.py -v` | **29 passed** |
-| Full unit suite | `pytest tests/unit/` | **3852 passed, 2 skipped** |
+**11C-H20 — Staging / Non-Production Switch Dry-Run Plan**
 
-All runs: 0 failed, 5 deprecation warnings (SwigPy — unrelated to project code).
-
----
-
-## 16. Next Step
-
-After all approval gates (G1–G8) are satisfied and sign-off documentation is
-complete, a new production-enabling task will be assigned.  That task will:
-
-- Set `POSTED_LEDGER_REPORTS_ENABLED=1` on the production Cloud Run service
-- Confirm via `/health` that the flag is active
-- Monitor for the 24-hour clean-log window
-- Close out the production migration
+H19 does not start H20.  H20 begins only after this PR is merged, deployed to
+Cloud Run, and live-verified via `/version` and `/health`.

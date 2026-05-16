@@ -1,0 +1,704 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "task": "11C-H25",
+    "description": "Synthetic posted-ledger fixture pack for Bridge Hub H25. ALL data is entirely synthetic and fictional. No real persons, companies, tax IDs, bank accounts, or financial data.",
+    "period": "2026-01",
+    "currency": "GEL",
+    "created_at": "2026-01-31T00:00:00Z",
+    "safe_to_commit": true,
+    "no_pii": true,
+    "no_real_company": true,
+    "no_real_tax_id": true,
+    "no_real_bank_account": true,
+    "fixture_categories": [
+      "income",
+      "expense",
+      "asset",
+      "liability",
+      "equity",
+      "vat_tax",
+      "payroll",
+      "cash_bank",
+      "counterparty_document",
+      "evidence_audit",
+      "corrections_reversals",
+      "forbidden_states",
+      "multi_tenant_negative"
+    ],
+    "standard_net_filter_rule": "status IN ('posted', 'correction') — exclude 'reversed' and 'voided'",
+    "accounting_invariants": [
+      "total_debit must equal total_credit on every posted/correction header",
+      "no line may have both debit > 0 and credit > 0 simultaneously",
+      "no zero-value lines (debit > 0 OR credit > 0 required)",
+      "tenant_id must be present and non-empty on every header and line",
+      "status must be in: posted, reversed, correction, voided",
+      "standard net reports include posted + correction; exclude reversed + voided",
+      "trial balance total_dr must equal total_cr across all standard-net entries"
+    ]
+  },
+
+  "tenants": [
+    {
+      "id": "tenant_alpha",
+      "name": "SYNTHETIC COMPANY ALPHA (test only — not a real entity)",
+      "role": "primary reporting tenant",
+      "note": "All TENANT_ALPHA reports and expected totals are defined in expected_reports.tenant_alpha"
+    },
+    {
+      "id": "tenant_beta",
+      "name": "SYNTHETIC COMPANY BETA (test only — not a real entity)",
+      "role": "negative isolation tenant",
+      "note": "TENANT_BETA rows must never appear in TENANT_ALPHA reports"
+    }
+  ],
+
+  "accounts": [
+    {"code": "1010", "name": "Cash / Bank (Synthetic)", "category": "asset",     "normal_balance": "debit"},
+    {"code": "1200", "name": "Accounts Receivable (Synthetic)", "category": "asset",     "normal_balance": "debit"},
+    {"code": "1211", "name": "VAT Input Receivable (Synthetic)", "category": "asset",     "normal_balance": "debit"},
+    {"code": "1500", "name": "Fixed Assets (Synthetic)", "category": "asset",     "normal_balance": "debit"},
+    {"code": "2100", "name": "Accounts Payable (Synthetic)", "category": "liability", "normal_balance": "credit"},
+    {"code": "2200", "name": "VAT Payable (Synthetic)", "category": "liability", "normal_balance": "credit"},
+    {"code": "2300", "name": "Salary Payable (Synthetic)", "category": "liability", "normal_balance": "credit"},
+    {"code": "2310", "name": "Income Tax Payable / PAYG (Synthetic)", "category": "liability", "normal_balance": "credit"},
+    {"code": "3000", "name": "Share Capital / Owner Equity (Synthetic)", "category": "equity",    "normal_balance": "credit"},
+    {"code": "4100", "name": "Service Revenue (Synthetic)", "category": "income",    "normal_balance": "credit"},
+    {"code": "4200", "name": "Product Revenue (Synthetic)", "category": "income",    "normal_balance": "credit"},
+    {"code": "5100", "name": "Office Expenses (Synthetic)", "category": "expense",   "normal_balance": "debit"},
+    {"code": "5200", "name": "Salary Expense (Synthetic)", "category": "expense",   "normal_balance": "debit"},
+    {"code": "5300", "name": "Bank Fees (Synthetic)", "category": "expense",   "normal_balance": "debit"}
+  ],
+
+  "counterparties": [
+    {
+      "id": "synthetic_customer_alpha",
+      "name": "SYNTHETIC CUSTOMER ALPHA (test only)",
+      "type": "customer",
+      "tax_id": "SYN-CUST-0001",
+      "note": "Entirely fictional — no real entity"
+    },
+    {
+      "id": "synthetic_supplier_alpha",
+      "name": "SYNTHETIC SUPPLIER ALPHA (test only)",
+      "type": "supplier",
+      "tax_id": "SYN-SUPP-0001",
+      "note": "Entirely fictional — no real entity"
+    }
+  ],
+
+  "documents": [
+    {
+      "id": "doc_syn_invoice_001",
+      "type": "invoice",
+      "counterparty_id": "synthetic_customer_alpha",
+      "amount": 1180.00,
+      "note": "Synthetic invoice — no real document"
+    },
+    {
+      "id": "doc_syn_payroll_002",
+      "type": "payroll_sheet",
+      "counterparty_id": null,
+      "amount": 2000.00,
+      "note": "Synthetic payroll document — no real data"
+    },
+    {
+      "id": "doc_syn_purchase_003",
+      "type": "purchase_invoice",
+      "counterparty_id": "synthetic_supplier_alpha",
+      "amount": 1180.00,
+      "note": "Synthetic purchase invoice — no real document"
+    }
+  ],
+
+  "journal_entry_headers": [
+    {
+      "_comment": "INCOME: Service Revenue (plain, no VAT)",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "invoice",
+      "source_draft_id": "00000000-0000-4005-8000-000000000001",
+      "posting_log_id": "00000000-0000-4004-8000-000000000001",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-05",
+      "posting_date": "2026-01-05T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 1000.00,
+      "total_credit": 1000.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H001", "category": "income", "subcategory": "service_revenue"}
+    },
+    {
+      "_comment": "EXPENSE: Office Expense",
+      "id": "00000000-0000-4000-8000-000000000002",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "expense_claim",
+      "source_draft_id": "00000000-0000-4005-8000-000000000002",
+      "posting_log_id": "00000000-0000-4004-8000-000000000002",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-06",
+      "posting_date": "2026-01-06T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 500.00,
+      "total_credit": 500.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H002", "category": "expense", "subcategory": "office_expense"}
+    },
+    {
+      "_comment": "PAYROLL: Gross Salary / Income Tax / Net Payable",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "payroll",
+      "source_draft_id": "00000000-0000-4005-8000-000000000003",
+      "posting_log_id": "00000000-0000-4004-8000-000000000003",
+      "evidence_bundle_id": "00000000-0000-4003-8000-000000000001",
+      "entry_date": "2026-01-31",
+      "posting_date": "2026-01-31T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 2000.00,
+      "total_credit": 2000.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H003", "category": "payroll", "subcategory": "salary_payroll", "document_id": "doc_syn_payroll_002"}
+    },
+    {
+      "_comment": "ASSET: Fixed Asset Acquisition",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "asset_purchase",
+      "source_draft_id": "00000000-0000-4005-8000-000000000004",
+      "posting_log_id": "00000000-0000-4004-8000-000000000004",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-10",
+      "posting_date": "2026-01-10T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 5000.00,
+      "total_credit": 5000.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H004", "category": "asset", "subcategory": "fixed_asset_acquisition"}
+    },
+    {
+      "_comment": "VAT INPUT: Purchase from supplier with VAT Input",
+      "id": "00000000-0000-4000-8000-000000000005",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "purchase_invoice",
+      "source_draft_id": "00000000-0000-4005-8000-000000000005",
+      "posting_log_id": "00000000-0000-4004-8000-000000000005",
+      "evidence_bundle_id": "00000000-0000-4003-8000-000000000002",
+      "entry_date": "2026-01-12",
+      "posting_date": "2026-01-12T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 1180.00,
+      "total_credit": 1180.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H005", "category": "vat_tax", "subcategory": "vat_input", "counterparty_id": "synthetic_supplier_alpha", "document_id": "doc_syn_purchase_003"}
+    },
+    {
+      "_comment": "VAT OUTPUT: Service Revenue with VAT Output",
+      "id": "00000000-0000-4000-8000-000000000006",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "invoice",
+      "source_draft_id": "00000000-0000-4005-8000-000000000006",
+      "posting_log_id": "00000000-0000-4004-8000-000000000006",
+      "evidence_bundle_id": "00000000-0000-4003-8000-000000000003",
+      "entry_date": "2026-01-15",
+      "posting_date": "2026-01-15T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 1180.00,
+      "total_credit": 1180.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H006", "category": "vat_tax", "subcategory": "vat_output", "counterparty_id": "synthetic_customer_alpha", "document_id": "doc_syn_invoice_001"}
+    },
+    {
+      "_comment": "CASH/BANK: Cash Receipt from Customer",
+      "id": "00000000-0000-4000-8000-000000000007",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "bank_receipt",
+      "source_draft_id": "00000000-0000-4005-8000-000000000007",
+      "posting_log_id": "00000000-0000-4004-8000-000000000007",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-20",
+      "posting_date": "2026-01-20T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 1180.00,
+      "total_credit": 1180.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H007", "category": "cash_bank", "subcategory": "cash_receipt", "counterparty_id": "synthetic_customer_alpha"}
+    },
+    {
+      "_comment": "LIABILITY: Accounts Payable Payment to Supplier",
+      "id": "00000000-0000-4000-8000-000000000008",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "bank_payment",
+      "source_draft_id": "00000000-0000-4005-8000-000000000008",
+      "posting_log_id": "00000000-0000-4004-8000-000000000008",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-22",
+      "posting_date": "2026-01-22T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 1180.00,
+      "total_credit": 1180.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H008", "category": "liability", "subcategory": "accounts_payable_payment", "counterparty_id": "synthetic_supplier_alpha"}
+    },
+    {
+      "_comment": "EQUITY: Opening Equity / Owner Capital Contribution",
+      "id": "00000000-0000-4000-8000-000000000009",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "equity_contribution",
+      "source_draft_id": "00000000-0000-4005-8000-000000000009",
+      "posting_log_id": "00000000-0000-4004-8000-000000000009",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-01",
+      "posting_date": "2026-01-01T08:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 10000.00,
+      "total_credit": 10000.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H009", "category": "equity", "subcategory": "owner_contribution"}
+    },
+    {
+      "_comment": "CASH/BANK EXPENSE: Bank Fee",
+      "id": "00000000-0000-4000-8000-000000000010",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "bank_fee",
+      "source_draft_id": "00000000-0000-4005-8000-000000000010",
+      "posting_log_id": "00000000-0000-4004-8000-000000000010",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-28",
+      "posting_date": "2026-01-28T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 25.00,
+      "total_credit": 25.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": "00000000-0000-4000-8000-000000000013",
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H010", "category": "cash_bank", "subcategory": "bank_fee", "note": "reversed by H013"}
+    },
+    {
+      "_comment": "INCOME: Product Revenue",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "source_type": "invoice",
+      "source_draft_id": "00000000-0000-4005-8000-000000000011",
+      "posting_log_id": "00000000-0000-4004-8000-000000000011",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-25",
+      "posting_date": "2026-01-25T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 500.00,
+      "total_credit": 500.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H011", "category": "income", "subcategory": "product_revenue", "counterparty_id": "synthetic_customer_alpha"}
+    },
+    {
+      "_comment": "CORRECTION: Revenue Correction reducing H001 by 200",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "tenant_id": "tenant_alpha",
+      "status": "correction",
+      "source_type": "correction",
+      "source_draft_id": "00000000-0000-4005-8000-000000000012",
+      "posting_log_id": "00000000-0000-4004-8000-000000000012",
+      "evidence_bundle_id": "00000000-0000-4003-8000-000000000004",
+      "entry_date": "2026-01-29",
+      "posting_date": "2026-01-29T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 200.00,
+      "total_credit": 200.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": "00000000-0000-4000-8000-000000000001",
+      "metadata_json": {"fixture": "H012", "category": "corrections_reversals", "subcategory": "revenue_correction", "corrects": "H001", "note": "Reduces service revenue by 200 — correction included in standard net"}
+    },
+    {
+      "_comment": "REVERSAL: Reversal of bank fee H010 (excluded from standard net)",
+      "id": "00000000-0000-4000-8000-000000000013",
+      "tenant_id": "tenant_alpha",
+      "status": "reversed",
+      "source_type": "reversal",
+      "source_draft_id": null,
+      "posting_log_id": "00000000-0000-4004-8000-000000000013",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-29",
+      "posting_date": "2026-01-29T11:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 25.00,
+      "total_credit": 25.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": "00000000-0000-4000-8000-000000000010",
+      "metadata_json": {"fixture": "H013", "category": "corrections_reversals", "subcategory": "bank_fee_reversal", "reverses": "H010", "note": "EXCLUDED from standard net reports (status=reversed)"}
+    },
+    {
+      "_comment": "VOIDED: Voided AP payment (excluded from standard net)",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "tenant_id": "tenant_alpha",
+      "status": "voided",
+      "source_type": "bank_payment",
+      "source_draft_id": "00000000-0000-4005-8000-000000000014",
+      "posting_log_id": null,
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-27",
+      "posting_date": "2026-01-27T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 500.00,
+      "total_credit": 500.00,
+      "created_by": "syn_user_alpha",
+      "approved_by": "syn_approver_alpha",
+      "posted_by": "syn_poster_alpha",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "H014", "category": "corrections_reversals", "subcategory": "voided_payment", "note": "EXCLUDED from standard net reports (status=voided)"}
+    },
+    {
+      "_comment": "TENANT_BETA: Service Revenue — must NEVER appear in TENANT_ALPHA reports",
+      "id": "00000000-0000-4000-8000-0000000000b1",
+      "tenant_id": "tenant_beta",
+      "status": "posted",
+      "source_type": "invoice",
+      "source_draft_id": "00000000-0000-4005-8000-0000000000b1",
+      "posting_log_id": "00000000-0000-4004-8000-0000000000b1",
+      "evidence_bundle_id": null,
+      "entry_date": "2026-01-15",
+      "posting_date": "2026-01-15T10:00:00Z",
+      "period": "2026-01",
+      "currency": "GEL",
+      "exchange_rate": 1.0,
+      "total_debit": 9999.00,
+      "total_credit": 9999.00,
+      "created_by": "syn_user_beta",
+      "approved_by": "syn_approver_beta",
+      "posted_by": "syn_poster_beta",
+      "reversed_by_entry_id": null,
+      "correction_of_entry_id": null,
+      "metadata_json": {"fixture": "B001", "category": "multi_tenant_negative", "note": "TENANT_BETA isolation test — cross-tenant leakage must fail"}
+    }
+  ],
+
+  "journal_entry_lines": [
+    {"id": "00000000-0001-4000-8000-000000000001", "journal_entry_id": "00000000-0000-4000-8000-000000000001", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 1000.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1000.00},
+    {"id": "00000000-0001-4000-8000-000000000002", "journal_entry_id": "00000000-0000-4000-8000-000000000001", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "4100", "account_name": "Service Revenue (Synthetic)", "debit": 0.00, "credit": 1000.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1000.00},
+
+    {"id": "00000000-0001-4000-8000-000000000003", "journal_entry_id": "00000000-0000-4000-8000-000000000002", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "5100", "account_name": "Office Expense (Synthetic)", "debit": 500.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+    {"id": "00000000-0001-4000-8000-000000000004", "journal_entry_id": "00000000-0000-4000-8000-000000000002", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 0.00, "credit": 500.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+
+    {"id": "00000000-0001-4000-8000-000000000005", "journal_entry_id": "00000000-0000-4000-8000-000000000003", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "5200", "account_name": "Salary Expense (Synthetic)", "debit": 2000.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 2000.00},
+    {"id": "00000000-0001-4000-8000-000000000006", "journal_entry_id": "00000000-0000-4000-8000-000000000003", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "2300", "account_name": "Salary Payable (Synthetic)", "debit": 0.00, "credit": 1600.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1600.00},
+    {"id": "00000000-0001-4000-8000-000000000007", "journal_entry_id": "00000000-0000-4000-8000-000000000003", "tenant_id": "tenant_alpha", "line_no": 3, "account_code": "2310", "account_name": "Tax Payable PAYG (Synthetic)", "debit": 0.00, "credit": 400.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 400.00},
+
+    {"id": "00000000-0001-4000-8000-000000000008", "journal_entry_id": "00000000-0000-4000-8000-000000000004", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1500", "account_name": "Fixed Assets (Synthetic)", "debit": 5000.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 5000.00},
+    {"id": "00000000-0001-4000-8000-000000000009", "journal_entry_id": "00000000-0000-4000-8000-000000000004", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 0.00, "credit": 5000.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 5000.00},
+
+    {"id": "00000000-0001-4000-8000-000000000010", "journal_entry_id": "00000000-0000-4000-8000-000000000005", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "5100", "account_name": "Office Expense (Synthetic)", "debit": 1000.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1000.00},
+    {"id": "00000000-0001-4000-8000-000000000011", "journal_entry_id": "00000000-0000-4000-8000-000000000005", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1211", "account_name": "VAT Input (Synthetic)", "debit": 180.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 180.00},
+    {"id": "00000000-0001-4000-8000-000000000012", "journal_entry_id": "00000000-0000-4000-8000-000000000005", "tenant_id": "tenant_alpha", "line_no": 3, "account_code": "2100", "account_name": "Accounts Payable (Synthetic)", "debit": 0.00, "credit": 1180.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+
+    {"id": "00000000-0001-4000-8000-000000000013", "journal_entry_id": "00000000-0000-4000-8000-000000000006", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 1180.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+    {"id": "00000000-0001-4000-8000-000000000014", "journal_entry_id": "00000000-0000-4000-8000-000000000006", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "4100", "account_name": "Service Revenue (Synthetic)", "debit": 0.00, "credit": 1000.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1000.00},
+    {"id": "00000000-0001-4000-8000-000000000015", "journal_entry_id": "00000000-0000-4000-8000-000000000006", "tenant_id": "tenant_alpha", "line_no": 3, "account_code": "2200", "account_name": "VAT Payable (Synthetic)", "debit": 0.00, "credit": 180.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 180.00},
+
+    {"id": "00000000-0001-4000-8000-000000000016", "journal_entry_id": "00000000-0000-4000-8000-000000000007", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 1180.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+    {"id": "00000000-0001-4000-8000-000000000017", "journal_entry_id": "00000000-0000-4000-8000-000000000007", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 0.00, "credit": 1180.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+
+    {"id": "00000000-0001-4000-8000-000000000018", "journal_entry_id": "00000000-0000-4000-8000-000000000008", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "2100", "account_name": "AP (Synthetic)", "debit": 1180.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+    {"id": "00000000-0001-4000-8000-000000000019", "journal_entry_id": "00000000-0000-4000-8000-000000000008", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 0.00, "credit": 1180.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 1180.00},
+
+    {"id": "00000000-0001-4000-8000-000000000020", "journal_entry_id": "00000000-0000-4000-8000-000000000009", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 10000.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 10000.00},
+    {"id": "00000000-0001-4000-8000-000000000021", "journal_entry_id": "00000000-0000-4000-8000-000000000009", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "3000", "account_name": "Share Capital (Synthetic)", "debit": 0.00, "credit": 10000.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 10000.00},
+
+    {"id": "00000000-0001-4000-8000-000000000022", "journal_entry_id": "00000000-0000-4000-8000-000000000010", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "5300", "account_name": "Bank Fees (Synthetic)", "debit": 25.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 25.00},
+    {"id": "00000000-0001-4000-8000-000000000023", "journal_entry_id": "00000000-0000-4000-8000-000000000010", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 0.00, "credit": 25.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 25.00},
+
+    {"id": "00000000-0001-4000-8000-000000000024", "journal_entry_id": "00000000-0000-4000-8000-000000000011", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 500.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+    {"id": "00000000-0001-4000-8000-000000000025", "journal_entry_id": "00000000-0000-4000-8000-000000000011", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "4200", "account_name": "Product Revenue (Synthetic)", "debit": 0.00, "credit": 500.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+
+    {"id": "00000000-0001-4000-8000-000000000026", "journal_entry_id": "00000000-0000-4000-8000-000000000012", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "4100", "account_name": "Service Revenue (Synthetic)", "debit": 200.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 200.00},
+    {"id": "00000000-0001-4000-8000-000000000027", "journal_entry_id": "00000000-0000-4000-8000-000000000012", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 0.00, "credit": 200.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 200.00},
+
+    {"id": "00000000-0001-4000-8000-000000000028", "journal_entry_id": "00000000-0000-4000-8000-000000000013", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 25.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 25.00},
+    {"id": "00000000-0001-4000-8000-000000000029", "journal_entry_id": "00000000-0000-4000-8000-000000000013", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "5300", "account_name": "Bank Fees (Synthetic)", "debit": 0.00, "credit": 25.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 25.00},
+
+    {"id": "00000000-0001-4000-8000-000000000030", "journal_entry_id": "00000000-0000-4000-8000-000000000014", "tenant_id": "tenant_alpha", "line_no": 1, "account_code": "2100", "account_name": "AP (Synthetic)", "debit": 500.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+    {"id": "00000000-0001-4000-8000-000000000031", "journal_entry_id": "00000000-0000-4000-8000-000000000014", "tenant_id": "tenant_alpha", "line_no": 2, "account_code": "1010", "account_name": "Bank (Synthetic)", "debit": 0.00, "credit": 500.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 500.00},
+
+    {"id": "00000000-0001-4000-8000-0000000000b1", "journal_entry_id": "00000000-0000-4000-8000-0000000000b1", "tenant_id": "tenant_beta", "line_no": 1, "account_code": "1200", "account_name": "AR (Synthetic)", "debit": 9999.00, "credit": 0.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 9999.00},
+    {"id": "00000000-0001-4000-8000-0000000000b2", "journal_entry_id": "00000000-0000-4000-8000-0000000000b1", "tenant_id": "tenant_beta", "line_no": 2, "account_code": "4100", "account_name": "Service Revenue (Synthetic)", "debit": 0.00, "credit": 9999.00, "currency": "GEL", "exchange_rate": 1.0, "amount_gel": 9999.00}
+  ],
+
+  "journal_entry_sources": [
+    {"id": "00000000-0002-4000-8000-000000000001", "journal_entry_id": "00000000-0000-4000-8000-000000000001", "tenant_id": "tenant_alpha", "source_type": "draft",    "source_id": "draft_syn_0000001"},
+    {"id": "00000000-0002-4000-8000-000000000002", "journal_entry_id": "00000000-0000-4000-8000-000000000003", "tenant_id": "tenant_alpha", "source_type": "payroll",  "source_id": "doc_syn_payroll_002"},
+    {"id": "00000000-0002-4000-8000-000000000003", "journal_entry_id": "00000000-0000-4000-8000-000000000006", "tenant_id": "tenant_alpha", "source_type": "invoice",  "source_id": "doc_syn_invoice_001"},
+    {"id": "00000000-0002-4000-8000-000000000004", "journal_entry_id": "00000000-0000-4000-8000-000000000005", "tenant_id": "tenant_alpha", "source_type": "invoice",  "source_id": "doc_syn_purchase_003"}
+  ],
+
+  "expected_reports": {
+    "_comment": "All totals for tenant_alpha only, standard net = posted + correction (excluding reversed and voided). Verified by manual double-entry calculation.",
+    "tenant_alpha": {
+      "standard_net_filter": "status IN ('posted', 'correction')",
+      "standard_net_excludes": ["reversed", "voided"],
+      "standard_net_entry_count": 12,
+
+      "trial_balance": {
+        "total_dr": 14480.00,
+        "total_cr": 14480.00,
+        "accounts": {
+          "1010": {"net_dr": 4475.00,  "note": "Bank: +10000+1180-500-5000-1180-25"},
+          "1200": {"net_dr": 1300.00,  "note": "AR: +1000+1180+500-1180-200"},
+          "1211": {"net_dr": 180.00,   "note": "VAT Input: +180"},
+          "1500": {"net_dr": 5000.00,  "note": "Fixed Assets: +5000"},
+          "2100": {"net_cr": 0.00,     "note": "AP: cr1180-dr1180=0"},
+          "2200": {"net_cr": 180.00,   "note": "VAT Payable: cr180"},
+          "2300": {"net_cr": 1600.00,  "note": "Salary Payable: cr1600"},
+          "2310": {"net_cr": 400.00,   "note": "Tax Payable: cr400"},
+          "3000": {"net_cr": 10000.00, "note": "Share Capital: cr10000"},
+          "4100": {"net_cr": 1800.00,  "note": "Service Revenue: cr1000+cr1000-dr200(correction)"},
+          "4200": {"net_cr": 500.00,   "note": "Product Revenue: cr500"},
+          "5100": {"net_dr": 1500.00,  "note": "Office Expense: dr500+dr1000"},
+          "5200": {"net_dr": 2000.00,  "note": "Salary Expense: dr2000"},
+          "5300": {"net_dr": 25.00,    "note": "Bank Fees: dr25"}
+        }
+      },
+
+      "pl_summary": {
+        "total_income": 2300.00,
+        "total_expense": 3525.00,
+        "net_profit_loss": -1225.00,
+        "note": "Net loss 1225 GEL for period 2026-01"
+      },
+
+      "pl_detail": {
+        "income": {
+          "4100_service_revenue": 1800.00,
+          "4200_product_revenue": 500.00
+        },
+        "expense": {
+          "5100_office_expense": 1500.00,
+          "5200_salary_expense": 2000.00,
+          "5300_bank_fees": 25.00
+        },
+        "net_profit_loss": -1225.00
+      },
+
+      "balance_sheet_summary": {
+        "total_assets": 10955.00,
+        "total_liabilities": 2180.00,
+        "total_equity": 8775.00,
+        "check": "assets = liabilities + equity = 10955.00"
+      },
+
+      "balance_sheet_detail": {
+        "assets": {
+          "1010_bank": 4475.00,
+          "1200_ar": 1300.00,
+          "1211_vat_input": 180.00,
+          "1500_fixed_assets": 5000.00,
+          "total": 10955.00
+        },
+        "liabilities": {
+          "2100_ap": 0.00,
+          "2200_vat_payable": 180.00,
+          "2300_salary_payable": 1600.00,
+          "2310_tax_payable": 400.00,
+          "total": 2180.00
+        },
+        "equity": {
+          "3000_share_capital": 10000.00,
+          "retained_earnings_pl": -1225.00,
+          "total": 8775.00
+        }
+      },
+
+      "vat_register": {
+        "vat_input_reclaimable": 180.00,
+        "vat_output_payable": 180.00,
+        "net_vat_position": 0.00,
+        "period": "2026-01"
+      },
+
+      "account_ledger": {
+        "1010_bank": {
+          "total_dr": 12360.00,
+          "total_cr": 7885.00,
+          "net_balance_dr": 4475.00
+        },
+        "1200_ar": {
+          "total_dr": 2680.00,
+          "total_cr": 1380.00,
+          "net_balance_dr": 1300.00
+        }
+      },
+
+      "counterparty_ledger": {
+        "synthetic_customer_alpha": {
+          "total_invoiced": 1680.00,
+          "total_received": 1180.00,
+          "net_outstanding": 500.00,
+          "note": "H001(1000) + H011(500) + H006(1180) invoiced; H007(1180) received; H012(-200 correction)"
+        },
+        "synthetic_supplier_alpha": {
+          "total_purchased": 1180.00,
+          "total_paid": 1180.00,
+          "net_outstanding": 0.00
+        }
+      },
+
+      "payroll_ledger": {
+        "period": "2026-01",
+        "gross_salary_expense": 2000.00,
+        "income_tax_payg": 400.00,
+        "net_salary_payable": 1600.00,
+        "employer_pension": 0.00,
+        "note": "Simplified synthetic payroll — pension not in this fixture"
+      },
+
+      "journal_entries_list": {
+        "standard_net_count": 12,
+        "total_volume_dr": 23945.00,
+        "total_volume_cr": 23945.00,
+        "statuses_included": ["posted", "correction"],
+        "statuses_excluded": ["reversed", "voided"]
+      },
+
+      "cashflow": {
+        "opening_balance": 0.00,
+        "inflows": 11180.00,
+        "outflows": 6705.00,
+        "net_cash_movement": 4475.00,
+        "closing_balance_bank_1010": 4475.00,
+        "note": "Simplified direct method from bank account 1010 movements only"
+      }
+    },
+
+    "tenant_beta": {
+      "_note": "tenant_beta has 1 posted entry (B001) with total_debit=9999 and total_credit=9999. Must be excluded from all tenant_alpha reports.",
+      "isolation_test": {
+        "tenant_beta_service_revenue": 9999.00,
+        "must_not_appear_in_tenant_alpha_reports": true
+      }
+    }
+  },
+
+  "invalid_rows": [
+    {
+      "_comment": "FORBIDDEN STATUS: draft — must never reach posted ledger tables",
+      "id": "00000000-ffff-4000-8000-000000000001",
+      "tenant_id": "tenant_alpha",
+      "status": "draft",
+      "total_debit": 100.00,
+      "total_credit": 100.00,
+      "note": "INVALID — status=draft is forbidden by ck_jeh_status constraint"
+    },
+    {
+      "_comment": "FORBIDDEN STATUS: approved — must never reach posted ledger tables",
+      "id": "00000000-ffff-4000-8000-000000000002",
+      "tenant_id": "tenant_alpha",
+      "status": "approved",
+      "total_debit": 100.00,
+      "total_credit": 100.00,
+      "note": "INVALID — status=approved is forbidden by ck_jeh_status constraint"
+    },
+    {
+      "_comment": "FORBIDDEN STATUS: auto_approved",
+      "id": "00000000-ffff-4000-8000-000000000003",
+      "tenant_id": "tenant_alpha",
+      "status": "auto_approved",
+      "total_debit": 100.00,
+      "total_credit": 100.00,
+      "note": "INVALID — status=auto_approved is forbidden by ck_jeh_status constraint"
+    },
+    {
+      "_comment": "UNBALANCED entry example (invalid — for documentation only)",
+      "id": "00000000-ffff-4000-8000-000000000004",
+      "tenant_id": "tenant_alpha",
+      "status": "posted",
+      "total_debit": 100.00,
+      "total_credit": 50.00,
+      "note": "INVALID — violates ck_jeh_balanced constraint (total_debit != total_credit)"
+    }
+  ]
+}

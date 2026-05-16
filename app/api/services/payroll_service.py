@@ -1,8 +1,8 @@
 ﻿"""
 app/api/services/payroll_service.py
-Bridge Hub â€” Payroll Service
-PAYG (2%) + áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ áƒ’áƒáƒ“áƒáƒ¡áƒáƒ®áƒáƒ“áƒ˜ + RS.ge áƒ¤áƒáƒ áƒ›áƒáƒ¢áƒ˜
-georgia_pack.py-áƒ¡ áƒ’áƒáƒ›áƒáƒ˜áƒ§áƒ”áƒœáƒ”áƒ‘áƒ¡.
+Bridge Hub — Payroll Service
+PAYG (2%) + საშემოსავლო გადასახადი + RS.ge ფორმატი
+georgia_pack.py-ს გამოიყენებს.
 """
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
@@ -107,8 +107,8 @@ def calculate_employee_payroll(
     period: Optional[str] = None,
 ) -> dict:
     """
-    áƒ”áƒ áƒ—áƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡ áƒ®áƒ”áƒšáƒ¤áƒáƒ¡áƒ˜áƒ¡ áƒ’áƒáƒ›áƒáƒ—áƒ•áƒšáƒ.
-    PAYG 2% + áƒ¡áƒáƒ¨áƒ”áƒ›áƒáƒ¡áƒáƒ•áƒšáƒ 20%
+    ერთი თანამშრომლის ხელფასის გამოთვლა.
+    PAYG 2% + საშემოსავლო 20%
     """
     gross = Decimal(str(gross_salary))
     period = period or datetime.now().strftime("%Y-%m")
@@ -142,7 +142,7 @@ def calculate_employee_payroll(
 
 def calculate_payroll(employees: list, period: Optional[str] = None) -> dict:
     """
-    áƒ›áƒ áƒáƒ•áƒáƒšáƒ˜ áƒ—áƒáƒœáƒáƒ›áƒ¨áƒ áƒáƒ›áƒšáƒ˜áƒ¡ payroll áƒ’áƒáƒ›áƒáƒ—áƒ•áƒšáƒ.
+    მრავალი თანამშრომლის payroll გამოთვლა.
     """
     period = validate_payroll_period(period)
     results = []
@@ -488,7 +488,7 @@ async def generate_payroll_drafts(
 
 def generate_rsge_xml(payroll: dict) -> str:
     """
-    RS.ge-áƒ˜áƒ¡áƒ—áƒ•áƒ˜áƒ¡ XML áƒ¤áƒáƒ áƒ›áƒáƒ¢áƒ˜áƒ¡ áƒ’áƒ”áƒœáƒ”áƒ áƒáƒªáƒ˜áƒ.
+    RS.ge-ისთვის XML ფორმატის გენერაცია.
     """
     period = payroll.get("period", datetime.now().strftime("%Y-%m"))
     lines = [

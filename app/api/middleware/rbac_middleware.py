@@ -74,7 +74,7 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "UNAUTHORIZED",
-                    "details": "áƒáƒ•áƒ—áƒ”áƒœáƒ¢áƒ˜áƒ™áƒáƒªáƒ˜áƒ áƒáƒ£áƒªáƒ˜áƒšáƒ”áƒ‘áƒ”áƒšáƒ˜áƒ",
+                    "details": "ავთენტიკაცია აუცილებელია",
                 },
             },
         )
@@ -95,7 +95,7 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "FORBIDDEN",
-                    "details": "áƒ áƒáƒšáƒ˜ áƒ•áƒ”áƒ  áƒ’áƒáƒœáƒ˜áƒ¡áƒáƒ–áƒ¦áƒ•áƒ áƒ",
+                    "details": "როლი ვერ განისაზღვრა",
                 },
             },
         )
@@ -123,10 +123,9 @@ async def rbac_middleware(request: Request, call_next):
                 "data": None,
                 "error": {
                     "code": "FORBIDDEN",
-                    "details": f"áƒ¬áƒ•áƒ“áƒáƒ›áƒ áƒáƒ™áƒ áƒ«áƒáƒšáƒ£áƒšáƒ˜áƒ ({required_permission})",
+                    "details": f"წვდომა აკრძალულია ({required_permission})",
                 },
             },
         )
 
     return await call_next(request)
-

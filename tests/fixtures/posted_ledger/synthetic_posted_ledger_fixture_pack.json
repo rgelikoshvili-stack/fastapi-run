@@ -602,8 +602,8 @@
 
       "account_ledger": {
         "1010_bank": {
-          "total_dr": 12360.00,
-          "total_cr": 7885.00,
+          "total_dr": 11180.00,
+          "total_cr": 6705.00,
           "net_balance_dr": 4475.00
         },
         "1200_ar": {

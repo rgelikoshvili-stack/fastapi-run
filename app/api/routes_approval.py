@@ -30,12 +30,12 @@ def _validate_pagination(limit: int, offset: int):
     if limit < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "limit áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"},
+            detail={"error": "INVALID_PAGINATION", "message": "limit არ უნდა იყოს 0-ზე ნაკლები"},
         )
     if offset < 0:
         raise HTTPException(
             status_code=422,
-            detail={"error": "INVALID_PAGINATION", "message": "offset áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ 0 áƒáƒœ áƒ›áƒ”áƒ¢áƒ˜"},
+            detail={"error": "INVALID_PAGINATION", "message": "offset არ უნდა იყოს 0-ზე ნაკლები"},
         )
 
 
@@ -549,7 +549,7 @@ async def batch_action(body: BatchActionRequest, request: Request):
         return error_response("Batch action failed", "BATCH_ERROR", str(e))
 
 
-# â”€â”€ Draft Attachment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Draft Attachment ──────────────────────────────────────────────────────────
 
 @router.post("/draft/{draft_id}/attach")
 async def attach_file_to_draft(draft_id: int, request: Request, file=None):
@@ -655,11 +655,11 @@ async def delete_draft_attachment(draft_id: int, request: Request):
         return error_response("Delete failed", "ATTACH_ERROR", str(e))
 
 
-# â”€â”€ CFO Second Approval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── CFO Second Approval ───────────────────────────────────────────────────────
 
 @router.post("/cfo-approve/{draft_id}")
 async def cfo_approve(draft_id: int, request: Request):
-    """CFO second-level approval for high-value drafts (â‰¥ â‚¾10,000)."""
+    """CFO second-level approval for high-value drafts (≥ ₾10,000)."""
     require_permission(request, "approval:cfo")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     user = getattr(request.state, "user_email", "cfo")

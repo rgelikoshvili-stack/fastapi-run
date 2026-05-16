@@ -1,10 +1,35 @@
-import urllib.request, urllib.error, json, sys, io
+# SEC-1: Hardcoded production URL and password removed.
+# Set AUDIT_BASE_URL and AUDIT_PASSWORD via environment variables.
+# This script must only target a non-production environment unless explicitly approved.
+import urllib.request, urllib.error, json, sys, io, os
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-BASE = 'http://116.203.134.24'
+_KNOWN_PRODUCTION_HOSTS = {"116.203.134.24", "35.192.214.120"}
+
+BASE = os.getenv("AUDIT_BASE_URL")
+AUDIT_EMAIL = os.getenv("AUDIT_EMAIL")
+AUDIT_PASSWORD = os.getenv("AUDIT_PASSWORD")
+
+if not BASE:
+    print("ERROR: AUDIT_BASE_URL is not set.", file=sys.stderr)
+    print("  Example (non-production): export AUDIT_BASE_URL=http://localhost:8000", file=sys.stderr)
+    sys.exit(1)
+if not AUDIT_EMAIL:
+    print("ERROR: AUDIT_EMAIL is not set.", file=sys.stderr)
+    sys.exit(1)
+if not AUDIT_PASSWORD:
+    print("ERROR: AUDIT_PASSWORD is not set.", file=sys.stderr)
+    sys.exit(1)
+
+import urllib.parse as _up
+_host = _up.urlparse(BASE).hostname or ""
+if _host in _KNOWN_PRODUCTION_HOSTS:
+    print(f"ERROR: AUDIT_BASE_URL host {_host!r} matches a known production IP. Refusing.", file=sys.stderr)
+    sys.exit(1)
 
 def login():
-    data = json.dumps({'email':'r.gelikoshvili@gmail.com','password':'Admin2026!'}).encode()
+    data = json.dumps({'email': AUDIT_EMAIL, 'password': AUDIT_PASSWORD}).encode()
     req = urllib.request.Request(BASE+'/auth/login', data=data, headers={'Content-Type':'application/json'})
     resp = urllib.request.urlopen(req, timeout=10)
     body = json.loads(resp.read())
@@ -66,7 +91,7 @@ s,b = get('/system/overview'); chk('system overview', s, b)
 
 print()
 print('== AUTH ==')
-s,b = post('/auth/login', {'email':'r.gelikoshvili@gmail.com','password':'Admin2026!'})
+s,b = post('/auth/login', {'email': AUDIT_EMAIL, 'password': AUDIT_PASSWORD})
 chk('login', s, b)
 s,b = get('/auth/me')
 email = b.get('data',{}).get('email','') if isinstance(b,dict) else ''

@@ -1,10 +1,37 @@
+# SEC-1: Hardcoded production credentials removed.
+# This script previously connected directly to a production IP with a hardcoded password.
+# It now requires explicit environment variables and refuses known production hosts.
+# Use only against a non-production database.
+import os
+import sys
 import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_KNOWN_PRODUCTION_HOSTS = {"35.192.214.120"}
+
+host = os.getenv("DB_HOST")
+dbname = os.getenv("DB_NAME", "bridgehub")
+user = os.getenv("DB_USER", "postgres")
+password = os.getenv("DB_PASSWORD")
+
+if not host:
+    print("ERROR: DB_HOST is not set. Use a non-production host only.", file=sys.stderr)
+    print("  Example: export DB_HOST=localhost", file=sys.stderr)
+    sys.exit(1)
+if not password:
+    print("ERROR: DB_PASSWORD is not set.", file=sys.stderr)
+    sys.exit(1)
+if host in _KNOWN_PRODUCTION_HOSTS:
+    print(f"ERROR: DB_HOST={host!r} matches a known production IP. Refusing.", file=sys.stderr)
+    sys.exit(1)
 
 conn = psycopg2.connect(
-    host="35.192.214.120",
-    dbname="bridgehub",
-    user="postgres",
-    password="BridgeHub2026x",
+    host=host,
+    dbname=dbname,
+    user=user,
+    password=password,
 )
 conn.autocommit = True
 cur = conn.cursor()

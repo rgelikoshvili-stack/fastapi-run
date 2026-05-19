@@ -22,7 +22,6 @@ def register_routers(app: FastAPI) -> None:
     from app.api import routes_transaction_ai
     from app.api import routes_export_journal
     from app.api import routes_audit_log
-    from app.api import routes_invoice
     from app.api import routes_erp_memory
     from app.api import routes_erp_import
     from app.api import routes_erp_connectors
@@ -40,7 +39,8 @@ def register_routers(app: FastAPI) -> None:
     from app.api import routes_crm
     from app.api import routes_currency
     from app.api import routes_expenses
-    from app.api import routes_invoices
+    from app.api.routes_invoices import router as invoices_router, invoice_legacy_router
+    from app.api import routes_waybills
     from app.api import routes_pdf_report
     from app.api import routes_rbac
     from app.api import routes_reconciliation
@@ -131,7 +131,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(routes_audit_log.router)
     app.include_router(routes_audit.router)
     app.include_router(patterns_router)
-    app.include_router(routes_invoice.router)
+    app.include_router(invoice_legacy_router)
     app.include_router(expense_articles_router)
     app.include_router(routes_erp_memory.router)
     app.include_router(routes_erp_import.router)
@@ -150,7 +150,8 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(routes_crm.router)
     app.include_router(routes_currency.router)
     app.include_router(routes_expenses.router)
-    app.include_router(routes_invoices.router)
+    app.include_router(invoices_router)
+    app.include_router(routes_waybills.router)
     app.include_router(routes_pdf_report.router)
     app.include_router(routes_rbac.router)
     app.include_router(routes_reconciliation.router)

@@ -133,6 +133,37 @@ class TestCompletionDecisionOptions:
         assert "PRODUCTION_SWITCH_MONITORING_INCONCLUSIVE" in _read()
 
 
+class TestNextTasks:
+    def test_h64_next_tasks_documented(self):
+        text = _read()
+        assert "H65" in text
+        assert "H66" in text
+        assert "H67" in text
+        assert "H68" in text
+
+    def test_h64_next_tasks_titles_documented(self):
+        text = _read()
+        assert "Authenticated" in text or "Report" in text
+        assert "Balance.ge" in text or "Pilot" in text
+
+
+class TestNoRuntimeChanges:
+    def test_h64_no_runtime_code_or_migration_change_claims(self):
+        text = _read()
+        assert "unchanged" in text.lower() or "not changed" in text.lower() or "did NOT change" in text
+        assert "21665ff" in text
+
+    def test_h64_migration_unchanged_documented(self):
+        text = _read()
+        assert "migration" in text.lower()
+        assert "unchanged" in text.lower() or "not changed" in text.lower()
+
+    def test_h64_fixture_unchanged_documented(self):
+        text = _read()
+        assert "fixture" in text.lower()
+        assert "unchanged" in text.lower() or "not changed" in text.lower()
+
+
 class TestFinalCompletionDecision:
     def test_h64_final_decision_is_complete_with_limited_checks(self):
         assert "PRODUCTION_SWITCH_COMPLETE_WITH_LIMITED_AUTH_DEEP_CHECKS" in _read()

@@ -115,7 +115,31 @@ Target rollback time: < 5 minutes from trigger detection
 
 ---
 
-## 8. H64 Completion Decision Options
+## 8. Remaining Limitations
+
+| Limitation | Detail |
+|---|---|
+| M3 5xx rate | Requires GCP Console / Cloud Run Monitoring API — not accessible via CLI |
+| M4 latency p95 | Requires GCP Console / Cloud Run Monitoring API — not accessible via CLI |
+| M6 tenant leakage deep check | Requires authenticated production API token — not available in current environment |
+| M7 report mismatch deep check | Requires authenticated production API token — not available in current environment |
+
+These limitations do not block completion. Runtime code is unchanged (SHA `21665ff`), migration SQL is unchanged, fixture JSON is unchanged. No runtime code or migration changes were made during H59-H64.
+
+---
+
+## 9. Next Recommended Tasks
+
+| Task | Title |
+|---|---|
+| H65 | Authenticated Report Endpoint Deep Verification |
+| H66 | Accountant Production Report Review |
+| H67 | Balance.ge Controlled Pilot Preparation |
+| H68 | Accounting Software Completion Roadmap Execution |
+
+---
+
+## 10. H64 Completion Decision Options
 
 | Decision | Condition |
 |---|---|

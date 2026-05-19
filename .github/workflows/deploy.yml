@@ -8,6 +8,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: fastapi-run
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGION: europe-west1
   SERVICE_URL: https://fastapi-run-226875230147.europe-west1.run.app
 

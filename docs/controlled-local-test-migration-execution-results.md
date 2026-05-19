@@ -59,8 +59,8 @@ This task explicitly confirms:
 |---|---|
 | Migration path | `app/storage/migrations/011_posted_journal_entries_schema.sql` |
 | File exists | Yes |
-| SHA-256 checksum | `f552e49703b164ff03656ef09f223f4a3292636423c529890849b06c648af9ba` |
-| Matches H4-committed file | Yes — file content unchanged since H4 |
+| SHA-256 checksum | `3077cec4c3d87fc0167ba02f70b13dcff871c1ce031b6fd0644d32554b3235d0` |
+| Matches H4-committed file | Updated in H66 — account_type and cashflow_category columns added |
 
 ### 3.3 DATABASE_URL classification
 

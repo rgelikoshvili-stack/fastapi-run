@@ -193,3 +193,78 @@ def run_table_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # Bank transactions — CSV/XML bank statement rows
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS bank_transactions (
+                id          TEXT        PRIMARY KEY,
+                tenant_id   TEXT        NOT NULL DEFAULT 'default',
+                batch_id    TEXT,
+                bank        TEXT,
+                date        TEXT,
+                amount      NUMERIC,
+                description TEXT,
+                balance     NUMERIC,
+                currency    TEXT        DEFAULT 'GEL',
+                account_id  INTEGER,
+                raw         JSONB,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("bank_transactions table migration skipped: %s", _e)
+
+    for _bt_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_tenant_id   ON bank_transactions(tenant_id)",
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_tenant_date  ON bank_transactions(tenant_id, date)",
+        "CREATE INDEX IF NOT EXISTS idx_bank_transactions_tenant_batch ON bank_transactions(tenant_id, batch_id)",
+    ]:
+        try:
+            cur.execute(_bt_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Pipeline runs — document processing pipeline execution records
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id          SERIAL      PRIMARY KEY,
+                run_id      TEXT        UNIQUE,
+                tenant_id   TEXT        NOT NULL DEFAULT 'default',
+                filename    TEXT,
+                state       TEXT        DEFAULT 'PENDING',
+                extraction  JSONB,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("pipeline_runs table migration skipped: %s", _e)
+
+    for _pr_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_state ON pipeline_runs(tenant_id, state)",
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_run_id       ON pipeline_runs(run_id)",
+    ]:
+        try:
+            cur.execute(_pr_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # journal_entry_lines — add account_type and cashflow_category used by financial_statements_service
+    for _jel_col in [
+        "ALTER TABLE journal_entry_lines ADD COLUMN IF NOT EXISTS account_type      TEXT",
+        "ALTER TABLE journal_entry_lines ADD COLUMN IF NOT EXISTS cashflow_category TEXT",
+    ]:
+        try:
+            cur.execute(_jel_col)
+            conn.commit()
+        except Exception as _e:
+            conn.rollback()
+            log.debug("journal_entry_lines col migration skipped: %s", _e)

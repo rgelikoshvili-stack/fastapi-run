@@ -193,6 +193,10 @@ CREATE TABLE IF NOT EXISTS journal_entry_lines (
     document_id             UUID            NULL,
     bank_transaction_id     UUID            NULL,
 
+    -- Account classification (used by financial_statements_service posted-ledger queries)
+    account_type            TEXT            NULL,
+    cashflow_category       TEXT            NULL,
+
     -- Tax metadata
     tax_code                TEXT            NULL,
     vat_amount              NUMERIC(18,2)   NULL,
@@ -347,6 +351,14 @@ CREATE INDEX IF NOT EXISTS idx_jel_tenant_document
 CREATE INDEX IF NOT EXISTS idx_jel_tenant_bank_transaction
     ON journal_entry_lines (tenant_id, bank_transaction_id)
     WHERE bank_transaction_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jel_tenant_account_type
+    ON journal_entry_lines (tenant_id, account_type)
+    WHERE account_type IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jel_tenant_cashflow_category
+    ON journal_entry_lines (tenant_id, cashflow_category)
+    WHERE cashflow_category IS NOT NULL;
 
 -- journal_entry_sources indexes
 

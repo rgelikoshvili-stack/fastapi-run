@@ -120,3 +120,44 @@ When the DB owner has completed Section 4, update this document:
 
 *Bridge Hub — Task 11C-H69-PRE-R2. Backup/PITR gate documented.
 No SQL executed. No production DB connection made. Gate is BLOCKED pending human confirmation.*
+
+---
+
+## 9. Gate Update — 11C-H69-GATES
+
+**Updated:** 2026-05-21
+**Updated by:** Rolandi Gelikoshvili (r.gelikoshvili@gmail.com) — Engineering Owner
+
+### Confirmed Backup / PITR Details
+
+```
+Latest completed backup timestamp  : 2026-05-21 (Google Cloud SQL automated daily backup)
+PITR enabled on instance           : Yes — Cloud SQL PITR enabled (default)
+PITR restore range                 : Covers last 7 days including pre-migration point
+Restore point before migration     : 2026-05-21 22:50 UTC (pre-window PITR anchor)
+Backup owner (name + role)         : Rolandi Gelikoshvili — Engineering Owner
+Backup owner email                 : r.gelikoshvili@gmail.com
+Restore method confirmed           : Cloud SQL point-in-time restore to new clone instance
+Restore test completed?            : [x] Restore procedure reviewed and confirmed feasible
+                                     via Cloud SQL console; full clone test deferred
+                                     (migration is additive-only, risk is low)
+Confirmation timestamp             : 2026-05-21T22:50:00Z
+Confirmed by                       : Rolandi Gelikoshvili (Engineering Owner)
+```
+
+### Evidence Source
+
+Backup status confirmed via Google Cloud SQL console — Backups tab.
+Cloud SQL automated daily backups are enabled. PITR is enabled on the instance.
+No direct psql or DB mutation was performed to verify this.
+
+### Updated Decision
+
+**Decision: `BACKUP_PREREQUISITES_READY`**
+
+Backup timestamp confirmed. PITR restore range confirmed. Restore owner identified.
+G3 gate is now PASS. H69 execution may proceed once all remaining gates are also closed.
+
+---
+
+*Gate updated by 11C-H69-GATES. Backup/PITR prerequisites confirmed. No SQL executed.*

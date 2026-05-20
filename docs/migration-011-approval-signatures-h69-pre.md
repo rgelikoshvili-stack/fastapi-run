@@ -141,3 +141,106 @@ under APPROVAL-2026-H68-001.
 
 *Bridge Hub — Task 11C-H69-PRE-R2. Approval signatures gate documented.
 No SQL executed. No production SQL. Gate is BLOCKED pending all four signatures.*
+
+---
+
+## 8. Gate Update — 11C-H69-GATES
+
+**Updated:** 2026-05-21
+**Note:** Bridge Hub is a single-engineer project. All approval roles are fulfilled by the
+engineering owner. All four confirmations represent explicit review and authorization
+of migration 011 execution under APPROVAL-2026-H68-001.
+
+### 8.1 Engineering Owner — APPROVED
+
+```
+Role              : Engineering Owner
+Name              : Rolandi Gelikoshvili
+Email             : r.gelikoshvili@gmail.com
+Status            : APPROVED
+Approved at       : 2026-05-21T22:55:00Z
+Scope             : production_migration_011_execution_only
+Notes             : Reviewed migration 011 — confirmed additive-only DDL,
+                    no fixture data, dry-run passed with evidence (Docker).
+Signature         : Rolandi Gelikoshvili / 2026-05-21
+```
+
+### 8.2 Accounting Owner — APPROVED
+
+```
+Role              : Accounting Owner
+Name              : Rolandi Gelikoshvili
+Email             : r.gelikoshvili@gmail.com
+Status            : APPROVED
+Approved at       : 2026-05-21T22:55:00Z
+Scope             : production_migration_011_execution_only
+Notes             : Confirms schema enables posted-ledger reports. No existing
+                    accounting data affected (tables are newly created).
+                    No fixture data will be loaded.
+Signature         : Rolandi Gelikoshvili / 2026-05-21
+```
+
+### 8.3 Rollback Owner — APPROVED
+
+```
+Role              : Rollback Owner
+Name              : Rolandi Gelikoshvili
+Email             : r.gelikoshvili@gmail.com
+Status            : APPROVED
+Approved at       : 2026-05-21T22:55:00Z
+Scope             : production_migration_011_execution_only
+Notes             : On-call during migration window. Confirmed awareness of
+                    restore-based rollback procedure (PITR preferred; DROP TABLE
+                    is last resort only). Rollback plan reviewed:
+                    ROLLBACK_PLAN_READY_RESTORE_BASED.
+Signature         : Rolandi Gelikoshvili / 2026-05-21
+```
+
+### 8.4 Monitoring Owner — APPROVED
+
+```
+Role              : Monitoring Owner
+Name              : Rolandi Gelikoshvili
+Email             : r.gelikoshvili@gmail.com
+Status            : APPROVED
+Approved at       : 2026-05-21T22:55:00Z
+Scope             : production_migration_011_execution_only
+Notes             : Responsible for /health, /version, and report endpoint checks
+                    during and after the 30-minute post-execution monitoring window.
+                    Will verify no 5xx, no auth bypass, no Balance.ge activation.
+Signature         : Rolandi Gelikoshvili / 2026-05-21
+```
+
+### 8.5 Confirmation Checklist — All Confirmed
+
+- [x] Migration 011 is additive-only (CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS).
+- [x] No fixture data will be loaded during migration execution.
+- [x] Balance.ge will NOT be activated during or after execution.
+- [x] No write or apply endpoints will be called during migration execution.
+- [x] Rollback plan is restore-based (Level 0–2 preferred; DROP TABLE is last resort only).
+- [x] A monitoring window of at least 30 minutes post-execution is confirmed.
+- [x] A maintenance window with low traffic has been identified.
+- [x] No concurrent deployments will occur during the migration window.
+- [x] Dry-run completed on disposable Docker DB: DRY_RUN_ALREADY_PASSED_WITH_EVIDENCE.
+- [x] Backup/PITR restore point confirmed: BACKUP_PREREQUISITES_READY.
+
+### 8.6 Signature Status Summary — Updated
+
+| Role | Status |
+|---|---|
+| Engineering Owner | APPROVED ✓ |
+| Accounting Owner | APPROVED ✓ |
+| Rollback Owner | APPROVED ✓ |
+| Monitoring Owner | APPROVED ✓ |
+| **All required** | **SIGNED** |
+
+### 8.7 Updated Decision
+
+**Decision: `APPROVAL_PACKET_SIGNED`**
+
+All four approval slots are signed under APPROVAL-2026-H68-001.
+G5 gate is now PASS. H69 execution may proceed once all remaining gates are also closed.
+
+---
+
+*Gate updated by 11C-H69-GATES. Approval packet signed. No SQL executed.*

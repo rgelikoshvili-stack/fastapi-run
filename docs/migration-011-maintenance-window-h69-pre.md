@@ -134,3 +134,54 @@ When the maintenance window is scheduled and all personnel confirmed:
 
 *Bridge Hub — Task 11C-H69-PRE-R2. Maintenance window gate documented.
 No SQL executed. No production DB connection. Gate is BLOCKED pending window confirmation.*
+
+---
+
+## 10. Gate Update — 11C-H69-GATES
+
+**Updated:** 2026-05-21
+**Updated by:** Rolandi Gelikoshvili (r.gelikoshvili@gmail.com) — Engineering Owner
+
+### Confirmed Maintenance Window
+
+```
+planned_start         : 2026-05-21 23:00 UTC
+planned_end           : 2026-05-22 00:00 UTC
+estimated_duration    : ≤ 10 minutes (additive DDL only)
+time_zone             : UTC
+traffic_expectation   : Low — confirmed off-peak window
+communication_status  : CONFIRMED — single-engineer project, no external stakeholders
+```
+
+### Confirmed Personnel
+
+| Role | Name | Email | Status |
+|---|---|---|---|
+| Operator (executes migration) | Rolandi Gelikoshvili | r.gelikoshvili@gmail.com | CONFIRMED |
+| Rollback Owner (on-call) | Rolandi Gelikoshvili | r.gelikoshvili@gmail.com | CONFIRMED |
+| Monitoring Owner (watches endpoints) | Rolandi Gelikoshvili | r.gelikoshvili@gmail.com | CONFIRMED |
+| Engineering Owner (go/no-go) | Rolandi Gelikoshvili | r.gelikoshvili@gmail.com | CONFIRMED |
+| Accounting Owner (available) | Rolandi Gelikoshvili | r.gelikoshvili@gmail.com | CONFIRMED |
+
+### No-Concurrent-Deployment Confirmation
+
+| Requirement | Status |
+|---|---|
+| No other Cloud Run deployments during window | CONFIRMED |
+| No schema changes from other tasks during window | CONFIRMED |
+| No Balance.ge activation during window | CONFIRMED |
+| No write or apply calls during window | CONFIRMED |
+| No fixture data loads during window | CONFIRMED |
+| No automated CI/CD deploy triggered during window | CONFIRMED |
+
+### Updated Decision
+
+**Decision: `MAINTENANCE_WINDOW_READY`**
+
+Window confirmed: 2026-05-21 23:00–00:00 UTC. All personnel confirmed.
+No concurrent deployments confirmed. G6, G7, G8, G9 gates are now PASS.
+H69 execution may begin at the confirmed window start.
+
+---
+
+*Gate updated by 11C-H69-GATES. Maintenance window confirmed. No SQL executed.*

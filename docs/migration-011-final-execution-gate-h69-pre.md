@@ -183,3 +183,66 @@ and notify the engineering owner to begin H69.
 
 *Bridge Hub — Task 11C-H69-PRE-R2. Final execution gate evaluated.
 No SQL executed. No production DB connection. Dry-run passed. Human gates open.*
+
+---
+
+## 9. Gate Closure Record — 11C-H69-GATES
+
+All 6 previously-blocked gates confirmed closed on 2026-05-21:
+
+```
+G3  BACKUP_PREREQUISITES_READY         date: 2026-05-21  by: Rolandi Gelikoshvili
+G5  APPROVAL_PACKET_SIGNED             date: 2026-05-21  by: Rolandi Gelikoshvili
+G6  MAINTENANCE_WINDOW_READY           date: 2026-05-21  by: Rolandi Gelikoshvili
+G7  NO_CONCURRENT_DEPLOY_CONFIRMED     date: 2026-05-21  by: Rolandi Gelikoshvili
+G8  ROLLBACK_OWNER_CONFIRMED           date: 2026-05-21  by: Rolandi Gelikoshvili
+G9  MONITORING_OWNER_CONFIRMED         date: 2026-05-21  by: Rolandi Gelikoshvili
+```
+
+---
+
+## 10. Updated Gate Evaluation — All 15 PASS
+
+| # | Gate | Status |
+|---|---|---|
+| G1 | H68/H69-PRE live verified | PASS ✓ |
+| G2 | Migration SHA verified | PASS ✓ |
+| G3 | Backup/PITR ready | PASS ✓ — BACKUP_PREREQUISITES_READY |
+| G4 | Dry-run passed | PASS ✓ — DRY_RUN_ALREADY_PASSED_WITH_EVIDENCE |
+| G5 | Approval signed | PASS ✓ — APPROVAL_PACKET_SIGNED |
+| G6 | Maintenance window ready | PASS ✓ — MAINTENANCE_WINDOW_READY |
+| G7 | No concurrent deploys | PASS ✓ — NO_CONCURRENT_DEPLOY_CONFIRMED |
+| G8 | Rollback owner ready | PASS ✓ — Rolandi Gelikoshvili confirmed on-call |
+| G9 | Monitoring owner ready | PASS ✓ — Rolandi Gelikoshvili confirmed available |
+| G10 | Execution command redacted | PASS ✓ |
+| G11 | No fixture load | PASS ✓ |
+| G12 | No Balance.ge activation | PASS ✓ — demo_mode confirmed |
+| G13 | No write or apply calls | PASS ✓ |
+| G14 | Rollback plan ready | PASS ✓ — ROLLBACK_PLAN_READY_RESTORE_BASED |
+| G15 | H69 not yet started | PASS ✓ |
+
+All 15 gates: **PASS**. Zero gates blocked.
+
+---
+
+## 11. Final Decision — Updated
+
+**Decision: `H69_READY_FOR_PRODUCTION_MIGRATION_EXECUTION`**
+
+All 15 gates are PASS. Migration 011 may be executed against the production database
+during the confirmed maintenance window: **2026-05-21 23:00–00:00 UTC**.
+
+Execution command template (credentials sourced from Cloud Secret Manager at execution time):
+```
+psql "[REDACTED_DATABASE_URL]" \
+  -f app/storage/migrations/011_posted_journal_entries_schema.sql \
+  -v ON_ERROR_STOP=1
+```
+
+After execution, run post-execution verification per
+`docs/migration-011-production-execution-plan-h68.md` Section 7.
+
+---
+
+*Bridge Hub — Task 11C-H69-GATES. All human gates closed.
+H69_READY_FOR_PRODUCTION_MIGRATION_EXECUTION. No SQL executed in this task.*

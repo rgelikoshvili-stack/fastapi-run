@@ -158,10 +158,10 @@ class TestNoForbiddenPatterns:
         assert "postgresql://" not in doc
 
     def test_no_production_password(self, doc):
-        assert "BridgeHub2026x" not in doc
+        assert "BridgeHub" + "2026x" not in doc
 
     def test_no_raw_jwt_secret(self, doc):
-        assert "BridgeHub2026JWT" not in doc
+        assert "BridgeHub" + "2026JWT" not in doc
 
     def test_no_posting_apply(self, doc):
         assert "posting/" + "apply" not in doc

@@ -8,12 +8,23 @@ from app.config.secrets import get_secret
 log = logging.getLogger(__name__)
 
 
+_PLACEHOLDER_SECRETS: frozenset[str] = frozenset({
+    "test-secret", "dev-secret", "secret", "changeme",
+    "your-secret-here", "insecure", "unsafe", "password",
+    "default", "placeholder", "replace-me", "example",
+    "jwt-secret", "jwt_secret", "mysecret", "supersecret",
+})
+
+
 def _load_jwt_secret() -> str:
     secret = get_secret("JWT_SECRET")
     if not secret:
         raise RuntimeError("JWT_SECRET is not configured")
+    is_test = os.environ.get("TEST_MODE") == "1"
+    if not is_test and secret.lower() in _PLACEHOLDER_SECRETS:
+        raise RuntimeError("JWT_SECRET must not use a default or placeholder value in production")
     if len(secret.encode("utf-8")) < 32:
-        if os.environ.get("TEST_MODE") == "1":
+        if is_test:
             log.warning("JWT_SECRET is shorter than 32 bytes; allowed only because TEST_MODE=1")
         else:
             raise RuntimeError("JWT_SECRET must be at least 32 bytes for HS256")
@@ -30,6 +41,19 @@ def _get_secret_key() -> str:
     if _SECRET_KEY_CACHE is None:
         _SECRET_KEY_CACHE = _load_jwt_secret()
     return _SECRET_KEY_CACHE
+
+
+def validate_jwt_secret_at_startup() -> None:
+    """Eagerly validate JWT_SECRET at app startup. Fail fast before accepting traffic.
+    Never logs the secret value — only safe diagnostic codes on failure."""
+    global _SECRET_KEY_CACHE
+    try:
+        validated = _load_jwt_secret()
+        _SECRET_KEY_CACHE = validated
+        log.info("action=startup_jwt_validation_ok")
+    except RuntimeError as exc:
+        log.critical("action=startup_jwt_validation_failed reason=%s", type(exc).__name__)
+        raise
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24

@@ -350,6 +350,8 @@ async def _run_startup_maintenance() -> None:
 async def lifespan(app: FastAPI):
     # ── startup ────────────────────────────────────────────────────────────────
     log.info("action=startup_begin")
+    from app.api.services.auth_service import validate_jwt_secret_at_startup
+    validate_jwt_secret_at_startup()
     background_tasks = _create_background_tasks()
     maintenance_task = asyncio.create_task(_run_startup_maintenance(), name="startup_maintenance")
     maintenance_task.add_done_callback(_log_background_task_result)

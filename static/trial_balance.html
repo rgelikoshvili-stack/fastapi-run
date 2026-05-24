@@ -159,7 +159,11 @@ tbody td.net-num{text-align:right;font-family:var(--mono);font-size:12.5px;font-
 
 <script>
 const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
-const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const safeNum = v => {
+  const n = parseFloat(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+const fmt = v => safeNum(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 
 try {
   const pl = JSON.parse(atob(token().split('.')[1]));
@@ -185,7 +189,7 @@ async function runReport(){
     const res = await fetch(url, {headers:{'Authorization':'Bearer '+token()}});
     const d = await res.json();
     if(!d.ok) throw new Error(d.detail || 'შეცდომა');
-    renderReport(d);
+    renderReport(d.data || d);
   } catch(e){
     alert('შეცდომა: ' + e.message);
   } finally {
@@ -195,26 +199,31 @@ async function runReport(){
 }
 
 function renderReport(d){
+  d = d || {};
+  const totalDebit = safeNum(d.total_debit);
+  const totalCredit = safeNum(d.total_credit);
+  const accounts = Array.isArray(d.accounts) ? d.accounts : [];
+  const isBalanced = typeof d.balanced === 'boolean' ? d.balanced : Math.abs(totalDebit - totalCredit) < 0.01;
   const pill = document.getElementById('balancePill');
   pill.style.display = '';
-  if(d.balanced){
+  if(isBalanced){
     pill.className = 'balance-pill ok';
     pill.innerHTML = '✓ სალდო დაბალანსებულია — Σ Dr = Σ Cr';
   } else {
-    const diff = Math.abs(d.total_debit - d.total_credit);
+    const diff = Math.abs(totalDebit - totalCredit);
     pill.className = 'balance-pill err';
     pill.innerHTML = `⚠ სალდო არ არის დაბალანსებული — სხვაობა: ${fmt(diff)}`;
   }
 
-  document.getElementById('sumDr').textContent   = fmt(d.total_debit);
-  document.getElementById('sumCr').textContent   = fmt(d.total_credit);
-  const diff = d.total_debit - d.total_credit;
+  document.getElementById('sumDr').textContent   = fmt(totalDebit);
+  document.getElementById('sumCr').textContent   = fmt(totalCredit);
+  const diff = totalDebit - totalCredit;
   const diffEl = document.getElementById('sumDiff');
   diffEl.textContent = fmt(Math.abs(diff));
   diffEl.className = 'sval ' + (Math.abs(diff) < 0.01 ? 'dr' : 'cr');
   document.getElementById('summary').style.display = '';
 
-  if(!d.accounts || d.accounts.length === 0){
+  if(accounts.length === 0){
     document.getElementById('tblWrap').style.display = 'none';
     document.getElementById('emptyMsg').style.display = '';
     return;
@@ -227,9 +236,12 @@ function renderReport(d){
   const tbody = document.getElementById('tblBody');
   tbody.innerHTML = '';
 
-  for(const a of d.accounts){
+  for(const a of accounts){
     const tr = document.createElement('tr');
-    const netCls = a.net > 0 ? 'net-pos' : a.net < 0 ? 'net-neg' : 'net-zero';
+    const debit = safeNum(a.debit);
+    const credit = safeNum(a.credit);
+    const net = safeNum(a.net ?? (debit - credit));
+    const netCls = net > 0 ? 'net-pos' : net < 0 ? 'net-neg' : 'net-zero';
     tr.innerHTML = `
       <td>
         <span class="acct-code">${esc(a.account_code)}</span>
@@ -238,9 +250,9 @@ function renderReport(d){
           ↗ ledger
         </button>
       </td>
-      <td class="dr-num">${fmt(a.debit)}</td>
-      <td class="cr-num">${fmt(a.credit)}</td>
-      <td class="net-num ${netCls}">${fmt(a.net)}</td>
+      <td class="dr-num">${fmt(debit)}</td>
+      <td class="cr-num">${fmt(credit)}</td>
+      <td class="net-num ${netCls}">${fmt(net)}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -250,9 +262,9 @@ function renderReport(d){
   totRow.className = 'totals-row';
   totRow.innerHTML = `
     <td style="font-weight:700">სულ</td>
-    <td class="dr-num" style="font-weight:700">${fmt(d.total_debit)}</td>
-    <td class="cr-num" style="font-weight:700">${fmt(d.total_credit)}</td>
-    <td class="net-num" style="font-weight:700;color:var(--ink)">${fmt(d.total_debit - d.total_credit)}</td>
+    <td class="dr-num" style="font-weight:700">${fmt(totalDebit)}</td>
+    <td class="cr-num" style="font-weight:700">${fmt(totalCredit)}</td>
+    <td class="net-num" style="font-weight:700;color:var(--ink)">${fmt(totalDebit - totalCredit)}</td>
   `;
   tbody.appendChild(totRow);
 }

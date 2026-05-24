@@ -157,6 +157,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(financial_statements_router)
     app.include_router(financial_statements_alias_router)
     app.include_router(routes_reports.router)
+    app.include_router(routes_reports.journal_router)
     app.include_router(fixed_assets_router)
     app.include_router(routes_security.router)
     app.include_router(routes_webhooks_v2.router)

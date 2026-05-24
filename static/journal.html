@@ -59,6 +59,16 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .btn-run:disabled{opacity:.5;cursor:not-allowed}
 
 /* journal cards */
+.journal-table-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
+.journal-table{width:100%;border-collapse:collapse;font-size:13px}
+.journal-table th{background:var(--paper-sunk);color:var(--ink-dim);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+.journal-table td{padding:11px 12px;border-bottom:1px solid var(--line-soft);vertical-align:middle;color:var(--ink)}
+.journal-table tr:hover td{background:var(--card-hover)}
+.journal-table tr:last-child td{border-bottom:none}
+.journal-table .mono{font-family:var(--mono);font-size:12px}
+.journal-table .amount{text-align:right;font-family:var(--mono);font-weight:700;white-space:nowrap}
+.journal-table .desc{max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-pill{display:inline-flex;align-items:center;border-radius:20px;padding:3px 8px;background:var(--paper-sunk);color:var(--ink-mute);font-size:11px;font-weight:600}
 .j-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden;transition:.15s}
 .j-card:hover{border-color:var(--accent-soft);box-shadow:0 2px 8px rgba(0,0,0,.06)}
 .j-card-head{padding:14px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;transition:.1s;position:relative}
@@ -179,7 +189,23 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
       </button>
     </div>
 
-    <div id="list"></div>
+    <div class="journal-table-wrap" id="journalTable" style="display:none">
+      <table class="journal-table">
+        <thead>
+          <tr>
+            <th>თარიღი</th>
+            <th>ჟურნალი #</th>
+            <th>აღწერა</th>
+            <th>Dr ანგარიში</th>
+            <th>Cr ანგარიში</th>
+            <th style="text-align:right">თანხა</th>
+            <th>სტატუსი</th>
+          </tr>
+        </thead>
+        <tbody id="journalBody"></tbody>
+      </table>
+    </div>
+    <div id="list" style="display:none"></div>
     <div id="emptyMsg" class="empty" style="display:none">მონაცემები ვერ მოიძებნა</div>
 
     <div class="pagination" id="pag" style="display:none">
@@ -193,7 +219,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 <script>
 const BASE = '';
 const token = () => localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
-const fmt = v => Number(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const safeNum = v => {
+  const n = parseFloat(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+const fmt = v => safeNum(v).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
 const PAGE = 50;
@@ -210,15 +240,16 @@ async function load(offset){
 
   const p = new URLSearchParams({limit: PAGE, offset});
   if(date) p.set('date', date);
-  const url = '/reports/journal?' + p.toString();
+  const url = '/journal/entries?' + p.toString();
 
   try {
     const res = await fetch(url, {headers:{'Authorization':'Bearer '+token()}});
     const d = await res.json();
     if(!d.ok) throw new Error(d.detail || 'შეცდომა');
-    totalItems = d.total;
-    ITEMS = d.items || [];
-    renderList(d);
+    const payload = d.data || d;
+    totalItems = payload.total || 0;
+    ITEMS = payload.items || [];
+    renderList(payload);
   } catch(e){
     toast('შეცდომა: ' + e.message, 'err');
   } finally {
@@ -232,14 +263,19 @@ function renderList(d){
   pill.textContent = `${d.total} ჩანაწერი`;
   pill.style.display = '';
 
+  const table = document.getElementById('journalTable');
+  const tbody = document.getElementById('journalBody');
   const list = document.getElementById('list');
+  tbody.innerHTML = '';
   list.innerHTML = '';
 
   if(!d.items || d.items.length === 0){
+    table.style.display = 'none';
     document.getElementById('emptyMsg').style.display = '';
     document.getElementById('pag').style.display = 'none';
     return;
   }
+  table.style.display = '';
   document.getElementById('emptyMsg').style.display = 'none';
 
   d.items.forEach((item, i) => {
@@ -248,6 +284,20 @@ function renderList(d){
 
     const drAcc = item.debit_account || item.account_code || '—';
     const crAcc = item.credit_account || '—';
+    const status = item.status || 'posted';
+    const tr = document.createElement('tr');
+    tr.onclick = () => openDetail(i);
+    tr.style.cursor = 'pointer';
+    tr.innerHTML = `
+      <td class="mono">${esc(item.date || '—')}</td>
+      <td class="mono">#${esc(item.id || item.journal_no || '—')}</td>
+      <td class="desc">${esc(item.description || item.reason || '—')}</td>
+      <td class="mono">${esc(drAcc)}</td>
+      <td class="mono">${esc(crAcc)}</td>
+      <td class="amount">${fmt(item.amount)} ₾</td>
+      <td><span class="status-pill">${esc(status)}</span></td>
+    `;
+    tbody.appendChild(tr);
     const partner = item.partner || item.counterparty_name || '';
 
     card.innerHTML = `

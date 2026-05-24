@@ -302,6 +302,7 @@ def test_reporting_endpoints_unauthenticated_get_401_or_403():
         client.get("/reports/trial-balance"),
         client.get("/reports/ledger/1210"),
         client.get("/reports/journal"),
+        client.get("/journal/entries"),
         client.get("/reports/counterparty/204123456"),
         client.get("/tax/vat-register?year=2026&month=5"),
     ]

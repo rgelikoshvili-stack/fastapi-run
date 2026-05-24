@@ -17,6 +17,7 @@ from app.api.services.payroll_service import normalize_payroll_report_filters
 from app.api.observability import structured_log
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+journal_router = APIRouter(prefix="/journal", tags=["reports"])
 log = logging.getLogger(__name__)
 
 
@@ -247,6 +248,20 @@ async def journal_report(
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     data = await get_journal_entries(tenant_id, date, limit, offset)
     return ok_response("Journal report", {"report": "journal", **data})
+
+
+@limiter.limit("10/minute")
+@journal_router.get("/entries")
+async def journal_entries_report(
+    request: Request,
+    date: Optional[str] = Query(None, description="YYYY-MM-DD — specific date, or omit for latest"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    require_permission(request, "reports:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    data = await get_journal_entries(tenant_id, date, limit, offset)
+    return ok_response("Journal entries", {"report": "journal", **data})
 
 
 @router.get("/pnl/detail")

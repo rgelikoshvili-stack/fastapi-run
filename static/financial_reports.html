@@ -87,6 +87,45 @@ table.recon td{padding:.5rem .75rem;border-bottom:1px solid #f0f2f5}
 .drawer-tx-amount.neg{color:#dc3545}
 .drawer-loading{text-align:center;padding:2rem;color:#6c757d}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Bridge Hub accounting paper theme */
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;
+  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
+  --green:#27500A;--green-bg:#EAF3DE;--red:#791F1F;--red-bg:#FCEBEB;
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',Georgia,serif;
+  --mono:'Geist Mono','Courier New',monospace;
+}
+body{font-family:var(--font);background:radial-gradient(900px 600px at 8% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);color:var(--ink)}
+.topbar{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--line);padding:1rem 1.5rem}
+.topbar a{color:var(--ink-mute)}.topbar a:hover{color:var(--accent)}
+h1,.card-title,.drawer-title{font-family:var(--serif);font-weight:400;color:var(--ink);letter-spacing:0}
+.tabs,.card,.drawer{background:var(--card);border:1px solid var(--line);box-shadow:none}
+.tabs{border-bottom:1px solid var(--line);border-radius:10px;padding:.5rem;margin-bottom:1rem}
+.tab{color:var(--ink-mute);border-radius:8px;margin-bottom:0}.tab:hover{background:var(--card-hover);color:var(--ink)}
+.tab.active{background:var(--ink);color:var(--paper);border-bottom-color:transparent}
+.card{border-radius:10px;overflow:hidden}.card-head,.drawer-head{border-bottom:1px solid var(--line-soft)}.card-body{background:rgba(250,243,227,.58)}
+input[type=month],input[type=date],select{background:var(--paper-soft);border:1px solid var(--line);color:var(--ink);border-radius:8px}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.btn{border-radius:8px}.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--accent)}
+.btn-ghost{background:var(--paper-soft);color:var(--ink-mute);border:1px solid var(--line)}.btn-ghost:hover{background:var(--card-hover);color:var(--ink)}
+.pnl-section-title{color:var(--accent);border-bottom-color:var(--line-strong)}
+.pnl-row:hover,.bs-item:hover,.drawer-tx:hover{background:var(--card-hover)}.pnl-row.subtotal,.bs-subtotal,.drawer-summary{background:var(--paper-soft)}
+.pnl-row.total,.bs-total{background:var(--ink);color:var(--paper)}
+.pnl-row.total.neg{background:var(--red)}.pnl-row.ebit-pos{background:var(--green-bg);color:var(--green)}.pnl-row.ebit-neg{background:var(--red-bg);color:var(--red)}
+.balanced-ok{background:var(--green-bg);color:var(--green)}.balanced-no{background:var(--red-bg);color:var(--red)}
+.recon-card{background:var(--paper-soft);border:1px solid var(--line);border-top:3px solid var(--line-strong)}
+.recon-card.matched{border-top-color:var(--green)}.recon-card.unmatched{border-top-color:var(--red)}
+.recon-val.green{color:var(--green)}.recon-val.red{color:var(--red)}.recon-val.blue{color:var(--accent)}
+table.recon th{background:var(--paper-sunk);border-bottom:1px solid var(--line);color:var(--ink-dim)}
+table.recon td,.drawer-tx{border-bottom:1px solid var(--line-soft)}
+.amount,.drawer-tx-amount{font-family:var(--mono)}
+.drawer-overlay{background:rgba(26,21,18,.45)}.drawer-close{color:var(--ink-dim)}
+.empty,.loading,.drawer-loading{color:var(--ink-dim);font-family:var(--serif);font-style:italic}
 </style>
 </head>
 <body>

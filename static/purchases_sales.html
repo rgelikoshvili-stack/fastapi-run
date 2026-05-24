@@ -73,6 +73,42 @@ tbody tr:hover{background:#fafcff}
 .mb12{margin-bottom:.75rem}
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid,.split{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}.line-grid{grid-template-columns:1fr 1fr 1fr 1fr}}
 @media(max-width:700px){.kpis{grid-template-columns:1fr}.tabs{overflow:auto}.line-grid{grid-template-columns:1fr 1fr}.topbar{padding:.75rem 1rem}}
+
+/* Bridge Hub accounting paper theme */
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;
+  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
+  --green:#27500A;--green-bg:#EAF3DE;--red:#791F1F;--red-bg:#FCEBEB;
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',Georgia,serif;
+  --mono:'Geist Mono','Courier New',monospace;
+}
+body{font-family:var(--font);background:radial-gradient(900px 600px at 8% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);color:var(--ink)}
+.topbar{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--line);padding:1rem 1.5rem}
+.topbar a{color:var(--ink-mute)}.topbar a:hover{color:var(--accent)}
+h1,.card-title,.sheet-title{font-family:var(--serif);font-weight:400;color:var(--ink);letter-spacing:0}
+.container{max-width:1440px;padding:1.5rem}
+.kpi,.tabs,.card,.mini,.sheet{background:var(--card);border:1px solid var(--line);box-shadow:none}
+.kpi{border-left:0;border-top:3px solid var(--accent);border-radius:10px}.kpi.warn{border-top-color:var(--red)}
+.kpi-label,.kpi-sub,.section-note,th{color:var(--ink-dim)}.kpi-val{color:var(--ink)}
+.tabs{border-bottom:1px solid var(--line);border-radius:10px;padding:.5rem;margin-bottom:1rem}
+.tab{color:var(--ink-mute);border-radius:8px;margin-bottom:0}.tab:hover{background:var(--card-hover);color:var(--ink)}
+.tab.active{background:var(--ink);color:var(--paper);border-bottom-color:transparent}
+.card{border-radius:10px;overflow:hidden}.card-head{border-bottom:1px solid var(--line-soft)}.card-body{background:rgba(250,243,227,.58)}
+input,select,textarea{background:var(--paper-soft);border:1px solid var(--line);color:var(--ink);border-radius:8px}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.btn{border-radius:8px}.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--accent)}
+.btn-outline,.btn-ghost{background:var(--paper-soft);color:var(--ink-mute);border:1px solid var(--line)}.btn-outline:hover,.btn-ghost:hover{background:var(--card-hover);color:var(--ink)}
+th{background:var(--paper-sunk);border-bottom:1px solid var(--line);font-weight:600}
+td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card-hover)}
+.mono,.amount{font-family:var(--mono)}
+.pill.sent,.pill.overdue{background:var(--red-bg);color:var(--red)}.pill.paid,.pill.received{background:var(--green-bg);color:var(--green)}
+.pill.draft,.pill.cancelled{background:var(--paper-sunk);color:var(--ink-mute)}.pill.partial{background:#fff3cd;color:#6f5205}
+.modal{background:rgba(26,21,18,.48)}.sheet-head{border-bottom:1px solid var(--line-soft)}.x{color:var(--ink-dim)}
+.empty{color:var(--ink-dim);font-family:var(--serif);font-style:italic}
 </style>
 </head>
 <body>

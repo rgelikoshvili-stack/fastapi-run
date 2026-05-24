@@ -121,7 +121,7 @@ def metrics(request: Request):
     """Prometheus metrics endpoint — internal use only."""
     from fastapi.responses import Response
     from app.api.authz import require_permission
-    require_permission(request, "tenants:manage")
+    require_permission(request, "dashboard:admin")
     if not _PROM_OK:
         return Response("# prometheus-client not installed\n", media_type="text/plain")
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

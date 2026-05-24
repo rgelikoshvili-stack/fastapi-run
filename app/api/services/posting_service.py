@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date as _date
 from typing import Any, List, Optional
@@ -551,6 +552,85 @@ def _is_period_locked_sync(cur, tenant_id: str, entry_date) -> bool:
     )
     return cur.fetchone() is not None
 
+def _ledger_writes_enabled() -> bool:
+    return os.getenv("POSTED_LEDGER_WRITES_ENABLED", "false").lower() == "true"
+
+
+async def _write_ledger_entries(
+    conn,
+    draft: dict,
+    payload: dict,
+    tenant_id: str,
+    target: str,
+    entry_hash: str,
+) -> None:
+    """Write header + lines + source to posted ledger tables.
+
+    Runs inside the caller's transaction (separate from the main posting tx).
+    Tables created by migration 011; only reached when POSTED_LEDGER_WRITES_ENABLED=true.
+    """
+    lines = draft.get("lines", [])
+    total_debit  = sum(_to_decimal(ln.get("debit",  0) or 0) for ln in lines)
+    total_credit = sum(_to_decimal(ln.get("credit", 0) or 0) for ln in lines)
+
+    entry_date_str = (draft.get("date") or "")[:10] or None
+    period = entry_date_str[:7] if entry_date_str and len(entry_date_str) >= 7 else "1970-01"
+
+    exchange_rate = Decimal(str(payload.get("exchange_rate", 1) or 1))
+    currency = (draft.get("currency") or "GEL").upper()
+
+    header_id = await conn.fetchval(_q("""
+        INSERT INTO journal_entry_headers (
+            tenant_id, entry_date, period, status, source_type, source_hash,
+            currency, exchange_rate, total_debit, total_credit, metadata_json
+        ) VALUES (
+            %s, %s::date, %s, 'posted', 'journal_draft', %s, %s, %s, %s, %s, %s::jsonb
+        )
+        RETURNING id
+    """),
+        tenant_id,
+        entry_date_str,
+        period,
+        entry_hash,
+        currency,
+        float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
+        float(total_debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+        float(total_credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+        json.dumps({"target_system": target, "source_hash": entry_hash}, ensure_ascii=False),
+    )
+
+    for idx, line in enumerate(lines, start=1):
+        account_code = str(line.get("account_code", "") or "").strip()
+        if not account_code:
+            continue
+        debit  = _to_decimal(line.get("debit",  0) or 0)
+        credit = _to_decimal(line.get("credit", 0) or 0)
+        amount = debit if debit > 0 else credit
+        amount_gel = (amount * exchange_rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        await conn.execute(_q("""
+            INSERT INTO journal_entry_lines (
+                tenant_id, journal_entry_id, line_no, account_code,
+                debit, credit, currency, exchange_rate, amount_gel, description
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """),
+            tenant_id, header_id, idx, account_code,
+            float(debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+            float(credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+            currency,
+            float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
+            float(amount_gel),
+            str(line.get("label", "") or draft.get("description", "") or ""),
+        )
+
+    await conn.execute(_q("""
+        INSERT INTO journal_entry_sources (
+            tenant_id, journal_entry_id, source_type, source_id
+        ) VALUES (%s, %s, 'journal_draft', %s)
+    """),
+        tenant_id, header_id, str(draft.get("id", "")),
+    )
+
+
 async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
     import asyncpg
     target_normalized = _normalize_target(target)
@@ -860,6 +940,20 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     draft_id, tenant_id,
                 )
                 await tr.commit()
+
+                # H70 — write to posted ledger tables (gated by POSTED_LEDGER_WRITES_ENABLED)
+                if _ledger_writes_enabled():
+                    try:
+                        async with conn.transaction():
+                            await _write_ledger_entries(
+                                conn, draft, payload, tenant_id, target_normalized, entry_hash
+                            )
+                    except Exception as _ledger_exc:
+                        log.error(
+                            "ledger_write_failed draft_id=%s tenant=%s target=%s: %s",
+                            draft_id, tenant_id, target_normalized, _ledger_exc,
+                        )
+
                 log_event(
                     "posting_attempt_finished",
                     {

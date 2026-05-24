@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, Request
 
 from app.api.response_utils import ok_response, error_response
 from app.api.authz import require_permission
@@ -50,7 +50,8 @@ def expense_articles_search(
 
 
 @router.post("/upsert")
-def expense_articles_upsert(payload: dict = Body(...)):
+def expense_articles_upsert(request: Request, payload: dict = Body(...)):
+    require_permission(request, "settings:write")
     try:
         result = upsert_expense_article(payload)
         if not result.get("ok"):
@@ -61,7 +62,8 @@ def expense_articles_upsert(payload: dict = Body(...)):
 
 
 @router.post("/bulk-upsert")
-def expense_articles_bulk_upsert(payload: list[dict] = Body(...)):
+def expense_articles_bulk_upsert(request: Request, payload: list[dict] = Body(...)):
+    require_permission(request, "settings:write")
     try:
         result = bulk_upsert_expense_articles(payload)
         return ok_response("Expense articles bulk upsert finished", result)

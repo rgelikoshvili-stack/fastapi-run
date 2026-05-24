@@ -153,7 +153,8 @@ async def send_message(
 
 
 @router.delete("/session/{session_id}")
-def clear_session(session_id: str):
+def clear_session(session_id: str, request: Request):
+    require_permission(request, "chat:use")
     _sessions.pop(session_id, None)
     return ok_response("Session cleared", {"session_id": session_id})
 

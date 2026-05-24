@@ -7,6 +7,7 @@ from datetime import datetime
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.response_utils import ok_response, error_response
+from app.api.authz import require_permission
 log = logging.getLogger(__name__)
 
 
@@ -68,6 +69,7 @@ def list_events():
 
 @router.post("/create")
 async def create_webhook(data: WebhookCreate, request: Request):
+    require_permission(request, "tenants:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     invalid = [e for e in data.events if e not in AVAILABLE_EVENTS]
     if invalid:
@@ -94,6 +96,7 @@ async def list_webhooks(request: Request):
 
 @router.post("/trigger")
 async def trigger_webhook(req: WebhookTrigger, request: Request):
+    require_permission(request, "tenants:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if req.event not in AVAILABLE_EVENTS:
         return error_response("Invalid event", "VALIDATION_ERROR", f"Use: {AVAILABLE_EVENTS}")
@@ -123,6 +126,7 @@ async def webhook_logs(request: Request):
 
 @router.delete("/delete/{webhook_id}")
 async def delete_webhook(webhook_id: int, request: Request):
+    require_permission(request, "tenants:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         await conn.execute(_q("UPDATE webhooks SET active=FALSE WHERE id=%s AND tenant_id=%s"), webhook_id, tenant_id)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -20,7 +20,8 @@ class TransactionMemoryUpsertRequest(BaseModel):
 
 
 @router.post("/upsert")
-def transaction_memory_upsert(data: TransactionMemoryUpsertRequest):
+def transaction_memory_upsert(data: TransactionMemoryUpsertRequest, request: Request):
+    require_permission(request, "settings:write")
     try:
         result = save_transaction_memory(
             description=data.description,

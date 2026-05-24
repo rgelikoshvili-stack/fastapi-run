@@ -16,6 +16,7 @@ from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger(__name__)
@@ -514,9 +515,8 @@ class SignatureRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_signature(data: SignatureRequest, request: Request):
     """Save tenant signature/stamp image (base64)."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    if not getattr(request.state, "authenticated", False):
-        return error_response("Unauthorized", "AUTH_ERROR")
     b64 = data.signature_b64.strip()
     if len(b64) > 2_000_000:
         return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")
@@ -542,9 +542,8 @@ class StampRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_stamp(data: StampRequest, request: Request):
     """Save tenant stamp image (base64)."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    if not getattr(request.state, "authenticated", False):
-        return error_response("Unauthorized", "AUTH_ERROR")
     b64 = data.stamp_b64.strip()
     if len(b64) > 2_000_000:
         return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")

@@ -82,8 +82,9 @@ async def get_rates(date: Optional[str] = Query(None, description="YYYY-MM-DD; d
 
 
 @router.post("/convert")
-def convert_currency(data: ConvertRequest):
+def convert_currency(data: ConvertRequest, request: Request):
     """Convert amount between any two currencies via GEL."""
+    require_permission(request, "reports:read")
     from_cur = data.from_currency.upper()
     to_cur   = (data.to_currency or "GEL").upper()
     try:
@@ -95,12 +96,14 @@ def convert_currency(data: ConvertRequest):
 
 @router.get("/convert")
 def convert_currency_get(
+    request: Request,
     from_currency: str = Query(..., description="Source currency code (e.g. USD)"),
     to_currency:   str = Query("GEL", description="Target currency code"),
     amount:        float = Query(..., description="Amount to convert"),
     date:          Optional[str] = Query(None, description="YYYY-MM-DD"),
 ):
     """GET-friendly currency conversion."""
+    require_permission(request, "reports:read")
     try:
         result = convert(Decimal(str(amount)), from_currency.upper(), to_currency.upper(), date)
         return ok_response("Converted", result)

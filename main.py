@@ -117,9 +117,11 @@ def hub_map():
 
 
 @app.get("/metrics", include_in_schema=False)
-def metrics():
+def metrics(request: Request):
     """Prometheus metrics endpoint — internal use only."""
     from fastapi.responses import Response
+    from app.api.authz import require_permission
+    require_permission(request, "tenants:manage")
     if not _PROM_OK:
         return Response("# prometheus-client not installed\n", media_type="text/plain")
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

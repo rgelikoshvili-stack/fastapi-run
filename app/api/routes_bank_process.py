@@ -11,6 +11,7 @@ router = APIRouter(prefix="/bank-csv", tags=["bank-csv"])
 
 @router.post("/process")
 async def process_bank_file(request: Request, file: UploadFile = File(...)):
+    require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     content = await file.read()
     filename = file.filename or ""

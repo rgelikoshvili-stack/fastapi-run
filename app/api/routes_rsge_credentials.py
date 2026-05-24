@@ -75,6 +75,7 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
 @router.post("/test")
 async def test_connection(request: Request):
     """Verify credentials are saved. Live portal validation coming soon."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:

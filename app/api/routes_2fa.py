@@ -28,6 +28,7 @@ class TOTPEnableRequest(BaseModel):
 @router.post("/setup")
 async def setup_2fa(request: Request):
     """Step 1 — generate secret + QR code. User scans with Authenticator app."""
+    require_permission(request, "settings:write")
     require_auth(request)
     user_id = getattr(request.state, "user_id", None)
     email = getattr(request.state, "email", "user")
@@ -40,7 +41,6 @@ async def setup_2fa(request: Request):
 
     async with get_conn() as conn:
         await conn.execute("""
-    require_permission(request, "settings:write")
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS totp_secret TEXT,
                 ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE

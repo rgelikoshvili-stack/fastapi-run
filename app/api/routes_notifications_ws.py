@@ -9,6 +9,7 @@ from typing import Dict, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
+from app.api.authz import require_permission
 
 router = APIRouter(prefix="/notifications/ws", tags=["notifications-ws"])
 
@@ -122,6 +123,7 @@ async def get_pending_notifications(request: Request):
 @router.post("/push")
 async def push_notification(request: Request):
     """ხელით notification-ის გაგზავნა ყველა connected client-ზე."""
+    require_permission(request, "notifications:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     body = await request.json()
     message = {

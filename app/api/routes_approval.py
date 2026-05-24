@@ -289,6 +289,7 @@ def run_autopilot(request: Request):
 async def preview_draft(payload: dict, request: Request):
     """Unified preview: uses posting_preview_service when draft_id is supplied (full Dr/Cr impact),
     otherwise falls back to simple summary preview."""
+    require_permission(request, "approval:read")
     try:
         draft_id = payload.get("draft_id") or payload.get("id")
         if draft_id:

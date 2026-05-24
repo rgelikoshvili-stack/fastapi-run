@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from app.schemas.canonical import CanonicalBankTransaction
 from app.engines.audit_engine import run_all_checks, get_issues, ISSUES
 from app.api.authz import require_permission
@@ -7,7 +7,8 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 @router.post("/check")
-def audit_check(tx: CanonicalBankTransaction):
+def audit_check(tx: CanonicalBankTransaction, request: Request):
+    require_permission(request, "audit:view")
     issues = run_all_checks(tx)
     return {
         "ok": True,
@@ -17,7 +18,8 @@ def audit_check(tx: CanonicalBankTransaction):
 
 
 @router.get("/issues")
-def list_issues(severity: str = ""):
+def list_issues(request: Request, severity: str = ""):
+    require_permission(request, "audit:view")
     return {
         "ok": True,
         "count": len(get_issues(severity)),
@@ -27,9 +29,11 @@ def list_issues(severity: str = ""):
 
 @router.get("/log")
 def get_audit_log(
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
+    require_permission(request, "audit:view")
     items = ISSUES[offset:offset + limit]
     return {
         "ok": True,
@@ -45,7 +49,8 @@ def get_audit_log(
 
 
 @router.post("/resolve/{issue_id}")
-def resolve_issue(issue_id: str, resolved_by: str = "user"):
+def resolve_issue(issue_id: str, request: Request, resolved_by: str = "user"):
+    require_permission(request, "audit:view")
     for issue in ISSUES:
         if issue["id"] == issue_id:
             issue["status"] = "resolved"

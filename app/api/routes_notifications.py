@@ -246,7 +246,8 @@ async def notifications_feed(
 
 
 @router.post("/test")
-def test_notification(req: TestEmailRequest):
+def test_notification(req: TestEmailRequest, request: Request):
+    require_permission(request, "notifications:write")
     to_email = req.to or req.email
     result = send_email(
         to_email,
@@ -295,7 +296,8 @@ async def notify_review(req: TestEmailRequest, request: Request):
 
 
 @router.post("/reconciliation-report")
-def notify_reconcile(req: NotifyReconcileRequest):
+def notify_reconcile(req: NotifyReconcileRequest, request: Request):
+    require_permission(request, "notifications:write")
     to_email = req.to or req.email
 
     from app.api.routes_reconciliation_v2 import run_reconciliation

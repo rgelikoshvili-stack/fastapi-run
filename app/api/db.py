@@ -58,14 +58,16 @@ async def get_pool() -> asyncpg.Pool:
             min_size=min_size,
             max_size=max_size,
             command_timeout=30,
-            # Recycle idle connections after 5 min so Cloud SQL proxy never
-            # drops them server-side while they sit unused between background
-            # task runs.  Default asyncpg value is also 300 s; making it
-            # explicit here allows easy tuning without hunting for the default.
-            max_inactive_connection_lifetime=300.0,
+            # Recycle idle connections after 60 s.  email_poller runs every
+            # 300 s; with the default 300 s lifetime the pool connection sits
+            # idle for exactly 300 s before the next acquire, landing on the
+            # boundary where Cloud SQL proxy drops it — causing
+            # ConnectionDoesNotExistError every poller cycle.  60 s ensures
+            # every background-task acquire gets a fresh connection.
+            max_inactive_connection_lifetime=60.0,
         )
         log.info(
-            "asyncpg pool created min=%d max=%d inactive_lifetime=300s",
+            "asyncpg pool created min=%d max=%d inactive_lifetime=60s",
             min_size, max_size,
         )
     return _async_pool

@@ -50,12 +50,12 @@ class TestPoolConfiguration:
             "max_inactive_connection_lifetime not set in asyncpg.create_pool()"
         )
 
-    def test_max_inactive_connection_lifetime_value_300(self):
-        """max_inactive_connection_lifetime must be 300.0 (matches Cloud SQL proxy idle window)."""
+    def test_max_inactive_connection_lifetime_value_60(self):
+        """max_inactive_connection_lifetime must be 60.0 (well below Cloud SQL proxy 5-min idle drop)."""
         import pathlib
         src = pathlib.Path("app/api/db.py").read_text(encoding="utf-8")
-        assert "max_inactive_connection_lifetime=300.0" in src, (
-            "Expected max_inactive_connection_lifetime=300.0 in create_pool() call"
+        assert "max_inactive_connection_lifetime=60.0" in src, (
+            "Expected max_inactive_connection_lifetime=60.0 in create_pool() call"
         )
 
     def test_command_timeout_set(self):
@@ -83,8 +83,8 @@ class TestPoolConfiguration:
                 await db_module.get_pool()
 
         kwargs = mock_create.call_args.kwargs
-        assert kwargs.get("max_inactive_connection_lifetime") == 300.0, (
-            f"Expected max_inactive_connection_lifetime=300.0, got {kwargs}"
+        assert kwargs.get("max_inactive_connection_lifetime") == 60.0, (
+            f"Expected max_inactive_connection_lifetime=60.0, got {kwargs}"
         )
         assert kwargs.get("command_timeout") == 30
         db_module._async_pool = orig_pool

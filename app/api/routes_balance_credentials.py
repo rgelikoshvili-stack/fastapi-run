@@ -9,7 +9,7 @@ from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
 from app.api.services.balance_credentials_service import (
-    get_credentials_status,
+    get_vault_status,
     save_balance_credentials,
 )
 from app.api.services.credential_response_sanitizer import sanitize_credential_response
@@ -27,7 +27,7 @@ class BalanceCredsPayload(BaseModel):
 async def get_status(request: Request):
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    status = await get_credentials_status(tenant_id)
+    status = await get_vault_status(tenant_id)
     return ok_response("ok", sanitize_credential_response(status))
 
 
@@ -37,11 +37,13 @@ async def save_creds(body: BalanceCredsPayload, request: Request):
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     if not body.api_key:
         return error_response("api_key required", "ERROR", "")
+    actor = getattr(request.state, "user_id", None)
     ok = await save_balance_credentials(
         tenant_id=tenant_id,
         api_key=body.api_key,
         company_id=body.company_id or "",
         api_base=body.api_base or "https://api.balance.ge",
+        actor=actor,
     )
     if ok:
         return ok_response("ok", {"message": "Balance.ge credentials saved"})

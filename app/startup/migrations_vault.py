@@ -98,7 +98,26 @@ def run_vault_migrations(cur) -> None:
             conn.rollback()
             log.debug("vault additive column %s.%s skipped: %s", table, col, exc)
 
-    # G) Indexes
+    # G) Make api_key nullable on tenant_balance_credentials to allow vault-only records
+    try:
+        cur.execute("""
+            DO $$ BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'tenant_balance_credentials'
+                      AND column_name = 'api_key'
+                      AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE tenant_balance_credentials ALTER COLUMN api_key DROP NOT NULL;
+                END IF;
+            END $$;
+        """)
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        log.debug("tenant_balance_credentials api_key nullable migration skipped: %s", exc)
+
+    # H) Indexes
     _indexes = [
         ("idx_credential_vault_tenant_provider_type",
          "credential_vault_credentials (tenant_id, provider, credential_type)"),

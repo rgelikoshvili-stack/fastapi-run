@@ -569,6 +569,23 @@ async def _write_ledger_entries(
     Runs inside the caller's transaction (separate from the main posting tx).
     Tables created by migration 011; only reached when POSTED_LEDGER_WRITES_ENABLED=true.
     """
+    # REQ-5: idempotent pre-check — skip if source already written for this draft
+    draft_id_str = str(draft.get("id", ""))
+    if draft_id_str:
+        existing = await conn.fetchval(_q("""
+            SELECT id FROM journal_entry_sources
+            WHERE tenant_id = %s AND source_type = 'journal_draft' AND source_id = %s
+            LIMIT 1
+        """), tenant_id, draft_id_str)
+        if existing is not None:
+            log_event("ledger_write_skipped", {
+                "entity_type": "journal_draft",
+                "entity_id": draft.get("id"),
+                "target": target,
+                "existing_source_id": str(existing),
+            }, tenant_id=tenant_id)
+            return
+
     lines = draft.get("lines", [])
     total_debit  = sum(_to_decimal(ln.get("debit",  0) or 0) for ln in lines)
     total_credit = sum(_to_decimal(ln.get("credit", 0) or 0) for ln in lines)
@@ -629,6 +646,75 @@ async def _write_ledger_entries(
     """),
         tenant_id, header_id, str(draft.get("id", "")),
     )
+
+
+async def get_ledger_recovery_candidates(tenant_id: str) -> list[dict]:
+    """REQ-2: Return posted drafts with no corresponding journal_entry_sources row."""
+    sql = _q("""
+        SELECT jd.id, jd.date, jd.description, jd.amount
+        FROM journal_drafts jd
+        WHERE jd.tenant_id = %s
+          AND jd.status = 'posted'
+          AND NOT EXISTS (
+              SELECT 1 FROM journal_entry_sources jes
+              WHERE jes.tenant_id = %s
+                AND jes.source_type = 'journal_draft'
+                AND jes.source_id = jd.id::text
+          )
+        ORDER BY jd.id
+        LIMIT 500
+    """)
+    async with get_conn() as conn:
+        rows = await conn.fetch(sql, tenant_id, tenant_id)
+    return [
+        {
+            "id": r["id"],
+            "date": str(r["date"] or ""),
+            "description": r["description"],
+            "amount": float(r["amount"] or 0),
+        }
+        for r in rows
+    ]
+
+
+async def retry_ledger_write(draft_id: int, tenant_id: str) -> dict:
+    """REQ-3 + REQ-4: Idempotent retry of a failed ledger write. Emits ledger_write_recovered on success."""
+    async with get_conn() as conn:
+        draft_row = await conn.fetchrow(_q("""
+            SELECT id, tenant_id, date, description,
+                   COALESCE(currency, 'GEL') AS currency,
+                   COALESCE(lines_json, '[]'::jsonb) AS lines_json
+            FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s AND status = 'posted'
+        """), draft_id, tenant_id)
+
+        if not draft_row:
+            return {"ok": False, "error": "draft not found or not posted"}
+
+        draft = {
+            "id": draft_row["id"],
+            "date": str(draft_row["date"] or ""),
+            "description": draft_row["description"],
+            "currency": draft_row["currency"],
+            "lines": _normalize_lines(draft_row["lines_json"]),
+        }
+        payload: dict = {}
+        entry_hash = hashlib.sha256(
+            json.dumps({"id": draft_id, "tenant_id": tenant_id}, sort_keys=True).encode()
+        ).hexdigest()
+
+        try:
+            async with conn.transaction():
+                await _write_ledger_entries(conn, draft, payload, tenant_id, "recovery", entry_hash)
+            log_event("ledger_write_recovered", {
+                "entity_type": "journal_draft",
+                "entity_id": draft_id,
+                "target": "recovery",
+            }, tenant_id=tenant_id)
+            return {"ok": True, "draft_id": draft_id}
+        except Exception as exc:
+            log.error("ledger_retry_failed draft_id=%s tenant=%s error=%s", draft_id, tenant_id, exc)
+            return {"ok": False, "error": str(exc)}
 
 
 async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
@@ -949,8 +1035,14 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                                 conn, draft, payload, tenant_id, target_normalized, entry_hash
                             )
                     except Exception as _ledger_exc:
+                        log_event("ledger_write_failed", {
+                            "entity_type": "journal_draft",
+                            "entity_id": draft_id,
+                            "target": target_normalized,
+                            "error": str(_ledger_exc),
+                        }, tenant_id=tenant_id)
                         log.error(
-                            "ledger_write_failed draft_id=%s tenant=%s target=%s: %s",
+                            "action=ledger_write_failed draft_id=%s tenant=%s target=%s error=%s",
                             draft_id, tenant_id, target_normalized, _ledger_exc,
                         )
 

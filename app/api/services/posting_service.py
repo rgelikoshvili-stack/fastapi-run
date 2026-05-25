@@ -592,6 +592,8 @@ async def _write_ledger_entries(
 
     entry_date_str = (draft.get("date") or "")[:10] or None
     period = entry_date_str[:7] if entry_date_str and len(entry_date_str) >= 7 else "1970-01"
+    # asyncpg requires a datetime.date object for date columns
+    entry_date_val = _date.fromisoformat(entry_date_str) if entry_date_str else None
 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 1) or 1))
     currency = (draft.get("currency") or "GEL").upper()
@@ -601,12 +603,12 @@ async def _write_ledger_entries(
             tenant_id, entry_date, period, status, source_type, source_hash,
             currency, exchange_rate, total_debit, total_credit, metadata_json
         ) VALUES (
-            %s, %s::date, %s, 'posted', 'journal_draft', %s, %s, %s, %s, %s, %s::jsonb
+            %s, %s, %s, 'posted', 'journal_draft', %s, %s, %s, %s, %s, %s::jsonb
         )
         RETURNING id
     """),
         tenant_id,
-        entry_date_str,
+        entry_date_val,
         period,
         entry_hash,
         currency,

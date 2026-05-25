@@ -437,8 +437,9 @@ async def get_company_profile(authorization: Optional[str] = Header(None)):
 
 
 @router.patch("/company-profile")
-async def update_company_profile(data: CompanyProfileRequest, authorization: Optional[str] = Header(None)):
+async def update_company_profile(data: CompanyProfileRequest, request: Request, authorization: Optional[str] = Header(None)):
     """Update company INN, name, type, and VAT status for the current tenant."""
+    require_permission(request, "settings:write")
     token = _extract_bearer_token(authorization)
     if not token:
         return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")

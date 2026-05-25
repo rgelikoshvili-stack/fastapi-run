@@ -12,7 +12,6 @@ No real DB connections — CredentialVaultService is mocked throughout.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -72,17 +71,14 @@ class _FakeRequest:
     state = _FakeState()
 
 
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-
 # ---------------------------------------------------------------------------
 # GET /status
 # ---------------------------------------------------------------------------
 
 class TestVaultStatusEndpoint:
 
-    def test_status_returns_masked_hint_only(self):
+    @pytest.mark.asyncio
+    async def test_status_returns_masked_hint_only(self):
         """GET /status response must contain masked_hint."""
         mock_svc = _mock_vault_service()
         from app.api.routes_credential_vault import get_credential_status
@@ -90,11 +86,12 @@ class TestVaultStatusEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(get_credential_status("balance", "api_key", _FakeRequest()))
+            result = await get_credential_status("balance", "api_key", _FakeRequest())
         assert result["ok"] is True
         assert "****" in str(result["data"].get("masked_hint", ""))
 
-    def test_status_no_raw_secret_in_response(self):
+    @pytest.mark.asyncio
+    async def test_status_no_raw_secret_in_response(self):
         """Response must never contain the raw api_key value."""
         raw_secret = "VERY_SECRET_API_KEY_ABCD1234"
         mock_svc = _mock_vault_service(status_return={
@@ -107,10 +104,11 @@ class TestVaultStatusEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(get_credential_status("balance", "api_key", _FakeRequest()))
+            result = await get_credential_status("balance", "api_key", _FakeRequest())
         assert raw_secret not in json.dumps(result)
 
-    def test_status_not_configured_returns_safe_dict(self):
+    @pytest.mark.asyncio
+    async def test_status_not_configured_returns_safe_dict(self):
         """Not-configured credential returns configured=False safely."""
         mock_svc = _mock_vault_service(status_return={
             "configured": False,
@@ -122,11 +120,12 @@ class TestVaultStatusEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(get_credential_status("balance", "api_key", _FakeRequest()))
+            result = await get_credential_status("balance", "api_key", _FakeRequest())
         assert result["ok"] is True
         assert result["data"]["configured"] is False
 
-    def test_status_response_no_encrypted_value(self):
+    @pytest.mark.asyncio
+    async def test_status_response_no_encrypted_value(self):
         """Status response must never expose encrypted_value field."""
         mock_svc = _mock_vault_service(status_return={
             "configured": True,
@@ -138,7 +137,7 @@ class TestVaultStatusEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(get_credential_status("balance", "api_key", _FakeRequest()))
+            result = await get_credential_status("balance", "api_key", _FakeRequest())
         assert "encrypted_value" not in json.dumps(result)
 
 
@@ -148,7 +147,8 @@ class TestVaultStatusEndpoint:
 
 class TestVaultSaveEndpoint:
 
-    def test_save_returns_masked_hint_not_raw(self):
+    @pytest.mark.asyncio
+    async def test_save_returns_masked_hint_not_raw(self):
         """POST save — response contains masked_hint, never raw secret."""
         raw_secret = "SK_LIVE_SECRET_BALANCE_KEY_ABCDE"
         mock_svc = _mock_vault_service(save_return={
@@ -163,19 +163,21 @@ class TestVaultSaveEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(save_credential("balance", "api_key", body, _FakeRequest()))
+            result = await save_credential("balance", "api_key", body, _FakeRequest())
         assert raw_secret not in json.dumps(result)
         assert "****BCDE" in json.dumps(result)
 
-    def test_save_empty_raw_value_returns_error(self):
+    @pytest.mark.asyncio
+    async def test_save_empty_raw_value_returns_error(self):
         """Empty raw_value must return error response."""
         from app.api.routes_credential_vault import save_credential, SaveCredentialPayload
         body = SaveCredentialPayload(raw_value="")
         with patch("app.api.routes_credential_vault.require_permission"):
-            result = _run(save_credential("balance", "api_key", body, _FakeRequest()))
+            result = await save_credential("balance", "api_key", body, _FakeRequest())
         assert result["ok"] is False
 
-    def test_save_configured_true_in_response(self):
+    @pytest.mark.asyncio
+    async def test_save_configured_true_in_response(self):
         """Successful save returns configured=True."""
         mock_svc = _mock_vault_service()
         from app.api.routes_credential_vault import save_credential, SaveCredentialPayload
@@ -184,11 +186,12 @@ class TestVaultSaveEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(save_credential("balance", "api_key", body, _FakeRequest()))
+            result = await save_credential("balance", "api_key", body, _FakeRequest())
         assert result["ok"] is True
         assert result["data"]["configured"] is True
 
-    def test_save_no_encrypted_value_in_response(self):
+    @pytest.mark.asyncio
+    async def test_save_no_encrypted_value_in_response(self):
         """Save response must never include encrypted_value field."""
         mock_svc = _mock_vault_service()
         from app.api.routes_credential_vault import save_credential, SaveCredentialPayload
@@ -197,7 +200,7 @@ class TestVaultSaveEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(save_credential("balance", "api_key", body, _FakeRequest()))
+            result = await save_credential("balance", "api_key", body, _FakeRequest())
         assert "encrypted_value" not in json.dumps(result)
 
 
@@ -207,7 +210,8 @@ class TestVaultSaveEndpoint:
 
 class TestVaultRotateEndpoint:
 
-    def test_rotate_returns_new_masked_hint(self):
+    @pytest.mark.asyncio
+    async def test_rotate_returns_new_masked_hint(self):
         """POST /rotate returns new masked_hint, never raw value."""
         new_secret = "NEW_SECRET_API_KEY_ROTATE_ABCDEFGH"
         mock_svc = _mock_vault_service(rotate_return={
@@ -222,12 +226,13 @@ class TestVaultRotateEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(rotate_credential("balance", "api_key", body, _FakeRequest()))
+            result = await rotate_credential("balance", "api_key", body, _FakeRequest())
         assert new_secret not in json.dumps(result)
         assert "****EFGH" in json.dumps(result)
         assert result["data"]["rotated"] is True
 
-    def test_rotate_not_found_returns_error(self):
+    @pytest.mark.asyncio
+    async def test_rotate_not_found_returns_error(self):
         """RuntimeError CREDENTIAL_NOT_FOUND → NOT_FOUND error response."""
         mock_svc = MagicMock()
         mock_svc.rotate_credential = AsyncMock(
@@ -239,16 +244,17 @@ class TestVaultRotateEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(rotate_credential("balance", "api_key", body, _FakeRequest()))
+            result = await rotate_credential("balance", "api_key", body, _FakeRequest())
         assert result["ok"] is False
         assert result["error"]["code"] == "NOT_FOUND"
 
-    def test_rotate_empty_new_value_returns_error(self):
+    @pytest.mark.asyncio
+    async def test_rotate_empty_new_value_returns_error(self):
         """Empty new_raw_value returns error immediately."""
         from app.api.routes_credential_vault import rotate_credential, RotateCredentialPayload
         body = RotateCredentialPayload(new_raw_value="")
         with patch("app.api.routes_credential_vault.require_permission"):
-            result = _run(rotate_credential("balance", "api_key", body, _FakeRequest()))
+            result = await rotate_credential("balance", "api_key", body, _FakeRequest())
         assert result["ok"] is False
 
 
@@ -258,7 +264,8 @@ class TestVaultRotateEndpoint:
 
 class TestVaultDisableEndpoint:
 
-    def test_disable_returns_disabled_true(self):
+    @pytest.mark.asyncio
+    async def test_disable_returns_disabled_true(self):
         """DELETE disables credential and confirms disabled=True."""
         mock_svc = _mock_vault_service(disable_return={"disabled": True})
         from app.api.routes_credential_vault import disable_credential
@@ -266,7 +273,7 @@ class TestVaultDisableEndpoint:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(disable_credential("balance", "api_key", _FakeRequest()))
+            result = await disable_credential("balance", "api_key", _FakeRequest())
         assert result["ok"] is True
         assert result["data"]["disabled"] is True
 
@@ -285,7 +292,8 @@ class TestVaultNoSecrets:
         assert "postgresql://" not in src
         assert not re.search(r'api_key\s*=\s*["\'][^"\']{8,}["\']', src, re.I)
 
-    def test_response_never_returns_encrypted_value_field(self):
+    @pytest.mark.asyncio
+    async def test_response_never_returns_encrypted_value_field(self):
         """Status response must never expose encrypted_value."""
         mock_svc = _mock_vault_service(status_return={
             "configured": True,
@@ -297,7 +305,7 @@ class TestVaultNoSecrets:
              patch("app.api.routes_credential_vault.require_permission"), \
              patch("app.api.services.credential_vault_service.CredentialVaultService",
                    return_value=mock_svc):
-            result = _run(get_credential_status("balance", "api_key", _FakeRequest()))
+            result = await get_credential_status("balance", "api_key", _FakeRequest())
         assert "encrypted_value" not in json.dumps(result)
 
     def test_migrations_vault_module_no_hardcoded_secrets(self):

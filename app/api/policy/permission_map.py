@@ -150,6 +150,7 @@
     ("*",      "/tenants",            "tenants:manage"),
     ("*",      "/system",             "tenants:manage"),
     ("*",      "/rbac",               "tenants:manage"),
+    ("*",      "/vault/credentials",  "tenants:manage"),
 
     # ── Settings / Integrations ───────────────────────────────────────────────
     ("*",      "/security",           "settings:write"),

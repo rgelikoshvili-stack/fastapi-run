@@ -186,6 +186,13 @@ def phase3_direct_sql(conn):
         VALUES (%s, %s, 'journal_draft', %s)
     """, (TEST_TENANT, header_id, str(TEST_DRAFT_ID)))
 
+    # Source: posting_log (G8B — schema accepts TEXT source_id for UUID posting_log reference)
+    test_posting_log_id = "b1c2d3e4-f5a6-7890-bcde-f01234567890"
+    cur.execute("""
+        INSERT INTO journal_entry_sources (tenant_id, journal_entry_id, source_type, source_id)
+        VALUES (%s, %s, 'posting_log', %s)
+    """, (TEST_TENANT, header_id, test_posting_log_id))
+
     # Verify within transaction
     cur.execute("SELECT COUNT(*) FROM journal_entry_headers WHERE tenant_id=%s", (TEST_TENANT,))
     assert cur.fetchone()[0] == 1, "Expected 1 header"
@@ -197,10 +204,11 @@ def phase3_direct_sql(conn):
     log.info("    DR=%.2f CR=%.2f balanced=True ✓", float(row[0]), float(row[1]))
     results["direct_balanced"] = PASS
 
-    # ── 3b: Verify source_type='journal_draft' written ────────────────────────
+    # ── 3b: Verify source rows written ───────────────────────────────────────
     cur.execute("""
         SELECT source_type, source_id FROM journal_entry_sources
         WHERE tenant_id=%s AND journal_entry_id=%s
+        ORDER BY source_type
     """, (TEST_TENANT, header_id))
     sources = cur.fetchall()
     source_types = {r[0] for r in sources}
@@ -208,12 +216,11 @@ def phase3_direct_sql(conn):
     log.info("    source journal_draft: present ✓")
     results["source_journal_draft"] = PASS
 
-    # source_type='posting_log' — NOT implemented in current _write_ledger_entries
-    if "posting_log" in source_types:
-        results["source_posting_log"] = PASS
-    else:
-        log.info("    source posting_log: NOT_IMPLEMENTED (tracked, non-blocking)")
-        results["source_posting_log"] = "NOT_IMPLEMENTED"
+    assert "posting_log" in source_types, "Missing posting_log source (G8B)"
+    pl_source = next(r for r in sources if r[0] == "posting_log")
+    assert pl_source[1] == test_posting_log_id, f"posting_log source_id mismatch: {pl_source[1]}"
+    log.info("    source posting_log: present source_id=%s ✓", pl_source[1])
+    results["source_posting_log"] = PASS
 
     # ── 3c: Balanced constraint enforced ──────────────────────────────────────
     log.info("  3c: Verify ck_jeh_balanced rejects unbalanced row")
@@ -318,7 +325,9 @@ async def phase4_service_layer():
             {"account_code": "3100", "debit": 0.0,    "credit": 500.0, "label": "CR test"},
         ],
     }
-    payload = {"exchange_rate": 1.0}
+    # G8B: supply a posting_log_id so the service layer writes both source rows
+    test_pl_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    payload = {"exchange_rate": 1.0, "posting_log_id": test_pl_id}
     entry_hash = hashlib.sha256(
         json.dumps({"id": TEST_DRAFT_ID, "tenant": TEST_TENANT}, sort_keys=True).encode()
     ).hexdigest()
@@ -348,7 +357,8 @@ async def phase4_service_layer():
             log.info("    headers=%d lines=%d sources=%d", h_count, l_count, s_count)
             assert h_count == 1, f"Expected 1 header, got {h_count}"
             assert l_count == 2, f"Expected 2 lines, got {l_count}"
-            assert s_count == 1, f"Expected 1 source, got {s_count}"
+            # G8B: 2 source rows expected (journal_draft + posting_log)
+            assert s_count == 2, f"Expected 2 sources (journal_draft + posting_log), got {s_count}"
 
             # Verify DR=CR balance
             row = await conn.fetchrow(
@@ -366,9 +376,13 @@ async def phase4_service_layer():
             h_after = await conn.fetchval(
                 "SELECT COUNT(*) FROM journal_entry_headers WHERE tenant_id=$1", TEST_TENANT
             )
+            s_after = await conn.fetchval(
+                "SELECT COUNT(*) FROM journal_entry_sources WHERE tenant_id=$1", TEST_TENANT
+            )
             assert h_after == 1, f"Idempotency FAIL — got {h_after} headers"
+            assert s_after == 2, f"Idempotency FAIL — source count changed to {s_after}"
             assert "ledger_write_skipped" in events, f"ledger_write_skipped not emitted. Events: {events}"
-            log.info("    headers still=1, ledger_write_skipped emitted ✓")
+            log.info("    headers still=1, sources still=2, ledger_write_skipped emitted ✓")
             results["service_idempotent"] = PASS
             results["audit_write_skipped"] = PASS
 
@@ -389,16 +403,25 @@ async def phase4_service_layer():
             log.info("    audit events captured: %s", events)
             results["audit_events_captured"] = PASS
 
-            # ── 4d: Source exists — verify journal_draft in sources ──────────
-            log.info("  4d: Verify journal_entry_sources.source_type")
-            src_row = await conn.fetchrow(
-                "SELECT source_type, source_id FROM journal_entry_sources WHERE tenant_id=$1",
+            # ── 4d: Source rows — verify journal_draft + posting_log ────────
+            log.info("  4d: Verify journal_entry_sources source rows (G8B)")
+            src_rows = await conn.fetch(
+                "SELECT source_type, source_id FROM journal_entry_sources "
+                "WHERE tenant_id=$1 ORDER BY source_type",
                 TEST_TENANT
             )
-            assert src_row["source_type"] == "journal_draft"
-            assert src_row["source_id"] == str(TEST_DRAFT_ID)
-            log.info("    source_type=journal_draft source_id=%s ✓", src_row["source_id"])
+            src_map = {r["source_type"]: r["source_id"] for r in src_rows}
+            assert "journal_draft" in src_map, "journal_draft source missing"
+            assert src_map["journal_draft"] == str(TEST_DRAFT_ID)
+            log.info("    source_type=journal_draft source_id=%s ✓", src_map["journal_draft"])
             results["source_type_journal_draft"] = PASS
+
+            assert "posting_log" in src_map, "posting_log source missing (G8B)"
+            assert src_map["posting_log"] == test_pl_id, (
+                f"posting_log source_id mismatch: {src_map['posting_log']!r}"
+            )
+            log.info("    source_type=posting_log source_id=%s ✓", src_map["posting_log"])
+            results["source_posting_log"] = PASS
 
             # ── 4e: get_ledger_recovery_candidates (within tx, patched conn) ──
             log.info("  4e: Recovery candidates query structure")

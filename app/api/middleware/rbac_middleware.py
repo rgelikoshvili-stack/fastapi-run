@@ -24,7 +24,6 @@ async def rbac_middleware(request: Request, call_next):
         "/api/claude/",
         "/dashboard/",
         "/coa/",
-        "/debug/ai-routing",
         "/hub-map",
     )
 

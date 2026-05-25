@@ -143,6 +143,9 @@
     # ── Metrics (Prometheus — internal only) ─────────────────────────────────
     ("GET",    "/metrics",            "dashboard:admin"),
 
+    # ── Debug (admin/system diagnostics — tenants:manage only) ───────────────
+    ("*",      "/debug",              "tenants:manage"),
+
     # ── Tenants / Admin ───────────────────────────────────────────────────────
     ("*",      "/tenants",            "tenants:manage"),
     ("*",      "/system",             "tenants:manage"),

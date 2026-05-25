@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date as _date
 from typing import Any, List, Optional
@@ -592,6 +593,17 @@ async def _write_ledger_entries(
 
     entry_date_str = (draft.get("date") or "")[:10] or None
     period = entry_date_str[:7] if entry_date_str and len(entry_date_str) >= 7 else "1970-01"
+    # asyncpg requires a datetime.date object for date columns
+    entry_date_val = _date.fromisoformat(entry_date_str) if entry_date_str else None
+
+    # posting_log_id linkage: schema column is UUID; accept string or uuid.UUID from payload
+    posting_log_id: Optional[uuid.UUID] = None
+    _pl_raw = payload.get("posting_log_id")
+    if _pl_raw:
+        try:
+            posting_log_id = uuid.UUID(str(_pl_raw))
+        except (ValueError, AttributeError):
+            pass
 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 1) or 1))
     currency = (draft.get("currency") or "GEL").upper()
@@ -599,14 +611,14 @@ async def _write_ledger_entries(
     header_id = await conn.fetchval(_q("""
         INSERT INTO journal_entry_headers (
             tenant_id, entry_date, period, status, source_type, source_hash,
-            currency, exchange_rate, total_debit, total_credit, metadata_json
+            currency, exchange_rate, total_debit, total_credit, metadata_json, posting_log_id
         ) VALUES (
-            %s, %s::date, %s, 'posted', 'journal_draft', %s, %s, %s, %s, %s, %s::jsonb
+            %s, %s, %s, 'posted', 'journal_draft', %s, %s, %s, %s, %s, %s::jsonb, %s
         )
         RETURNING id
     """),
         tenant_id,
-        entry_date_str,
+        entry_date_val,
         period,
         entry_hash,
         currency,
@@ -614,6 +626,7 @@ async def _write_ledger_entries(
         float(total_debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
         float(total_credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
         json.dumps({"target_system": target, "source_hash": entry_hash}, ensure_ascii=False),
+        posting_log_id,
     )
 
     for idx, line in enumerate(lines, start=1):
@@ -639,6 +652,7 @@ async def _write_ledger_entries(
             str(line.get("label", "") or draft.get("description", "") or ""),
         )
 
+    # Source row 1: journal_draft (always present — drives idempotency pre-check)
     await conn.execute(_q("""
         INSERT INTO journal_entry_sources (
             tenant_id, journal_entry_id, source_type, source_id
@@ -646,6 +660,16 @@ async def _write_ledger_entries(
     """),
         tenant_id, header_id, str(draft.get("id", "")),
     )
+
+    # Source row 2: posting_log (written when the ERP connector provides a log id)
+    if posting_log_id is not None:
+        await conn.execute(_q("""
+            INSERT INTO journal_entry_sources (
+                tenant_id, journal_entry_id, source_type, source_id
+            ) VALUES (%s, %s, 'posting_log', %s)
+        """),
+            tenant_id, header_id, str(posting_log_id),
+        )
 
 
 async def get_ledger_recovery_candidates(tenant_id: str) -> list[dict]:

@@ -123,7 +123,7 @@ async def email_poller_loop():
 
     async def _run():
         import asyncio as _asyncio
-        tenants = get_all_active_tenants()
+        tenants = await get_all_active_tenants()
         total_processed = 0
         loop = _asyncio.get_running_loop()
         for tid in tenants:

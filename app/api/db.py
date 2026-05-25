@@ -58,8 +58,16 @@ async def get_pool() -> asyncpg.Pool:
             min_size=min_size,
             max_size=max_size,
             command_timeout=30,
+            # Recycle idle connections after 5 min so Cloud SQL proxy never
+            # drops them server-side while they sit unused between background
+            # task runs.  Default asyncpg value is also 300 s; making it
+            # explicit here allows easy tuning without hunting for the default.
+            max_inactive_connection_lifetime=300.0,
         )
-        log.info("asyncpg pool created min=%d max=%d", min_size, max_size)
+        log.info(
+            "asyncpg pool created min=%d max=%d inactive_lifetime=300s",
+            min_size, max_size,
+        )
     return _async_pool
 
 

@@ -214,6 +214,13 @@ def run_db_migrations():
         except Exception as _vault_e:
             log.warning("vault migration skipped: %s", _vault_e)
 
+        # evidence bundle schema (010)
+        try:
+            from app.startup.migrations_evidence import run_evidence_bundle_migrations
+            run_evidence_bundle_migrations(cur)
+        except Exception as _eb_e:
+            log.warning("evidence bundle migration skipped: %s", _eb_e)
+
         # tenant_settings — per-tenant config table (CFO thresholds, feature flags, etc.)
         try:
             from app.api.services.tenant_config_service import ensure_tenant_settings_table

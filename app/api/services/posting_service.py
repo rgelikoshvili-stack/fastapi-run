@@ -1237,6 +1237,35 @@ async def dry_run_posting_service(
             "dry_run", actor, target_normalized,
         )
 
+        # Evidence bundle — best-effort, payload hash only (never raw payload)
+        if log_id:
+            try:
+                from app.api.services.evidence_bundle_service import EvidenceBundleService
+                from app.api.services.evidence_bundle_repository import EvidenceBundleRepository
+                _payload_hash = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest()[:32]
+                _repo = EvidenceBundleRepository(conn)
+                _svc = EvidenceBundleService(_repo)
+                _bundle = await _svc.create_bundle(
+                    tenant_id=tenant_id,
+                    source_type="journal_draft",
+                    source_id=str(draft_id),
+                    actor=actor,
+                    metadata={"mode": "dry_run", "target": target_normalized},
+                )
+                await _svc.link_posting(
+                    bundle_id=str(_bundle["id"]),
+                    tenant_id=tenant_id,
+                    posting_log_id=str(log_id),
+                    payload_preview_hash=_payload_hash,
+                    connector_provider=target_normalized,
+                    connector_operation="dry_run",
+                    actor=actor,
+                )
+            except Exception as _eb_exc:
+                log.warning("evidence_bundle dry_run link skipped: %s", _eb_exc)
+
     log.info(
         "action=dry_run_ok draft_id=%s tenant=%s target=%s log_id=%s",
         draft_id, tenant_id, target_normalized, log_id,

@@ -231,6 +231,25 @@ def _get_connector(target_normalized: str, tenant_id: str):
     return None
 
 
+async def _is_connector_disabled(target_normalized: str, tenant_id: str) -> bool:
+    """Return True if the tenant has explicitly disabled the connector via tenant_settings.
+
+    Key: connector.<target>_enabled (bool, default True).
+    Setting it to false blocks all live posting for that connector without code deployment.
+    """
+    if target_normalized == "mock":
+        return False
+    try:
+        from app.api.services.tenant_config_service import get_tenant_setting
+        enabled = await get_tenant_setting(
+            tenant_id, f"connector.{target_normalized}_enabled", True
+        )
+        return not bool(enabled)
+    except Exception as _exc:
+        log.warning("connector disable check failed for %s/%s: %s", target_normalized, tenant_id, _exc)
+        return False
+
+
 def _get_connector_readiness(target_normalized: str, tenant_id: str) -> dict:
     if target_normalized == "mock":
         return {
@@ -952,6 +971,15 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     f"draft {draft_id} already posted to {target_normalized}",
                     code="POSTING_DUPLICATE_BLOCKED",
                     details={"existing_log_id": existing["id"], "status": existing["status"]},
+                )
+
+            if target_normalized != "mock" and await _is_connector_disabled(target_normalized, tenant_id):
+                await tr.rollback()
+                return error_response(
+                    f"{target_normalized} connector is disabled for this tenant",
+                    code="CONNECTOR_DISABLED",
+                    details={"target": target_normalized, "tenant_id": tenant_id,
+                             "hint": f"Set connector.{target_normalized}_enabled=true in tenant_settings to re-enable"},
                 )
 
             readiness = _get_connector_readiness(target_normalized, tenant_id)

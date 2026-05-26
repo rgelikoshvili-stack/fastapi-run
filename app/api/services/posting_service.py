@@ -1147,3 +1147,121 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
             error=str(e),
         )
         return error_response("Posting failed", "POSTING_ERROR", str(e))
+
+
+async def dry_run_posting_service(
+    draft_id: int,
+    target: str = "balance",
+    tenant_id: str = "default",
+    actor: Optional[str] = None,
+) -> dict:
+    """Build the Balance.ge posting payload and log it — no ERP call is made.
+
+    Gate 6 (Dry-run mode): this is the only path that must be tested before
+    any live Balance.ge execution. Returns the exact payload that would be sent
+    and writes a posting_log row with mode='dry_run' and status='dry_run'.
+    Draft status is NOT changed. Ledger tables are NOT written.
+    """
+    target_normalized = _normalize_target(target)
+
+    async with get_conn() as conn:
+        draft_row = await conn.fetchrow(_q("""
+            SELECT id, tenant_id, date, description,
+                   COALESCE(partner, '') AS partner,
+                   COALESCE(amount, 0) AS amount,
+                   COALESCE(status, '') AS status,
+                   COALESCE(currency, 'GEL') AS currency,
+                   COALESCE(lines_json, '[]'::jsonb) AS lines_json
+            FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s
+        """), draft_id, tenant_id)
+
+        if not draft_row:
+            return error_response(
+                f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
+                code="NOT_FOUND",
+            )
+
+        if draft_row["status"] not in ("approved", "pending_approval", "drafted"):
+            return error_response(
+                f"dry-run requires draft status approved/pending_approval/drafted, got {draft_row['status']}",
+                code="DRAFT_NOT_APPROVABLE",
+            )
+
+        draft = {
+            "id": draft_row["id"],
+            "tenant_id": draft_row["tenant_id"],
+            "date": str(draft_row["date"]) if draft_row["date"] else None,
+            "description": draft_row["description"],
+            "partner": draft_row["partner"],
+            "amount": float(draft_row["amount"] or 0),
+            "status": draft_row["status"],
+            "currency": draft_row["currency"],
+            "lines_json": draft_row["lines_json"],
+            "lines": _normalize_lines(draft_row["lines_json"]),
+        }
+
+        line_error = _validate_lines(draft.get("lines", []))
+        if line_error:
+            return error_response(line_error, code="INVALID_JOURNAL_LINES")
+
+        payload = await _draft_to_posting_payload(draft)
+        entry_hash = _compute_entry_hash(
+            draft_id, tenant_id,
+            draft.get("amount", 0),
+            draft.get("date", ""),
+            f"dry_run_{target_normalized}",
+        )
+
+        dry_run_response = {
+            "success": True,
+            "mode": "dry_run",
+            "connector": target_normalized,
+            "message": "Dry-run complete — no ERP entry created",
+            "would_post_to": f"{target_normalized} connector",
+        }
+
+        log_id = await conn.fetchval(_q("""
+            INSERT INTO posting_logs
+            (tenant_id, draft_id, target_system, payload_json, response_json,
+             status, error_message, entry_hash, source_draft_id, mode, actor, connector)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, NULL, %s, %s, %s, %s, %s)
+            ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
+            RETURNING id
+        """),
+            tenant_id, draft_id, target_normalized,
+            json.dumps(payload, ensure_ascii=False),
+            json.dumps(dry_run_response, ensure_ascii=False),
+            "dry_run",
+            entry_hash, draft_id,
+            "dry_run", actor, target_normalized,
+        )
+
+    log.info(
+        "action=dry_run_ok draft_id=%s tenant=%s target=%s log_id=%s",
+        draft_id, tenant_id, target_normalized, log_id,
+    )
+    log_event(
+        "posting_dry_run",
+        {
+            "entity_type": "journal_draft",
+            "entity_id": draft_id,
+            "target": target_normalized,
+            "log_id": log_id,
+            "payload_amount": payload.get("amount"),
+            "payload_currency": payload.get("currency"),
+        },
+        tenant_id=tenant_id,
+    )
+
+    return ok_response(
+        f"dry-run complete — no ERP entry created for draft {draft_id}",
+        {
+            "draft_id": draft_id,
+            "target": target_normalized,
+            "mode": "dry_run",
+            "log_id": log_id,
+            "payload": payload,
+            "would_post_to": f"{target_normalized} connector",
+        },
+    )

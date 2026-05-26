@@ -17,6 +17,7 @@ from app.api.services.posting_service import (
     get_oris_status_service,
     post_draft_to_oris_service,
     apply_posting_service,
+    dry_run_posting_service,
 )
 from app.api.services.posting_preview_service import preview_posting_service
 from app.api.services.idempotency_service import idempotency_check, idempotency_store
@@ -182,6 +183,28 @@ async def post_draft_to_balance(
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return await post_draft_to_balance_service(draft_id=draft_id, tenant_id=tenant_id)
+
+
+@router.post("/balance/dry-run/{draft_id}")
+@limiter.limit("30/minute")
+async def dry_run_balance(
+    request: Request,
+    draft_id: int = Path(...),
+):
+    """Dry-run Balance.ge posting — builds payload, logs result, makes no ERP call.
+
+    Gate 6 (Balance.ge activation checklist): this endpoint must succeed before
+    any live /posting/balance/{draft_id} call is made on a production tenant.
+    """
+    require_permission(request, "posting:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    actor = getattr(request.state, "user_id", None)
+    return await dry_run_posting_service(
+        draft_id=draft_id,
+        target="balance",
+        tenant_id=tenant_id,
+        actor=actor,
+    )
 
 
 @router.post("/onec/{draft_id}")

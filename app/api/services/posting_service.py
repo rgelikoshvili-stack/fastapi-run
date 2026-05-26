@@ -1241,6 +1241,14 @@ async def dry_run_posting_service(
             "dry_run", actor, target_normalized,
         )
 
+        # ON CONFLICT DO NOTHING returns NULL when the entry_hash already exists.
+        # Fetch the existing row so callers always receive a real log_id.
+        if log_id is None:
+            log_id = await conn.fetchval(
+                _q("SELECT id FROM posting_logs WHERE entry_hash = %s LIMIT 1"),
+                entry_hash,
+            )
+
         # Evidence bundle — best-effort, payload hash only (never raw payload)
         if log_id:
             try:

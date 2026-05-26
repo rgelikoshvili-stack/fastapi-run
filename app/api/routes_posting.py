@@ -201,12 +201,20 @@ async def dry_run_balance(
     require_permission(request, "posting:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     actor = getattr(request.state, "user_id", None)
-    return await dry_run_posting_service(
+    idem_key = request.headers.get("X-Idempotent-Key")
+    if idem_key:
+        hit = await idempotency_check(tenant_id, idem_key, f"dry_run:{draft_id}:balance")
+        if hit is not None:
+            return hit
+    result = await dry_run_posting_service(
         draft_id=draft_id,
         target="balance",
         tenant_id=tenant_id,
         actor=actor,
     )
+    if idem_key:
+        await idempotency_store(tenant_id, idem_key, f"dry_run:{draft_id}:balance", result)
+    return result
 
 
 @router.post("/onec/{draft_id}")

@@ -487,6 +487,17 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
         error_code=None,
     )
 
+    # Gate 7 — payload preview: show the approver exactly what will be posted.
+    # Best-effort: failure must never block the approval response.
+    # No credentials, auth headers, or api_key are ever included here.
+    payload_preview = None
+    try:
+        from app.api.services.posting_service import _draft_to_posting_payload
+        if draft:
+            payload_preview = await _draft_to_posting_payload(draft)
+    except Exception as _pp_exc:
+        log.warning("payload_preview skipped for draft %s: %s", draft_id, _pp_exc)
+
     return ok_response(
         "Draft approved",
         {
@@ -494,6 +505,7 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
             "status": "approved",
             "approved_by_mode": updated.get("approved_by_mode") if updated else "human",
             "tenant_id": tenant_id,
+            "payload_preview": payload_preview,
         },
     )
 

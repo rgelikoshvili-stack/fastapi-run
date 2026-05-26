@@ -421,8 +421,8 @@ async def get_posting_payload_service(draft_id: int, tenant_id: str = "default")
     return ok_response("posting payload ready", payload)
 
 
-async def mock_posting_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
+async def mock_posting_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "mock", tenant_id=tenant_id, actor=actor)
 
 
 async def get_posting_logs_service(
@@ -470,8 +470,8 @@ def get_balance_status_service(tenant_id: str = "default"):
     return ok_response("balance status", readiness)
 
 
-async def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "balance", tenant_id=tenant_id)
+async def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "balance", tenant_id=tenant_id, actor=actor)
 
 
 def get_onec_status_service(tenant_id: str = "default"):
@@ -479,8 +479,8 @@ def get_onec_status_service(tenant_id: str = "default"):
     return ok_response("1c status", readiness)
 
 
-async def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "onec", tenant_id=tenant_id)
+async def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "onec", tenant_id=tenant_id, actor=actor)
 
 
 def get_oris_status_service(tenant_id: str = "default"):
@@ -488,8 +488,8 @@ def get_oris_status_service(tenant_id: str = "default"):
     return ok_response("oris status", readiness)
 
 
-async def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
+async def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "oris", tenant_id=tenant_id, actor=actor)
 
 
 def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]:
@@ -741,7 +741,7 @@ async def retry_ledger_write(draft_id: int, tenant_id: str) -> dict:
             return {"ok": False, "error": str(exc)}
 
 
-async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
+async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False, actor: Optional[str] = None):
     import asyncpg
     target_normalized = _normalize_target(target)
 
@@ -960,8 +960,9 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     _q("""
                         INSERT INTO posting_logs
                         (tenant_id, draft_id, target_system, payload_json, response_json,
-                         status, error_message, entry_hash, source_draft_id)
-                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                         status, error_message, entry_hash, source_draft_id,
+                         mode, actor, connector)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                         RETURNING id
                     """),
@@ -971,6 +972,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     "config_missing",
                     readiness.get("message", "connector not ready"),
                     None, draft_id,
+                    "live", actor, target_normalized,
                 )
                 await tr.commit()
                 log_event(
@@ -1033,8 +1035,9 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 _q("""
                     INSERT INTO posting_logs
                     (tenant_id, draft_id, target_system, payload_json, response_json,
-                     status, error_message, entry_hash, source_draft_id)
-                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                     status, error_message, entry_hash, source_draft_id,
+                     mode, actor, connector)
+                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                     RETURNING id
                 """),
@@ -1042,6 +1045,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(response, ensure_ascii=False),
                 post_status, error_message, entry_hash, draft_id,
+                "live", actor, target_normalized,
             )
 
             if success:

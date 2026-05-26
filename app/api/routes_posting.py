@@ -170,7 +170,8 @@ async def mock_posting(
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return await mock_posting_service(draft_id=draft_id, tenant_id=tenant_id)
+    actor = getattr(request.state, "user_id", None)
+    return await mock_posting_service(draft_id=draft_id, tenant_id=tenant_id, actor=actor)
 
 
 @router.post("/balance/{draft_id}")
@@ -182,7 +183,8 @@ async def post_draft_to_balance(
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return await post_draft_to_balance_service(draft_id=draft_id, tenant_id=tenant_id)
+    actor = getattr(request.state, "user_id", None)
+    return await post_draft_to_balance_service(draft_id=draft_id, tenant_id=tenant_id, actor=actor)
 
 
 @router.post("/balance/dry-run/{draft_id}")
@@ -216,7 +218,8 @@ async def post_draft_to_onec(
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return await post_draft_to_onec_service(draft_id=draft_id, tenant_id=tenant_id)
+    actor = getattr(request.state, "user_id", None)
+    return await post_draft_to_onec_service(draft_id=draft_id, tenant_id=tenant_id, actor=actor)
 
 
 @router.post("/oris/{draft_id}")
@@ -228,7 +231,8 @@ async def post_draft_to_oris(
     require_permission(request, "posting:write")
 
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    return await post_draft_to_oris_service(draft_id=draft_id, tenant_id=tenant_id)
+    actor = getattr(request.state, "user_id", None)
+    return await post_draft_to_oris_service(draft_id=draft_id, tenant_id=tenant_id, actor=actor)
 
 
 @router.post("/apply/{draft_id}")
@@ -246,7 +250,8 @@ async def apply_posting(
         hit = await idempotency_check(tenant_id, idem_key, f"posting:{draft_id}:{target}")
         if hit is not None:
             return hit
-    result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force)
+    actor = getattr(request.state, "user_id", None)
+    result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force, actor=actor)
     if idem_key:
         await idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
     return result

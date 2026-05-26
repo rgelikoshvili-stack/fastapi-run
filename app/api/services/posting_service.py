@@ -760,7 +760,7 @@ async def retry_ledger_write(draft_id: int, tenant_id: str) -> dict:
             return {"ok": False, "error": str(exc)}
 
 
-async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False, actor: Optional[str] = None):
+async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False, actor: Optional[str] = None, idempotency_key: Optional[str] = None):
     import asyncpg
     target_normalized = _normalize_target(target)
 
@@ -989,8 +989,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                         INSERT INTO posting_logs
                         (tenant_id, draft_id, target_system, payload_json, response_json,
                          status, error_message, entry_hash, source_draft_id,
-                         mode, actor, connector)
-                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
+                         mode, actor, connector, idempotency_key)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                         RETURNING id
                     """),
@@ -1000,7 +1000,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     "config_missing",
                     readiness.get("message", "connector not ready"),
                     None, draft_id,
-                    "live", actor, target_normalized,
+                    "live", actor, target_normalized, idempotency_key,
                 )
                 await tr.commit()
                 log_event(
@@ -1064,8 +1064,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     INSERT INTO posting_logs
                     (tenant_id, draft_id, target_system, payload_json, response_json,
                      status, error_message, entry_hash, source_draft_id,
-                     mode, actor, connector)
-                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
+                     mode, actor, connector, idempotency_key)
+                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                     RETURNING id
                 """),
@@ -1073,7 +1073,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(response, ensure_ascii=False),
                 post_status, error_message, entry_hash, draft_id,
-                "live", actor, target_normalized,
+                "live", actor, target_normalized, idempotency_key,
             )
 
             if success:
@@ -1186,6 +1186,7 @@ async def dry_run_posting_service(
     target: str = "balance",
     tenant_id: str = "default",
     actor: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     """Build the Balance.ge posting payload and log it — no ERP call is made.
 
@@ -1256,8 +1257,9 @@ async def dry_run_posting_service(
         log_id = await conn.fetchval(_q("""
             INSERT INTO posting_logs
             (tenant_id, draft_id, target_system, payload_json, response_json,
-             status, error_message, entry_hash, source_draft_id, mode, actor, connector)
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, NULL, %s, %s, %s, %s, %s)
+             status, error_message, entry_hash, source_draft_id, mode, actor, connector,
+             idempotency_key)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, NULL, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
             RETURNING id
         """),
@@ -1266,7 +1268,7 @@ async def dry_run_posting_service(
             json.dumps(dry_run_response, ensure_ascii=False),
             "dry_run",
             entry_hash, draft_id,
-            "dry_run", actor, target_normalized,
+            "dry_run", actor, target_normalized, idempotency_key,
         )
 
         # ON CONFLICT DO NOTHING returns NULL when the entry_hash already exists.

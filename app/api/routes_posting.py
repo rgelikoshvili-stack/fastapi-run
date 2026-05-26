@@ -217,6 +217,7 @@ async def dry_run_balance(
         target="balance",
         tenant_id=tenant_id,
         actor=actor,
+        idempotency_key=idem_key,
     )
     if idem_key:
         await idempotency_store(tenant_id, idem_key, f"dry_run:{draft_id}:balance", result)
@@ -265,7 +266,7 @@ async def apply_posting(
         if hit is not None:
             return hit
     actor = getattr(request.state, "user_id", None)
-    result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force, actor=actor)
+    result = await apply_posting_service(draft_id=draft_id, target=target, tenant_id=tenant_id, force=force, actor=actor, idempotency_key=idem_key)
     if idem_key:
         await idempotency_store(tenant_id, idem_key, f"posting:{draft_id}:{target}", result)
     return result

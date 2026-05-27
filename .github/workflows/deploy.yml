@@ -132,6 +132,21 @@ jobs:
           echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
           echo "ENVIRONMENT=production" >> "$GITHUB_ENV"
 
+      - name: Set up Python for migrations
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies for migrations
+        run: pip install -r requirements.txt
+
+      - name: Validate migration plan (dry-run)
+        # Validates all migration module imports and prints the execution plan.
+        # Live migrations run at app startup (run_db_migrations via lifespan).
+        # To promote to a live pre-deploy step, add Cloud SQL Auth Proxy here
+        # and set DATABASE_URL in GitHub Actions secrets.
+        run: python scripts/migrate.py --dry-run
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \

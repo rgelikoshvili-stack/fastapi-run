@@ -40,17 +40,24 @@ Exits 0; makes no database changes.
 
 ## CI/CD integration
 
-The `.github/workflows/deploy.yml` `deploy` job runs:
+The `.github/workflows/deploy.yml` `deploy` job runs **before** `gcloud run deploy`:
 
 ```
-python scripts/migrate.py
+python scripts/migrate.py --dry-run
 ```
 
-**before** `gcloud run deploy`, using `DATABASE_URL` from GitHub Actions Secrets.
+This validates all migration module imports and prints the full execution plan.
+It exits non-zero if any import is broken, blocking the deploy before a bad
+container is pushed.
 
-To add `DATABASE_URL` as a secret:
-1. GitHub → Repository → Settings → Secrets and variables → Actions
-2. New repository secret: `DATABASE_URL` = `postgresql://user:pw@host/db`
+**Live pre-deploy migrations** (future): to promote to a live DB run, add
+Cloud SQL Auth Proxy to the deploy job and set `DATABASE_URL` in GitHub Actions
+Secrets (Repository → Settings → Secrets → Actions → New repository secret).
+The `scripts/migrate.py` (without `--dry-run`) will then run DDL against the
+production DB before the new container starts.
+
+Until then, live DDL migrations run at app startup via `run_db_migrations()`
+called from the FastAPI lifespan hook in `main.py`.
 
 ---
 

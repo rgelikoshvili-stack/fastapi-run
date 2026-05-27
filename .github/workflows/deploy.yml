@@ -140,11 +140,12 @@ jobs:
       - name: Install dependencies for migrations
         run: pip install -r requirements.txt
 
-      - name: Run DDL migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        run: python scripts/migrate.py
+      - name: Validate migration plan (dry-run)
+        # Validates all migration module imports and prints the execution plan.
+        # Live migrations run at app startup (run_db_migrations via lifespan).
+        # To promote to a live pre-deploy step, add Cloud SQL Auth Proxy here
+        # and set DATABASE_URL in GitHub Actions secrets.
+        run: python scripts/migrate.py --dry-run
 
       - name: Deploy to Cloud Run
         run: |

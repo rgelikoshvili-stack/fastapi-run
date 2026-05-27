@@ -231,6 +231,25 @@ def _get_connector(target_normalized: str, tenant_id: str):
     return None
 
 
+async def _is_connector_disabled(target_normalized: str, tenant_id: str) -> bool:
+    """Return True if the tenant has explicitly disabled the connector via tenant_settings.
+
+    Key: connector.<target>_enabled (bool, default True).
+    Setting it to false blocks all live posting for that connector without code deployment.
+    """
+    if target_normalized == "mock":
+        return False
+    try:
+        from app.api.services.tenant_config_service import get_tenant_setting
+        enabled = await get_tenant_setting(
+            tenant_id, f"connector.{target_normalized}_enabled", True
+        )
+        return not bool(enabled)
+    except Exception as _exc:
+        log.warning("connector disable check failed for %s/%s: %s", target_normalized, tenant_id, _exc)
+        return False
+
+
 def _get_connector_readiness(target_normalized: str, tenant_id: str) -> dict:
     if target_normalized == "mock":
         return {
@@ -421,8 +440,8 @@ async def get_posting_payload_service(draft_id: int, tenant_id: str = "default")
     return ok_response("posting payload ready", payload)
 
 
-async def mock_posting_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "mock", tenant_id=tenant_id)
+async def mock_posting_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "mock", tenant_id=tenant_id, actor=actor)
 
 
 async def get_posting_logs_service(
@@ -470,8 +489,8 @@ def get_balance_status_service(tenant_id: str = "default"):
     return ok_response("balance status", readiness)
 
 
-async def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "balance", tenant_id=tenant_id)
+async def post_draft_to_balance_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "balance", tenant_id=tenant_id, actor=actor)
 
 
 def get_onec_status_service(tenant_id: str = "default"):
@@ -479,8 +498,8 @@ def get_onec_status_service(tenant_id: str = "default"):
     return ok_response("1c status", readiness)
 
 
-async def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "onec", tenant_id=tenant_id)
+async def post_draft_to_onec_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "onec", tenant_id=tenant_id, actor=actor)
 
 
 def get_oris_status_service(tenant_id: str = "default"):
@@ -488,8 +507,8 @@ def get_oris_status_service(tenant_id: str = "default"):
     return ok_response("oris status", readiness)
 
 
-async def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default"):
-    return await apply_posting_service(draft_id, "oris", tenant_id=tenant_id)
+async def post_draft_to_oris_service(draft_id: int, tenant_id: str = "default", actor: Optional[str] = None):
+    return await apply_posting_service(draft_id, "oris", tenant_id=tenant_id, actor=actor)
 
 
 def _check_duplicate_invoice(cur, draft: dict, tenant_id: str) -> Optional[dict]:
@@ -741,7 +760,7 @@ async def retry_ledger_write(draft_id: int, tenant_id: str) -> dict:
             return {"ok": False, "error": str(exc)}
 
 
-async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False):
+async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "default", force: bool = False, actor: Optional[str] = None, idempotency_key: Optional[str] = None):
     import asyncpg
     target_normalized = _normalize_target(target)
 
@@ -954,14 +973,24 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     details={"existing_log_id": existing["id"], "status": existing["status"]},
                 )
 
+            if target_normalized != "mock" and await _is_connector_disabled(target_normalized, tenant_id):
+                await tr.rollback()
+                return error_response(
+                    f"{target_normalized} connector is disabled for this tenant",
+                    code="CONNECTOR_DISABLED",
+                    details={"target": target_normalized, "tenant_id": tenant_id,
+                             "hint": f"Set connector.{target_normalized}_enabled=true in tenant_settings to re-enable"},
+                )
+
             readiness = _get_connector_readiness(target_normalized, tenant_id)
             if target_normalized != "mock" and not readiness["ok"]:
                 log_id = await conn.fetchval(
                     _q("""
                         INSERT INTO posting_logs
                         (tenant_id, draft_id, target_system, payload_json, response_json,
-                         status, error_message, entry_hash, source_draft_id)
-                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                         status, error_message, entry_hash, source_draft_id,
+                         mode, actor, connector, idempotency_key)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                         RETURNING id
                     """),
@@ -971,6 +1000,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     "config_missing",
                     readiness.get("message", "connector not ready"),
                     None, draft_id,
+                    "live", actor, target_normalized, idempotency_key,
                 )
                 await tr.commit()
                 log_event(
@@ -1033,8 +1063,9 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 _q("""
                     INSERT INTO posting_logs
                     (tenant_id, draft_id, target_system, payload_json, response_json,
-                     status, error_message, entry_hash, source_draft_id)
-                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                     status, error_message, entry_hash, source_draft_id,
+                     mode, actor, connector, idempotency_key)
+                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
                     RETURNING id
                 """),
@@ -1042,6 +1073,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(response, ensure_ascii=False),
                 post_status, error_message, entry_hash, draft_id,
+                "live", actor, target_normalized, idempotency_key,
             )
 
             if success:
@@ -1147,3 +1179,160 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
             error=str(e),
         )
         return error_response("Posting failed", "POSTING_ERROR", str(e))
+
+
+async def dry_run_posting_service(
+    draft_id: int,
+    target: str = "balance",
+    tenant_id: str = "default",
+    actor: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+) -> dict:
+    """Build the Balance.ge posting payload and log it — no ERP call is made.
+
+    Gate 6 (Dry-run mode): this is the only path that must be tested before
+    any live Balance.ge execution. Returns the exact payload that would be sent
+    and writes a posting_log row with mode='dry_run' and status='dry_run'.
+    Draft status is NOT changed. Ledger tables are NOT written.
+    """
+    target_normalized = _normalize_target(target)
+
+    async with get_conn() as conn:
+        draft_row = await conn.fetchrow(_q("""
+            SELECT id, tenant_id, date, description,
+                   COALESCE(partner, '') AS partner,
+                   COALESCE(amount, 0) AS amount,
+                   COALESCE(status, '') AS status,
+                   COALESCE(currency, 'GEL') AS currency,
+                   COALESCE(lines_json, '[]'::jsonb) AS lines_json
+            FROM journal_drafts
+            WHERE id = %s AND tenant_id = %s
+        """), draft_id, tenant_id)
+
+        if not draft_row:
+            return error_response(
+                f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
+                code="NOT_FOUND",
+            )
+
+        if draft_row["status"] not in ("approved", "pending_approval", "drafted"):
+            return error_response(
+                f"dry-run requires draft status approved/pending_approval/drafted, got {draft_row['status']}",
+                code="DRAFT_NOT_APPROVABLE",
+            )
+
+        draft = {
+            "id": draft_row["id"],
+            "tenant_id": draft_row["tenant_id"],
+            "date": str(draft_row["date"]) if draft_row["date"] else None,
+            "description": draft_row["description"],
+            "partner": draft_row["partner"],
+            "amount": float(draft_row["amount"] or 0),
+            "status": draft_row["status"],
+            "currency": draft_row["currency"],
+            "lines_json": draft_row["lines_json"],
+            "lines": _normalize_lines(draft_row["lines_json"]),
+        }
+
+        line_error = _validate_lines(draft.get("lines", []))
+        if line_error:
+            return error_response(line_error, code="INVALID_JOURNAL_LINES")
+
+        payload = await _draft_to_posting_payload(draft)
+        entry_hash = _compute_entry_hash(
+            draft_id, tenant_id,
+            draft.get("amount", 0),
+            draft.get("date", ""),
+            f"dry_run_{target_normalized}",
+        )
+
+        dry_run_response = {
+            "success": True,
+            "mode": "dry_run",
+            "connector": target_normalized,
+            "message": "Dry-run complete — no ERP entry created",
+            "would_post_to": f"{target_normalized} connector",
+        }
+
+        log_id = await conn.fetchval(_q("""
+            INSERT INTO posting_logs
+            (tenant_id, draft_id, target_system, payload_json, response_json,
+             status, error_message, entry_hash, source_draft_id, mode, actor, connector,
+             idempotency_key)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, NULL, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (entry_hash) WHERE entry_hash IS NOT NULL DO NOTHING
+            RETURNING id
+        """),
+            tenant_id, draft_id, target_normalized,
+            json.dumps(payload, ensure_ascii=False),
+            json.dumps(dry_run_response, ensure_ascii=False),
+            "dry_run",
+            entry_hash, draft_id,
+            "dry_run", actor, target_normalized, idempotency_key,
+        )
+
+        # ON CONFLICT DO NOTHING returns NULL when the entry_hash already exists.
+        # Fetch the existing row so callers always receive a real log_id.
+        if log_id is None:
+            log_id = await conn.fetchval(
+                _q("SELECT id FROM posting_logs WHERE entry_hash = %s LIMIT 1"),
+                entry_hash,
+            )
+
+        # Evidence bundle — best-effort, payload hash only (never raw payload)
+        if log_id:
+            try:
+                from app.api.services.evidence_bundle_service import EvidenceBundleService
+                from app.api.services.evidence_bundle_repository import EvidenceBundleRepository
+                _payload_hash = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest()[:32]
+                _repo = EvidenceBundleRepository(conn)
+                _svc = EvidenceBundleService(_repo)
+                _bundle = await _svc.create_bundle(
+                    tenant_id=tenant_id,
+                    source_type="journal_draft",
+                    source_id=str(draft_id),
+                    actor=actor,
+                    metadata={"mode": "dry_run", "target": target_normalized},
+                )
+                await _svc.link_posting(
+                    bundle_id=str(_bundle["id"]),
+                    tenant_id=tenant_id,
+                    posting_log_id=str(log_id),
+                    payload_preview_hash=_payload_hash,
+                    connector_provider=target_normalized,
+                    connector_operation="dry_run",
+                    actor=actor,
+                )
+            except Exception as _eb_exc:
+                log.warning("evidence_bundle dry_run link skipped: %s", _eb_exc)
+
+    log.info(
+        "action=dry_run_ok draft_id=%s tenant=%s target=%s log_id=%s",
+        draft_id, tenant_id, target_normalized, log_id,
+    )
+    log_event(
+        "posting_dry_run",
+        {
+            "entity_type": "journal_draft",
+            "entity_id": draft_id,
+            "target": target_normalized,
+            "log_id": log_id,
+            "payload_amount": payload.get("amount"),
+            "payload_currency": payload.get("currency"),
+        },
+        tenant_id=tenant_id,
+    )
+
+    return ok_response(
+        f"dry-run complete — no ERP entry created for draft {draft_id}",
+        {
+            "draft_id": draft_id,
+            "target": target_normalized,
+            "mode": "dry_run",
+            "log_id": log_id,
+            "payload": payload,
+            "would_post_to": f"{target_normalized} connector",
+        },
+    )

@@ -361,6 +361,34 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
             updated = dict(updated_row)
             await tr.commit()
 
+            # Evidence bundle — best-effort, non-blocking
+            try:
+                from app.api.services.evidence_bundle_service import EvidenceBundleService
+                from app.api.services.evidence_bundle_repository import EvidenceBundleRepository
+                async with get_conn() as _eb_conn:
+                    _repo = EvidenceBundleRepository(_eb_conn)
+                    _svc = EvidenceBundleService(_repo)
+                    _bundle = await _svc.create_bundle(
+                        tenant_id=tenant_id,
+                        source_type="journal_draft",
+                        source_id=str(draft_id),
+                        actor=None,
+                        metadata={
+                            "draft_id": draft_id,
+                            "approved_by_mode": updated.get("approved_by_mode", "human"),
+                            "amount": draft.get("amount"),
+                            "date": str(draft.get("date", "")),
+                        },
+                    )
+                    await _svc.link_approval(
+                        bundle_id=str(_bundle["id"]),
+                        tenant_id=tenant_id,
+                        approval_event_id=str(draft_id),
+                        journal_draft_id=str(draft_id),
+                    )
+            except Exception as _eb_exc:
+                log.warning("evidence_bundle_create skipped for draft %s: %s", draft_id, _eb_exc)
+
             try:
                 save_feedback(
                     draft_id=draft.get("id"),
@@ -459,6 +487,17 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
         error_code=None,
     )
 
+    # Gate 7 — payload preview: show the approver exactly what will be posted.
+    # Best-effort: failure must never block the approval response.
+    # No credentials, auth headers, or api_key are ever included here.
+    payload_preview = None
+    try:
+        from app.api.services.posting_service import _draft_to_posting_payload
+        if draft:
+            payload_preview = await _draft_to_posting_payload(draft)
+    except Exception as _pp_exc:
+        log.warning("payload_preview skipped for draft %s: %s", draft_id, _pp_exc)
+
     return ok_response(
         "Draft approved",
         {
@@ -466,6 +505,7 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
             "status": "approved",
             "approved_by_mode": updated.get("approved_by_mode") if updated else "human",
             "tenant_id": tenant_id,
+            "payload_preview": payload_preview,
         },
     )
 

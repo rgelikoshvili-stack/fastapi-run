@@ -95,6 +95,7 @@ def register_routers(app: FastAPI) -> None:
     from app.api.routes_worker import router as worker_router
     from app.api.routes_email_inbound import router as email_inbound_router
     from app.api.routes_trade import router as trade_router
+    from app.api.routes_credential_vault import router as credential_vault_router
 
     # ── new-style routers (registered first to match original order) ────────
     app.include_router(routes_health.router)
@@ -116,6 +117,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(closing_router)
     app.include_router(cost_center_router)
     app.include_router(trade_router)
+    app.include_router(credential_vault_router)
 
     # ── original routers ────────────────────────────────────────────────────
     app.include_router(routes_debug.router)

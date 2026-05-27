@@ -189,6 +189,11 @@ def run_index_migrations(cur):
     for idm_sql in [
         "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS entry_hash VARCHAR(16)",
         "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS source_draft_id INTEGER",
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'live'",
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS actor TEXT",
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS connector TEXT",
+        # Gate 9: external idempotency key from X-Idempotent-Key header
+        "ALTER TABLE posting_logs ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
     ]:
         try:
             cur.execute(idm_sql)

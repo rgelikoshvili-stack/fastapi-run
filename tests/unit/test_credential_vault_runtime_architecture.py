@@ -452,8 +452,8 @@ class TestSourceAuditFindings:
     def test_no_key_version_column_yet(self, creds_svc_src):
         assert "key_version" not in creds_svc_src
 
-    def test_no_masked_hint_column_yet(self, creds_svc_src):
-        assert "masked_hint" not in creds_svc_src
+    def test_masked_hint_column_exists(self, creds_svc_src):
+        assert "masked_hint" in creds_svc_src
 
     def test_connector_has_demo_mode_logic(self, connector_src):
         assert "demo" in connector_src.lower()

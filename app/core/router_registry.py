@@ -191,3 +191,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_opening_balances import router as opening_balances_router
     app.include_router(opening_balances_router)
+
+    from app.api.routes_company_identity import router as company_identity_router
+    app.include_router(company_identity_router)

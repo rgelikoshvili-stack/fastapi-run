@@ -268,3 +268,34 @@ def run_table_migrations(cur):
         except Exception as _e:
             conn.rollback()
             log.debug("journal_entry_lines col migration skipped: %s", _e)
+
+    # opening_balances — beginning trial balance per tenant/account/date (Task 12A)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS opening_balances (
+                id           SERIAL      PRIMARY KEY,
+                tenant_id    TEXT        NOT NULL,
+                account_code TEXT        NOT NULL,
+                account_name TEXT        NOT NULL DEFAULT '',
+                debit        NUMERIC(18,4) NOT NULL DEFAULT 0,
+                credit       NUMERIC(18,4) NOT NULL DEFAULT 0,
+                as_of_date   DATE        NOT NULL,
+                created_by   TEXT        NOT NULL DEFAULT 'system',
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_opening_balance UNIQUE (tenant_id, account_code, as_of_date)
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("opening_balances table migration skipped: %s", _e)
+
+    for _ob_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_opening_balances_tenant_date ON opening_balances(tenant_id, as_of_date)",
+    ]:
+        try:
+            cur.execute(_ob_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()

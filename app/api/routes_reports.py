@@ -326,11 +326,11 @@ async def bs_detail(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """Drill-down: Balance Sheet account → individual transactions."""
+    """Drill-down: Balance Sheet account → posted transactions only."""
     require_permission(request, "reports:read")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
-    conditions = ["tenant_id = %s"]
+    conditions = ["tenant_id = %s", "status IN ('posted','simulated_success')"]
     params: list = [tenant_id]
     if account_code:
         conditions.append("(debit_account = %s OR credit_account = %s OR account_code = %s)")

@@ -188,3 +188,6 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(routes_ai_recommend)
     app.include_router(routes_claude_chat)
     app.include_router(decision_engine_router)
+
+    from app.api.routes_opening_balances import router as opening_balances_router
+    app.include_router(opening_balances_router)

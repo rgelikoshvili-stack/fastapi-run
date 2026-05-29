@@ -333,3 +333,41 @@ def run_table_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # Approval Cockpit 2.0 columns on journal_drafts (Task 16 / Phase 5)
+    for _ac_sql in [
+        "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'normal'",
+        "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS assigned_to TEXT",
+        "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS delegated_by TEXT",
+    ]:
+        try:
+            cur.execute(_ac_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # draft_comments table (Task 16 / Phase 5)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS draft_comments (
+                id         SERIAL PRIMARY KEY,
+                tenant_id  TEXT        NOT NULL,
+                draft_id   INTEGER     NOT NULL,
+                author     TEXT        NOT NULL,
+                body       TEXT        NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("draft_comments table migration skipped: %s", _e)
+
+    for _dc_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_draft_comments_draft ON draft_comments (tenant_id, draft_id)",
+    ]:
+        try:
+            cur.execute(_dc_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()

@@ -42,6 +42,11 @@
     # ── Ask Bridge Hub ────────────────────────────────────────────────────────
     ("POST",   "/ask",                 "chat:use"),
 
+    # ── Approval Cockpit 2.0 ──────────────────────────────────────────────────
+    ("GET",    "/approval-cockpit",    "approval:read"),
+    ("POST",   "/approval-cockpit",    "approval:write"),
+    ("PATCH",  "/approval-cockpit",    "approval:write"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

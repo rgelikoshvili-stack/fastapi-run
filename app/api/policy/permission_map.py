@@ -31,6 +31,10 @@
     ("PUT",    "/company-identity",    "posting:write"),
     ("POST",   "/company-identity",    "posting:write"),
 
+    # ── Evidence Workbench ────────────────────────────────────────────────────
+    ("GET",    "/evidence-workbench",  "audit:read"),
+    ("POST",   "/evidence-workbench",  "audit:read"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

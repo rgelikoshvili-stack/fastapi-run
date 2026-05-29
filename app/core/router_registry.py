@@ -194,3 +194,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_company_identity import router as company_identity_router
     app.include_router(company_identity_router)
+
+    from app.api.routes_evidence_workbench import router as evidence_workbench_router
+    app.include_router(evidence_workbench_router)

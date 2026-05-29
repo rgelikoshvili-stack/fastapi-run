@@ -21,6 +21,11 @@
     ("*",      "/1c",                 "posting:write"),
     ("*",      "/accounting",         "posting:write"),
 
+    # ── Opening Balances ─────────────────────────────────────────────────────
+    ("GET",    "/opening-balances",    "reports:read"),
+    ("PUT",    "/opening-balances",    "posting:write"),
+    ("DELETE", "/opening-balances",    "posting:write"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

@@ -39,6 +39,9 @@
     ("GET",    "/bank-brain",          "bank:process"),
     ("POST",   "/bank-brain",          "bank:process"),
 
+    # ── Ask Bridge Hub ────────────────────────────────────────────────────────
+    ("POST",   "/ask",                 "chat:use"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

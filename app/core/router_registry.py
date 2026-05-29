@@ -200,3 +200,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_bank_brain import router as bank_brain_router
     app.include_router(bank_brain_router)
+
+    from app.api.routes_ask_bridge_hub import router as ask_bridge_hub_router
+    app.include_router(ask_bridge_hub_router)

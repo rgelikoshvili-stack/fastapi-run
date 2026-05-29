@@ -35,6 +35,10 @@
     ("GET",    "/evidence-workbench",  "audit:read"),
     ("POST",   "/evidence-workbench",  "audit:read"),
 
+    # ── Bank Brain ────────────────────────────────────────────────────────────
+    ("GET",    "/bank-brain",          "bank:process"),
+    ("POST",   "/bank-brain",          "bank:process"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

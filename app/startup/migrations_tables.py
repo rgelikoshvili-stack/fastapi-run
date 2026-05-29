@@ -299,3 +299,37 @@ def run_table_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # payroll_submissions (Task 12D — RS.ge workflow)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS payroll_submissions (
+                id             SERIAL PRIMARY KEY,
+                tenant_id      TEXT        NOT NULL,
+                run_id         INTEGER     NOT NULL,
+                period         TEXT        NOT NULL,
+                status         TEXT        NOT NULL DEFAULT 'draft'
+                               CHECK (status IN ('draft','submitted','accepted','rejected')),
+                xml_content    TEXT,
+                submission_ref TEXT,
+                submitted_at   TIMESTAMPTZ,
+                resolved_at    TIMESTAMPTZ,
+                notes          TEXT,
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (tenant_id, run_id)
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("payroll_submissions table migration skipped: %s", _e)
+
+    for _ps_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_payroll_submissions_tenant ON payroll_submissions (tenant_id, period)",
+    ]:
+        try:
+            cur.execute(_ps_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()

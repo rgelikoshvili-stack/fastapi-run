@@ -26,6 +26,11 @@
     ("PUT",    "/opening-balances",    "posting:write"),
     ("DELETE", "/opening-balances",    "posting:write"),
 
+    # ── Company Identity ──────────────────────────────────────────────────────
+    ("GET",    "/company-identity",    "reports:read"),
+    ("PUT",    "/company-identity",    "posting:write"),
+    ("POST",   "/company-identity",    "posting:write"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

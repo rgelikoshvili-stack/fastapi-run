@@ -11,6 +11,7 @@ from typing import Optional
 import psycopg2
 from app.api.db import get_conn, _q
 from app.api.services.posting_service import create_journal_draft
+from app.api.services.inventory_costing_service import compute_dispatch_cogs, cogs_journal_lines
 
 log = logging.getLogger(__name__)
 
@@ -300,11 +301,25 @@ async def record_movement(tenant_id: str, data: dict) -> dict:
         )
 
     draft_id = None
-    amount = round(quantity * unit_cost, 2)
+    costing_result = None
+    if movement_type == "out":
+        movement_date_str = str(data.get("movement_date") or date.today().isoformat())
+        costing_result = await compute_dispatch_cogs(
+            tenant_id, item_id, quantity, movement_date_str
+        )
+        amount = costing_result["cogs"]
+    else:
+        amount = round(quantity * unit_cost, 2)
+
     if amount > 0 and movement_type in ACCOUNTING_MOVEMENT_TYPES:
+        lines = (
+            cogs_journal_lines(amount)
+            if movement_type == "out"
+            else _movement_journal_lines(movement_type, amount)
+        )
         draft = await create_journal_draft(
             description=f"Inventory {movement_type} movement #{row['id']} for {item['item_code']}",
-            lines=_movement_journal_lines(movement_type, amount),
+            lines=lines,
             tenant_id=tenant_id,
             partner="Inventory movement",
             source_document_id=row["id"],
@@ -321,6 +336,8 @@ async def record_movement(tenant_id: str, data: dict) -> dict:
         "tenant_id": tenant_id,
         "journal_draft_id": draft_id,
         "draft_id": draft_id,
+        "cogs_amount": amount if movement_type == "out" else None,
+        "costing_method": costing_result.get("costing_method") if costing_result else None,
     }
 
 

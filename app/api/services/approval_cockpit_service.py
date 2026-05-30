@@ -5,6 +5,9 @@ Adds to the approval workflow:
   - Priority queue                — high/normal/low priority labels
   - Draft delegation              — assign draft to specific approver
   - Comment thread                — discussion notes per draft
+  - Risk badges                   — HIGH/MEDIUM/LOW per draft (amount + confidence)
+  - AI explanation panel          — human-readable classification reason per draft
+  - Bulk approve with audit       — approve multiple drafts in one call
 """
 from __future__ import annotations
 
@@ -15,6 +18,48 @@ from app.api.db import get_conn, _q
 
 DEFAULT_SLA_HOURS = 48
 PRIORITY_VALUES   = {"high", "normal", "low"}
+
+# Risk badge thresholds (mirrors approval_service constants)
+_HIGH_RISK_AMOUNT     = 1000.0
+_LOW_RISK_AMOUNT      = 50.0
+_HIGH_CONF_THRESHOLD  = 0.75
+_LOW_CONF_THRESHOLD   = 0.50
+
+
+# ---------------------------------------------------------------------------
+# Risk badge + explanation (pure helpers)
+# ---------------------------------------------------------------------------
+
+def compute_risk_badge(amount: float, confidence: float | None) -> str:
+    """Return 'HIGH', 'MEDIUM', or 'LOW' risk badge for a draft.
+
+    HIGH:   large amount (>1000 GEL) OR very low confidence (<0.50)
+    MEDIUM: mid-range amount (50-1000) OR moderate confidence (0.50-0.75)
+    LOW:    small amount (<50 GEL) AND high confidence (>=0.75)
+    """
+    conf = float(confidence or 0)
+    if amount > _HIGH_RISK_AMOUNT or conf < _LOW_CONF_THRESHOLD:
+        return "HIGH"
+    if amount < _LOW_RISK_AMOUNT and conf >= _HIGH_CONF_THRESHOLD:
+        return "LOW"
+    return "MEDIUM"
+
+
+def build_draft_explanation(draft: dict) -> str:
+    """Return a human-readable AI explanation for a draft's classification."""
+    try:
+        from app.api.services.classification_explanation_service import build_explanation
+        result = {
+            "account": draft.get("account_code", ""),
+            "confidence": draft.get("confidence", 0),
+            "matched_on": draft.get("description", ""),
+            "source": draft.get("provider_type", "rules"),
+        }
+        enriched = build_explanation(result)
+        return enriched.get("explanation", "")
+    except Exception:
+        conf = draft.get("confidence") or 0
+        return f"Confidence: {int(float(conf) * 100)}%"
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +132,8 @@ async def get_cockpit_queue(
         rows = await conn.fetch(
             _q("""
                 SELECT id, description, amount, status, partner,
-                       created_at, assigned_to, priority
+                       created_at, assigned_to, priority,
+                       confidence, account_code, provider_type
                 FROM journal_drafts
                 WHERE tenant_id = $1 AND status = $2
                 ORDER BY created_at ASC
@@ -110,6 +156,9 @@ async def get_cockpit_queue(
             overdue_count += 1
         if not d.get("priority"):
             d["priority"] = "normal"
+        # Enrich with risk badge and AI explanation
+        d["risk_badge"]   = compute_risk_badge(float(d.get("amount") or 0), d.get("confidence"))
+        d["explanation"]  = build_draft_explanation(d)
         drafts.append(d)
 
     prioritised = prioritise_queue(drafts, sla_hours)
@@ -237,4 +286,46 @@ async def get_overdue_summary(
         "sla_hours":      sla_hours,
         "overdue_count":  int(row["overdue_count"]),
         "overdue_amount": round(float(row["overdue_amount"]), 2),
+    }
+
+
+async def bulk_approve(
+    tenant_id: str,
+    draft_ids: list[int],
+    actor: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Approve multiple drafts in one call with individual audit trail.
+
+    Returns:
+        {"approved": [...], "skipped": [...], "failed": [...]}
+    Each entry: {"draft_id": int, "reason": str}
+    """
+    from app.api.services.approval_service import approve_draft_service
+
+    approved = []
+    skipped  = []
+    failed   = []
+
+    for draft_id in draft_ids:
+        try:
+            result = await approve_draft_service(draft_id, tenant_id)
+            if result.get("ok"):
+                approved.append({"draft_id": draft_id})
+            else:
+                code = (result.get("error") or {}).get("code", "UNKNOWN")
+                skipped.append({"draft_id": draft_id, "reason": code})
+        except Exception as exc:
+            failed.append({"draft_id": draft_id, "reason": str(exc)[:80]})
+
+    return {
+        "requested":      len(draft_ids),
+        "approved_count": len(approved),
+        "skipped_count":  len(skipped),
+        "failed_count":   len(failed),
+        "approved":       approved,
+        "skipped":        skipped,
+        "failed":         failed,
+        "actor":          actor,
+        "note":           note,
     }

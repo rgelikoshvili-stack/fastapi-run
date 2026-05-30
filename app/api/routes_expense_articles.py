@@ -14,21 +14,21 @@ router = APIRouter(prefix="/expense-articles", tags=["expense-articles"])
 
 
 @router.get("/list")
-def expense_articles_list(
+async def expense_articles_list(
     active_only: bool = Query(False),
     limit: int = Query(200, ge=1, le=1000),
 ):
     try:
-        rows = list_expense_articles(active_only=active_only, limit=limit)
+        rows = await list_expense_articles(active_only=active_only, limit=limit)
         return ok_response("Expense articles list", {"items": rows, "count": len(rows)})
     except Exception as e:
         return error_response("List failed", "EXPENSE_ARTICLES_LIST_ERROR", str(e))
 
 
 @router.get("/get/{article_code}")
-def expense_articles_get(article_code: str):
+async def expense_articles_get(article_code: str):
     try:
-        row = get_expense_article(article_code)
+        row = await get_expense_article(article_code)
         if not row:
             return error_response("Not found", "NOT_FOUND", f"Expense article not found: {article_code}")
         return ok_response("Expense article found", row)
@@ -37,23 +37,23 @@ def expense_articles_get(article_code: str):
 
 
 @router.get("/search")
-def expense_articles_search(
+async def expense_articles_search(
     q: str = Query(..., min_length=1),
     active_only: bool = Query(False),
     limit: int = Query(50, ge=1, le=500),
 ):
     try:
-        rows = search_expense_articles(query=q, active_only=active_only, limit=limit)
+        rows = await search_expense_articles(query=q, active_only=active_only, limit=limit)
         return ok_response("Expense articles search", {"items": rows, "count": len(rows)})
     except Exception as e:
         return error_response("Search failed", "EXPENSE_ARTICLES_SEARCH_ERROR", str(e))
 
 
 @router.post("/upsert")
-def expense_articles_upsert(request: Request, payload: dict = Body(...)):
+async def expense_articles_upsert(request: Request, payload: dict = Body(...)):
     require_permission(request, "settings:write")
     try:
-        result = upsert_expense_article(payload)
+        result = await upsert_expense_article(payload)
         if not result.get("ok"):
             return error_response("Upsert failed", "EXPENSE_ARTICLES_UPSERT_ERROR", result.get("error"))
         return ok_response("Expense article upserted", result)
@@ -62,10 +62,10 @@ def expense_articles_upsert(request: Request, payload: dict = Body(...)):
 
 
 @router.post("/bulk-upsert")
-def expense_articles_bulk_upsert(request: Request, payload: list[dict] = Body(...)):
+async def expense_articles_bulk_upsert(request: Request, payload: list[dict] = Body(...)):
     require_permission(request, "settings:write")
     try:
-        result = bulk_upsert_expense_articles(payload)
+        result = await bulk_upsert_expense_articles(payload)
         return ok_response("Expense articles bulk upsert finished", result)
     except Exception as e:
         return error_response("Bulk upsert failed", "EXPENSE_ARTICLES_BULK_UPSERT_ERROR", str(e))

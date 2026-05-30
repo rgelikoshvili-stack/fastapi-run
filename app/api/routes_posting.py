@@ -364,6 +364,71 @@ async def disable_connector(
     }
 
 
+# ── Balance.ge Controlled Pilot (Phase 4) ───────────────────────────────────
+
+@router.get("/balance/pilot/status")
+async def balance_pilot_status(request: Request):
+    """Return Balance.ge pilot status for this tenant (preflight + sign-off state)."""
+    require_permission(request, "posting:read")
+    from app.api.services.balance_pilot_service import get_pilot_status
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    from app.api.response_utils import ok_response
+    result = await get_pilot_status(tenant_id)
+    return ok_response("Balance.ge pilot status", result)
+
+
+@router.get("/balance/pilot/preflight")
+async def balance_pilot_preflight(request: Request):
+    """Run preflight checks for Balance.ge live posting enablement."""
+    require_permission(request, "posting:write")
+    from app.api.services.balance_pilot_service import run_preflight_check
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    from app.api.response_utils import ok_response
+    result = await run_preflight_check(tenant_id)
+    return ok_response("Balance.ge preflight", result)
+
+
+@router.post("/balance/pilot/enable")
+async def balance_pilot_enable(request: Request):
+    """Admin sign-off: enable live Balance.ge posting for this tenant.
+
+    Requires all preflight checks to pass. Records sign-off in tenant_settings.
+    The global POSTED_LEDGER_WRITES_ENABLED env var must also be 'true'.
+    """
+    require_permission(request, "tenants:manage")
+    from app.api.services.balance_pilot_service import enable_live_posting
+    from app.api.response_utils import ok_response, error_response
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    actor = getattr(request.state, "user_id", "unknown")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    note = body.get("note", "")
+    try:
+        result = await enable_live_posting(tenant_id, actor, note)
+    except ValueError as exc:
+        return error_response(str(exc), "PREFLIGHT_FAILED", str(exc))
+    return ok_response("Balance.ge live posting enabled", result)
+
+
+@router.post("/balance/pilot/disable")
+async def balance_pilot_disable(request: Request):
+    """Emergency disable: turn off live Balance.ge posting for this tenant."""
+    require_permission(request, "tenants:manage")
+    from app.api.services.balance_pilot_service import disable_live_posting
+    from app.api.response_utils import ok_response
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    actor = getattr(request.state, "user_id", "unknown")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    reason = body.get("reason", "")
+    result = await disable_live_posting(tenant_id, actor, reason)
+    return ok_response("Balance.ge live posting disabled", result)
+
+
 @router.post("/connector/{target}/enable")
 async def enable_connector(
     request: Request,

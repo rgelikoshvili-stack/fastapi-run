@@ -8,6 +8,7 @@ from app.api.authz import require_permission
 from app.api.response_utils import error_response, ok_response
 from app.api.services.approval_cockpit_service import (
     add_comment,
+    bulk_approve,
     delegate_draft,
     get_cockpit_queue,
     get_overdue_summary,
@@ -119,3 +120,29 @@ async def post_comment(draft_id: int, payload: CommentPayload, request: Request)
     except ValueError as exc:
         return error_response(str(exc), str(exc), f"draft_id={draft_id}")
     return ok_response("Comment added", comment)
+
+
+class BulkApprovePayload(BaseModel):
+    draft_ids: list[int]
+    note: str = ""
+
+    @field_validator("draft_ids")
+    @classmethod
+    def not_empty(cls, v: list) -> list:
+        if not v:
+            raise ValueError("draft_ids must not be empty")
+        if len(v) > 100:
+            raise ValueError("Cannot bulk approve more than 100 drafts at once")
+        return v
+
+
+@router.post("/bulk-approve")
+async def bulk_approve_drafts(payload: BulkApprovePayload, request: Request):
+    require_permission(request, "approval:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    actor = getattr(request.state, "user_id", "unknown")
+    result = await bulk_approve(tenant_id, payload.draft_ids, actor, payload.note)
+    return ok_response(
+        f"Bulk approve: {result['approved_count']}/{result['requested']} approved",
+        result,
+    )

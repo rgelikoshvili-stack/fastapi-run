@@ -65,6 +65,10 @@
     ("PUT",    "/partner",             "tenants:manage"),
     ("DELETE", "/partner",             "tenants:manage"),
 
+    # ── Admin Dashboard ───────────────────────────────────────────────────────
+    ("GET",    "/admin",               "tenants:manage"),
+    ("PATCH",  "/admin",               "tenants:manage"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

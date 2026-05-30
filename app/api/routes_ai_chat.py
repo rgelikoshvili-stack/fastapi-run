@@ -370,7 +370,7 @@ async def classify_tx(request: ClassifyRequest):
 @router.post("/learn")
 async def learn_rule(request: LearnRequest):
     require_permission(request, "chat:use")
-    return run_learn_rule(request)
+    return await run_learn_rule(request)
 
 
 @router.post("/index")

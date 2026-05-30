@@ -11,7 +11,12 @@ import email.header
 import socket
 import os
 from datetime import datetime
-from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice
+import asyncio as _asyncio
+from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice_async as _create_draft_async
+
+def _create_draft(fields, tenant_id, source_type, force=False):
+    """Sync wrapper for async draft creation — safe in sync (thread-pool) route handlers."""
+    return _asyncio.run(_create_draft_async(fields, tenant_id=tenant_id, source_type=source_type, force=force))
 log = logging.getLogger(__name__)
 
 
@@ -210,7 +215,7 @@ def process_email_by_id(
                     })
                     continue
 
-                draft = create_draft_from_invoice(
+                draft = _create_draft(
                     fields,
                     tenant_id=tenant_id,
                     source_type="email_invoice",
@@ -312,7 +317,7 @@ def process_email_invoices(
                 try:
                     fields = extract_invoice_fields(att["filename"], att["data"])
                     if fields.get("amount"):
-                        draft = create_draft_from_invoice(
+                        draft = _create_draft(
                             fields, tenant_id=tenant_id, source_type="email_invoice"
                         )
                         processed.append({

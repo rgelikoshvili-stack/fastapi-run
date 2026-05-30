@@ -199,11 +199,11 @@ async def _create_tenant(tenant_id: str, inn: str, name: str, company_type: str,
 
 @router.post("/login")
 @limiter.limit("5/minute")
-def auth_login(request: Request, data: LoginRequest):
+async def auth_login(request: Request, data: LoginRequest):
     log.info("action=login_attempt email=%s tenant=%s ip=%s",
              data.email, data.tenant_id,
              request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown"))
-    result = login(data.email, data.password, data.tenant_id)
+    result = await login(data.email, data.password, data.tenant_id)
     if not result.get("ok"):
         log.warning("action=login_fail email=%s tenant=%s reason=%s",
                     data.email, data.tenant_id, result.get("error"))
@@ -216,11 +216,11 @@ def auth_login(request: Request, data: LoginRequest):
 
 @router.post("/register")
 @limiter.limit("5/minute")
-def auth_register(data: RegisterRequest, request: Request):
+async def auth_register(data: RegisterRequest, request: Request):
     """Simple register (existing tenant). For new company signup use /auth/signup."""
     try:
-        create_users_table()
-        user = create_user(data.email, data.password, data.tenant_id, "accountant")
+        await create_users_table()
+        user = await create_user(data.email, data.password, data.tenant_id, "accountant")
         if not user:
             return error_response("User exists", "USER_EXISTS", "ეს email უკვე რეგისტრირებულია")
         return ok_response("Registered", {
@@ -252,8 +252,8 @@ async def auth_signup(data: FullRegisterRequest, request: Request):
         tenant_id = f"t_{secrets.token_urlsafe(8)}"
         await _create_tenant(tenant_id, data.company_inn, data.company_name_legal, data.company_type, data.is_vat_payer)
 
-        create_users_table()
-        user = create_user(data.email, data.password, tenant_id, "admin")
+        await create_users_table()
+        user = await create_user(data.email, data.password, tenant_id, "admin")
         if not user:
             return error_response("User creation failed", "REGISTER_ERROR", "მომხმარებლის შექმნა ვერ მოხერხდა")
 
@@ -343,7 +343,7 @@ def auth_refresh(data: RefreshRequest):
 async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
     """Generate a reset token and send email. Always returns ok (security — don't leak email existence)."""
     try:
-        user = get_user(data.email, data.tenant_id)
+        user = await get_user(data.email, data.tenant_id)
         if user:
             token = secrets.token_urlsafe(48)
             expires = datetime.utcnow() + timedelta(hours=1)
@@ -492,7 +492,7 @@ async def auth_change_password(data: ChangePasswordRequest, request: Request, au
 
     email = payload.get("email")
     tenant_id = payload.get("tenant_id", "default")
-    user = get_user(email, tenant_id)
+    user = await get_user(email, tenant_id)
     if not user:
         return error_response("User not found", "NOT_FOUND", "მომხმარებელი ვერ მოიძებნა")
     if not verify_password(data.current_password, user["password_hash"]):

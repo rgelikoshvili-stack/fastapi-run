@@ -160,12 +160,12 @@ def run_classify_tx(request):
     }
 
 
-def run_learn_rule(request):
+async def run_learn_rule(request):
     if not KB_LOADED:
         return {"status": "error", "message": "KB not loaded"}
 
     results = {
-        "python_rules": learn_new_rule(request.pattern, request.account, request.tenant_id, request.note)
+        "python_rules": await learn_new_rule(request.pattern, request.account, request.tenant_id, request.note)
     }
 
     if request.use_vector and _vector_db_available:

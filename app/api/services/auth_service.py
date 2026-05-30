@@ -112,33 +112,26 @@ def create_refresh_token(payload_extra: dict) -> str:
     return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
-def _resolve_tenant_id(tenant_id: str) -> str:
+async def _resolve_tenant_id(tenant_id: str) -> str:
     """If tenant_id looks like a company INN (all digits), resolve it to the actual tenant_id."""
     if not tenant_id or not tenant_id.strip().isdigit():
         return tenant_id
     try:
-        from app.api.db import get_db
-        conn = get_db()
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT tenant_id FROM tenants WHERE company_inn = %s LIMIT 1",
-                (tenant_id.strip(),),
-            )
-            row = cur.fetchone()
-            return row[0] if row else tenant_id
-        finally:
-            cur.close()
-            conn.close()
+        from app.api.db import get_conn, _q
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
+                "SELECT tenant_id FROM tenants WHERE company_inn = %s LIMIT 1"
+            ), tenant_id.strip())
+        return row[0] if row else tenant_id
     except Exception:
         return tenant_id
 
 
-def login(email: str, password: str, tenant_id: str = "default") -> dict:
-    resolved = _resolve_tenant_id(tenant_id)
-    user = get_user(email, resolved)
+async def login(email: str, password: str, tenant_id: str = "default") -> dict:
+    resolved = await _resolve_tenant_id(tenant_id)
+    user = await get_user(email, resolved)
     if not user and resolved != tenant_id:
-        user = get_user(email, tenant_id)
+        user = await get_user(email, tenant_id)
     if not user:
         return {"ok": False, "error": "მომხმარებელი ვერ მოიძებნა"}
 
@@ -147,7 +140,7 @@ def login(email: str, password: str, tenant_id: str = "default") -> dict:
 
     access_token = _create_access_token(user)
     refresh_token = _create_refresh_token(user)
-    update_last_login(user["id"])
+    await update_last_login(user["id"])
 
     return {
         "ok": True,

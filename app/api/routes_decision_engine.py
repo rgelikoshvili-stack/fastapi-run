@@ -43,7 +43,7 @@ class BatchAnalyzeRequest(BaseModel):
 
 
 @router.post("/analyze")
-def analyze_invoice(req: AnalyzeRequest, request: Request):
+async def analyze_invoice(req: AnalyzeRequest, request: Request):
     """Submit a single invoice for hybrid matching + AI classification."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -52,7 +52,7 @@ def analyze_invoice(req: AnalyzeRequest, request: Request):
     candidates = req.candidates or []
 
     try:
-        result = run_decision_pipeline(invoice, candidates, tenant_id)
+        result = await run_decision_pipeline(invoice, candidates, tenant_id)
         return ok_response("Decision engine analysis complete", result)
     except Exception as e:
         log.error("analyze_invoice error: %s", e, exc_info=True)
@@ -60,7 +60,7 @@ def analyze_invoice(req: AnalyzeRequest, request: Request):
 
 
 @router.post("/analyze/batch")
-def analyze_batch(req: BatchAnalyzeRequest, request: Request):
+async def analyze_batch(req: BatchAnalyzeRequest, request: Request):
     """Analyze multiple invoices at once."""
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -72,7 +72,7 @@ def analyze_batch(req: BatchAnalyzeRequest, request: Request):
         invoice = inv.model_dump(exclude={"candidates"})
         inv_candidates = inv.candidates or candidates
         try:
-            r = run_decision_pipeline(invoice, inv_candidates, tenant_id)
+            r = await run_decision_pipeline(invoice, inv_candidates, tenant_id)
             results.append({"ok": True, "invoice": invoice.get("description"), **r})
         except Exception as e:
             results.append({

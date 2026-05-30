@@ -51,6 +51,10 @@
     ("GET",    "/monthly-close",       "reports:read"),
     ("POST",   "/monthly-close",       "posting:write"),
 
+    # ── ERP Dispatch (Multi-ERP) ──────────────────────────────────────────────
+    ("GET",    "/erp-dispatch",        "posting:read"),
+    ("PUT",    "/erp-dispatch",        "posting:write"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

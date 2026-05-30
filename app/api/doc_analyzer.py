@@ -5,11 +5,11 @@ import re, io, json, base64, urllib.request
 
 try:
     import fitz
-except Exception:
+except ImportError:
     fitz = None
 try:
     from openpyxl import load_workbook
-except Exception:
+except ImportError:
     load_workbook = None
 
 def _pdf_to_text(data):
@@ -93,7 +93,7 @@ def extract_amounts(text):
     for m in re.finditer(AMOUNT_RE, text):
         s = m.group(1).strip().replace(" ","").replace(",","")
         try: val = float(s)
-        except Exception: continue
+        except (ValueError, TypeError): continue
         if val == 0: continue
         # ID ნომრები გამოვრიცხოთ (10M+)
         if val >= 10000000: continue

@@ -15,7 +15,7 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
     else:
         try:
             pattern_days_since_seen = int(pattern_days_since_seen)
-        except Exception:
+        except (ValueError, TypeError):
             pattern_days_since_seen = 999999
 
     if source == "expense_article":
@@ -30,7 +30,7 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
         else:
             try:
                 memory_days_since_seen = int(memory_days_since_seen)
-            except Exception:
+            except (ValueError, TypeError):
                 memory_days_since_seen = 999999
 
         if confidence >= 0.90 and usage_count >= 3 and memory_days_since_seen <= 45:
@@ -50,7 +50,7 @@ def decide_autopilot_status(cl: dict) -> tuple[bool, str, str]:
         else:
             try:
                 erp_days_since_seen = int(erp_days_since_seen)
-            except Exception:
+            except (ValueError, TypeError):
                 erp_days_since_seen = 999999
 
         if confidence >= 0.93 and erp_evidence_count >= 2 and erp_days_since_seen <= 60:

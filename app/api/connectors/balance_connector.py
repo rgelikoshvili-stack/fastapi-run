@@ -15,7 +15,8 @@ class BalanceConnector(BaseConnector):
             self.api_key   = creds.get("api_key", "")
             self.company_id = company_id or creds.get("company_id", "")
             self.api_base  = creds.get("api_base", "https://api.balance.ge")
-        except Exception:
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning("balance creds load failed, using env: %s", e)
             self.api_key   = os.environ.get("BALANCE_API_KEY", "")
             self.company_id = company_id or os.environ.get("BALANCE_COMPANY_ID", "")
             self.api_base  = os.environ.get("BALANCE_API_BASE", "https://api.balance.ge")

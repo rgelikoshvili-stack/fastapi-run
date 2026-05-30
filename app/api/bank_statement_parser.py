@@ -25,7 +25,7 @@ def _amount(v):
         return None
     try:
         return float(str(v).replace(",", "").replace(" ", ""))
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 def _normalize(row):

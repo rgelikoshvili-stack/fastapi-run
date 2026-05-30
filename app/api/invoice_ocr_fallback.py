@@ -13,5 +13,6 @@ def extract_text_with_ocr(file_bytes: bytes) -> str:
 
         return full_text.strip()
 
-    except Exception:
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning("ocr fallback failed: %s", e)
         return ""

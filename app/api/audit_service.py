@@ -27,7 +27,7 @@ def log_event(event_type: str, details: dict | None = None, actor: str = "system
             ),
         )
         conn.commit()
-    except Exception:
+    except Exception as _e:
         try:
             cur.execute(
                 """

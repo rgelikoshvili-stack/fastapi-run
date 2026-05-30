@@ -31,7 +31,7 @@ def _clean_amount(value: str) -> Optional[float]:
 
     try:
         return float(v)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -204,7 +204,8 @@ def _extract_pdf_text(content: bytes) -> str:
         import fitz
         doc = fitz.open(stream=content, filetype="pdf")
         return "\n".join(doc[i].get_text() for i in range(len(doc)))
-    except Exception:
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning("pdf text extract failed: %s", e)
         return ""
 
 

@@ -4,6 +4,7 @@ Bridge Hub — Bank Direct Sync
 TBC + BOG Open Banking API
 DEMO mode — credentials-ის გარეშე.
 """
+import logging
 import os
 import json
 import urllib.request
@@ -11,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import psycopg2.extras
 from app.api.db import get_db
+
+log = logging.getLogger(__name__)
 
 
 # ========== Config ==========
@@ -50,7 +53,8 @@ class TBCConnector:
             )
             with urllib.request.urlopen(req, timeout=10) as r:
                 return r.status == 200
-        except Exception:
+        except Exception as e:
+            log.warning("bank health check failed: %s", e)
             return False
 
     def _get_token(self) -> str:
@@ -66,7 +70,8 @@ class TBCConnector:
             )
             with urllib.request.urlopen(req, timeout=10) as r:
                 return json.loads(r.read())["access_token"]
-        except Exception:
+        except Exception as e:
+            log.warning("bank token fetch failed: %s", e)
             return ""
 
     def sync_transactions(
@@ -198,7 +203,8 @@ class BOGConnector:
             )
             with urllib.request.urlopen(req, timeout=10) as r:
                 return json.loads(r.read())["access_token"]
-        except Exception:
+        except Exception as e:
+            log.warning("bank token fetch failed: %s", e)
             return ""
 
     def _demo_transactions(self) -> dict:
@@ -280,7 +286,8 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
                     else:
                         dr_acc = "1120"
                         cr_acc = acc_code
-                except Exception:
+                except Exception as e:
+                    log.warning("account classification failed: %s", e)
                     acc_code = "7910"
                     conf = 0.5
                     dr_acc = "1210"
@@ -308,12 +315,14 @@ def _save_to_queue(transactions: list, tenant_id: str) -> int:
                     tenant_id,
                 ))
                 saved += 1
-            except Exception:
+            except Exception as e:
+                log.warning("transaction insert failed: %s", e)
                 continue
 
         conn.commit()
         return saved
-    except Exception:
+    except Exception as e:
+        log.error("bank sync failed: %s", e)
         conn.rollback()
         return 0
     finally:

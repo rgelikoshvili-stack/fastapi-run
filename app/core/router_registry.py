@@ -206,3 +206,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_approval_cockpit import router as approval_cockpit_router
     app.include_router(approval_cockpit_router)
+
+    from app.api.routes_monthly_close import router as monthly_close_router
+    app.include_router(monthly_close_router)

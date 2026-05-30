@@ -47,6 +47,10 @@
     ("POST",   "/approval-cockpit",    "approval:write"),
     ("PATCH",  "/approval-cockpit",    "approval:write"),
 
+    # ── Monthly Close Cockpit ─────────────────────────────────────────────────
+    ("GET",    "/monthly-close",       "reports:read"),
+    ("POST",   "/monthly-close",       "posting:write"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

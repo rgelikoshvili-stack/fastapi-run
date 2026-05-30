@@ -371,3 +371,31 @@ def run_table_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # monthly_close_signoffs (Phase 6)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS monthly_close_signoffs (
+                id         SERIAL PRIMARY KEY,
+                tenant_id  TEXT        NOT NULL,
+                month      TEXT        NOT NULL,
+                signed_by  TEXT        NOT NULL,
+                role       TEXT        NOT NULL CHECK (role IN ('accountant','cfo')),
+                status     TEXT        NOT NULL,
+                signed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (tenant_id, month, role)
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("monthly_close_signoffs migration skipped: %s", _e)
+
+    for _mc_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_monthly_close_tenant_month ON monthly_close_signoffs (tenant_id, month)",
+    ]:
+        try:
+            cur.execute(_mc_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()

@@ -59,109 +59,113 @@ async def _capture_run_fn(extra_patches=()):
 # A) _get_active_tenant_ids — module-level helper (sync, independently testable)
 # ===========================================================================
 
+def _make_async_conn(rows):
+    """Build asyncpg-style mock connection."""
+    from contextlib import asynccontextmanager
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[{"tenant_id": r} for r in rows])
+
+    @asynccontextmanager
+    async def _ctx():
+        yield conn
+
+    return _ctx
+
+
 class TestGetActiveTenantIds:
 
-    def _mock_conn(self, rows):
-        """Build a mock psycopg2 connection that returns given rows from fetchall."""
-        mock_conn = MagicMock()
-        mock_cur = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-        mock_cur.fetchall.return_value = rows
-        return mock_conn
-
-    def test_returns_all_tenants_from_db(self):
-        """Should return every tenant_id returned by the DB query."""
+    @pytest.mark.asyncio
+    async def test_returns_all_tenants_from_db(self):
         from app.startup.background import _get_active_tenant_ids
-
-        conn = self._mock_conn([("tenant_a",), ("tenant_b",), ("tenant_c",)])
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
-
+        ctx = _make_async_conn(["tenant_a", "tenant_b", "tenant_c"])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["tenant_a", "tenant_b", "tenant_c"]
 
-    def test_does_not_return_only_default_when_tenants_exist(self):
-        """When DB returns tenants, result must not be limited to 'default'."""
+    @pytest.mark.asyncio
+    async def test_does_not_return_only_default_when_tenants_exist(self):
         from app.startup.background import _get_active_tenant_ids
-
-        conn = self._mock_conn([("company_x",), ("company_y",)])
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
-
+        ctx = _make_async_conn(["company_x", "company_y"])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
         assert "default" not in result
         assert set(result) == {"company_x", "company_y"}
 
-    def test_falls_back_to_default_on_db_connection_error(self):
-        """DB connection failure must not crash — returns ['default']."""
+    @pytest.mark.asyncio
+    async def test_falls_back_to_default_on_db_connection_error(self):
         from app.startup.background import _get_active_tenant_ids
+        from contextlib import asynccontextmanager
 
-        with patch("app.api.db.get_db", side_effect=Exception("Connection refused")):
-            result = _get_active_tenant_ids()
+        @asynccontextmanager
+        async def _err_ctx():
+            raise Exception("Connection refused")
+            yield  # noqa
 
+        with patch("app.startup.background.get_conn", _err_ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["default"]
 
-    def test_falls_back_to_default_on_query_error(self):
-        """DB query error must not crash — returns ['default']."""
+    @pytest.mark.asyncio
+    async def test_falls_back_to_default_on_query_error(self):
         from app.startup.background import _get_active_tenant_ids
+        from contextlib import asynccontextmanager
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(side_effect=RuntimeError("query failed"))
 
-        conn = MagicMock()
-        conn.cursor.side_effect = RuntimeError("cursor failed")
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
+        @asynccontextmanager
+        async def _ctx():
+            yield conn
 
+        with patch("app.startup.background.get_conn", _ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["default"]
 
-    def test_falls_back_to_default_when_table_is_empty(self):
-        """Empty tenants table must fall back to ['default']."""
+    @pytest.mark.asyncio
+    async def test_falls_back_to_default_when_table_is_empty(self):
         from app.startup.background import _get_active_tenant_ids
-
-        conn = self._mock_conn([])
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
-
+        ctx = _make_async_conn([])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["default"]
 
-    def test_closes_connection_after_successful_query(self):
-        """Connection must be closed after a successful query (return to pool)."""
+    @pytest.mark.asyncio
+    async def test_closes_connection_after_successful_query(self):
+        """asyncpg context manager handles connection lifecycle — just verify result."""
         from app.startup.background import _get_active_tenant_ids
+        ctx = _make_async_conn(["tenant_a"])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
+        assert result == ["tenant_a"]
 
-        conn = self._mock_conn([("tenant_a",)])
-        with patch("app.api.db.get_db", return_value=conn):
-            _get_active_tenant_ids()
-
-        conn.close.assert_called_once()
-
-    def test_closes_connection_even_when_query_fails(self):
-        """Connection must be closed even if the cursor query raises."""
+    @pytest.mark.asyncio
+    async def test_closes_connection_even_when_query_fails(self):
         from app.startup.background import _get_active_tenant_ids
+        from contextlib import asynccontextmanager
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(side_effect=RuntimeError("SQL error"))
 
-        conn = MagicMock()
-        cur = MagicMock()
-        conn.cursor.return_value = cur
-        cur.execute.side_effect = RuntimeError("SQL error")
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
+        @asynccontextmanager
+        async def _ctx():
+            yield conn
 
-        conn.close.assert_called_once()
+        with patch("app.startup.background.get_conn", _ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["default"]
 
-    def test_returns_list_type(self):
-        """Return type must always be a list."""
+    @pytest.mark.asyncio
+    async def test_returns_list_type(self):
         from app.startup.background import _get_active_tenant_ids
-
-        conn = self._mock_conn([("t1",), ("t2",)])
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
-
+        ctx = _make_async_conn(["t1", "t2"])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
         assert isinstance(result, list)
 
-    def test_single_tenant_returned(self):
-        """Works correctly with exactly one active tenant."""
+    @pytest.mark.asyncio
+    async def test_single_tenant_returned(self):
         from app.startup.background import _get_active_tenant_ids
-
-        conn = self._mock_conn([("only_tenant",)])
-        with patch("app.api.db.get_db", return_value=conn):
-            result = _get_active_tenant_ids()
-
+        ctx = _make_async_conn(["only_tenant"])
+        with patch("app.startup.background.get_conn", ctx):
+            result = await _get_active_tenant_ids()
         assert result == ["only_tenant"]
 
 

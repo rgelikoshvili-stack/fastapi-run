@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from app.api.metrics import WORKER_ERRORS
+from app.api.db import get_conn, _q
 
 _TASK_MAX_FAILURES = 5
 
@@ -39,30 +40,17 @@ async def _monitored_loop(name: str, fn, interval: int, max_failures: int = _TAS
         await asyncio.sleep(sleep_for)
 
 
-def _get_active_tenant_ids() -> list[str]:
-    """Return all non-inactive tenant IDs from the tenants table.
-
-    Uses psycopg2 sync connection (same pattern as autopilot_approve_service).
-    Excludes 'inactive' and 'suspended' tenants; includes active, trial, and
-    expired states so autopilot can still run for those tenants.
-    Falls back to ['default'] on any DB error so autopilot always runs.
-    """
+async def _get_active_tenant_ids() -> list[str]:
+    """Return all non-inactive tenant IDs from the tenants table."""
     _log = logging.getLogger("bg.autopilot")
     try:
-        from app.api.db import get_db
-        conn = get_db()
-        try:
-            cur = conn.cursor()
-            cur.execute(
+        async with get_conn() as conn:
+            rows = await conn.fetch(
                 "SELECT tenant_id FROM tenants "
                 "WHERE status IS NULL OR status NOT IN ('inactive', 'suspended')"
             )
-            rows = cur.fetchall()
-            cur.close()
-            ids = [r[0] for r in rows]
-            return ids if ids else ["default"]
-        finally:
-            conn.close()
+        ids = [r["tenant_id"] for r in rows]
+        return ids if ids else ["default"]
     except Exception as exc:
         _log.warning(
             "task=autopilot _get_active_tenant_ids failed: %s — falling back to ['default']",
@@ -77,7 +65,7 @@ async def autopilot_loop():
 
     async def _run():
         loop = asyncio.get_running_loop()
-        tenant_ids = await loop.run_in_executor(None, _get_active_tenant_ids)
+        tenant_ids = await _get_active_tenant_ids()
         log.info("task=autopilot starting tenants=%d", len(tenant_ids))
         total_approved = 0
         for tenant_id in tenant_ids:

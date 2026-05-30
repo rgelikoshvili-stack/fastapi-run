@@ -15,7 +15,7 @@ from app.api.db import get_conn, _q
 from app.api.services.tenant_config_service import get_tenant_setting, set_tenant_setting
 
 # All known connectors in this deployment
-KNOWN_CONNECTORS: list[str] = ["balance", "1c", "oris"]
+KNOWN_CONNECTORS: list[str] = ["balance", "1c", "oris", "fina", "apex"]
 
 # Transaction type categories (maps journal account prefix to type)
 TRANSACTION_TYPES = {
@@ -63,6 +63,12 @@ def _check_connector_health(name: str, tenant_id: str) -> dict[str, Any]:
         elif name == "oris":
             from app.api.connectors.oris_connector import OrisConnector
             conn = OrisConnector(tenant_id=tenant_id)
+        elif name == "fina":
+            from app.api.connectors.fina_connector import FinaConnector
+            conn = FinaConnector(tenant_id=tenant_id)
+        elif name == "apex":
+            from app.api.connectors.apex_connector import ApexConnector
+            conn = ApexConnector(tenant_id=tenant_id)
         else:
             return {"connector": name, "status": "unknown", "connected": False,
                     "message": f"Unknown connector: {name}"}

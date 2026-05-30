@@ -59,6 +59,12 @@
     ("GET",    "/saas",                "reports:read"),
     ("POST",   "/saas",                "tenants:manage"),
 
+    # ── Partner API / White-label ─────────────────────────────────────────────
+    ("GET",    "/partner",             "reports:read"),
+    ("POST",   "/partner",             "tenants:manage"),
+    ("PUT",    "/partner",             "tenants:manage"),
+    ("DELETE", "/partner",             "tenants:manage"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

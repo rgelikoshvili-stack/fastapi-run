@@ -215,3 +215,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_saas import router as saas_router
     app.include_router(saas_router)
+
+    from app.api.routes_partner import router as partner_router
+    app.include_router(partner_router)

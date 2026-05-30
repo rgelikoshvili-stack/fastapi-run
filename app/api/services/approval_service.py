@@ -413,13 +413,14 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                 log.warning("save_feedback failed (non-fatal): %s", _fe)
 
             try:
-                save_transaction_memory(
+                import asyncio as _asyncio
+                _asyncio.ensure_future(save_transaction_memory(
                     draft.get("description"),
                     draft.get("partner"),
                     draft.get("amount"),
                     draft.get("account_code"),
                     tenant_id=tenant_id,
-                )
+                ))
                 generate_patterns_from_feedback(tenant_id=tenant_id)
             except Exception as _me:
                 log.warning("memory/patterns update failed (non-fatal): %s", _me)

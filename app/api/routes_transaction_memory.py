@@ -20,10 +20,10 @@ class TransactionMemoryUpsertRequest(BaseModel):
 
 
 @router.post("/upsert")
-def transaction_memory_upsert(data: TransactionMemoryUpsertRequest, request: Request):
+async def transaction_memory_upsert(data: TransactionMemoryUpsertRequest, request: Request):
     require_permission(request, "settings:write")
     try:
-        result = save_transaction_memory(
+        result = await save_transaction_memory(
             description=data.description,
             partner=data.partner,
             amount=data.amount,
@@ -39,9 +39,9 @@ def transaction_memory_upsert(data: TransactionMemoryUpsertRequest, request: Req
 
 
 @router.get("/list")
-def transaction_memory_list(limit: int = Query(100, ge=1, le=1000)):
+async def transaction_memory_list(limit: int = Query(100, ge=1, le=1000)):
     try:
-        items = list_transaction_memory(limit=limit)
+        items = await list_transaction_memory(limit=limit)
         return ok_response("Transaction memory list", {"items": items, "count": len(items)})
     except Exception as e:
         return error_response(

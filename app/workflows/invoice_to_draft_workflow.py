@@ -4,7 +4,7 @@ from app.api.services.qa_engine import evaluate_decision
 from app.api.services.confidence_engine import adjust_confidence
 
 
-def run_invoice_to_draft_workflow(payload: dict) -> dict:
+async def run_invoice_to_draft_workflow(payload: dict) -> dict:
     parsed = payload.get("parsed", {}) or {}
     classification = payload.get("classification", {}) or {}
     journal_draft = payload.get("journal_draft", {}) or {}
@@ -14,16 +14,12 @@ def run_invoice_to_draft_workflow(payload: dict) -> dict:
         "partner": journal_draft.get("partner") or parsed.get("partner") or "",
     }
 
-    # 🧠 CONTEXT
-    context = build_context(context_payload)
+    context = await build_context(context_payload)
 
-    # 🧠 MEMORY PRIORITY
     memory_decision = merge_memory_sources(context, classification)
 
-    # 🧠 QA CHECK
     qa = evaluate_decision(journal_draft)
 
-    # 🧠 ADAPTIVE CONFIDENCE
     adjusted_conf = adjust_confidence(
         classification.get("confidence", 0),
         context,
@@ -44,20 +40,14 @@ def run_invoice_to_draft_workflow(payload: dict) -> dict:
             "total_amount": parsed.get("total_amount"),
             "extraction_confidence": parsed.get("extraction_confidence"),
             "review_required": parsed.get("review_required"),
-
             "classification_source": classification.get("source"),
             "account_code": classification.get("account_code"),
-
             "draft_status": journal_draft.get("status"),
-
             "context_used": context.get("context_used"),
-
             "memory_source": memory_decision.get("source"),
             "memory_confidence": memory_decision.get("confidence"),
-
             "qa_score": qa.get("score"),
             "qa_recommendation": qa.get("recommendation"),
-
             "final_confidence": adjusted_conf,
         },
     }

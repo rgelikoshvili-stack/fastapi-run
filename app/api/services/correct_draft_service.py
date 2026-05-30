@@ -149,9 +149,11 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
         notes=f"review_id={review_id}",
     )
 
-    memory_result = save_transaction_memory(
+    import asyncio as _asyncio
+    _asyncio.ensure_future(save_transaction_memory(
         row["description"], row["partner"], row["amount"], final["account_code"]
-    )
+    ))
+    memory_result = {"ok": True, "mode": "scheduled"}
 
     ai_suggestion = None
     try:

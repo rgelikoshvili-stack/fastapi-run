@@ -73,14 +73,15 @@ class TestConnectorHealthMatrix:
         assert len(result["connectors"]) == len(KNOWN_CONNECTORS)
 
     def test_healthy_count_matches(self):
-        from app.api.services.erp_dispatch_service import connector_health_matrix
+        from app.api.services.erp_dispatch_service import connector_health_matrix, KNOWN_CONNECTORS
         healthy = {"connector": "x", "status": "ok",    "connected": True,  "mode": "demo", "message": ""}
         error   = {"connector": "y", "status": "error", "connected": False, "mode": "live", "message": "timeout"}
-        side_effects = [healthy, error, healthy]
+        # Build side_effects for all 5 connectors: 4 healthy + 1 error
+        side_effects = [healthy] * (len(KNOWN_CONNECTORS) - 1) + [error]
         with patch("app.api.services.erp_dispatch_service._check_connector_health",
                    side_effect=side_effects):
             result = connector_health_matrix("t1")
-        assert result["healthy_count"] == 2
+        assert result["healthy_count"] == len(KNOWN_CONNECTORS) - 1
         assert result["all_healthy"] is False
 
     def test_error_connector_still_included(self):

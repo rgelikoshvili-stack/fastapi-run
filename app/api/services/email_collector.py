@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from email.header import decode_header
 from typing import Optional
 
-import psycopg2
 from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
@@ -23,14 +22,10 @@ ALLOWED_EXTS = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx
 
 # ── Table bootstrap (sync DDL, called from main.py startup) ──────────────────
 
-def _ensure_tables():
+async def _ensure_tables():
     """Create tenant_email_credentials and email_documents tables if missing."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        return
-    conn = psycopg2.connect(url)
-    with conn.cursor() as cur:
-        cur.execute("""
+    async with get_conn() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS tenant_email_credentials (
                 id          SERIAL PRIMARY KEY,
                 tenant_id   TEXT NOT NULL UNIQUE,
@@ -39,7 +34,9 @@ def _ensure_tables():
                 active      BOOLEAN DEFAULT TRUE,
                 created_at  TIMESTAMPTZ DEFAULT NOW(),
                 updated_at  TIMESTAMPTZ DEFAULT NOW()
-            );
+            )
+        """)
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS email_documents (
                 id           SERIAL PRIMARY KEY,
                 tenant_id    TEXT NOT NULL,
@@ -52,10 +49,8 @@ def _ensure_tables():
                 draft_id     INTEGER,
                 created_at   TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE (tenant_id, message_uid, filename)
-            );
+            )
         """)
-    conn.commit()
-    conn.close()
 
 
 # ── DB helpers (asyncpg) ──────────────────────────────────────────────────────

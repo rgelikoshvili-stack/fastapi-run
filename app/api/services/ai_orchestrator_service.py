@@ -138,12 +138,8 @@ async def orchestrate(
     sources = sources or []
     memory_result = memory_result or {}
 
-    # 1. DB context (sync psycopg2 — run in executor to avoid blocking event loop)
-    import asyncio as _asyncio
-    loop = _asyncio.get_running_loop()
-    db_ctx = await loop.run_in_executor(
-        None, lambda: build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
-    )
+    # 1. DB context (async asyncpg)
+    db_ctx = await build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
 
     if draft_id is not None and db_ctx.get("not_found"):
         return {

@@ -302,13 +302,13 @@ async def _run_startup_maintenance() -> None:
     except Exception:
         log.exception("action=db_migration_failed non_fatal=true")
     try:
-        await loop.run_in_executor(None, _ensure_email_tables)
+        await _ensure_email_tables()
         log.info("action=email_collector_tables_ready")
     except Exception as e:
         log.warning("action=email_tables_migration_failed non_fatal=true error=%s", e)
     try:
         from app.api.services.balance_credentials_service import ensure_table as _ensure_balance_table
-        await loop.run_in_executor(None, _ensure_balance_table)
+        await _ensure_balance_table()
         log.info("action=balance_credentials_table_ready")
     except Exception as e:
         log.warning("action=balance_credentials_migration_failed non_fatal=true error=%s", e)

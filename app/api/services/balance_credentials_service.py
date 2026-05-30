@@ -12,7 +12,6 @@ Write path:
 """
 import logging
 import os
-import psycopg2
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,14 +23,10 @@ log = logging.getLogger(__name__)
 _DEFAULT_API_BASE = "https://api.balance.ge"
 
 
-def ensure_table():
+async def ensure_table():
     """Create table if not exists — called at startup."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        return
-    conn = psycopg2.connect(url)
-    with conn.cursor() as cur:
-        cur.execute("""
+    async with get_conn() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS tenant_balance_credentials (
                 id          SERIAL PRIMARY KEY,
                 tenant_id   TEXT NOT NULL UNIQUE,
@@ -41,10 +36,8 @@ def ensure_table():
                 active      BOOLEAN DEFAULT TRUE,
                 created_at  TIMESTAMPTZ DEFAULT NOW(),
                 updated_at  TIMESTAMPTZ DEFAULT NOW()
-            );
+            )
         """)
-    conn.commit()
-    conn.close()
 
 
 async def get_balance_credentials(tenant_id: str) -> dict:

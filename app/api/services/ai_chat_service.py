@@ -593,7 +593,7 @@ async def handle_ai_chat(
         )
 
     # ── Fallback: direct Claude (no orchestrator) ─────────────
-    db_ctx = build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
+    db_ctx = await build_chat_context(tenant_id=tenant_id, message=message, draft_id=draft_id)
 
     if draft_id is not None and db_ctx.get("not_found"):
         return {

@@ -55,6 +55,10 @@
     ("GET",    "/erp-dispatch",        "posting:read"),
     ("PUT",    "/erp-dispatch",        "posting:write"),
 
+    # ── SaaS Self-Service ─────────────────────────────────────────────────────
+    ("GET",    "/saas",                "reports:read"),
+    ("POST",   "/saas",                "tenants:manage"),
+
     # ── Approval ──────────────────────────────────────────────────────────────
     ("GET",    "/approval",           "approval:read"),
     ("POST",   "/approval",           "approval:write"),

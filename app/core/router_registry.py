@@ -212,3 +212,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_erp_dispatch import router as erp_dispatch_router
     app.include_router(erp_dispatch_router)
+
+    from app.api.routes_saas import router as saas_router
+    app.include_router(saas_router)

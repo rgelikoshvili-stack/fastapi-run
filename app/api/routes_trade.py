@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.authz import require_permission
-from app.api.db import _q, get_conn, get_db
+from app.api.db import _q, get_conn
 from app.api.response_utils import error_response, http_error, ok_response
 from app.api.services.invoice_creator import create_draft, finalize
 from app.api.services.inventory_service import (
@@ -273,18 +273,15 @@ async def trade_purchase_order_status(po_id: int, data: PurchaseOrderStatusUpdat
 async def trade_create_sales_invoice(data: SalesInvoiceCreate, request: Request):
     require_permission(request, "approval:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    conn = get_db(tenant_id)
     try:
-        draft = create_draft(conn, tenant_id, {**data.model_dump(), "line_items": [line.model_dump() for line in data.line_items]})
-        finalized = finalize(conn, tenant_id, draft["id"])
+        draft = await create_draft(tenant_id, {**data.model_dump(), "line_items": [line.model_dump() for line in data.line_items]})
+        finalized = await finalize(tenant_id, draft["id"])
     except ValueError as exc:
         return http_error(422, str(exc), "VALIDATION_ERROR")
     except LookupError as exc:
         return http_error(404, str(exc), "NOT_FOUND")
     except Exception as exc:
         return error_response("Sales invoice creation failed", "SALES_INVOICE_ERROR", str(exc))
-    finally:
-        conn.close()
     return ok_response("Sales invoice created", {
         "tenant_id": tenant_id,
         "draft": draft,

@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -106,9 +106,8 @@ def test_sales_invoice_creates_journal_draft_only(client):
         "total_amount": 118,
     }
 
-    with patch("app.api.routes_trade.get_db", return_value=fake_conn) as db_mock, \
-         patch("app.api.routes_trade.create_draft", return_value=draft) as create_mock, \
-         patch("app.api.routes_trade.finalize", return_value=finalized) as finalize_mock:
+    with patch("app.api.routes_trade.create_draft", new=AsyncMock(return_value=draft)) as create_mock, \
+         patch("app.api.routes_trade.finalize", new=AsyncMock(return_value=finalized)) as finalize_mock:
         response = client.post("/trade/sales-invoices", json={
             "invoice_type": "service",
             "buyer_name": "Customer LLC",
@@ -121,9 +120,8 @@ def test_sales_invoice_creates_journal_draft_only(client):
     assert payload["data"]["tenant_id"] == "test"
     assert payload["data"]["journal_draft_id"] == 77
     assert payload["data"]["posted"] is False
-    db_mock.assert_called_once_with("test")
     create_mock.assert_called_once()
-    finalize_mock.assert_called_once_with(fake_conn, "test", 21)
+    finalize_mock.assert_called_once_with("test", 21)
 
 
 def test_trade_unauthenticated_gets_401_or_403():

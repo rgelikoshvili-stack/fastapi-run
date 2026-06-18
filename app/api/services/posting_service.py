@@ -1076,6 +1076,10 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 "live", actor, target_normalized, idempotency_key,
             )
 
+            # H70F — propagate posting_log_id so ledger sources can link back to this log row
+            if log_id is not None:
+                payload["posting_log_id"] = str(log_id)
+
             if success:
                 await conn.execute(
                     _q("UPDATE journal_drafts SET status = 'posted' WHERE id = %s AND tenant_id = %s"),

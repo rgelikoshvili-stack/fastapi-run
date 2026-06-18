@@ -1,6 +1,4 @@
-import psycopg2.extras
-
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.services.feedback_service import save_feedback
 from app.api.services.transaction_memory_service import save_transaction_memory
@@ -25,18 +23,11 @@ SIGNAL_WEIGHTS = {
 }
 
 
-def _feedback_exists(cur, draft_id: int, feedback_type: str, tenant_id: str) -> bool:
-    cur.execute(
-        """
-        SELECT COUNT(*) AS cnt
-        FROM learning_feedback
-        WHERE draft_id = %s
-          AND feedback_type = %s
-          AND tenant_id = %s
-        """,
-        (draft_id, feedback_type, tenant_id),
-    )
-    row = cur.fetchone()
+async def _feedback_exists(conn, draft_id: int, feedback_type: str, tenant_id: str) -> bool:
+    row = await conn.fetchrow(_q("""
+        SELECT COUNT(*) AS cnt FROM learning_feedback
+        WHERE draft_id = %s AND feedback_type = %s AND tenant_id = %s
+    """), draft_id, feedback_type, tenant_id)
     return bool(row and row["cnt"] > 0)
 
 
@@ -123,7 +114,7 @@ def _save_erp_memory_from_draft(draft: dict, account_code: str, tenant_id: str):
         return {"ok": False, "error": str(e)}
 
 
-def apply_approve_learning(
+async def apply_approve_learning(
     draft: dict,
     approved_by_mode: str = "manual_review",
     tenant_id: str = "default",
@@ -135,34 +126,32 @@ def apply_approve_learning(
     feedback_result = None
     weight = SIGNAL_WEIGHTS["approve"]
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     try:
-        if _feedback_exists(cur, draft["id"], "approve", tenant_id):
-            duplicate_skipped = True
-        else:
-            feedback_result = save_feedback(
-                draft_id=draft.get("id"),
-                tx_fingerprint=draft.get("tx_fingerprint"),
-                source_type=draft.get("source_type"),
-                description_raw=draft.get("description"),
-                description_normalized=draft.get("normalized_description") or draft.get("description"),
-                partner_raw=draft.get("partner"),
-                partner_normalized=draft.get("partner"),
-                amount=draft.get("amount"),
-                original_account_code=draft.get("account_code"),
-                original_reason=draft.get("reason"),
-                original_confidence=draft.get("confidence"),
-                final_account_code=draft.get("account_code"),
-                final_reason=draft.get("reason"),
-                feedback_type="approve",
-                corrected_by=approved_by_mode,
-                notes=f"run_id=draft:{draft.get('id')}; weight={weight}",
-                tenant_id=tenant_id,
-            )
+        async with get_conn() as conn:
+            if await _feedback_exists(conn, draft["id"], "approve", tenant_id):
+                duplicate_skipped = True
+            else:
+                feedback_result = save_feedback(
+                    draft_id=draft.get("id"),
+                    tx_fingerprint=draft.get("tx_fingerprint"),
+                    source_type=draft.get("source_type"),
+                    description_raw=draft.get("description"),
+                    description_normalized=draft.get("normalized_description") or draft.get("description"),
+                    partner_raw=draft.get("partner"),
+                    partner_normalized=draft.get("partner"),
+                    amount=draft.get("amount"),
+                    original_account_code=draft.get("account_code"),
+                    original_reason=draft.get("reason"),
+                    original_confidence=draft.get("confidence"),
+                    final_account_code=draft.get("account_code"),
+                    final_reason=draft.get("reason"),
+                    feedback_type="approve",
+                    corrected_by=approved_by_mode,
+                    notes=f"run_id=draft:{draft.get('id')}; weight={weight}",
+                    tenant_id=tenant_id,
+                )
 
-            memory_result = save_transaction_memory(
+            memory_result = await save_transaction_memory(
                 draft.get("description"),
                 draft.get("partner"),
                 draft.get("amount"),
@@ -171,18 +160,13 @@ def apply_approve_learning(
             )
 
             erp_memory_result = _save_erp_memory_from_draft(
-                draft,
-                draft.get("account_code"),
-                tenant_id=tenant_id,
+                draft, draft.get("account_code"), tenant_id=tenant_id,
             )
 
             generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
         pattern_update_result = _mark_success_for_draft(draft, tenant_id, weight=weight)
@@ -216,46 +200,41 @@ def apply_approve_learning(
     }
 
 
-def apply_reject_learning(draft: dict, reason: str = "", tenant_id: str = "default"):
+async def apply_reject_learning(draft: dict, reason: str = "", tenant_id: str = "default"):
     pattern_update_result = {"updated": 0}
     duplicate_skipped = False
     feedback_result = None
     weight = SIGNAL_WEIGHTS["reject"]
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     try:
-        if _feedback_exists(cur, draft["id"], "reject", tenant_id):
-            duplicate_skipped = True
-        else:
-            feedback_result = save_feedback(
-                draft_id=draft.get("id"),
-                tx_fingerprint=draft.get("tx_fingerprint"),
-                source_type=draft.get("source_type"),
-                description_raw=draft.get("description"),
-                description_normalized=draft.get("normalized_description") or draft.get("description"),
-                partner_raw=draft.get("partner"),
-                partner_normalized=draft.get("partner"),
-                amount=draft.get("amount"),
-                original_account_code=draft.get("account_code"),
-                original_reason=draft.get("reason"),
-                original_confidence=draft.get("confidence"),
-                final_account_code=None,
-                final_reason=None,
-                feedback_type="reject",
-                corrected_by="manual_review",
-                notes=f"run_id=draft:{draft.get('id')}; reason={reason}; weight={weight}",
-                tenant_id=tenant_id,
-            )
+        async with get_conn() as conn:
+            if await _feedback_exists(conn, draft["id"], "reject", tenant_id):
+                duplicate_skipped = True
+            else:
+                feedback_result = save_feedback(
+                    draft_id=draft.get("id"),
+                    tx_fingerprint=draft.get("tx_fingerprint"),
+                    source_type=draft.get("source_type"),
+                    description_raw=draft.get("description"),
+                    description_normalized=draft.get("normalized_description") or draft.get("description"),
+                    partner_raw=draft.get("partner"),
+                    partner_normalized=draft.get("partner"),
+                    amount=draft.get("amount"),
+                    original_account_code=draft.get("account_code"),
+                    original_reason=draft.get("reason"),
+                    original_confidence=draft.get("confidence"),
+                    final_account_code=None,
+                    final_reason=None,
+                    feedback_type="reject",
+                    corrected_by="manual_review",
+                    notes=f"run_id=draft:{draft.get('id')}; reason={reason}; weight={weight}",
+                    tenant_id=tenant_id,
+                )
 
             generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
         pattern_update_result = _mark_failure_for_draft(draft, tenant_id, weight=weight)
@@ -284,7 +263,7 @@ def apply_reject_learning(draft: dict, reason: str = "", tenant_id: str = "defau
     }
 
 
-def apply_correct_learning(
+async def apply_correct_learning(
     draft: dict,
     corrected_account_code: str,
     corrected_reason: str = "manual_correction",
@@ -300,34 +279,32 @@ def apply_correct_learning(
     feedback_result = None
     weight = SIGNAL_WEIGHTS["correct"]
 
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
     try:
-        if _feedback_exists(cur, draft["id"], "correct", tenant_id):
-            duplicate_skipped = True
-        else:
-            feedback_result = save_feedback(
-                draft_id=draft.get("id"),
-                tx_fingerprint=draft.get("tx_fingerprint"),
-                source_type=draft.get("source_type"),
-                description_raw=draft.get("description"),
-                description_normalized=draft.get("normalized_description") or draft.get("description"),
-                partner_raw=draft.get("partner"),
-                partner_normalized=draft.get("partner"),
-                amount=draft.get("amount"),
-                original_account_code=draft.get("account_code"),
-                original_reason=draft.get("reason"),
-                original_confidence=draft.get("confidence"),
-                final_account_code=corrected_account_code,
-                final_reason=corrected_reason,
-                feedback_type="correct",
-                corrected_by=corrected_by,
-                notes=f"run_id=draft:{draft.get('id')}; weight={weight}; {notes}",
-                tenant_id=tenant_id,
-            )
+        async with get_conn() as conn:
+            if await _feedback_exists(conn, draft["id"], "correct", tenant_id):
+                duplicate_skipped = True
+            else:
+                feedback_result = save_feedback(
+                    draft_id=draft.get("id"),
+                    tx_fingerprint=draft.get("tx_fingerprint"),
+                    source_type=draft.get("source_type"),
+                    description_raw=draft.get("description"),
+                    description_normalized=draft.get("normalized_description") or draft.get("description"),
+                    partner_raw=draft.get("partner"),
+                    partner_normalized=draft.get("partner"),
+                    amount=draft.get("amount"),
+                    original_account_code=draft.get("account_code"),
+                    original_reason=draft.get("reason"),
+                    original_confidence=draft.get("confidence"),
+                    final_account_code=corrected_account_code,
+                    final_reason=corrected_reason,
+                    feedback_type="correct",
+                    corrected_by=corrected_by,
+                    notes=f"run_id=draft:{draft.get('id')}; weight={weight}; {notes}",
+                    tenant_id=tenant_id,
+                )
 
-            memory_result = save_transaction_memory(
+            memory_result = await save_transaction_memory(
                 draft.get("description"),
                 draft.get("partner"),
                 draft.get("amount"),
@@ -340,18 +317,13 @@ def apply_correct_learning(
             corrected_draft["reason"] = corrected_reason
 
             erp_memory_result = _save_erp_memory_from_draft(
-                corrected_draft,
-                corrected_account_code,
-                tenant_id=tenant_id,
+                corrected_draft, corrected_account_code, tenant_id=tenant_id,
             )
 
             generate_patterns_from_feedback(tenant_id=tenant_id)
 
     except Exception as e:
         return {"ok": False, "error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
     if draft.get("classification_source") in PATTERN_SOURCES and not duplicate_skipped:
         # ძველი ანგარიში — failure (AI შეცდა)
@@ -397,87 +369,53 @@ def apply_correct_learning(
     }
 
 
-def get_learning_health_service(tenant_id: str = "default"):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+async def get_learning_health_service(tenant_id: str = "default"):
     try:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS total_feedback
-            FROM learning_feedback
-            WHERE tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        total_feedback = cur.fetchone()["total_feedback"]
+        async with get_conn() as conn:
+            total_feedback = await conn.fetchval(_q(
+                "SELECT COUNT(*) FROM learning_feedback WHERE tenant_id = %s"
+            ), tenant_id)
 
-        cur.execute(
-            """
-            SELECT feedback_type, COUNT(*) AS count
-            FROM learning_feedback
-            WHERE tenant_id = %s
-            GROUP BY feedback_type
-            """,
-            (tenant_id,),
-        )
-        feedback_by_type = {r["feedback_type"]: r["count"] for r in cur.fetchall()}
+            fb_rows = await conn.fetch(_q(
+                "SELECT feedback_type, COUNT(*) AS count FROM learning_feedback "
+                "WHERE tenant_id = %s GROUP BY feedback_type"
+            ), tenant_id)
+            feedback_by_type = {r["feedback_type"]: r["count"] for r in fb_rows}
 
-        cur.execute(
-            """
-            SELECT COALESCE(MAX(created_at), NOW()) AS last_feedback_at
-            FROM learning_feedback
-            WHERE tenant_id = %s
-            """,
-            (tenant_id,),
-        )
-        last_feedback_at = cur.fetchone()["last_feedback_at"]
+            last_row = await conn.fetchrow(_q(
+                "SELECT COALESCE(MAX(created_at), NOW()) AS last_feedback_at "
+                "FROM learning_feedback WHERE tenant_id = %s"
+            ), tenant_id)
+            last_feedback_at = last_row["last_feedback_at"] if last_row else None
 
-        active_patterns = 0
-        candidate_patterns = 0
-        inactive_patterns = 0
+            active_patterns = candidate_patterns = inactive_patterns = 0
+            try:
+                pat_rows = await conn.fetch(_q(
+                    "SELECT status, COUNT(*) AS count FROM learning_patterns "
+                    "WHERE tenant_id = %s GROUP BY status"
+                ), tenant_id)
+                pattern_map = {r["status"]: r["count"] for r in pat_rows}
+                active_patterns    = pattern_map.get("active", 0)
+                candidate_patterns = pattern_map.get("candidate", 0)
+                inactive_patterns  = pattern_map.get("inactive", 0)
+            except Exception:
+                pass
 
-        try:
-            cur.execute(
-                """
-                SELECT status, COUNT(*) AS count
-                FROM learning_patterns
-                WHERE tenant_id = %s
-                GROUP BY status
-                """,
-                (tenant_id,),
-            )
-            pattern_rows = cur.fetchall()
-            pattern_map = {r["status"]: r["count"] for r in pattern_rows}
-            active_patterns = pattern_map.get("active", 0)
-            candidate_patterns = pattern_map.get("candidate", 0)
-            inactive_patterns = pattern_map.get("inactive", 0)
-        except Exception:
-            pass
-
-        auto_approved_count = 0
-        manual_review_count = 0
-
-        try:
-            cur.execute(
-                """
-                SELECT
-                    SUM(CASE WHEN status = 'auto_approved' THEN 1 ELSE 0 END) AS auto_approved_count,
-                    SUM(CASE WHEN status IN ('drafted', 'pending_approval') THEN 1 ELSE 0 END) AS manual_review_count
-                FROM journal_drafts
-                WHERE tenant_id = %s
-                """,
-                (tenant_id,),
-            )
-            row = cur.fetchone()
-            auto_approved_count = row.get("auto_approved_count") or 0
-            manual_review_count = row.get("manual_review_count") or 0
-        except Exception:
-            pass
+            auto_approved_count = manual_review_count = 0
+            try:
+                dr_row = await conn.fetchrow(_q("""
+                    SELECT
+                        SUM(CASE WHEN status='auto_approved' THEN 1 ELSE 0 END) AS auto_approved_count,
+                        SUM(CASE WHEN status IN ('drafted','pending_approval') THEN 1 ELSE 0 END) AS manual_review_count
+                    FROM journal_drafts WHERE tenant_id = %s
+                """), tenant_id)
+                auto_approved_count = dr_row.get("auto_approved_count") or 0 if dr_row else 0
+                manual_review_count = dr_row.get("manual_review_count") or 0 if dr_row else 0
+            except Exception:
+                pass
 
         return {
-            "ok": True,
-            "tenant_id": tenant_id,
+            "ok": True, "tenant_id": tenant_id,
             "total_feedback": total_feedback,
             "feedback_by_type": feedback_by_type,
             "active_patterns": active_patterns,
@@ -486,20 +424,10 @@ def get_learning_health_service(tenant_id: str = "default"):
             "auto_approved_count": auto_approved_count,
             "manual_review_count": manual_review_count,
             "last_feedback_at": str(last_feedback_at) if last_feedback_at else None,
-            "learning_ok": True,
-            "signal_weights": SIGNAL_WEIGHTS,
+            "learning_ok": True, "signal_weights": SIGNAL_WEIGHTS,
         }
-
     except Exception as e:
-        return {
-            "ok": False,
-            "tenant_id": tenant_id,
-            "error": str(e),
-            "learning_ok": False,
-        }
-    finally:
-        cur.close()
-        conn.close()
+        return {"ok": False, "tenant_id": tenant_id, "error": str(e), "learning_ok": False}
 
 
 def run_decay_service(tenant_id: str = "default"):

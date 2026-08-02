@@ -4,200 +4,154 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bridge Hub — ფინანსური ანგარიშები</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
-h1{font-size:1.1rem;font-weight:600}
-.container{max-width:1400px;margin:0 auto;padding:1.5rem}
-.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1.5rem;background:#fff;border-radius:10px 10px 0 0;padding:.5rem .5rem 0}
-.tab{padding:.7rem 1.5rem;cursor:pointer;font-size:.9rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
-.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
+.tab-bar{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:1.5rem;background:var(--card);border-radius:var(--r) var(--r) 0 0;padding:.5rem .5rem 0}
+.tab-item{padding:.7rem 1.5rem;cursor:pointer;font-size:.9rem;font-weight:500;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
+.tab-item.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--accent-soft)}
 .tab-pane{display:none}.tab-pane.active{display:block}
-.card{background:#fff;border-radius:0 10px 10px 10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
-.card-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
-.card-title{font-weight:700;font-size:1rem}
-.card-body{padding:1.5rem}
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
-.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
-.btn-sm{padding:.35rem .75rem;font-size:.82rem}
 .filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
-input[type=month],input[type=date],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e}
-input:focus,select:focus{outline:none;border-color:#4361ee}
 /* P&L */
 .pnl-section{margin-bottom:1.25rem}
-.pnl-section-title{font-weight:700;font-size:.88rem;text-transform:uppercase;letter-spacing:.06em;color:#4361ee;padding:.5rem 0;border-bottom:2px solid #e7edff;margin-bottom:.5rem}
+.pnl-section-title{font-weight:700;font-size:.88rem;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);padding:.5rem 0;border-bottom:2px solid var(--line-strong);margin-bottom:.5rem}
 .pnl-row{display:flex;justify-content:space-between;align-items:center;padding:.4rem .5rem;border-radius:4px;font-size:.88rem}
-.pnl-row:hover{background:#f8f9fa}
-.pnl-row.subtotal{font-weight:700;background:#e7edff;margin-top:.25rem;padding:.5rem .75rem}
-.pnl-row.total{font-weight:700;font-size:1.05rem;background:#4361ee;color:#fff;padding:.75rem 1rem;border-radius:8px;margin-top:.5rem}
-.pnl-row.total.neg{background:#f72585}
-.pnl-row.ebit-pos{background:#d1f2e1;color:#198754;font-weight:700;padding:.6rem .75rem;border-radius:6px}
-.pnl-row.ebit-neg{background:#fde8ef;color:#f72585;font-weight:700;padding:.6rem .75rem;border-radius:6px}
-.amount{font-family:'Courier New',monospace;font-weight:600;white-space:nowrap}
+.pnl-row:hover{background:var(--card-hover)}
+.pnl-row.subtotal{font-weight:700;background:var(--paper-soft);margin-top:.25rem;padding:.5rem .75rem}
+.pnl-row.total{font-weight:700;font-size:1.05rem;background:var(--ink);color:var(--paper);padding:.75rem 1rem;border-radius:8px;margin-top:.5rem}
+.pnl-row.total.neg{background:var(--red)}
+.pnl-row.ebit-pos{background:var(--green-soft);color:var(--green);font-weight:700;padding:.6rem .75rem;border-radius:6px}
+.pnl-row.ebit-neg{background:var(--red-soft);color:var(--red);font-weight:700;padding:.6rem .75rem;border-radius:6px}
+.amount{font-family:var(--mono);font-weight:600;white-space:nowrap}
 /* Balance Sheet */
 .bs-cols{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
-.bs-side-title{font-weight:700;font-size:1rem;padding:.5rem 0;border-bottom:2px solid #dee2e6;margin-bottom:.75rem;display:flex;justify-content:space-between}
+.bs-side-title{font-weight:700;font-size:1rem;padding:.5rem 0;border-bottom:2px solid var(--line);margin-bottom:.75rem;display:flex;justify-content:space-between;font-family:var(--serif)}
 .bs-group{margin-bottom:1rem}
-.bs-group-label{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;margin-bottom:.35rem}
+.bs-group-label{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-dim);margin-bottom:.35rem}
 .bs-item{display:flex;justify-content:space-between;padding:.3rem .5rem;font-size:.88rem;border-radius:4px}
-.bs-item:hover{background:#f8f9fa}
-.bs-subtotal{display:flex;justify-content:space-between;padding:.4rem .5rem;font-weight:700;background:#f0f2f5;border-radius:4px;margin-top:.25rem;font-size:.88rem}
-.bs-total{display:flex;justify-content:space-between;padding:.65rem .75rem;font-weight:700;font-size:1rem;background:#1a1a2e;color:#fff;border-radius:8px;margin-top:.75rem}
-.balanced-ok{display:inline-block;padding:.35rem .9rem;background:#d1f2e1;color:#198754;border-radius:20px;font-size:.82rem;font-weight:700}
-.balanced-no{display:inline-block;padding:.35rem .9rem;background:#fde8ef;color:#f72585;border-radius:20px;font-size:.82rem;font-weight:700}
+.bs-item:hover{background:var(--card-hover)}
+.bs-subtotal{display:flex;justify-content:space-between;padding:.4rem .5rem;font-weight:700;background:var(--paper-soft);border-radius:4px;margin-top:.25rem;font-size:.88rem}
+.bs-total{display:flex;justify-content:space-between;padding:.65rem .75rem;font-weight:700;font-size:1rem;background:var(--ink);color:var(--paper);border-radius:8px;margin-top:.75rem}
+.balanced-ok{display:inline-block;padding:.35rem .9rem;background:var(--green-soft);color:var(--green);border-radius:20px;font-size:.82rem;font-weight:700}
+.balanced-no{display:inline-block;padding:.35rem .9rem;background:var(--red-soft);color:var(--red);border-radius:20px;font-size:.82rem;font-weight:700}
 /* Recon */
 .recon-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem}
-.recon-card{background:#f8f9fa;border-radius:8px;padding:1rem;text-align:center;border-top:3px solid #dee2e6}
-.recon-card.matched{border-top-color:#198754}
-.recon-card.unmatched{border-top-color:#f72585}
-.recon-val{font-size:1.6rem;font-weight:700;margin:.25rem 0}
-.recon-val.green{color:#198754}.recon-val.red{color:#f72585}.recon-val.blue{color:#4361ee}
-.recon-label{font-size:.75rem;color:#6c757d}
+.recon-card{background:var(--paper-soft);border:1px solid var(--line);border-radius:8px;padding:1rem;text-align:center;border-top:3px solid var(--line-strong)}
+.recon-card.matched{border-top-color:var(--green)}.recon-card.unmatched{border-top-color:var(--red)}
+.recon-val{font-size:1.6rem;font-weight:700;margin:.25rem 0;font-family:var(--mono)}
+.recon-val.green{color:var(--green)}.recon-val.red{color:var(--red)}.recon-val.blue{color:var(--accent)}
+.recon-label{font-size:.75rem;color:var(--ink-dim)}
 table.recon{width:100%;border-collapse:collapse;font-size:.82rem}
-table.recon th{background:#f8f9fa;padding:.5rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6}
-table.recon td{padding:.5rem .75rem;border-bottom:1px solid #f0f2f5}
-.empty{padding:3rem;text-align:center;color:#adb5bd}
-.loading{text-align:center;padding:2rem;color:#6c757d;font-size:.9rem}
-@media(max-width:768px){.bs-cols{grid-template-columns:1fr}.recon-grid{grid-template-columns:1fr}}
+table.recon th{background:var(--paper-sunk);padding:.5rem .75rem;font-weight:600;border-bottom:2px solid var(--line);color:var(--ink-dim)}
+table.recon td{padding:.5rem .75rem;border-bottom:1px solid var(--line-soft)}
+.loading{text-align:center;padding:2rem;color:var(--ink-dim);font-size:.9rem;font-family:var(--serif);font-style:italic}
 /* Drill-down drawer */
 .pnl-row.drillable{cursor:pointer}
-.pnl-row.drillable:hover{background:#e7edff;color:#4361ee}
-.pnl-row.drillable:hover .amount{color:#4361ee}
+.pnl-row.drillable:hover{background:var(--accent-soft);color:var(--accent)}
+.pnl-row.drillable:hover .amount{color:var(--accent)}
 .bs-item.drillable{cursor:pointer}
-.bs-item.drillable:hover{background:#e7edff}
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:900;animation:fadeIn .15s}
+.bs-item.drillable:hover{background:var(--accent-soft)}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(26,21,18,.45);z-index:900;animation:fadeIn .15s}
 .drawer-overlay.open{display:block}
-.drawer{position:fixed;right:0;top:0;bottom:0;width:520px;max-width:95vw;background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);z-index:901;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:520px;max-width:95vw;background:var(--card);border-left:1px solid var(--line);box-shadow:-4px 0 24px rgba(60,40,20,.15);z-index:901;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .drawer.open{transform:translateX(0)}
-.drawer-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.drawer-title{font-weight:700;font-size:1rem}
-.drawer-close{background:none;border:none;font-size:1.3rem;cursor:pointer;color:#6c757d;line-height:1;padding:.25rem}
-.drawer-summary{padding:.75rem 1.5rem;background:#f8f9fa;border-bottom:1px solid #f0f2f5;font-size:.85rem;color:#495057;flex-shrink:0}
+.drawer-head{padding:1.25rem 1.5rem;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.drawer-title{font-weight:700;font-size:1rem;font-family:var(--serif)}
+.drawer-close{background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--ink-dim);line-height:1;padding:.25rem}
+.drawer-summary{padding:.75rem 1.5rem;background:var(--paper-soft);border-bottom:1px solid var(--line-soft);font-size:.85rem;color:var(--ink-mute);flex-shrink:0}
 .drawer-body{flex:1;overflow-y:auto;padding:1rem 1.5rem}
-.drawer-tx{padding:.65rem .5rem;border-bottom:1px solid #f5f5f5;font-size:.85rem;display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem}
-.drawer-tx:hover{background:#fafafa}
+.drawer-tx{padding:.65rem .5rem;border-bottom:1px solid var(--line-soft);font-size:.85rem;display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem}
+.drawer-tx:hover{background:var(--card-hover)}
 .drawer-tx-desc{flex:1;min-width:0}
 .drawer-tx-desc strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.drawer-tx-desc small{color:#6c757d}
-.drawer-tx-amount{font-family:'Courier New',monospace;font-weight:600;white-space:nowrap;font-size:.88rem}
-.drawer-tx-amount.pos{color:#198754}
-.drawer-tx-amount.neg{color:#dc3545}
-.drawer-loading{text-align:center;padding:2rem;color:#6c757d}
+.drawer-tx-desc small{color:var(--ink-dim)}
+.drawer-tx-amount{font-family:var(--mono);font-weight:600;white-space:nowrap;font-size:.88rem}
+.drawer-tx-amount.pos{color:var(--green)}.drawer-tx-amount.neg{color:var(--red)}
+.drawer-loading{text-align:center;padding:2rem;color:var(--ink-dim);font-family:var(--serif);font-style:italic}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-
-/* Bridge Hub accounting paper theme */
-:root{
-  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
-  --card:#faf3e3;--card-hover:#ebe0c5;
-  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
-  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;
-  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
-  --green:#27500A;--green-bg:#EAF3DE;--red:#791F1F;--red-bg:#FCEBEB;
-  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
-  --serif:'Instrument Serif',Georgia,serif;
-  --mono:'Geist Mono','Courier New',monospace;
-}
-body{font-family:var(--font);background:radial-gradient(900px 600px at 8% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);color:var(--ink)}
-.topbar{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--line);padding:1rem 1.5rem}
-.topbar a{color:var(--ink-mute)}.topbar a:hover{color:var(--accent)}
-h1,.card-title,.drawer-title{font-family:var(--serif);font-weight:400;color:var(--ink);letter-spacing:0}
-.tabs,.card,.drawer{background:var(--card);border:1px solid var(--line);box-shadow:none}
-.tabs{border-bottom:1px solid var(--line);border-radius:10px;padding:.5rem;margin-bottom:1rem}
-.tab{color:var(--ink-mute);border-radius:8px;margin-bottom:0}.tab:hover{background:var(--card-hover);color:var(--ink)}
-.tab.active{background:var(--ink);color:var(--paper);border-bottom-color:transparent}
-.card{border-radius:10px;overflow:hidden}.card-head,.drawer-head{border-bottom:1px solid var(--line-soft)}.card-body{background:rgba(250,243,227,.58)}
-input[type=month],input[type=date],select{background:var(--paper-soft);border:1px solid var(--line);color:var(--ink);border-radius:8px}
-input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-.btn{border-radius:8px}.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--accent)}
-.btn-ghost{background:var(--paper-soft);color:var(--ink-mute);border:1px solid var(--line)}.btn-ghost:hover{background:var(--card-hover);color:var(--ink)}
-.pnl-section-title{color:var(--accent);border-bottom-color:var(--line-strong)}
-.pnl-row:hover,.bs-item:hover,.drawer-tx:hover{background:var(--card-hover)}.pnl-row.subtotal,.bs-subtotal,.drawer-summary{background:var(--paper-soft)}
-.pnl-row.total,.bs-total{background:var(--ink);color:var(--paper)}
-.pnl-row.total.neg{background:var(--red)}.pnl-row.ebit-pos{background:var(--green-bg);color:var(--green)}.pnl-row.ebit-neg{background:var(--red-bg);color:var(--red)}
-.balanced-ok{background:var(--green-bg);color:var(--green)}.balanced-no{background:var(--red-bg);color:var(--red)}
-.recon-card{background:var(--paper-soft);border:1px solid var(--line);border-top:3px solid var(--line-strong)}
-.recon-card.matched{border-top-color:var(--green)}.recon-card.unmatched{border-top-color:var(--red)}
-.recon-val.green{color:var(--green)}.recon-val.red{color:var(--red)}.recon-val.blue{color:var(--accent)}
-table.recon th{background:var(--paper-sunk);border-bottom:1px solid var(--line);color:var(--ink-dim)}
-table.recon td,.drawer-tx{border-bottom:1px solid var(--line-soft)}
-.amount,.drawer-tx-amount{font-family:var(--mono)}
-.drawer-overlay{background:rgba(26,21,18,.45)}.drawer-close{color:var(--ink-dim)}
-.empty,.loading,.drawer-loading{color:var(--ink-dim);font-family:var(--serif);font-style:italic}
+@media(max-width:768px){.bs-cols{grid-template-columns:1fr}.recon-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>📊 ფინანსური ანგარიშები</h1>
-</div>
-
-<div class="container">
-  <div class="tabs">
-    <div class="tab active" onclick="switchTab('pnl',this)">📈 P&amp;L (მოგება/ზარალი)</div>
-    <div class="tab" onclick="switchTab('bs',this)">⚖️ ბალანსი</div>
-    <div class="tab" onclick="switchTab('recon',this)">🔗 GL Reconciliation</div>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> Reports <span class="sep">/</span> <em>Financial Reports</em></div>
   </div>
-
-  <!-- P&L -->
-  <div id="pane-pnl" class="tab-pane active">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">📈 მოგება და ზარალი — IAS 1</span>
-        <div class="filters">
-          <select id="plYear" style="width:100px"></select>
-          <select id="plMonth" style="width:130px">
-            <option value="">— თვე —</option>
-            <option value="1">იანვარი</option><option value="2">თებერვალი</option>
-            <option value="3">მარტი</option><option value="4">აპრილი</option>
-            <option value="5">მაისი</option><option value="6">ივნისი</option>
-            <option value="7">ივლისი</option><option value="8">აგვისტო</option>
-            <option value="9">სექტემბერი</option><option value="10">ოქტომბერი</option>
-            <option value="11">ნოემბერი</option><option value="12">დეკემბერი</option>
-          </select>
-          <button class="btn btn-primary btn-sm" onclick="loadPnL()">📊 ჩვენება</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadPnLRange()">📅 პერიოდი</button>
-        </div>
-      </div>
-      <div class="card-body" id="pnlBody">
-        <div class="loading">აირჩიეთ წელი და თვე</div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">FINANCE</div>
+        <div class="p-title">ფინანსური <em>ანგარიშები</em></div>
+        <div class="p-sub">P&amp;L, Balance Sheet, and GL Reconciliation — IAS 1 compliant.</div>
       </div>
     </div>
-  </div>
 
-  <!-- Balance Sheet -->
-  <div id="pane-bs" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">⚖️ ბალანსი — IAS 1</span>
-        <div class="filters">
-          <input type="date" id="bsDate">
-          <button class="btn btn-primary btn-sm" onclick="loadBS()">📊 ჩვენება</button>
+    <div class="tab-bar">
+      <div class="tab-item active" onclick="switchTab('pnl',this)">P&amp;L (მოგება/ზარალი)</div>
+      <div class="tab-item" onclick="switchTab('bs',this)">ბალანსი</div>
+      <div class="tab-item" onclick="switchTab('recon',this)">GL Reconciliation</div>
+    </div>
+
+    <!-- P&L -->
+    <div id="pane-pnl" class="tab-pane active">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">მოგება და ზარალი — IAS 1</div>
+          <div class="filters">
+            <select class="sel" id="plYear" style="width:100px"></select>
+            <select class="sel" id="plMonth" style="width:130px">
+              <option value="">— თვე —</option>
+              <option value="1">იანვარი</option><option value="2">თებერვალი</option>
+              <option value="3">მარტი</option><option value="4">აპრილი</option>
+              <option value="5">მაისი</option><option value="6">ივნისი</option>
+              <option value="7">ივლისი</option><option value="8">აგვისტო</option>
+              <option value="9">სექტემბერი</option><option value="10">ოქტომბერი</option>
+              <option value="11">ნოემბერი</option><option value="12">დეკემბერი</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="loadPnL()">ჩვენება</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadPnLRange()">პერიოდი</button>
+          </div>
         </div>
-      </div>
-      <div class="card-body" id="bsBody">
-        <div class="loading">აირჩიეთ თარიღი</div>
+        <div class="card-body" id="pnlBody">
+          <div class="loading">აირჩიეთ წელი და თვე</div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Reconciliation -->
-  <div id="pane-recon" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">🔗 GL ↔ ბანკი შეჯერება</span>
-        <div class="filters">
-          <input type="date" id="reconFrom">
-          <span style="color:#adb5bd">—</span>
-          <input type="date" id="reconTo">
-          <button class="btn btn-primary btn-sm" onclick="loadRecon()">🔍 შეჯერება</button>
+    <!-- Balance Sheet -->
+    <div id="pane-bs" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">ბალანსი — IAS 1</div>
+          <div class="filters">
+            <input class="inp" type="date" id="bsDate">
+            <button class="btn btn-primary btn-sm" onclick="loadBS()">ჩვენება</button>
+          </div>
+        </div>
+        <div class="card-body" id="bsBody">
+          <div class="loading">აირჩიეთ თარიღი</div>
         </div>
       </div>
-      <div class="card-body" id="reconBody">
-        <div class="loading">აირჩიეთ პერიოდი</div>
+    </div>
+
+    <!-- Reconciliation -->
+    <div id="pane-recon" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">GL ↔ ბანკი შეჯერება</div>
+          <div class="filters">
+            <input class="inp" type="date" id="reconFrom">
+            <span style="color:var(--ink-dim)">—</span>
+            <input class="inp" type="date" id="reconTo">
+            <button class="btn btn-primary btn-sm" onclick="loadRecon()">შეჯერება</button>
+          </div>
+        </div>
+        <div class="card-body" id="reconBody">
+          <div class="loading">აირჩიეთ პერიოდი</div>
+        </div>
       </div>
     </div>
   </div>
@@ -214,6 +168,12 @@ table.recon td,.drawer-tx{border-bottom:1px solid var(--line-soft)}
   <div class="drawer-body" id="drawerBody"><div class="drawer-loading">იტვირთება…</div></div>
 </div>
 
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('reports');
+});
+</script>
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
@@ -279,7 +239,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
 function switchTab(name,el){
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));
   document.getElementById('pane-'+name).classList.add('active');
   el.classList.add('active');
 }
@@ -289,23 +249,22 @@ async function loadPnL(){
   const year=document.getElementById('plYear').value;
   const month=document.getElementById('plMonth').value;
   if(!month){loadPnLRange();return;}
-  document.getElementById('pnlBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  document.getElementById('pnlBody').innerHTML='<div class="loading">გამოითვლება...</div>';
   const d=await api(`/reports/pl?year=${year}&month=${month}`);
   renderPnL(d);
 }
 
 async function loadPnLRange(){
   const year=document.getElementById('plYear').value;
-  document.getElementById('pnlBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  document.getElementById('pnlBody').innerHTML='<div class="loading">გამოითვლება...</div>';
   const d=await api(`/reports/pnl?date_from=${year}-01-01&date_to=${year}-12-31`);
   renderPnL(d);
 }
 
 function renderPnL(d){
   const el=document.getElementById('pnlBody');
-  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა ან მონაცემი არ არის</div>';return;}
+  if(!d||!d.ok){el.innerHTML='<div class="empty"><span class="empty-txt">შეცდომა ან მონაცემი არ არის</span></div>';return;}
   const dt=d.data||{};
-  // New API: revenue_detail/cogs_detail/opex_detail; fallback to old structure
   const revSec  = dt.revenue_detail || dt.revenue || {};
   const cogsSec = dt.cogs_detail    || dt.cogs    || {};
   const opexSec = dt.opex_detail    || dt.opex    || {};
@@ -316,7 +275,7 @@ function renderPnL(d){
   const pFrom = period.from||''; const pTo = period.to||'';
 
   if (!revSec.lines?.length && !cogsSec.lines?.length && !opexSec.lines?.length) {
-    el.innerHTML=`<div class="empty">📭 Journal-ში დამტკიცებული ჩანაწერი არ მოიძებნა ამ პერიოდისთვის.<br><small style="color:#adb5bd">Approve drafts first, then reports will populate.</small></div>`;
+    el.innerHTML=`<div class="empty"><span class="empty-txt">Journal-ში დამტკიცებული ჩანაწერი არ მოიძებნა ამ პერიოდისთვის.</span></div>`;
     return;
   }
 
@@ -328,42 +287,37 @@ function renderPnL(d){
     return `<div class="${cls}" ${onclick}><span>${esc(lbl)}</span><span class="amount">₾${fmt(l.amount)}</span></div>`;
   }
 
-  let html=`<div style="font-size:.82rem;color:#adb5bd;margin-bottom:1rem">📅 პერიოდი: ${pFrom||'—'} – ${pTo||'—'}</div>`;
+  let html=`<div style="font-size:.82rem;color:var(--ink-dim);margin-bottom:1rem;font-family:var(--mono)">პერიოდი: ${pFrom||'—'} – ${pTo||'—'}</div>`;
 
-  // Revenue
-  html+=`<div class="pnl-section"><div class="pnl-section-title">💰 შემოსავალი (Revenue)</div>`;
+  html+=`<div class="pnl-section"><div class="pnl-section-title">შემოსავალი (Revenue)</div>`;
   (revSec.lines||[]).forEach(l=>{html+=drillRow(l);});
-  if(!(revSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 6xxx ანგარიშები ცარიელია</div>`;
+  if(!(revSec.lines||[]).length) html+=`<div class="pnl-row" style="color:var(--ink-ghost)">— 6xxx ანგარიშები ცარიელია</div>`;
   html+=`<div class="pnl-row subtotal"><span>სულ შემოსავალი</span><span class="amount">₾${fmt(revSec.total??dt.revenue??0)}</span></div></div>`;
 
-  // COGS
-  html+=`<div class="pnl-section"><div class="pnl-section-title">🔧 გაყიდული საქ. ღირ. (COGS — 5xxx)</div>`;
+  html+=`<div class="pnl-section"><div class="pnl-section-title">გაყიდული საქ. ღირ. (COGS — 5xxx)</div>`;
   (cogsSec.lines||[]).forEach(l=>{html+=drillRow(l);});
-  if(!(cogsSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 5xxx ანგარიშები ცარიელია</div>`;
+  if(!(cogsSec.lines||[]).length) html+=`<div class="pnl-row" style="color:var(--ink-ghost)">— 5xxx ანგარიშები ცარიელია</div>`;
   html+=`<div class="pnl-row subtotal"><span>სულ COGS</span><span class="amount">₾${fmt(cogsSec.total??dt.cogs??0)}</span></div></div>`;
 
-  // Gross Profit
-  html+=`<div class="pnl-row subtotal" style="background:#e7edff;margin-bottom:1rem"><span>📊 მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(grossP)}</span></div>`;
+  html+=`<div class="pnl-row subtotal" style="margin-bottom:1rem"><span>მთლიანი მოგება (Gross Profit)</span><span class="amount">₾${fmt(grossP)}</span></div>`;
 
-  // OpEx
-  html+=`<div class="pnl-section"><div class="pnl-section-title">💸 საოპ. ხარჯები (OpEx — 7xxx)</div>`;
+  html+=`<div class="pnl-section"><div class="pnl-section-title">საოპ. ხარჯები (OpEx — 7xxx)</div>`;
   (opexSec.lines||[]).forEach(l=>{html+=drillRow(l);});
-  if(!(opexSec.lines||[]).length) html+=`<div class="pnl-row" style="color:#adb5bd">— 7xxx ანგარიშები ცარიელია</div>`;
+  if(!(opexSec.lines||[]).length) html+=`<div class="pnl-row" style="color:var(--ink-ghost)">— 7xxx ანგარიშები ცარიელია</div>`;
   html+=`<div class="pnl-row subtotal"><span>სულ OpEx</span><span class="amount">₾${fmt(opexSec.total??dt.opex??0)}</span></div></div>`;
 
-  // EBIT
-  html+=`<div class="pnl-row ${ebitClass}"><span>🎯 EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>`;
-  html+=`<div style="font-size:.75rem;color:#adb5bd;margin-top:.75rem;text-align:right">💡 ხაზებზე დაჭერით ნახავთ ინდივიდუალურ ტრანზაქციებს</div>`;
+  html+=`<div class="pnl-row ${ebitClass}"><span>EBIT (საოპ. მოგება)</span><span class="amount">₾${fmt(ebit,true)}</span></div>`;
+  html+=`<div style="font-size:.75rem;color:var(--ink-ghost);margin-top:.75rem;text-align:right;font-family:var(--serif);font-style:italic">ხაზებზე დაჭერით ნახავთ ინდივიდუალურ ტრანზაქციებს</div>`;
   el.innerHTML=html;
 }
 
 // ── Balance Sheet ─────────────────────────────────────────────────────────────
 async function loadBS(){
   const asOf=document.getElementById('bsDate').value;
-  document.getElementById('bsBody').innerHTML='<div class="loading">⏳ გამოითვლება...</div>';
+  document.getElementById('bsBody').innerHTML='<div class="loading">გამოითვლება...</div>';
   const d=await api('/reports/balance-sheet?as_of='+asOf);
   const el=document.getElementById('bsBody');
-  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა ან მონაცემი არ არის</div>';return;}
+  if(!d||!d.ok){el.innerHTML='<div class="empty"><span class="empty-txt">შეცდომა ან მონაცემი არ არის</span></div>';return;}
   const {assets,liabilities,equity,balanced,as_of}=d.data;
 
   function bsSide(sections,title,totalLabel,total){
@@ -384,21 +338,19 @@ async function loadBS(){
   }
 
   const balancedBadge=balanced
-    ?`<span class="balanced-ok">✅ დაბალანსებულია</span>`
-    :`<span class="balanced-no">⚠️ დაუბალანსებელია</span>`;
+    ?`<span class="balanced-ok">დაბალანსებულია</span>`
+    :`<span class="balanced-no">დაუბალანსებელია</span>`;
 
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-      <span style="font-size:.85rem;color:#6c757d">📅 ${as_of} მდგომარეობით</span>
+      <span style="font-size:.85rem;color:var(--ink-dim);font-family:var(--mono)">${as_of} მდგომარეობით</span>
       ${balancedBadge}
     </div>
     <div class="bs-cols">
-      <div>${bsSide({current:assets.current,non_current:assets.non_current},'🏦 აქტივები','სულ აქტივები',assets.total)}</div>
+      <div>${bsSide({current:assets.current,non_current:assets.non_current},'აქტივები','სულ აქტივები',assets.total)}</div>
       <div>
-        ${bsSide({current:liabilities.current,non_current:liabilities.non_current},'💳 ვალდებულებები','სულ ვალდ.',liabilities.total)}
-        <div style="margin-top:1.5rem">
-          ${bsSide({equity:equity.equity},'💼 კაპიტალი','სულ კაპიტალი',equity.total)}
-        </div>
+        ${bsSide({current:liabilities.current,non_current:liabilities.non_current},'ვალდებულებები','სულ ვალდ.',liabilities.total)}
+        <div style="margin-top:1.5rem">${bsSide({equity:equity.equity},'კაპიტალი','სულ კაპიტალი',equity.total)}</div>
       </div>
     </div>`;
 }
@@ -408,10 +360,10 @@ async function loadRecon(){
   const from=document.getElementById('reconFrom').value;
   const to=document.getElementById('reconTo').value;
   if(!from||!to){alert('აირჩიეთ პერიოდი');return;}
-  document.getElementById('reconBody').innerHTML='<div class="loading">⏳ შეჯერება...</div>';
+  document.getElementById('reconBody').innerHTML='<div class="loading">შეჯერება...</div>';
   const d=await api(`/reports/gl-reconciliation?date_from=${from}&date_to=${to}`);
   const el=document.getElementById('reconBody');
-  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა</div>';return;}
+  if(!d||!d.ok){el.innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';return;}
   const {matched_pairs,unmatched_gl,unmatched_bank}=d.data;
 
   let html=`<div class="recon-grid">
@@ -421,26 +373,26 @@ async function loadRecon(){
   </div>`;
 
   if((matched_pairs||[]).length){
-    html+=`<h4 style="margin-bottom:.5rem;font-size:.9rem">✅ დაჯვარედინებული პარები</h4>
-      <table class="recon"><thead><tr><th>GL თარიღი</th><th>GL თანხა</th><th>ბანკი თარ.</th><th>ბანკი თანხა</th><th>სხვაობა</th></tr></thead>
+    html+=`<h4 style="margin-bottom:.5rem;font-size:.9rem;font-family:var(--serif)">დაჯვარედინებული პარები</h4>
+      <div class="tbl-wrap"><table class="recon"><thead><tr><th>GL თარიღი</th><th>GL თანხა</th><th>ბანკი თარ.</th><th>ბანკი თანხა</th><th>სხვაობა</th></tr></thead>
       <tbody>${(matched_pairs||[]).map(p=>`<tr>
-        <td>${p.gl_date||'—'}</td><td>₾${fmt(p.gl_amount)}</td>
-        <td>${p.bank_date||'—'}</td><td>₾${fmt(p.bank_amount)}</td>
-        <td style="color:${Math.abs(p.diff||0)<0.05?'#198754':'#f72585'}">₾${fmt(p.diff)}</td>
-      </tr>`).join('')}</tbody></table>`;
+        <td class="mono">${p.gl_date||'—'}</td><td class="mono">₾${fmt(p.gl_amount)}</td>
+        <td class="mono">${p.bank_date||'—'}</td><td class="mono">₾${fmt(p.bank_amount)}</td>
+        <td class="mono" style="color:${Math.abs(p.diff||0)<0.05?'var(--green)':'var(--red)'}">₾${fmt(p.diff)}</td>
+      </tr>`).join('')}</tbody></table></div>`;
   }
   if((unmatched_gl||[]).length){
-    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:#f72585">⚠️ GL — ბანკში ვერ ნაპოვნი</h4>
-      <table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
-      <tbody>${(unmatched_gl||[]).map(g=>`<tr><td>${g.date||'—'}</td><td>${esc(g.description||'—')}</td><td>₾${fmt(g.amount)}</td></tr>`).join('')}</tbody></table>`;
+    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:var(--red)">GL — ბანკში ვერ ნაპოვნი</h4>
+      <div class="tbl-wrap"><table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
+      <tbody>${(unmatched_gl||[]).map(g=>`<tr><td class="mono">${g.date||'—'}</td><td>${esc(g.description||'—')}</td><td class="mono">₾${fmt(g.amount)}</td></tr>`).join('')}</tbody></table></div>`;
   }
   if((unmatched_bank||[]).length){
-    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:#f72585">⚠️ ბანკი — GL-ში ვერ ნაპოვნი</h4>
-      <table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
-      <tbody>${(unmatched_bank||[]).map(b=>`<tr><td>${b.date||'—'}</td><td>${esc(b.description||'—')}</td><td>₾${fmt(b.amount)}</td></tr>`).join('')}</tbody></table>`;
+    html+=`<h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:var(--red)">ბანკი — GL-ში ვერ ნაპოვნი</h4>
+      <div class="tbl-wrap"><table class="recon"><thead><tr><th>თარიღი</th><th>აღწერა</th><th>თანხა</th></tr></thead>
+      <tbody>${(unmatched_bank||[]).map(b=>`<tr><td class="mono">${b.date||'—'}</td><td>${esc(b.description||'—')}</td><td class="mono">₾${fmt(b.amount)}</td></tr>`).join('')}</tbody></table></div>`;
   }
   if(!(matched_pairs||[]).length&&!(unmatched_gl||[]).length&&!(unmatched_bank||[]).length){
-    html+=`<div class="empty">✅ ყველაფერი დაჯვარედინებულია — სხვაობა არ არის</div>`;
+    html+=`<div class="empty"><span class="empty-txt">ყველაფერი დაჯვარედინებულია — სხვაობა არ არის</span></div>`;
   }
   el.innerHTML=html;
 }

@@ -4,258 +4,205 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bridge Hub — Accounting Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
-h1{font-size:1.1rem;font-weight:600}
-.container{max-width:1200px;margin:0 auto;padding:1.5rem}
-/* tabs */
-.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1.5rem;background:#fff;border-radius:10px 10px 0 0;padding:.5rem .5rem 0;flex-wrap:wrap}
-.tab{padding:.65rem 1.25rem;cursor:pointer;font-size:.88rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;white-space:nowrap}
-.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
+.tab-bar{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:1.5rem;background:var(--card);border-radius:var(--r-lg) var(--r-lg) 0 0;padding:.5rem .5rem 0;flex-wrap:wrap}
+.tab-item{padding:.65rem 1.25rem;cursor:pointer;font-size:.88rem;font-weight:500;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;white-space:nowrap}
+.tab-item.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--accent-soft)}
 .tab-pane{display:none}.tab-pane.active{display:block}
-/* card */
-.card{background:#fff;border-radius:0 10px 10px 10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1.25rem}
-.card-head{padding:1rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
-.card-title{font-weight:700;font-size:.95rem}
-.card-body{padding:1.25rem 1.5rem}
-/* btn */
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
-.btn-danger{background:#dc3545;color:#fff}.btn-danger:hover{background:#c82333}
-.btn-success{background:#198754;color:#fff}.btn-success:hover{background:#157347}
-.btn-warning{background:#ffc107;color:#1a1a2e}.btn-warning:hover{background:#e0a800}
-.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
-.btn-sm{padding:.35rem .75rem;font-size:.82rem}
-/* form */
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
 .form-field{margin-bottom:.85rem}
-.form-field label{display:block;font-size:.78rem;font-weight:600;color:#6c757d;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em}
-.form-field input,.form-field select,.form-field textarea{width:100%;border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
-.form-field input:focus,.form-field select:focus{border-color:#4361ee}
-/* table */
-table{width:100%;border-collapse:collapse;font-size:.84rem}
-th{background:#f8f9fa;padding:.55rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6;text-align:left;white-space:nowrap}
-td{padding:.5rem .75rem;border-bottom:1px solid #f5f5f5;vertical-align:middle}
-tr:hover td{background:#fafafa}
-.badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:20px;font-size:.73rem;font-weight:600}
-.b-locked{background:#fde8ef;color:#dc3545}
-.b-open{background:#d1f2e1;color:#198754}
-.b-warning{background:#fff3e0;color:#e67700}
-.b-info{background:#e8f4fd;color:#0d6efd}
-/* result */
-.result-box{background:#f8f9fa;border-radius:8px;padding:1rem 1.25rem;font-size:.88rem;margin-top:1rem;border:1px solid #dee2e6}
-.result-box.success{background:#d1f2e1;border-color:#a3d9b1;color:#155724}
-.result-box.error{background:#fde8ef;border-color:#f5c6cb;color:#721c24}
-.result-box.info{background:#e8f4fd;border-color:#bee5eb;color:#0c5460}
-.empty{padding:2rem;text-align:center;color:#adb5bd;font-size:.88rem}
-/* period grid */
+.form-field label{display:block;font-size:.78rem;font-weight:600;color:var(--ink-mute);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em}
+.form-field input,.form-field select,.form-field textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:var(--paper-soft);color:var(--ink);outline:none}
+.form-field input:focus,.form-field select:focus{border-color:var(--accent)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
+.result-box{background:var(--paper-soft);border-radius:8px;padding:1rem 1.25rem;font-size:.88rem;margin-top:1rem;border:1px solid var(--line)}
+.result-box.success{background:var(--green-soft);border-color:rgba(74,124,58,.2);color:var(--green)}
+.result-box.error{background:var(--red-soft);border-color:rgba(168,56,40,.2);color:var(--red)}
+.result-box.info{background:var(--blue-soft);border-color:rgba(58,90,140,.2);color:var(--blue)}
 .period-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1rem}
 @media(max-width:800px){.period-grid{grid-template-columns:repeat(2,1fr)}}
-.period-cell{background:#fff;border:2px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;text-align:center;transition:.15s}
-.period-cell:hover{border-color:#4361ee}
-.period-cell.locked{border-color:#dc3545;background:#fff5f5}
-.period-cell .p-label{font-size:.82rem;font-weight:600;margin-bottom:.4rem}
+.period-cell{background:var(--card);border:2px solid var(--line);border-radius:8px;padding:.85rem 1rem;text-align:center;transition:.15s}
+.period-cell:hover{border-color:var(--accent)}
+.period-cell.locked{border-color:var(--red);background:var(--red-soft)}
+.period-cell .p-label{font-size:.82rem;font-weight:600;margin-bottom:.4rem;color:var(--ink)}
 .period-cell .p-status{font-size:.72rem}
 .period-cell .p-actions{margin-top:.5rem;display:flex;gap:.35rem;justify-content:center}
-/* cfo queue */
-.cfo-card{background:#fff;border-radius:10px;border:2px solid #ffc107;padding:1.25rem;margin-bottom:.85rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
-.cfo-amount{font-size:1.3rem;font-weight:700;font-family:monospace;color:#1a1a2e;white-space:nowrap}
-/* stats row */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
-@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
-.stat{background:#fff;border-radius:10px;padding:1rem 1.25rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid #4361ee}
-.stat.green{border-top-color:#198754}.stat.amber{border-top-color:#ffc107}.stat.red{border-top-color:#dc3545}
-.stat-val{font-size:1.5rem;font-weight:700;margin:.2rem 0;font-family:monospace}
-.stat-label{font-size:.73rem;color:#6c757d}
-/* modal */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;align-items:center;justify-content:center}
-.modal-bg.open{display:flex}
-.modal{background:#fff;border-radius:12px;padding:1.75rem;width:100%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
-.modal h2{font-size:1rem;font-weight:700;margin-bottom:1.25rem}
-.modal-foot{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem;padding-top:1rem;border-top:1px solid #f0f2f5}
+.cfo-card{background:var(--card);border-radius:var(--r-lg);border:2px solid var(--amber);padding:1.25rem;margin-bottom:.85rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.cfo-amount{font-size:1.3rem;font-weight:700;font-family:var(--mono);color:var(--ink);white-space:nowrap}
+.cc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
+@media(max-width:700px){.cc-stats{grid-template-columns:repeat(2,1fr)}.form-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>⚙ Accounting Tools</h1>
-</div>
-
-<div class="container">
-  <div class="tabs">
-    <div class="tab active" onclick="switchTab('periods',this)">🔒 Period Lock</div>
-    <div class="tab" onclick="switchTab('close',this)">📅 Period Close</div>
-    <div class="tab" onclick="switchTab('cfo',this)">👔 CFO Queue <span id="cfo-badge" style="background:#ffc107;color:#1a1a2e;border-radius:10px;padding:1px 7px;font-size:.72rem;margin-left:4px;display:none">0</span></div>
-    <div class="tab" onclick="switchTab('costcenter',this)">🏢 Cost Centers</div>
-    <div class="tab" onclick="switchTab('fx',this)">💱 FX Revaluation</div>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Accounting Tools</em></div>
   </div>
-
-  <!-- ══ PERIOD LOCK ══ -->
-  <div id="pane-periods" class="tab-pane active">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">🔒 Period Lock — პერიოდის დაბლოკვა</span>
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <select id="lockYear" onchange="loadPeriods()" style="border:1px solid #dee2e6;border-radius:6px;padding:.4rem .7rem;font-size:.85rem">
-          </select>
-          <button class="btn btn-ghost btn-sm" onclick="lockAllYear()">🔒 წელი მთლიანად</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <p style="font-size:.84rem;color:#6c757d;margin-bottom:1rem">დახურული პერიოდი — ახალი approve შეუძლებელია. Unlock-ის შემდეგ შეიძლება ჩანაწერები.</p>
-        <div id="periodsGrid" class="period-grid"><div class="empty">⏳</div></div>
-        <div id="lockResult"></div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">TOOLS</div>
+        <div class="p-title">Accounting <em>Tools</em></div>
+        <div class="p-sub">Period locks, closing entries, CFO queue, cost centers, and FX revaluation.</div>
       </div>
     </div>
-  </div>
 
-  <!-- ══ PERIOD CLOSE ══ -->
-  <div id="pane-close" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">📅 Period Close — თვის/წლის დახურვა</span>
-      </div>
-      <div class="card-body">
-        <p style="font-size:.84rem;color:#6c757d;margin-bottom:1.25rem">6xxx (შემოსავლები) და 7xxx (ხარჯები) ნულდება, სალდო → <b>3600 განუაწილებელი მოგება</b>.</p>
-        <div class="form-row" style="max-width:500px">
-          <div class="form-field">
-            <label>წელი</label>
-            <select id="closeYear"></select>
-          </div>
-          <div class="form-field">
-            <label>თვე (ცარიელი = მთელი წელი)</label>
-            <select id="closeMonth">
-              <option value="">— წლიური —</option>
-              <option value="1">იანვარი</option><option value="2">თებერვალი</option>
-              <option value="3">მარტი</option><option value="4">აპრილი</option>
-              <option value="5">მაისი</option><option value="6">ივნისი</option>
-              <option value="7">ივლისი</option><option value="8">აგვისტო</option>
-              <option value="9">სექტემბერი</option><option value="10">ოქტომბერი</option>
-              <option value="11">ნოემბერი</option><option value="12">დეკემბერი</option>
-            </select>
+    <div class="tab-bar">
+      <div class="tab-item active" onclick="switchTab('periods',this)">Period Lock</div>
+      <div class="tab-item" onclick="switchTab('close',this)">Period Close</div>
+      <div class="tab-item" onclick="switchTab('cfo',this)">CFO Queue <span id="cfo-badge" style="background:var(--amber);color:var(--ink);border-radius:10px;padding:1px 7px;font-size:.72rem;margin-left:4px;display:none">0</span></div>
+      <div class="tab-item" onclick="switchTab('costcenter',this)">Cost Centers</div>
+      <div class="tab-item" onclick="switchTab('fx',this)">FX Revaluation</div>
+    </div>
+
+    <!-- PERIOD LOCK -->
+    <div id="pane-periods" class="tab-pane active">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Period Lock — პერიოდის დაბლოკვა</div>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <select class="sel" id="lockYear" onchange="loadPeriods()" style="width:100px"></select>
+            <button class="btn btn-ghost btn-sm" onclick="lockAllYear()">წელი მთლიანად</button>
           </div>
         </div>
-        <div style="display:flex;gap:.75rem;margin-bottom:1rem">
-          <button class="btn btn-ghost" onclick="previewClose()">🔍 Preview</button>
-          <button class="btn btn-danger" onclick="executeClose()">⚡ შეასრულე Closing</button>
-        </div>
-        <div id="closePreview"></div>
-        <div id="closeResult"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ CFO QUEUE ══ -->
-  <div id="pane-cfo" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">👔 CFO Approval Queue — ≥ ₾10,000</span>
-        <button class="btn btn-ghost btn-sm" onclick="loadCFOQueue()">🔄 განახლება</button>
-      </div>
-      <div class="card-body">
-        <p style="font-size:.84rem;color:#6c757d;margin-bottom:1rem">ეს ჩანაწერები პირველი approval გავიდა — CFO-ს მოწონება ელოდება.</p>
-        <div id="cfoQueue"><div class="empty">⏳ იტვირთება…</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ COST CENTERS ══ -->
-  <div id="pane-costcenter" class="tab-pane">
-    <!-- Stats -->
-    <div class="stats" id="ccStats" style="display:none">
-      <div class="stat"><div class="stat-val" id="ccTotal">—</div><div class="stat-label">Cost Centers</div></div>
-      <div class="stat green"><div class="stat-val" id="ccGrandTotal">—</div><div class="stat-label">სულ ხარჯები</div></div>
-      <div class="stat amber"><div class="stat-val" id="ccUncat">—</div><div class="stat-label">კატეგ. გარეშე</div></div>
-      <div class="stat red"><div class="stat-val" id="ccTopCC">—</div><div class="stat-label">მთავარი CC</div></div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">🏢 Cost Centers</span>
-        <div style="display:flex;gap:.5rem">
-          <button class="btn btn-ghost btn-sm" onclick="loadCCAnalysis()">📊 ანალიზი</button>
-          <button class="btn btn-primary btn-sm" onclick="openCCModal()">+ დამატება</button>
+        <div class="card-body">
+          <p style="font-size:.84rem;color:var(--ink-dim);margin-bottom:1rem">დახურული პერიოდი — ახალი approve შეუძლებელია. Unlock-ის შემდეგ შეიძლება ჩანაწერები.</p>
+          <div id="periodsGrid" class="period-grid"><div class="empty"><span class="empty-txt">იტვირთება…</span></div></div>
+          <div id="lockResult"></div>
         </div>
       </div>
-      <div class="card-body" style="padding:0">
-        <div id="ccTable"><div class="empty">⏳ იტვირთება…</div></div>
-      </div>
     </div>
-    <div class="card" id="ccAnalysisCard" style="display:none">
-      <div class="card-head"><span class="card-title">📊 ხარჯები CC-ის მიხედვით</span></div>
-      <div class="card-body" style="padding:0"><div id="ccAnalysisTable"></div></div>
-    </div>
-  </div>
 
-  <!-- ══ FX REVALUATION ══ -->
-  <div id="pane-fx" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">💱 FX Revaluation — უცხოური ვალუტის გადაფასება</span>
-      </div>
-      <div class="card-body">
-        <p style="font-size:.84rem;color:#6c757d;margin-bottom:1.25rem">
-          გადასახდელ/მისაღებ USD/EUR პოზიციებს ახალი NBG კურსით ხელახლა ზომავს და სხვაობას
-          <b>6820 (სავალუტო სარგებელი) / 7820 (სავალუტო ზარალი)</b>-ში ატარებს.
-        </p>
-        <div class="form-row" style="max-width:500px">
-          <div class="form-field">
-            <label>Revaluation თარიღი</label>
-            <input type="date" id="fxDate"/>
+    <!-- PERIOD CLOSE -->
+    <div id="pane-close" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Period Close — თვის/წლის დახურვა</div>
+        </div>
+        <div class="card-body">
+          <p style="font-size:.84rem;color:var(--ink-dim);margin-bottom:1.25rem">6xxx (შემოსავლები) და 7xxx (ხარჯები) ნულდება, სალდო → <strong>3600 განუაწილებელი მოგება</strong>.</p>
+          <div class="form-row" style="max-width:500px">
+            <div class="form-field"><label>წელი</label><select id="closeYear"></select></div>
+            <div class="form-field">
+              <label>თვე (ცარიელი = მთელი წელი)</label>
+              <select id="closeMonth">
+                <option value="">— წლიური —</option>
+                <option value="1">იანვარი</option><option value="2">თებერვალი</option>
+                <option value="3">მარტი</option><option value="4">აპრილი</option>
+                <option value="5">მაისი</option><option value="6">ივნისი</option>
+                <option value="7">ივლისი</option><option value="8">აგვისტო</option>
+                <option value="9">სექტემბერი</option><option value="10">ოქტომბერი</option>
+                <option value="11">ნოემბერი</option><option value="12">დეკემბერი</option>
+              </select>
+            </div>
           </div>
-          <div class="form-field">
-            <label>ვალუტა (ცარიელი = ყველა)</label>
-            <select id="fxCurrency">
-              <option value="">ყველა</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-            </select>
+          <div style="display:flex;gap:.75rem;margin-bottom:1rem">
+            <button class="btn btn-ghost" onclick="previewClose()">Preview</button>
+            <button class="btn btn-danger" onclick="executeClose()">შეასრულე Closing</button>
+          </div>
+          <div id="closePreview"></div>
+          <div id="closeResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CFO QUEUE -->
+    <div id="pane-cfo" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">CFO Approval Queue — ≥ ₾10,000</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadCFOQueue()">განახლება</button>
+        </div>
+        <div class="card-body">
+          <p style="font-size:.84rem;color:var(--ink-dim);margin-bottom:1rem">ეს ჩანაწერები პირველი approval გავიდა — CFO-ს მოწონება ელოდება.</p>
+          <div id="cfoQueue"><div class="empty"><span class="empty-txt">იტვირთება…</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COST CENTERS -->
+    <div id="pane-costcenter" class="tab-pane">
+      <div class="cc-stats" id="ccStats" style="display:none">
+        <div class="kpi kpi-accent"><div class="kpi-label">Cost Centers</div><div class="kpi-val" id="ccTotal">—</div></div>
+        <div class="kpi kpi-green"><div class="kpi-label">სულ ხარჯები</div><div class="kpi-val" id="ccGrandTotal">—</div></div>
+        <div class="kpi kpi-amber"><div class="kpi-label">კატეგ. გარეშე</div><div class="kpi-val" id="ccUncat">—</div></div>
+        <div class="kpi kpi-blue"><div class="kpi-label">მთავარი CC</div><div class="kpi-val" id="ccTopCC">—</div></div>
+      </div>
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-head">
+          <div class="card-title">Cost Centers</div>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-ghost btn-sm" onclick="loadCCAnalysis()">ანალიზი</button>
+            <button class="btn btn-primary btn-sm" onclick="openCCModal()">+ დამატება</button>
           </div>
         </div>
-        <div style="display:flex;gap:.75rem;margin-bottom:1rem">
-          <button class="btn btn-ghost" onclick="fxPreview()">🔍 Preview</button>
-          <button class="btn btn-primary" onclick="fxExecute()">⚡ Revalue + Post</button>
-        </div>
-        <div id="fxResult"></div>
+        <div id="ccTable"><div class="empty"><span class="empty-txt">იტვირთება…</span></div></div>
+      </div>
+      <div class="card" id="ccAnalysisCard" style="display:none">
+        <div class="card-head"><div class="card-title">ხარჯები CC-ის მიხედვით</div></div>
+        <div id="ccAnalysisTable"></div>
+      </div>
+    </div>
 
-        <!-- Exposure -->
-        <hr style="margin:1.5rem 0;border:none;border-top:1px solid #f0f2f5"/>
-        <h3 style="font-size:.9rem;font-weight:700;margin-bottom:.85rem">📈 Open FX Positions</h3>
-        <button class="btn btn-ghost btn-sm" onclick="loadFXExposure()" style="margin-bottom:.85rem">🔄 განახლება</button>
-        <div id="fxExposure"><div class="empty">⏳ იტვირთება…</div></div>
+    <!-- FX REVALUATION -->
+    <div id="pane-fx" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">FX Revaluation — უცხოური ვალუტის გადაფასება</div>
+        </div>
+        <div class="card-body">
+          <p style="font-size:.84rem;color:var(--ink-dim);margin-bottom:1.25rem">
+            გადასახდელ/მისაღებ USD/EUR პოზიციებს ახალი NBG კურსით ხელახლა ზომავს და სხვაობას
+            <strong>6820 (სავალუტო სარგებელი) / 7820 (სავალუტო ზარალი)</strong>-ში ატარებს.
+          </p>
+          <div class="form-row" style="max-width:500px">
+            <div class="form-field"><label>Revaluation თარიღი</label><input type="date" id="fxDate"/></div>
+            <div class="form-field">
+              <label>ვალუტა (ცარიელი = ყველა)</label>
+              <select id="fxCurrency">
+                <option value="">ყველა</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:.75rem;margin-bottom:1rem">
+            <button class="btn btn-ghost" onclick="fxPreview()">Preview</button>
+            <button class="btn btn-primary" onclick="fxExecute()">Revalue + Post</button>
+          </div>
+          <div id="fxResult"></div>
+          <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--line)"/>
+          <h3 style="font-size:.9rem;font-weight:700;margin-bottom:.85rem;color:var(--ink)">Open FX Positions</h3>
+          <button class="btn btn-ghost btn-sm" onclick="loadFXExposure()" style="margin-bottom:.85rem">განახლება</button>
+          <div id="fxExposure"><div class="empty"><span class="empty-txt">იტვირთება…</span></div></div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 <!-- CC Modal -->
-<div class="modal-bg" id="ccModalBg" onclick="if(event.target===this)closeCCModal()">
-  <div class="modal">
-    <h2 id="ccModalTitle">🏢 ახალი Cost Center</h2>
-    <input type="hidden" id="ccId"/>
-    <div class="form-row">
-      <div class="form-field">
-        <label>კოდი *</label>
-        <input id="ccCode" placeholder="CC01" style="text-transform:uppercase"/>
+<div class="modal-overlay" id="ccModalBg" onclick="if(event.target===this)closeCCModal()">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-head">
+      <div class="modal-title" id="ccModalTitle">ახალი Cost Center</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeCCModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ccId"/>
+      <div class="form-row">
+        <div class="form-field"><label>კოდი *</label><input id="ccCode" placeholder="CC01" style="text-transform:uppercase"/></div>
+        <div class="form-field"><label>სახელი *</label><input id="ccName" placeholder="გაყიდვები"/></div>
       </div>
-      <div class="form-field">
-        <label>სახელი *</label>
-        <input id="ccName" placeholder="გაყიდვები"/>
-      </div>
+      <div class="form-field"><label>განყოფილება</label><input id="ccDept" placeholder="Sales"/></div>
+      <div class="form-field"><label>აღწერა</label><input id="ccDesc" placeholder="სურვილისამებრ"/></div>
+      <div id="ccErr" style="color:var(--red);font-size:.83rem;min-height:16px"></div>
     </div>
-    <div class="form-field">
-      <label>განყოფილება</label>
-      <input id="ccDept" placeholder="Sales"/>
-    </div>
-    <div class="form-field">
-      <label>აღწერა</label>
-      <input id="ccDesc" placeholder="სურვილისამებრ"/>
-    </div>
-    <div id="ccErr" style="color:#dc3545;font-size:.83rem;min-height:16px"></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeCCModal()">გაუქმება</button>
       <button class="btn btn-primary" onclick="saveCC()">შენახვა</button>
@@ -263,6 +210,12 @@ tr:hover td{background:#fafafa}
   </div>
 </div>
 
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('tools');
+});
+</script>
 <script>
 const TOKEN  = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const TENANT = localStorage.getItem('tenant_id') || '';
@@ -274,7 +227,7 @@ const MO=['','იანვარი','თებერვალი','მარტ
 
 function switchTab(id,el){
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));
   document.getElementById('pane-'+id).classList.add('active');
   el.classList.add('active');
 }
@@ -282,7 +235,6 @@ function switchTab(id,el){
 // ══ Init ══
 const TODAY = new Date();
 window.addEventListener('load',()=>{
-  // populate year selects
   const yr = TODAY.getFullYear();
   ['lockYear','closeYear'].forEach(id=>{
     const sel = document.getElementById(id);
@@ -303,54 +255,53 @@ window.addEventListener('load',()=>{
 async function loadPeriods(){
   const year = document.getElementById('lockYear').value;
   const d = await api('/accounting/periods?year='+year);
-  if(!d||!d.ok){document.getElementById('periodsGrid').innerHTML='<div class="empty">შეცდომა</div>';return;}
+  if(!d||!d.ok){document.getElementById('periodsGrid').innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';return;}
   const periods = (d.data?.periods||[]).filter(p=>p.month>=1);
   document.getElementById('periodsGrid').innerHTML = periods.map(p=>`
     <div class="period-cell ${p.locked?'locked':''}">
       <div class="p-label">${MO[p.month]}</div>
       <div class="p-status">
         ${p.locked
-          ? `<span class="badge b-locked">🔒 დახურული</span><br><small style="color:#999;font-size:.68rem">${(p.locked_by||'').slice(0,16)}</small>`
-          : `<span class="badge b-open">✓ ღია</span>`}
+          ? `<span class="chip chip-danger">დახურული</span><br><small style="color:var(--ink-dim);font-size:.68rem">${(p.locked_by||'').slice(0,16)}</small>`
+          : `<span class="chip chip-approved">ღია</span>`}
       </div>
       <div class="p-actions">
         ${p.locked
-          ? `<button class="btn btn-ghost btn-sm" onclick="togglePeriod(${p.year},${p.month},false)">🔓</button>`
-          : `<button class="btn btn-warning btn-sm" onclick="togglePeriod(${p.year},${p.month},true)">🔒</button>`}
+          ? `<button class="btn btn-ghost btn-sm" onclick="togglePeriod(${p.year},${p.month},false)">Unlock</button>`
+          : `<button class="btn btn-accent btn-sm" onclick="togglePeriod(${p.year},${p.month},true)">Lock</button>`}
       </div>
     </div>`).join('');
 
-  // Full-year row
   const full = (d.data?.periods||[]).find(p=>p.month===0);
   if(full){
     const row = document.createElement('div');
-    row.style.cssText='grid-column:1/-1;background:#f8f9fa;border-radius:8px;padding:.75rem 1rem;display:flex;align-items:center;justify-content:space-between;border:1px solid #dee2e6';
-    row.innerHTML=`<span style="font-size:.85rem;font-weight:600">📅 მთელი წელი ${year}</span>
-      <span class="badge ${full.locked?'b-locked':'b-open'}">${full.locked?'🔒 დახურული':'✓ ღია'}</span>
+    row.style.cssText='grid-column:1/-1;background:var(--paper-soft);border-radius:8px;padding:.75rem 1rem;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line)';
+    row.innerHTML=`<span style="font-size:.85rem;font-weight:600">მთელი წელი ${year}</span>
+      <span class="chip ${full.locked?'chip-danger':'chip-approved'}">${full.locked?'დახურული':'ღია'}</span>
       ${full.locked
-        ? `<button class="btn btn-ghost btn-sm" onclick="togglePeriod(${full.year},0,false)">🔓 Unlock</button>`
-        : `<button class="btn btn-danger btn-sm" onclick="lockAllYear()">🔒 Lock Year</button>`}`;
+        ? `<button class="btn btn-ghost btn-sm" onclick="togglePeriod(${full.year},0,false)">Unlock</button>`
+        : `<button class="btn btn-danger btn-sm" onclick="lockAllYear()">Lock Year</button>`}`;
     document.getElementById('periodsGrid').appendChild(row);
   }
 }
 
 async function togglePeriod(year,month,lock){
   const label = month===0?'მთელი წელი '+year : MO[month]+' '+year;
-  if(lock && !confirm(`🔒 დაბლოკვა: ${label}?\nამ პერიოდში approve შეიქნება შეუძლებელი.`)) return;
+  if(lock && !confirm(`დაბლოკვა: ${label}?\nამ პერიოდში approve შეიქნება შეუძლებელი.`)) return;
   const url = lock ? '/accounting/periods/lock' : '/accounting/periods/unlock';
   const d = await api(url,{method:'POST',body:JSON.stringify({year,month})});
   const el = document.getElementById('lockResult');
   if(d?.ok){
-    el.innerHTML=`<div class="result-box success">✅ ${esc(d.message)}</div>`;
+    el.innerHTML=`<div class="result-box success">${esc(d.message)}</div>`;
     loadPeriods();
   } else {
-    el.innerHTML=`<div class="result-box error">❌ ${esc(d?.message||'შეცდომა')}</div>`;
+    el.innerHTML=`<div class="result-box error">${esc(d?.message||'შეცდომა')}</div>`;
   }
 }
 
 async function lockAllYear(){
   const year = document.getElementById('lockYear').value;
-  if(!confirm(`🔒 ${year} წელი მთლიანად დაიბლოკება. გრძელდება?`)) return;
+  if(!confirm(`${year} წელი მთლიანად დაიბლოკება. გრძელდება?`)) return;
   await togglePeriod(parseInt(year), 0, true);
 }
 
@@ -362,17 +313,17 @@ async function previewClose(){
   if(month) url+=`&month=${month}`;
   const d = await api(url);
   const el = document.getElementById('closePreview');
-  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">❌ ${esc(d?.message||'შეცდომა')}</div>`;return;}
+  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">${esc(d?.message||'შეცდომა')}</div>`;return;}
   const {period,total_revenue,total_expenses,net_income,entries_count,revenue_accounts,expense_accounts} = d.data;
   el.innerHTML=`
     <div class="result-box info">
-      <b>📋 Preview: ${esc(period)}</b><br><br>
+      <b>Preview: ${esc(period)}</b><br><br>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
-        <div>📥 შემოსავლები (6xxx): <b>₾${fmt(total_revenue)}</b> (${revenue_accounts.length} ანგ.)</div>
-        <div>📤 ხარჯები (7xxx): <b>₾${fmt(total_expenses)}</b> (${expense_accounts.length} ანგ.)</div>
+        <div>შემოსავლები (6xxx): <b>₾${fmt(total_revenue)}</b> (${revenue_accounts.length} ანგ.)</div>
+        <div>ხარჯები (7xxx): <b>₾${fmt(total_expenses)}</b> (${expense_accounts.length} ანგ.)</div>
       </div>
-      <div>💰 სალდო → 3600: <b style="color:${net_income>=0?'#198754':'#dc3545'}">₾${fmt(net_income)}</b></div>
-      <div style="margin-top:.35rem;color:#6c757d;font-size:.82rem">შეიქმნება ${entries_count} closing entry</div>
+      <div>სალდო → 3600: <b style="color:${net_income>=0?'var(--green)':'var(--red)'}">₾${fmt(net_income)}</b></div>
+      <div style="margin-top:.35rem;color:var(--ink-dim);font-size:.82rem">შეიქმნება ${entries_count} closing entry</div>
     </div>`;
 }
 
@@ -380,13 +331,13 @@ async function executeClose(){
   const year = document.getElementById('closeYear').value;
   const month = document.getElementById('closeMonth').value||null;
   const label = month ? MO[parseInt(month)]+' '+year : year+' წელი (FY)';
-  if(!confirm(`⚡ ${label} — closing entries შეიქმნება?\nეს ოპერაცია უკუ-ქცევადია მხოლოდ manually.`)) return;
+  if(!confirm(`${label} — closing entries შეიქმნება?\nეს ოპერაცია უკუ-ქცევადია მხოლოდ manually.`)) return;
   const d = await api('/accounting/close-period',{method:'POST',body:JSON.stringify({year:parseInt(year),month:month?parseInt(month):null})});
   const el = document.getElementById('closeResult');
-  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">❌ ${esc(d?.message||'შეცდომა')}</div>`;return;}
+  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">${esc(d?.message||'შეცდომა')}</div>`;return;}
   const {period,entries_created,total_revenue_closed,total_expenses_closed,net_income_to_retained}=d.data;
   el.innerHTML=`<div class="result-box success">
-    ✅ <b>${esc(period)} დახურულია</b><br>
+    <b>${esc(period)} დახურულია</b><br>
     შეიქმნა ${entries_created} ჩანაწერი · შემ: ₾${fmt(total_revenue_closed)} · ხარ: ₾${fmt(total_expenses_closed)} · 3600-ში: <b>₾${fmt(net_income_to_retained)}</b>
   </div>`;
 }
@@ -397,7 +348,7 @@ async function loadCFOQueue(){
   const el = document.getElementById('cfoQueue');
   const badge = document.getElementById('cfo-badge');
   if(!d||!d.ok||!d.data?.items?.length){
-    el.innerHTML='<div class="empty">✅ CFO-ის მოლოდინში არაფერია</div>';
+    el.innerHTML='<div class="empty"><span class="empty-txt">CFO-ის მოლოდინში არაფერია</span></div>';
     badge.style.display='none';
     return;
   }
@@ -407,43 +358,43 @@ async function loadCFOQueue(){
     <div class="cfo-card">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:.9rem">${esc(it.description||'—')}</div>
-        <div style="font-size:.8rem;color:#6c757d">${esc(it.partner||'')} · ${esc(it.date||'')} · Draft #${it.id}</div>
+        <div style="font-size:.8rem;color:var(--ink-dim)">${esc(it.partner||'')} · ${esc(it.date||'')} · Draft #${it.id}</div>
       </div>
       <div class="cfo-amount">₾${fmt(it.amount)}</div>
       <div style="display:flex;gap:.5rem">
-        <button class="btn btn-success btn-sm" onclick="cfoApprove(${it.id},this)">✓ CFO Approve</button>
-        <button class="btn btn-ghost btn-sm" onclick="location.href='/static/approval.html'">👁</button>
+        <button class="btn btn-success btn-sm" onclick="cfoApprove(${it.id},this)">CFO Approve</button>
+        <button class="btn btn-ghost btn-sm" onclick="location.href='/static/approval_dashboard.html'">View</button>
       </div>
     </div>`).join('');
 }
 
 async function cfoApprove(id,btn){
-  btn.disabled=true; btn.textContent='⏳…';
+  btn.disabled=true; btn.textContent='…';
   const d = await api(`/approval/cfo-approve/${id}`,{method:'POST'});
   if(d?.ok){loadCFOQueue();}
-  else{alert('შეცდომა: '+(d?.message||''));btn.disabled=false;btn.textContent='✓ CFO Approve';}
+  else{alert('შეცდომა: '+(d?.message||''));btn.disabled=false;btn.textContent='CFO Approve';}
 }
 
 // ══ COST CENTERS ══
 async function loadCostCenters(){
   const d = await api('/cost-centers?include_inactive=false');
   const el = document.getElementById('ccTable');
-  if(!d||!d.ok){el.innerHTML='<div class="empty">შეცდომა</div>';return;}
+  if(!d||!d.ok){el.innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';return;}
   const items = d.data?.items||[];
-  if(!items.length){el.innerHTML='<div class="empty">Cost Center არ არის — დაამატე ✚</div>';return;}
-  el.innerHTML=`<table>
+  if(!items.length){el.innerHTML='<div class="empty"><span class="empty-txt">Cost Center არ არის — დაამატე</span></div>';return;}
+  el.innerHTML=`<div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>კოდი</th><th>სახელი</th><th>განყოფ.</th><th>სტატუსი</th><th></th></tr></thead>
     <tbody>${items.map(c=>`<tr>
-      <td style="font-family:monospace;font-weight:600">${esc(c.code)}</td>
+      <td class="mono" style="font-weight:600">${esc(c.code)}</td>
       <td>${esc(c.name)}</td>
       <td>${esc(c.department||'—')}</td>
-      <td><span class="badge ${c.active?'b-open':'b-locked'}">${c.active?'✓':'⊘'}</span></td>
+      <td><span class="chip ${c.active?'chip-approved':'chip-inactive'}">${c.active?'Active':'Inactive'}</span></td>
       <td>
-        <button class="btn btn-ghost btn-sm" onclick="editCC(${c.id},'${esc(c.code)}','${esc(c.name)}','${esc(c.department||'')}','${esc(c.description||'')}')">✏</button>
-        <button class="btn btn-ghost btn-sm" style="color:#dc3545" onclick="deleteCC(${c.id})">✕</button>
+        <button class="btn btn-ghost btn-sm" onclick="editCC(${c.id},'${esc(c.code)}','${esc(c.name)}','${esc(c.department||'')}','${esc(c.description||'')}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCC(${c.id})">✕</button>
       </td>
     </tr>`).join('')}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 async function loadCCAnalysis(){
@@ -457,22 +408,22 @@ async function loadCCAnalysis(){
   document.getElementById('ccUncat').textContent = '₾'+fmt(uncategorised.total_amount);
   document.getElementById('ccTopCC').textContent = cost_centers[0]?.code||'—';
   if(!cost_centers.length){
-    document.getElementById('ccAnalysisTable').innerHTML='<div class="empty">ჩანაწერები Cost Center-ზე არ არის</div>';
+    document.getElementById('ccAnalysisTable').innerHTML='<div class="empty"><span class="empty-txt">ჩანაწერები Cost Center-ზე არ არის</span></div>';
     return;
   }
-  document.getElementById('ccAnalysisTable').innerHTML=`<table>
-    <thead><tr><th>კოდი</th><th>სახელი</th><th>განყოფ.</th><th>ჩანაწ.</th><th>ხარჯები</th></tr></thead>
+  document.getElementById('ccAnalysisTable').innerHTML=`<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>კოდი</th><th>სახელი</th><th>განყოფ.</th><th>ჩანაწ.</th><th style="text-align:right">ხარჯები</th></tr></thead>
     <tbody>${cost_centers.map(c=>`<tr>
-      <td style="font-family:monospace;font-weight:600">${esc(c.code)}</td>
+      <td class="mono" style="font-weight:600">${esc(c.code)}</td>
       <td>${esc(c.name)}</td>
       <td>${esc(c.department||'—')}</td>
       <td>${c.entry_count}</td>
-      <td style="font-family:monospace">₾${fmt(c.total_amount)}</td>
+      <td class="mono" style="text-align:right">₾${fmt(c.total_amount)}</td>
     </tr>`).join('')}
-    <tr style="background:#f8f9fa;font-weight:700">
-      <td colspan="3">სულ</td><td></td><td style="font-family:monospace">₾${fmt(grand_total)}</td>
+    <tr style="background:var(--accent-soft);font-weight:700">
+      <td colspan="3">სულ</td><td></td><td class="mono" style="text-align:right">₾${fmt(grand_total)}</td>
     </tr></tbody>
-  </table>`;
+  </table></div>`;
 }
 
 function openCCModal(cc=null){
@@ -482,12 +433,12 @@ function openCCModal(cc=null){
   document.getElementById('ccDept').value=cc?.dept||'';
   document.getElementById('ccDesc').value=cc?.desc||'';
   document.getElementById('ccErr').textContent='';
-  document.getElementById('ccModalTitle').textContent=cc?'✏️ Cost Center რედ.':'🏢 ახალი Cost Center';
-  document.getElementById('ccModalBg').classList.add('open');
+  document.getElementById('ccModalTitle').textContent=cc?'Cost Center რედ.':'ახალი Cost Center';
+  document.getElementById('ccModalBg').style.display='flex';
 }
 
 function editCC(id,code,name,dept,desc){openCCModal({id,code,name,dept,desc});}
-function closeCCModal(){document.getElementById('ccModalBg').classList.remove('open');}
+function closeCCModal(){document.getElementById('ccModalBg').style.display='none';}
 
 async function saveCC(){
   const code=document.getElementById('ccCode').value.trim().toUpperCase();
@@ -513,14 +464,13 @@ async function deleteCC(id){
 async function fxPreview(){
   const date=document.getElementById('fxDate').value;
   const currency=document.getElementById('fxCurrency').value;
-  let url=`/fx/revalue`;
-  const d=await api(url,{method:'POST',body:JSON.stringify({revalue_date:date,currency_filter:currency||null,post_entries:false})});
+  const d=await api('/fx/revalue',{method:'POST',body:JSON.stringify({revalue_date:date,currency_filter:currency||null,post_entries:false})});
   const el=document.getElementById('fxResult');
-  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">❌ ${esc(d?.message||'შეცდომა')}</div>`;return;}
+  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">${esc(d?.message||'შეცდომა')}</div>`;return;}
   const {items_processed,total_fx_gain_gel,total_fx_loss_gel,net_gel}=d.data;
   el.innerHTML=`<div class="result-box info">
-    <b>📋 Preview: ${esc(date)}</b><br>
-    პოზიციები: ${items_processed} · სარგებელი: <span style="color:#198754">₾${fmt(total_fx_gain_gel)}</span> · ზარალი: <span style="color:#dc3545">₾${fmt(total_fx_loss_gel)}</span> · სალდო: <b>₾${fmt(net_gel)}</b>
+    <b>Preview: ${esc(date)}</b><br>
+    პოზიციები: ${items_processed} · სარგებელი: <span style="color:var(--green)">₾${fmt(total_fx_gain_gel)}</span> · ზარალი: <span style="color:var(--red)">₾${fmt(total_fx_loss_gel)}</span> · სალდო: <b>₾${fmt(net_gel)}</b>
   </div>`;
 }
 
@@ -530,10 +480,10 @@ async function fxExecute(){
   if(!confirm(`FX Revaluation ${date}${currency?' ('+currency+')':''} — ჩანაწერები შეიქმნება?`)) return;
   const d=await api('/fx/revalue',{method:'POST',body:JSON.stringify({revalue_date:date,currency_filter:currency||null,post_entries:true})});
   const el=document.getElementById('fxResult');
-  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">❌ ${esc(d?.message||'შეცდომა')}</div>`;return;}
+  if(!d||!d.ok){el.innerHTML=`<div class="result-box error">${esc(d?.message||'შეცდომა')}</div>`;return;}
   const {items_processed,total_fx_gain_gel,total_fx_loss_gel,net_gel,posted_count}=d.data;
   el.innerHTML=`<div class="result-box success">
-    ✅ FX Revaluation შესრულდა · ${posted_count} ჩანაწერი შეიქმნა<br>
+    FX Revaluation შესრულდა · ${posted_count} ჩანაწერი შეიქმნა<br>
     სარგებელი: <b>₾${fmt(total_fx_gain_gel)}</b> · ზარალი: <b>₾${fmt(total_fx_loss_gel)}</b> · სალდო: <b>₾${fmt(net_gel)}</b>
   </div>`;
 }
@@ -541,19 +491,18 @@ async function fxExecute(){
 async function loadFXExposure(){
   const d=await api('/fx/exposure');
   const el=document.getElementById('fxExposure');
-  if(!d||!d.ok||!d.data?.positions?.length){el.innerHTML='<div class="empty">FX პოზიციები არ არის</div>';return;}
+  if(!d||!d.ok||!d.data?.positions?.length){el.innerHTML='<div class="empty"><span class="empty-txt">FX პოზიციები არ არის</span></div>';return;}
   const pos=d.data.positions;
-  el.innerHTML=`<table>
-    <thead><tr><th>ვალუტა</th><th>ტიპი</th>
-    <th>პოზ. ვალუტაში</th><th>კურსი</th><th>₾ GEL</th></tr></thead>
+  el.innerHTML=`<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>ვალუტა</th><th>ტიპი</th><th style="text-align:right">პოზ. ვალუტაში</th><th style="text-align:right">კურსი</th><th style="text-align:right">GEL</th></tr></thead>
     <tbody>${pos.map(p=>`<tr>
-      <td style="font-weight:700">${esc(p.currency)}</td>
+      <td class="mono" style="font-weight:700">${esc(p.currency)}</td>
       <td>${esc(p.position_type||'—')}</td>
-      <td style="font-family:monospace">${fmt(p.amount_foreign)}</td>
-      <td style="font-family:monospace">${fmt(p.rate_gel)}</td>
-      <td style="font-family:monospace">₾${fmt(p.amount_gel)}</td>
+      <td class="mono" style="text-align:right">${fmt(p.amount_foreign)}</td>
+      <td class="mono" style="text-align:right">${fmt(p.rate_gel)}</td>
+      <td class="mono" style="text-align:right">₾${fmt(p.amount_gel)}</td>
     </tr>`).join('')}</tbody>
-  </table>`;
+  </table></div>`;
 }
 </script>
 </body>

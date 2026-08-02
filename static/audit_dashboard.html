@@ -1,59 +1,61 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ka">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bridge Hub Audit Dashboard</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 24px;
-      background: #f7f9fc;
-      color: #1f2937;
-    }
-    h1 {
-      margin-bottom: 16px;
-    }
-    button {
-      padding: 8px 14px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      background: #2563eb;
-      color: white;
-      margin-bottom: 16px;
-    }
-    .event {
-      background: white;
-      border-left: 4px solid #2563eb;
-      border-radius: 10px;
-      padding: 14px;
-      margin-bottom: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
-    .meta {
-      color: #6b7280;
-      font-size: 13px;
-      margin-top: 6px;
-    }
-    pre {
-      background: #111827;
-      color: #f9fafb;
-      padding: 10px;
-      border-radius: 10px;
-      overflow: auto;
-      white-space: pre-wrap;
-    }
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Audit Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
+<style>
+.event-card{
+  background:var(--card);border:1px solid var(--line);border-left:3px solid var(--blue);
+  border-radius:var(--r);padding:16px 18px;margin-bottom:12px;
+}
+.event-type{font-weight:600;font-size:14px;color:var(--ink)}
+.event-meta{color:var(--ink-dim);font-size:12px;margin-top:5px;font-family:var(--mono)}
+pre{
+  background:var(--ink);color:var(--paper);
+  padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;
+  font-family:var(--mono);font-size:12px;margin-top:10px;
+}
+</style>
 </head>
 <body>
-  <h1>Bridge Hub — Audit Dashboard</h1>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Audit Log</em></div>
+    <div style="margin-left:auto">
+      <button class="btn btn-ghost btn-sm" onclick="loadAudit()">Refresh</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">SECURITY</div>
+        <div class="p-title">Audit <em>Log</em></div>
+        <div class="p-sub">Immutable record of all system actions and approval events.</div>
+      </div>
+      <div class="p-actions">
+        <button class="btn btn-primary" onclick="loadAudit()">Refresh Audit</button>
+      </div>
+    </div>
 
-  <button onclick="loadAudit()">Refresh Audit</button>
+    <div id="audit">
+      <div class="empty"><span class="empty-txt">იტვირთება…</span></div>
+    </div>
+  </div>
+</div>
 
-  <div id="audit"></div>
-
-  <script>
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('audit');
+});
+</script>
+<script>
     async function loadAudit() {
       const res = await fetch('/approval/audit');
       const data = await res.json();
@@ -62,17 +64,16 @@
       root.innerHTML = '';
 
       if (!rows.length) {
-        root.innerHTML = '<div class="event">No audit events found.</div>';
+        root.innerHTML = '<div class="empty"><span class="empty-txt">No audit events found.</span></div>';
         return;
       }
 
       rows.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'event';
+        div.className = 'event-card';
         div.innerHTML = `
-          <strong>${item.event_type || 'event'}</strong>
-          <div class="meta">Actor: ${item.actor || 'system'}</div>
-          <div class="meta">Created At: ${item.created_at || 'N/A'}</div>
+          <div class="event-type">${item.event_type || 'event'}</div>
+          <div class="event-meta">Actor: ${item.actor || 'system'} &nbsp;·&nbsp; ${item.created_at || 'N/A'}</div>
           <pre>${JSON.stringify(item.details || {}, null, 2)}</pre>
         `;
         root.appendChild(div);
@@ -80,6 +81,6 @@
     }
 
     loadAudit();
-  </script>
+</script>
 </body>
 </html>

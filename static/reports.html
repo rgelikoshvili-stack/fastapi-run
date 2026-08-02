@@ -1,177 +1,199 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ka">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bridge Hub - Reporting Workbench</title>
+<title>Bridge Hub — Reports</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
 a{color:inherit;text-decoration:none}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}
-.topbar a:hover{color:#fff}
-h1{font-size:1.05rem;font-weight:600}
-.container{max-width:1440px;margin:0 auto;padding:1.5rem}
-.hero{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1.25rem 1.35rem;margin-bottom:1rem;border-left:4px solid #4361ee}
-.hero-title{font-size:1.15rem;font-weight:700}
-.hero-sub{margin-top:.25rem;color:#6c757d;font-size:.9rem}
-.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:1rem}
-.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.07);padding:1rem 1.1rem;min-height:124px;display:flex;flex-direction:column;justify-content:space-between}
-.card h3{font-size:.95rem;margin-bottom:.35rem}
-.card p{font-size:.84rem;color:#6c757d;line-height:1.4}
-.link-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.8rem}
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .85rem;border-radius:6px;font-size:.84rem;font-weight:500;border:1px solid #dee2e6;background:#f8f9fa;color:#495057}
-.btn.primary{background:#4361ee;color:#fff;border-color:#4361ee}
-.btn:hover{background:#eef1f5}
-.btn.primary:hover{background:#3a56d4}
-.section{margin-top:1.25rem;background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.07);overflow:hidden}
-.section-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap}
-.section-title{font-weight:700;font-size:.95rem}
-.section-body{padding:1rem 1.25rem}
-.chip-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
-.chip{border:1px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;background:#f8f9fa}
-.chip .lbl{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
-.chip .val{font-size:1rem;font-weight:700;margin-top:.2rem}
-.list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1rem}
-.item{border:1px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;background:#fff}
-.item .title{font-weight:600;margin-bottom:.2rem}
-.item .sub{font-size:.84rem;color:#6c757d;line-height:1.4}
-@media(max-width:1100px){.grid,.chip-grid,.list{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.grid,.chip-grid,.list{grid-template-columns:1fr}.topbar{padding:.75rem 1rem}}
+.hub-hero{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:20px 24px;margin-bottom:20px;border-left:4px solid var(--accent);
+}
+.hub-hero-title{font-size:16px;font-weight:700;color:var(--ink);font-family:var(--serif);font-style:italic}
+.hub-hero-sub{margin-top:5px;color:var(--ink-dim);font-size:13px}
+.link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.workbench-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+.wbench-item{background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:var(--r);padding:12px 14px}
+.wbench-lbl{font-size:.72rem;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono)}
+.wbench-val{font-size:13px;font-weight:600;margin-top:4px;color:var(--ink)}
+.list-2col{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:12px}
+.list-item{background:var(--paper-soft);border:1px solid var(--line-soft);border-radius:var(--r);padding:12px 14px}
+.list-item-title{font-weight:600;font-size:13px;margin-bottom:4px;color:var(--ink)}
+.list-item-sub{font-size:12px;color:var(--ink-dim);line-height:1.4}
+@media(max-width:1100px){.grid-4,.workbench-grid,.list-2col{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.grid-4,.workbench-grid,.list-2col{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>Reporting Workbench</h1>
-  <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn primary" onclick="location.href='/static/financial_reports.html'">Open financial workbench</button>
-    <button class="btn" onclick="location.href='/static/purchases_sales.html'">Purchases & Sales</button>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Reports</em></div>
+    <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="location.href='/static/financial_reports.html'">Financial Workbench</button>
+      <button class="btn btn-ghost btn-sm" onclick="location.href='/static/purchases_sales.html'">Purchases &amp; Sales</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">REPORTING</div>
+        <div class="p-title">Reporting <em>Hub</em></div>
+        <div class="p-sub">Fast access to financial statements, ledgers, tax surfaces, and operational drill-downs.</div>
+      </div>
+    </div>
+
+    <div class="hub-hero">
+      <div class="hub-hero-title">Unified reporting hub</div>
+      <div class="hub-hero-sub">Jump directly to any financial surface without leaving the hub.</div>
+      <div class="link-row">
+        <a class="btn btn-primary btn-sm" href="/static/financial_reports.html">Financial statements</a>
+        <a class="btn btn-ghost btn-sm" href="/static/ledger.html">Account card</a>
+        <a class="btn btn-ghost btn-sm" href="/static/trial_balance.html">Trial balance</a>
+        <a class="btn btn-ghost btn-sm" href="/static/journal.html">Posted journal</a>
+        <a class="btn btn-ghost btn-sm" href="/static/counterparty_ledger.html">Counterparty ledger</a>
+        <a class="btn btn-ghost btn-sm" href="/static/accounting_tools.html">Period closing</a>
+        <a class="btn btn-ghost btn-sm" href="/static/aging_report.html">AR/AP aging</a>
+        <a class="btn btn-ghost btn-sm" href="/static/tax_invoices.html">Tax invoices</a>
+        <a class="btn btn-ghost btn-sm" href="/static/vat_declaration.html">VAT declaration</a>
+        <a class="btn btn-ghost btn-sm" href="/static/inventory.html">Inventory</a>
+      </div>
+    </div>
+
+    <div class="grid-4">
+      <div class="card">
+        <div class="card-head"><div class="card-title">Financial Statements</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          P&amp;L, Balance Sheet, and reconciliation workbench for posted ledger state.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/financial_reports.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/static/journal.html">Journal</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Account Card / Ledger</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Account-level movements with period filters, opening balance, turnover, and closing balance.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/ledger.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/static/trial_balance.html">Trial Balance</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Posted Journal</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Posted journal entries only, with document-level drill-down and correction entry points.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/journal.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/reports/journal">API</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Operational Reports</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Counterparty, payroll, inventory, and aging surfaces used by accounting ops.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/counterparty_ledger.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/static/payroll_ledger.html">Payroll</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Tax &amp; Compliance</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          VAT, invoice extraction, and RS.ge-related declaration surfaces.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/vat_declaration.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/static/tax_invoices.html">Tax invoices</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">VAT Register</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Posted VAT movements by period with Georgian RS.ge declaration workflow surfaces.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/vat_declaration.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/tax/vat-register">API</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Period Closing</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Period locks and close-period preview dashboard.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/accounting_tools.html">Open</a>
+          <a class="btn btn-ghost btn-sm" href="/accounting/close-period/preview?year=2026">Preview API</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Workflow Entry Points</div></div>
+        <div class="card-body" style="font-size:13px;color:var(--ink-dim);padding-bottom:12px">
+          Jump into inventory, purchase orders, and sales invoice creation.
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-primary btn-sm" href="/static/inventory.html">Inventory</a>
+          <a class="btn btn-ghost btn-sm" href="/static/purchases_sales.html">Purchases &amp; Sales</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:8px">
+      <div class="card-head">
+        <div class="card-title">Workbench Map</div>
+        <div style="font-size:12px;color:var(--ink-dim)">One page, one entry point</div>
+      </div>
+      <div class="card-body">
+        <div class="workbench-grid">
+          <div class="wbench-item"><div class="wbench-lbl">Trial balance</div><div class="wbench-val">Posted ledger only</div></div>
+          <div class="wbench-item"><div class="wbench-lbl">Account ledger</div><div class="wbench-val">Drill-down by account</div></div>
+          <div class="wbench-item"><div class="wbench-lbl">Cash flow</div><div class="wbench-val">Bank transactions</div></div>
+        </div>
+        <div class="list-2col">
+          <div class="list-item">
+            <div class="list-item-title">Balance Sheet / P&amp;L</div>
+            <div class="list-item-sub">Use the financial workbench for posted balances, drill-downs, and reconciliation checks.</div>
+          </div>
+          <div class="list-item">
+            <div class="list-item-title">Counterparty &amp; Aging</div>
+            <div class="list-item-sub">Use AR/AP aging plus counterparty ledger to track open items and overdue balances.</div>
+          </div>
+          <div class="list-item">
+            <div class="list-item-title">Payroll &amp; Inventory</div>
+            <div class="list-item-sub">Payroll ledger, inventory valuation, and reorder reporting stay available as separate operational surfaces.</div>
+          </div>
+          <div class="list-item">
+            <div class="list-item-title">Tax work</div>
+            <div class="list-item-sub">VAT register, declarations, and invoice documents remain under the tax/compliance path.</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="container">
-  <div class="hero">
-    <div class="hero-title">Unified reporting hub</div>
-    <div class="hero-sub">Fast access to financial statements, ledgers, tax surfaces, and operational drill-downs.</div>
-    <div class="link-row">
-      <a class="btn primary" href="/static/financial_reports.html">Financial statements</a>
-      <a class="btn" href="/static/ledger.html">Account card</a>
-      <a class="btn" href="/static/trial_balance.html">Trial balance</a>
-      <a class="btn" href="/static/journal.html">Posted journal</a>
-      <a class="btn" href="/static/counterparty_ledger.html">Counterparty ledger</a>
-      <a class="btn" href="/static/accounting_tools.html">Period closing</a>
-      <a class="btn" href="/static/aging_report.html">AR/AP aging</a>
-      <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
-      <a class="btn" href="/static/vat_declaration.html">VAT declaration</a>
-      <a class="btn" href="/static/inventory.html">Inventory</a>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <div>
-        <h3>Financial Statements</h3>
-        <p>P&L, Balance Sheet, and reconciliation workbench for posted ledger state.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/financial_reports.html">Open</a>
-        <a class="btn" href="/static/journal.html">Journal</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Account Card / Ledger</h3>
-        <p>Account-level movements with period filters, opening balance, turnover, and closing balance.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/ledger.html">Open</a>
-        <a class="btn" href="/static/trial_balance.html">Trial Balance</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Posted Journal</h3>
-        <p>Posted journal entries only, with document-level drill-down and correction entry points.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/journal.html">Open</a>
-        <a class="btn" href="/reports/journal">API</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Operational Reports</h3>
-        <p>Counterparty, payroll, inventory, and aging surfaces used by accounting ops.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/counterparty_ledger.html">Open</a>
-        <a class="btn" href="/static/payroll_ledger.html">Payroll</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Tax & Compliance</h3>
-        <p>VAT, invoice extraction, and RS.ge-related declaration surfaces.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/vat_declaration.html">Open</a>
-        <a class="btn" href="/static/tax_invoices.html">Tax invoices</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>VAT Register</h3>
-        <p>Posted VAT movements by period with Georgian RS.ge declaration workflow surfaces.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/vat_declaration.html">Open</a>
-        <a class="btn" href="/tax/vat-register">API</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Period Closing</h3>
-        <p>Period locks and close-period preview dashboard without changing posting behavior.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/accounting_tools.html">Open</a>
-        <a class="btn" href="/accounting/close-period/preview?year=2026">Preview API</a>
-      </div>
-    </div>
-    <div class="card">
-      <div>
-        <h3>Workflow Entry Points</h3>
-        <p>Jump into inventory, purchase orders, and sales invoice creation without leaving the hub.</p>
-      </div>
-      <div class="link-row">
-        <a class="btn primary" href="/static/inventory.html">Inventory</a>
-        <a class="btn" href="/static/purchases_sales.html">Purchases & Sales</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-head">
-      <div class="section-title">Workbench Map</div>
-      <div class="section-title" style="font-size:.82rem;color:#6c757d;font-weight:500">One page, one entry point</div>
-    </div>
-    <div class="section-body">
-      <div class="chip-grid">
-        <div class="chip"><div class="lbl">Trial balance</div><div class="val">Posted ledger only</div></div>
-        <div class="chip"><div class="lbl">Account ledger</div><div class="val">Drill-down by account</div></div>
-        <div class="chip"><div class="lbl">Cash flow</div><div class="val">Bank transactions</div></div>
-      </div>
-      <div class="list">
-        <div class="item"><div class="title">Balance Sheet / P&L</div><div class="sub">Use the financial workbench for posted balances, drill-downs, and reconciliation checks.</div></div>
-        <div class="item"><div class="title">Counterparty & Aging</div><div class="sub">Use AR/AP aging plus counterparty ledger to track open items and overdue balances.</div></div>
-        <div class="item"><div class="title">Payroll & Inventory</div><div class="sub">Payroll ledger, inventory valuation, and reorder reporting stay available as separate operational surfaces.</div></div>
-        <div class="item"><div class="title">Tax work</div><div class="sub">VAT register, declarations, and invoice documents remain under the tax/compliance path.</div></div>
-      </div>
-    </div>
-  </div>
-</div>
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('reports');
+});
+</script>
 </body>
 </html>

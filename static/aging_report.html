@@ -3,101 +3,93 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bridge Hub — AR/AP დავალიანების ანალიზი</title>
+<title>Bridge Hub — Aging Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
-h1{font-size:1.1rem;font-weight:600}
-.container{max-width:1300px;margin:0 auto;padding:1.5rem}
-.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1.5rem;background:#fff;border-radius:10px 10px 0 0;padding:.5rem .5rem 0}
-.tab{padding:.7rem 1.5rem;cursor:pointer;font-size:.9rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
-.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
-.tab-pane{display:none}.tab-pane.active{display:block}
-.card{background:#fff;border-radius:0 10px 10px 10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
-.card-head{padding:1.1rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
-.card-title{font-weight:700;font-size:.95rem}
-.card-body{padding:1.25rem 1.5rem}
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
-.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
-.btn-sm{padding:.35rem .75rem;font-size:.82rem}
-.filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
-input[type=date],input[type=text]{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
-input:focus{border-color:#4361ee}
-/* Buckets */
 .buckets{display:grid;grid-template-columns:repeat(5,1fr);gap:.85rem;margin-bottom:1.5rem}
-.bucket{background:#fff;border-radius:8px;padding:1rem 1.25rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid #dee2e6;text-align:center}
-.bucket.current{border-top-color:#198754}
-.bucket.b31{border-top-color:#ffc107}
-.bucket.b61{border-top-color:#fd7e14}
-.bucket.b91{border-top-color:#dc3545}
-.bucket.over{border-top-color:#7b1fa2}
-.bucket-val{font-size:1.35rem;font-weight:700;margin:.25rem 0;font-family:monospace}
-.bucket-label{font-size:.75rem;color:#6c757d;margin-bottom:.2rem}
-.bucket-cnt{font-size:.75rem;color:#adb5bd}
-/* Table */
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-th{background:#f8f9fa;padding:.55rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6;text-align:left;white-space:nowrap}
-td{padding:.5rem .75rem;border-bottom:1px solid #f5f5f5;vertical-align:middle}
-tr:hover td{background:#fafafa}
-.badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.b-current{background:#d1f2e1;color:#198754}
-.b-31{background:#fff8e1;color:#f59f00}
-.b-61{background:#fff3e0;color:#e67700}
-.b-91{background:#fde8ef;color:#dc3545}
-.b-over{background:#f3e5f5;color:#7b1fa2}
-.empty{padding:3rem;text-align:center;color:#adb5bd}
-.total-bar{display:flex;justify-content:space-between;align-items:center;padding:.85rem 1.25rem;background:#1a1a2e;color:#fff;border-radius:8px;margin-bottom:1.25rem;font-weight:600}
+.bucket{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:1rem 1.25rem;text-align:center;border-top:3px solid var(--line-strong)}
+.bucket.current{border-top-color:var(--green)}
+.bucket.b31{border-top-color:var(--amber)}
+.bucket.b61{border-top-color:#c87c28}
+.bucket.b91{border-top-color:var(--red)}
+.bucket.over{border-top-color:var(--purple)}
+.bucket-val{font-size:1.3rem;font-weight:700;margin:.25rem 0;font-family:var(--mono);color:var(--ink)}
+.bucket-label{font-size:.72rem;color:var(--ink-dim);margin-bottom:.2rem;font-family:var(--mono)}
+.bucket-cnt{font-size:.72rem;color:var(--ink-ghost)}
+.total-bar{display:flex;justify-content:space-between;align-items:center;padding:.85rem 1.25rem;background:var(--ink);color:var(--paper);border-radius:var(--r);margin-bottom:1.25rem;font-weight:600;font-family:var(--mono)}
+.tab-bar{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:1.5rem;background:var(--card);border-radius:var(--r) var(--r) 0 0;padding:.5rem .5rem 0}
+.tab-item{padding:.68rem 1.25rem;cursor:pointer;font-size:.9rem;font-weight:500;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
+.tab-item.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--accent-soft)}
+.tab-pane{display:none}.tab-pane.active{display:block}
 @media(max-width:900px){.buckets{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:600px){.buckets{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>📊 AR/AP დავალიანების ანალიზი (Aging Report)</h1>
-</div>
-
-<div class="container">
-  <div class="tabs">
-    <div class="tab active" onclick="switchTab('ar',this)">📥 მიღებული (AR)</div>
-    <div class="tab" onclick="switchTab('ap',this)">📤 გადასახდელი (AP)</div>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Aging Report</em></div>
   </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">RECEIVABLES</div>
+        <div class="p-title">AR/AP <em>Aging Report</em></div>
+        <div class="p-sub">AR/AP დავალიანების ანალიზი — bucket analysis by overdue days.</div>
+      </div>
+    </div>
 
-  <!-- AR -->
-  <div id="pane-ar" class="tab-pane active">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">📥 დებიტორული დავალიანება (Accounts Receivable)</span>
-        <div class="filters">
-          <input type="date" id="arAsOf"/>
-          <input type="text" id="arPartner" placeholder="კლიენტი…" style="width:160px"/>
-          <button class="btn btn-primary btn-sm" onclick="loadAR()">📊 ჩვენება</button>
+    <div class="tab-bar">
+      <div class="tab-item active" onclick="switchTab('ar',this)">AR — მიღებული</div>
+      <div class="tab-item" onclick="switchTab('ap',this)">AP — გადასახდელი</div>
+    </div>
+
+    <!-- AR -->
+    <div id="pane-ar" class="tab-pane active">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">დებიტორული დავალიანება (Accounts Receivable)</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" type="date" id="arAsOf" style="width:140px"/>
+            <input class="inp" type="text" id="arPartner" placeholder="კლიენტი…" style="width:160px"/>
+            <button class="btn btn-primary btn-sm" onclick="loadAR()">ჩვენება</button>
+          </div>
+        </div>
+        <div class="card-body" id="arBody">
+          <div class="empty"><span class="empty-txt">აირჩიეთ თარიღი</span></div>
         </div>
       </div>
-      <div class="card-body" id="arBody"><div class="empty">აირჩიეთ თარიღი</div></div>
     </div>
-  </div>
 
-  <!-- AP -->
-  <div id="pane-ap" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">📤 კრედიტორული დავალიანება (Accounts Payable)</span>
-        <div class="filters">
-          <input type="date" id="apAsOf"/>
-          <input type="text" id="apPartner" placeholder="მომწოდებელი…" style="width:160px"/>
-          <button class="btn btn-primary btn-sm" onclick="loadAP()">📊 ჩვენება</button>
+    <!-- AP -->
+    <div id="pane-ap" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">კრედიტორული დავალიანება (Accounts Payable)</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" type="date" id="apAsOf" style="width:140px"/>
+            <input class="inp" type="text" id="apPartner" placeholder="მომწოდებელი…" style="width:160px"/>
+            <button class="btn btn-primary btn-sm" onclick="loadAP()">ჩვენება</button>
+          </div>
+        </div>
+        <div class="card-body" id="apBody">
+          <div class="empty"><span class="empty-txt">აირჩიეთ თარიღი</span></div>
         </div>
       </div>
-      <div class="card-body" id="apBody"><div class="empty">აირჩიეთ თარიღი</div></div>
     </div>
   </div>
 </div>
 
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('aging');
+});
+</script>
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
@@ -115,7 +107,7 @@ document.getElementById('apAsOf').value=today;
 
 function switchTab(id,el){
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));
   document.getElementById('pane-'+id).classList.add('active');
   el.classList.add('active');
 }
@@ -140,9 +132,9 @@ function renderBuckets(buckets){
 }
 
 function bucketBadge(bucket){
-  const map={current:'b-current','31_60':'b-31','61_90':'b-61','91_120':'b-91',over_120:'b-over'};
+  const map={current:'chip-approved','31_60':'chip-pending','61_90':'chip-pending','91_120':'chip-danger',over_120:'chip-danger'};
   const labels={current:'მიმდინარე','31_60':'31-60','61_90':'61-90','91_120':'91-120',over_120:'120+'};
-  return `<span class="badge ${map[bucket]||'b-current'}">${labels[bucket]||bucket}</span>`;
+  return `<span class="chip ${map[bucket]||'chip-draft'}">${labels[bucket]||bucket}</span>`;
 }
 
 async function loadAR(){
@@ -151,33 +143,33 @@ async function loadAR(){
   let url=`/reports/aging/receivables?as_of=${asOf}`;
   if(partner) url+=`&partner=${encodeURIComponent(partner)}`;
 
-  document.getElementById('arBody').innerHTML='<div class="empty">⏳ იტვირთება…</div>';
+  document.getElementById('arBody').innerHTML='<div class="empty"><span class="empty-txt">იტვირთება…</span></div>';
   const d=await api(url);
-  if(!d||!d.ok){document.getElementById('arBody').innerHTML='<div class="empty">შეცდომა</div>';return;}
+  if(!d||!d.ok){document.getElementById('arBody').innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';return;}
   const {total_outstanding,buckets,invoices}=d.data;
 
   const rows=invoices.map(inv=>`
     <tr>
-      <td>${esc(inv.invoice_number||'—')}</td>
+      <td class="mono">${esc(inv.invoice_number||'—')}</td>
       <td>${esc(inv.partner||'—')}</td>
-      <td>${esc(inv.issue_date||'—')}</td>
-      <td>${esc(inv.due_date||'—')}</td>
-      <td style="font-family:monospace">${fmt(inv.outstanding)}</td>
-      <td style="color:${inv.days_overdue>90?'#dc3545':inv.days_overdue>30?'#fd7e14':'#198754'}">${inv.days_overdue} დღე</td>
+      <td class="mono">${esc(inv.issue_date||'—')}</td>
+      <td class="mono">${esc(inv.due_date||'—')}</td>
+      <td class="mono" style="text-align:right">₾${fmt(inv.outstanding)}</td>
+      <td class="mono" style="color:${inv.days_overdue>90?'var(--red)':inv.days_overdue>30?'var(--amber)':'var(--green)'}">${inv.days_overdue} დღე</td>
       <td>${bucketBadge(inv.bucket)}</td>
-      <td><span style="font-size:.78rem;color:#6c757d">${esc(inv.status)}</span></td>
+      <td><span style="font-size:.78rem;color:var(--ink-dim)">${esc(inv.status)}</span></td>
     </tr>`).join('');
 
   document.getElementById('arBody').innerHTML=`
     <div class="total-bar">
-      <span>📥 სულ გადასაღები: ${invoices.length} ინვოისი</span>
+      <span>სულ გადასაღები: ${invoices.length} ინვოისი</span>
       <span>₾${fmt(total_outstanding)}</span>
     </div>
     <div class="buckets">${renderBuckets(buckets)}</div>
-    ${invoices.length?`<table>
-      <thead><tr><th>ინვ. №</th><th>კლიენტი</th><th>გამოწ. თარიღი</th><th>ვადა</th><th>გადასაღები</th><th>ვადა გადაც.</th><th>კატეგორია</th><th>სტატუსი</th></tr></thead>
+    ${invoices.length?`<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>ინვ. №</th><th>კლიენტი</th><th>გამოწ. თარიღი</th><th>ვადა</th><th style="text-align:right">გადასაღები</th><th>ვადა გადაც.</th><th>კატეგორია</th><th>სტატუსი</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`:'<div class="empty">ვადაგადაცილებული ინვოისები არ არის ✅</div>'}`;
+    </table></div>`:'<div class="empty"><span class="empty-txt">ვადაგადაცილებული ინვოისები არ არის</span></div>'}`;
 }
 
 async function loadAP(){
@@ -186,32 +178,32 @@ async function loadAP(){
   let url=`/reports/aging/payables?as_of=${asOf}`;
   if(partner) url+=`&partner=${encodeURIComponent(partner)}`;
 
-  document.getElementById('apBody').innerHTML='<div class="empty">⏳ იტვირთება…</div>';
+  document.getElementById('apBody').innerHTML='<div class="empty"><span class="empty-txt">იტვირთება…</span></div>';
   const d=await api(url);
-  if(!d||!d.ok){document.getElementById('apBody').innerHTML='<div class="empty">შეცდომა</div>';return;}
+  if(!d||!d.ok){document.getElementById('apBody').innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';return;}
   const {total_outstanding,buckets,payables}=d.data;
 
   const rows=(payables||[]).map(p=>`
     <tr>
       <td>${esc(p.description||'—')}</td>
       <td>${esc(p.partner||'—')}</td>
-      <td>${esc(p.issue_date||'—')}</td>
-      <td style="font-family:monospace">${fmt(p.outstanding)}</td>
-      <td style="color:${p.days_overdue>90?'#dc3545':p.days_overdue>30?'#fd7e14':'#198754'}">${p.days_overdue} დღე</td>
+      <td class="mono">${esc(p.issue_date||'—')}</td>
+      <td class="mono" style="text-align:right">₾${fmt(p.outstanding)}</td>
+      <td class="mono" style="color:${p.days_overdue>90?'var(--red)':p.days_overdue>30?'var(--amber)':'var(--green)'}">${p.days_overdue} დღე</td>
       <td>${bucketBadge(p.bucket)}</td>
-      <td style="font-size:.78rem;color:#6c757d">${esc(p.account||'—')}</td>
+      <td style="font-size:.78rem;color:var(--ink-dim)">${esc(p.account||'—')}</td>
     </tr>`).join('');
 
   document.getElementById('apBody').innerHTML=`
     <div class="total-bar">
-      <span>📤 სულ გადასახდელი: ${(payables||[]).length} ჩანაწერი</span>
+      <span>სულ გადასახდელი: ${(payables||[]).length} ჩანაწერი</span>
       <span>₾${fmt(total_outstanding)}</span>
     </div>
     <div class="buckets">${renderBuckets(buckets)}</div>
-    ${rows?`<table>
-      <thead><tr><th>აღწერა</th><th>მომწ./პარტნ.</th><th>თარიღი</th><th>გადასახდელი</th><th>ასაკი</th><th>კატეგორია</th><th>ანგ. კოდი</th></tr></thead>
+    ${rows?`<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>აღწერა</th><th>მომწ./პარტნ.</th><th>თარიღი</th><th style="text-align:right">გადასახდელი</th><th>ასაკი</th><th>კატეგორია</th><th>ანგ. კოდი</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`:'<div class="empty">გადასახდელი დავალიანება არ არის ✅</div>'}`;
+    </table></div>`:'<div class="empty"><span class="empty-txt">გადასახდელი დავალიანება არ არის</span></div>'}`;
 }
 
 // Auto-load AR on page load

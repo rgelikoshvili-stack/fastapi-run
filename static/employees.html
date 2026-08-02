@@ -4,207 +4,224 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bridge Hub — თანამშრომლები</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
-h1{font-size:1.1rem;font-weight:600}
-.container{max-width:1300px;margin:0 auto;padding:1.5rem}
-.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1.25rem}
-.card-head{padding:1.1rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
-.card-title{font-weight:700;font-size:.95rem}
-.card-body{padding:1.25rem 1.5rem}
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
-.btn-danger{background:#dc3545;color:#fff}.btn-danger:hover{background:#c82333}
-.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
-.btn-sm{padding:.35rem .75rem;font-size:.82rem}
-.btn-success{background:#198754;color:#fff}.btn-success:hover{background:#157347}
-.filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
-input[type=text],input[type=email],input[type=number],input[type=date],input[type=month],select{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
-input:focus,select:focus{border-color:#4361ee}
-/* Stats */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
-.stat{background:#fff;border-radius:10px;padding:1.1rem 1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid #dee2e6}
-.stat.blue{border-top-color:#4361ee}.stat.green{border-top-color:#198754}
-.stat.amber{border-top-color:#ffc107}.stat.red{border-top-color:#dc3545}
-.stat-val{font-size:1.6rem;font-weight:700;margin:.25rem 0}
-.stat-label{font-size:.75rem;color:#6c757d}
-/* Table */
-table{width:100%;border-collapse:collapse;font-size:.88rem}
-th{background:#f8f9fa;padding:.6rem .75rem;font-weight:600;border-bottom:2px solid #dee2e6;text-align:left;white-space:nowrap}
-td{padding:.55rem .75rem;border-bottom:1px solid #f5f5f5;vertical-align:middle}
-tr:hover td{background:#fafafa}
-.badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.badge-active{background:#d1f2e1;color:#198754}
-.badge-inactive{background:#f0f2f5;color:#6c757d}
-.empty{padding:3rem;text-align:center;color:#adb5bd;font-size:.9rem}
-/* Modal */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;align-items:center;justify-content:center}
-.modal-bg.open{display:flex}
-.modal{background:#fff;border-radius:12px;padding:1.75rem;width:100%;max-width:520px;box-shadow:0 8px 32px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
-.modal h2{font-size:1.05rem;font-weight:700;margin-bottom:1.25rem}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
-.form-field{margin-bottom:.85rem}
-.form-field label{display:block;font-size:.78rem;font-weight:600;color:#6c757d;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em}
-.form-field input,.form-field select{width:100%}
-.modal-foot{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem;padding-top:1rem;border-top:1px solid #f0f2f5}
-/* Pension panel */
-.pension-panel{background:#f0f7ff;border:1px solid #b8d4f8;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
-.pension-panel h3{font-size:.9rem;font-weight:700;margin-bottom:.85rem;color:#1a3c6e}
-.payroll-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.pension-panel{
+  background:var(--blue-soft);border:1px solid rgba(58,90,140,.2);border-radius:var(--r-lg);
+  padding:20px;margin-bottom:20px;
+}
+.pension-panel h3{font-size:13px;font-weight:600;margin-bottom:14px;color:var(--blue);font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.payroll-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .payroll-actions{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
-.result-panel{background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:.85rem;margin-top:.85rem;font-size:.85rem;line-height:1.7;min-height:42px}
-.result-panel table{font-size:.82rem;margin-top:.5rem}
-@media(max-width:800px){.stats,.payroll-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}}
+.result-panel{
+  background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:8px;
+  padding:12px 14px;margin-top:12px;font-size:13px;line-height:1.7;min-height:42px;color:var(--ink-soft)
+}
+.result-panel table{font-size:12px;margin-top:8px;width:100%;border-collapse:collapse}
+.result-panel th{background:var(--paper-sunk);padding:6px 10px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);text-align:left;border-bottom:1px solid var(--line)}
+.result-panel td{padding:6px 10px;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--ink-soft)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.form-field{margin-bottom:12px}
+.form-field label{display:block;font-size:10px;font-weight:600;color:var(--ink-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono)}
+.form-field input,.form-field select{
+  width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;
+  font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none;font-family:inherit
+}
+.form-field input:focus,.form-field select:focus{border-color:var(--accent);background:var(--card)}
+.filters{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.filters input[type=text],.filters select{
+  border:1px solid var(--line-strong);border-radius:8px;padding:7px 11px;font-size:13px;
+  background:var(--paper-soft);color:var(--ink);outline:none;font-family:inherit
+}
+.filters input:focus,.filters select:focus{border-color:var(--accent)}
+/* Portal modal */
+#portalModal{background:rgba(26,21,18,.55);backdrop-filter:blur(2px)}
+#portalModal > div{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:28px;max-width:480px;width:100%;box-shadow:0 24px 64px -16px rgba(26,21,18,.5)}
+@media(max-width:800px){.payroll-grid,.form-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>👤 თანამშრომლები</h1>
-</div>
-
-<div class="container">
-  <!-- Stats -->
-  <div class="stats" id="statsRow">
-    <div class="stat blue"><div class="stat-val" id="sTotal">—</div><div class="stat-label">სულ თანამშრომელი</div></div>
-    <div class="stat green"><div class="stat-val" id="sActive">—</div><div class="stat-label">აქტიური</div></div>
-    <div class="stat amber"><div class="stat-val" id="sTotalSalary">—</div><div class="stat-label">სულ სახელფასო ფონდი</div></div>
-    <div class="stat red"><div class="stat-val" id="sTotalPension">—</div><div class="stat-label">სულ საპენსიო (2%)</div></div>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>თანამშრომლები</em></div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <a class="btn btn-ghost btn-sm" href="/static/payroll_ledger.html">Payroll Ledger</a>
+    </div>
   </div>
-
-  <!-- Pension Transfer -->
-  <div class="pension-panel">
-    <h3>🏦 საპენსიო გადარიცხვა</h3>
-    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+  <div class="content">
+    <div class="page-head">
       <div>
-        <label style="font-size:.78rem;font-weight:600;color:#1a3c6e;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:.3rem">პერიოდი</label>
-        <input type="month" id="pensionPeriod"/>
+        <div class="p-eye">HR &amp; PAYROLL</div>
+        <div class="p-title">თანამშ<em>რომლები</em></div>
+        <div class="p-sub">თანამშრომელთა მართვა, სახელფასო გამოთვლები და საპენსიო გადარიცხვები.</div>
       </div>
-      <button class="btn btn-primary" onclick="runPensionTransfer()" style="margin-top:1.25rem">📤 გადარიცხვის ჩანაწერი</button>
-      <button class="btn btn-ghost" onclick="loadPensionHistory()" style="margin-top:1.25rem">📋 ისტორია</button>
+      <div class="p-actions">
+        <button class="btn btn-primary" onclick="openModal()">+ დამატება</button>
+      </div>
     </div>
-    <div id="pensionResult" style="margin-top:.75rem;font-size:.85rem"></div>
-  </div>
 
-  <!-- Payroll ERP -->
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">სახელფასო მოდული</span>
-      <a class="btn btn-ghost btn-sm" href="/static/payroll_ledger.html">ლეჯერი</a>
+    <!-- Stats -->
+    <div class="grid-4" id="statsRow" style="margin-bottom:20px">
+      <div class="kpi kpi-blue"><div class="kpi-label">სულ თანამშრომელი</div><div class="kpi-val" id="sTotal">—</div></div>
+      <div class="kpi kpi-green"><div class="kpi-label">აქტიური</div><div class="kpi-val" id="sActive">—</div></div>
+      <div class="kpi kpi-amber"><div class="kpi-label">სულ სახელფასო ფონდი</div><div class="kpi-val" id="sTotalSalary">—</div></div>
+      <div class="kpi kpi-red"><div class="kpi-label">სულ საპენსიო (2%)</div><div class="kpi-val" id="sTotalPension">—</div></div>
     </div>
-    <div class="card-body">
-      <div class="payroll-grid">
-        <div>
-          <div class="form-row">
-            <div class="form-field">
-              <label>პერიოდი</label>
-              <input type="month" id="payrollPeriod"/>
-            </div>
-            <div class="form-field">
-              <label>ბრუტო ხელფასი</label>
-              <input type="number" id="payrollGross" value="1000" min="0" step="0.01"/>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label>თანამშრომელი</label>
-              <input type="text" id="payrollName" value="Nino"/>
-            </div>
-            <div class="form-field">
-              <label>პირადი ნომერი</label>
-              <input type="text" id="payrollEmployeeId" placeholder="01001001001"/>
-            </div>
-          </div>
-          <div class="payroll-actions">
-            <button class="btn btn-primary" onclick="calculatePayrollSingle()">გამოთვლა</button>
-            <button class="btn btn-success" onclick="createPayrollRun()">Payroll run</button>
-            <button class="btn btn-ghost" onclick="finalizePayrollRun()">დრაფტები</button>
-          </div>
-          <div id="calcResult" class="result-panel">აირჩიეთ პერიოდი და შეამოწმეთ ხელფასის ფორმულა.</div>
-          <div id="runResult" class="result-panel">Payroll run ჯერ არ არის შექმნილი.</div>
-        </div>
-        <div>
-          <div class="payroll-actions">
-            <div class="form-field" style="margin-bottom:0">
-              <label>თვიური ანგარიში</label>
-              <input type="month" id="reportPeriod"/>
-            </div>
-            <button class="btn btn-primary" onclick="loadPayrollReport()">ანგარიში</button>
-          </div>
-          <div id="complianceResult" class="result-panel">საგადასახადო შეჯამება გამოჩნდება ანგარიშის ჩატვირთვის შემდეგ.</div>
-          <div id="reportResult" class="result-panel">თვიური payroll ანგარიში ჯერ არ არის ჩატვირთული.</div>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Employees list -->
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">👥 თანამშრომელთა სია</span>
-      <div class="filters">
-        <input type="text" id="searchQ" placeholder="ძიება…" oninput="debouncedLoadEmployees()" style="width:200px"/>
-        <select id="statusFilter" onchange="loadEmployees()">
-          <option value="active">აქტიური</option>
-          <option value="all">ყველა</option>
-          <option value="inactive">არააქტიური</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="openModal()">+ დამატება</button>
+    <!-- Pension Transfer -->
+    <div class="pension-panel">
+      <h3>საპენსიო გადარიცხვა</h3>
+      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <div>
+          <label style="font-size:10px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px;font-family:var(--mono)">პერიოდი</label>
+          <input type="month" id="pensionPeriod" class="inp" style="width:auto"/>
+        </div>
+        <button class="btn btn-primary" onclick="runPensionTransfer()" style="margin-top:18px">გადარიცხვის ჩანაწერი</button>
+        <button class="btn btn-ghost" onclick="loadPensionHistory()" style="margin-top:18px">ისტორია</button>
+      </div>
+      <div id="pensionResult" style="margin-top:12px;font-size:13px"></div>
+    </div>
+
+    <!-- Payroll ERP -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-head">
+        <div class="card-title">სახელფასო მოდული</div>
+      </div>
+      <div class="card-body">
+        <div class="payroll-grid">
+          <div>
+            <div class="form-row">
+              <div class="form-field">
+                <label>პერიოდი</label>
+                <input type="month" id="payrollPeriod"/>
+              </div>
+              <div class="form-field">
+                <label>ბრუტო ხელფასი</label>
+                <input type="number" id="payrollGross" value="1000" min="0" step="0.01"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field">
+                <label>თანამშრომელი</label>
+                <input type="text" id="payrollName" value="Nino"/>
+              </div>
+              <div class="form-field">
+                <label>პირადი ნომერი</label>
+                <input type="text" id="payrollEmployeeId" placeholder="01001001001"/>
+              </div>
+            </div>
+            <div class="payroll-actions">
+              <button class="btn btn-primary" onclick="calculatePayrollSingle()">გამოთვლა</button>
+              <button class="btn btn-success" onclick="createPayrollRun()">Payroll run</button>
+              <button class="btn btn-ghost" onclick="finalizePayrollRun()">დრაფტები</button>
+            </div>
+            <div id="calcResult" class="result-panel">აირჩიეთ პერიოდი და შეამოწმეთ ხელფასის ფორმულა.</div>
+            <div id="runResult" class="result-panel">Payroll run ჯერ არ არის შექმნილი.</div>
+          </div>
+          <div>
+            <div class="payroll-actions">
+              <div class="form-field" style="margin-bottom:0">
+                <label>თვიური ანგარიში</label>
+                <input type="month" id="reportPeriod"/>
+              </div>
+              <button class="btn btn-primary" onclick="loadPayrollReport()">ანგარიში</button>
+            </div>
+            <div id="complianceResult" class="result-panel">საგადასახადო შეჯამება გამოჩნდება ანგარიშის ჩატვირთვის შემდეგ.</div>
+            <div id="reportResult" class="result-panel">თვიური payroll ანგარიში ჯერ არ არის ჩატვირთული.</div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="card-body" style="padding:0">
-      <div id="empTable"><div class="empty">⏳ იტვირთება…</div></div>
+
+    <!-- Employees list -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">თანამშრომელთა სია</div>
+        <div class="filters">
+          <input type="text" id="searchQ" placeholder="ძიება…" oninput="debouncedLoadEmployees()" style="width:200px"/>
+          <select id="statusFilter" onchange="loadEmployees()">
+            <option value="active">აქტიური</option>
+            <option value="all">ყველა</option>
+            <option value="inactive">არააქტიური</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="openModal()">+ დამატება</button>
+        </div>
+      </div>
+      <div id="empTable" style="padding:0">
+        <div class="empty"><span class="empty-txt">იტვირთება…</span></div>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- Add/Edit Modal -->
-<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <h2 id="modalTitle">➕ ახალი თანამშრომელი</h2>
-    <input type="hidden" id="empId"/>
-    <div class="form-row">
-      <div class="form-field">
-        <label>სახელი გვარი *</label>
-        <input type="text" id="fName" placeholder="გიორგი მაისურაძე"/>
-      </div>
-      <div class="form-field">
-        <label>პირადი ნომერი</label>
-        <input type="text" id="fPN" placeholder="01234567890" maxlength="11"/>
-      </div>
+<div class="modal-overlay" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title" id="modalTitle">ახალი <em>თანამშრომელი</em></div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">✕</button>
     </div>
-    <div class="form-row">
-      <div class="form-field">
-        <label>პოზიცია</label>
-        <input type="text" id="fPos" placeholder="ბუღალტერი"/>
+    <div class="modal-body">
+      <input type="hidden" id="empId"/>
+      <div class="form-row">
+        <div class="form-field">
+          <label>სახელი გვარი *</label>
+          <input type="text" id="fName" placeholder="გიორგი მაისურაძე"/>
+        </div>
+        <div class="form-field">
+          <label>პირადი ნომერი</label>
+          <input type="text" id="fPN" placeholder="01234567890" maxlength="11"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>პოზიცია</label>
+          <input type="text" id="fPos" placeholder="ბუღალტერი"/>
+        </div>
+        <div class="form-field">
+          <label>დეპარტამენტი</label>
+          <input type="text" id="fDept" placeholder="ფინანსები"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>ელ-ფოსტა</label>
+          <input type="email" id="fEmail" placeholder="name@company.ge"/>
+        </div>
+        <div class="form-field">
+          <label>სამსახურში მიღება</label>
+          <input type="date" id="fHire"/>
+        </div>
       </div>
       <div class="form-field">
-        <label>დეპარტამენტი</label>
-        <input type="text" id="fDept" placeholder="ფინანსები"/>
+        <label>საბაზო ხელფასი (ბრუტო, GEL)</label>
+        <input type="number" id="fSalary" placeholder="3000" step="0.01" min="0"/>
       </div>
+      <div id="modalErr" style="color:var(--red);font-size:12px;margin-top:4px;min-height:18px"></div>
     </div>
-    <div class="form-row">
-      <div class="form-field">
-        <label>ელ-ფოსტა</label>
-        <input type="email" id="fEmail" placeholder="name@company.ge"/>
-      </div>
-      <div class="form-field">
-        <label>სამსახურში მიღება</label>
-        <input type="date" id="fHire"/>
-      </div>
-    </div>
-    <div class="form-field">
-      <label>საბაზო ხელფასი (ბრუტო, GEL)</label>
-      <input type="number" id="fSalary" placeholder="3000" step="0.01" min="0"/>
-    </div>
-    <div id="modalErr" style="color:#dc3545;font-size:.83rem;margin-top:.25rem;min-height:18px"></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">გაუქმება</button>
       <button class="btn btn-primary" onclick="saveEmployee()">შენახვა</button>
+    </div>
+  </div>
+</div>
+
+<!-- Portal Link Modal -->
+<div id="portalModal" style="display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;padding:20px">
+  <div>
+    <div style="font-size:15px;font-weight:600;color:var(--ink);margin-bottom:4px">პორტალის ლინკი</div>
+    <div style="font-size:13px;color:var(--ink-dim);margin-bottom:14px"><span id="portalName"></span> · მოქმედია 30 დღე</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="portalUrl" type="text" readonly class="inp" style="flex:1;font-family:var(--mono);font-size:12px" onclick="this.select()">
+      <button class="btn btn-primary btn-sm" onclick="_copyPortalUrl()">კოპირება</button>
+    </div>
+    <div id="portalCopyMsg" style="font-size:12px;color:var(--green);margin-top:6px;min-height:18px"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="_closePortalModal()">დახურვა</button>
     </div>
   </div>
 </div>
@@ -213,6 +230,12 @@ tr:hover td{background:#fafafa}
 <script src="/static/js/core/toast.js"></script>
 <script src="/static/js/core/modal.js"></script>
 <script src="/static/js/core/debounce.js"></script>
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('employees');
+});
+</script>
 <script>
 const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
 const TENANT = localStorage.getItem('tenant_id') || '';
@@ -254,41 +277,43 @@ async function loadEmployees(){
 
   const d = await api(url);
   if(!d||!d.ok){
-    document.getElementById('empTable').innerHTML='<div class="empty">შეცდომა</div>';
+    document.getElementById('empTable').innerHTML='<div class="empty"><span class="empty-txt">შეცდომა</span></div>';
     return;
   }
   const items = d.data?.items || [];
   updateStats(items);
 
   if(!items.length){
-    document.getElementById('empTable').innerHTML='<div class="empty">თანამშრომლები არ არის</div>';
+    document.getElementById('empTable').innerHTML='<div class="empty"><span class="empty-txt">თანამშრომლები არ არის</span></div>';
     return;
   }
 
   const rows = items.map(e=>`
     <tr>
       <td>${esc(e.name)}</td>
-      <td style="color:#6c757d">${esc(e.personal_number||'—')}</td>
+      <td class="mono">${esc(e.personal_number||'—')}</td>
       <td>${esc(e.position||'—')}</td>
       <td>${esc(e.department||'—')}</td>
-      <td style="font-family:monospace">${fmt(e.gross_salary)}</td>
-      <td style="font-family:monospace;color:#6c757d">${fmt(e.gross_salary*0.04)}</td>
-      <td><span class="badge badge-${e.status==='active'?'active':'inactive'}">${e.status==='active'?'✓ აქტიური':'⊘ არააქტიური'}</span></td>
+      <td class="num">₾${fmt(e.gross_salary)}</td>
+      <td class="num" style="color:var(--ink-dim)">₾${fmt(e.gross_salary*0.04)}</td>
+      <td><span class="chip ${e.status==='active'?'chip-active':'chip-inactive'}">${e.status==='active'?'აქტიური':'არააქტიური'}</span></td>
       <td>
-        <button class="btn btn-ghost btn-sm" onclick="editEmployee(${e.id})">✏️</button>
-        <button class="btn btn-ghost btn-sm" onclick="generatePortalToken(${e.id}, '${esc(e.name)}')">🔗</button>
-        ${e.status==='active'?`<button class="btn btn-ghost btn-sm" style="color:#dc3545" onclick="deactivate(${e.id})">✕</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="editEmployee(${e.id})">რედ.</button>
+        <button class="btn btn-ghost btn-sm" onclick="generatePortalToken(${e.id}, '${esc(e.name)}')">ლინკი</button>
+        ${e.status==='active'?`<button class="btn btn-danger btn-sm" onclick="deactivate(${e.id})">გაუქ.</button>`:''}
       </td>
     </tr>`).join('');
 
   document.getElementById('empTable').innerHTML=`
-    <table>
+    <div class="tbl-wrap">
+    <table class="tbl">
       <thead><tr>
         <th>სახელი</th><th>პირადი №</th><th>პოზიცია</th><th>დეპარტამენტი</th>
         <th>ბრუტო</th><th>საპენსიო (2%)</th><th>სტატუსი</th><th>მოქმედება</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    </div>`;
 }
 
 const debouncedLoadEmployees = window.BHDebounce ? window.BHDebounce(loadEmployees, 250) : loadEmployees;
@@ -312,7 +337,7 @@ function openModal(emp=null){
   document.getElementById('fHire').value = emp?.hire_date||'';
   document.getElementById('fSalary').value = emp?.gross_salary||'';
   document.getElementById('modalErr').textContent='';
-  document.getElementById('modalTitle').textContent = emp?'✏️ თანამშრომლის რედაქტირება':'➕ ახალი თანამშრომელი';
+  document.getElementById('modalTitle').innerHTML = emp?'<em>თანამშრომლის</em> რედაქტირება':'ახალი <em>თანამშრომელი</em>';
   document.getElementById('modalBg').classList.add('open');
   document.getElementById('fName').focus();
 }
@@ -379,12 +404,12 @@ async function calculatePayrollSingle(){
   const name = document.getElementById('payrollName').value.trim() || 'Employee';
   const employee_id = document.getElementById('payrollEmployeeId').value.trim() || null;
   const el = document.getElementById('calcResult');
-  if(!period || gross <= 0){el.innerHTML='<span style="color:#dc3545">შეიყვანეთ პერიოდი და ბრუტო ხელფასი</span>';return;}
+  if(!period || gross <= 0){el.innerHTML='<span style="color:var(--red)">შეიყვანეთ პერიოდი და ბრუტო ხელფასი</span>';return;}
   const d = await api('/payroll/calculate/single', {
     method:'POST',
     body:JSON.stringify({period,gross_salary:gross,name,employee_id})
   });
-  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'გამოთვლა ვერ შესრულდა')}</span>`;return;}
+  if(!d?.ok){el.innerHTML=`<span style="color:var(--red)">${esc(d?.message || 'გამოთვლა ვერ შესრულდა')}</span>`;return;}
   const emp = d.data?.employee || {};
   el.innerHTML=`ბრუტო: <b>₾${fmt(emp.gross_salary)}</b> · PIT 20%: <b>₾${fmt(emp.pit_20pct)}</b> · `+
     `თანამ. საპენსიო 2%: <b>₾${fmt(emp.payg_2pct)}</b> · დამსაქ. საპენსიო 2%: <b>₾${fmt(emp.employer_pension_2pct)}</b> · `+
@@ -394,9 +419,9 @@ async function calculatePayrollSingle(){
 async function createPayrollRun(){
   const period = document.getElementById('payrollPeriod').value;
   const el = document.getElementById('runResult');
-  if(!period){el.innerHTML='<span style="color:#dc3545">აირჩიეთ პერიოდი</span>';return;}
+  if(!period){el.innerHTML='<span style="color:var(--red)">აირჩიეთ პერიოდი</span>';return;}
   const d = await api('/payroll/runs', {method:'POST', body:JSON.stringify({period})});
-  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'Payroll run ვერ შეიქმნა')}</span>`;return;}
+  if(!d?.ok){el.innerHTML=`<span style="color:var(--red)">${esc(d?.message || 'Payroll run ვერ შეიქმნა')}</span>`;return;}
   const run = d.data?.run || {};
   currentPayrollRunId = run.id;
   el.innerHTML=`Run #${run.id} · სტატუსი: <b>${esc(run.status)}</b> · თანამშრომლები: <b>${run.employee_count || 0}</b> · `+
@@ -406,9 +431,9 @@ async function createPayrollRun(){
 
 async function finalizePayrollRun(){
   const el = document.getElementById('runResult');
-  if(!currentPayrollRunId){el.innerHTML='<span style="color:#dc3545">ჯერ შექმენით payroll run</span>';return;}
+  if(!currentPayrollRunId){el.innerHTML='<span style="color:var(--red)">ჯერ შექმენით payroll run</span>';return;}
   const d = await api(`/payroll/runs/${currentPayrollRunId}/finalize`, {method:'POST'});
-  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'დრაფტები ვერ შეიქმნა')}</span>`;return;}
+  if(!d?.ok){el.innerHTML=`<span style="color:var(--red)">${esc(d?.message || 'დრაფტები ვერ შეიქმნა')}</span>`;return;}
   const run = d.data?.run || {};
   const drafts = run.drafts || {};
   el.innerHTML=`Run #${run.id} · სტატუსი: <b>${esc(run.status)}</b> · journal drafts: <b>${(drafts.draft_ids || []).length}</b> · `+
@@ -427,13 +452,13 @@ function renderCompliance(totals={}, count=0){
 async function loadPayrollReport(){
   const period = document.getElementById('reportPeriod').value || document.getElementById('payrollPeriod').value;
   const el = document.getElementById('reportResult');
-  if(!period){el.innerHTML='<span style="color:#dc3545">აირჩიეთ პერიოდი</span>';return;}
+  if(!period){el.innerHTML='<span style="color:var(--red)">აირჩიეთ პერიოდი</span>';return;}
   const d = await api(`/payroll/runs/report?period=${encodeURIComponent(period)}`);
-  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">${esc(d?.message || 'ანგარიში ვერ ჩაიტვირთა')}</span>`;return;}
+  if(!d?.ok){el.innerHTML=`<span style="color:var(--red)">${esc(d?.message || 'ანგარიში ვერ ჩაიტვირთა')}</span>`;return;}
   const data = d.data || {};
   renderCompliance(data.totals || {}, data.count || 0);
   const lines = data.lines || [];
-  if(!lines.length){el.innerHTML='<span style="color:#6c757d">ამ პერიოდში payroll ჩანაწერები არ არის</span>';return;}
+  if(!lines.length){el.innerHTML='<span style="color:var(--ink-dim)">ამ პერიოდში payroll ჩანაწერები არ არის</span>';return;}
   const rows = lines.slice(0,25).map(line=>`
     <tr>
       <td>${esc(line.employee_name)}</td>
@@ -454,9 +479,9 @@ async function runPensionTransfer(){
     method:'POST', body:JSON.stringify({period})
   });
   const el = document.getElementById('pensionResult');
-  if(!d?.ok){el.innerHTML=`<span style="color:#dc3545">❌ ${esc(d?.message||'შეცდომა')}</span>`;return;}
+  if(!d?.ok){el.innerHTML=`<span style="color:var(--red)">${esc(d?.message||'შეცდომა')}</span>`;return;}
   const rd = d.data;
-  el.innerHTML=`<span style="color:#198754">✅ ჩანაწერი შეიქმნა · ${rd.employee_count} თანამ. ·
+  el.innerHTML=`<span style="color:var(--green)">ჩანაწერი შეიქმნა · ${rd.employee_count} თანამ. ·
     თანამ. საპენსიო: <b>₾${fmt(rd.employee_pension_total)}</b> ·
     დამსაქ. საპენსიო: <b>₾${fmt(rd.employer_pension_total)}</b> ·
     სულ: <b>₾${fmt(rd.total_transfer)}</b></span>`;
@@ -466,26 +491,10 @@ async function loadPensionHistory(){
   const d = await api('/payroll/pension-transfers');
   if(!d?.ok)return;
   const items = d.data?.items||[];
-  if(!items.length){document.getElementById('pensionResult').innerHTML='<span style="color:#6c757d">ისტორია ცარიელია</span>';return;}
+  if(!items.length){document.getElementById('pensionResult').innerHTML='<span style="color:var(--ink-dim)">ისტორია ცარიელია</span>';return;}
   const rows = items.map(i=>`${i.period}: ₾${fmt(i.total_amount)} (${i.employee_count} თანამ.) — ${i.status}`).join('<br>');
   document.getElementById('pensionResult').innerHTML=`<div style="line-height:1.8">${rows}</div>`;
 }
 </script>
-
-<!-- Portal Link Modal -->
-<div id="portalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:200;align-items:center;justify-content:center;padding:20px">
-  <div style="background:#fff;border-radius:14px;padding:28px;max-width:480px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.25)">
-    <div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:4px">🔗 პორტალის ლინკი</div>
-    <div style="font-size:13px;color:#6c757d;margin-bottom:14px"><span id="portalName"></span> · მოქმედია 30 დღე</div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input id="portalUrl" type="text" readonly style="flex:1;border:1px solid #dee2e6;border-radius:8px;padding:9px 12px;font-size:13px;color:#1a1a2e;background:#f8f9fa;font-family:monospace" onclick="this.select()">
-      <button class="btn btn-primary btn-sm" onclick="_copyPortalUrl()">კოპირება</button>
-    </div>
-    <div id="portalCopyMsg" style="font-size:12px;color:#198754;margin-top:6px;min-height:18px"></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:16px">
-      <button class="btn btn-ghost btn-sm" onclick="_closePortalModal()">დახურვა</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>

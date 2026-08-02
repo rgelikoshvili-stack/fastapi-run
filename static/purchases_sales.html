@@ -1,244 +1,208 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ka">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bridge Hub - Purchases & Sales</title>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Purchases &amp; Sales</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
-a{color:inherit;text-decoration:none}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}
-.topbar a:hover{color:#fff}
-h1{font-size:1.05rem;font-weight:600}
-.container{max-width:1440px;margin:0 auto;padding:1.5rem}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-bottom:1.25rem}
-.kpi{background:#fff;border-radius:8px;padding:1rem 1.1rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #4361ee}
-.kpi.warn{border-left-color:#f72585}
-.kpi-label{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
-.kpi-val{font-size:1.55rem;font-weight:700;color:#1a1a2e;margin:.2rem 0}
-.kpi-sub{font-size:.75rem;color:#6c757d}
-.tabs{display:flex;gap:0;border-bottom:2px solid #dee2e6;margin-bottom:1rem;background:#fff;border-radius:8px 8px 0 0;padding:.5rem .5rem 0}
-.tab{padding:.68rem 1.25rem;cursor:pointer;font-size:.9rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0}
-.tab.active{color:#4361ee;border-bottom-color:#4361ee;background:#f0f3ff}
-.tab-pane{display:none}
-.tab-pane.active{display:block}
-.card{background:#fff;border-radius:0 8px 8px 8px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
-.card-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap}
-.card-title{font-weight:700;font-size:.95rem}
-.card-body{padding:1rem 1.25rem}
-.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
-input,select,textarea{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .7rem;font-size:.88rem;background:#fff;color:#1a1a2e;outline:none}
-input:focus,select:focus,textarea:focus{border-color:#4361ee}
-textarea{min-height:80px;resize:vertical}
-.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .85rem;border:none;border-radius:6px;cursor:pointer;font-size:.84rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#4361ee;color:#fff}.btn-primary:hover{background:#3a56d4}
-.btn-outline{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-outline:hover{background:#f8f9fa}
-.btn-ghost{background:#f8f9fa;color:#495057;border:1px solid #dee2e6}.btn-ghost:hover{background:#eef1f5}
-.btn-sm{padding:.3rem .65rem;font-size:.8rem}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-.list{display:grid;gap:.75rem}
-.split{display:grid;grid-template-columns:1.4fr .9fr;gap:1rem}
-.table-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-th,td{padding:.55rem .7rem;border-bottom:1px solid #f0f2f5;vertical-align:top}
-th{background:#f8f9fa;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;white-space:nowrap}
-tbody tr:hover{background:#fafcff}
-.mono{font-family:'Courier New',monospace}
-.pill{display:inline-flex;align-items:center;padding:.18rem .5rem;border-radius:20px;font-size:.73rem;font-weight:600}
-.pill.sent,.pill.overdue{background:#fde8ef;color:#f72585}
-.pill.draft{background:#f0f2f5;color:#6c757d}
-.pill.paid,.pill.received{background:#d1f2e1;color:#198754}
-.pill.partial{background:#fff3cd;color:#856404}
-.pill.cancelled{background:#e9ecef;color:#495057}
-.empty{padding:2rem;text-align:center;color:#adb5bd}
-.section-note{font-size:.82rem;color:#6c757d}
-.mini-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin-top:.25rem}
-.mini{background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:.8rem}
-.mini .lbl{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.04em}
-.mini .val{font-size:1.1rem;font-weight:700;margin-top:.2rem}
-.line-grid{display:grid;grid-template-columns:1.2fr .6fr .7fr .8fr 1fr 32px;gap:.5rem;align-items:center;margin-bottom:.5rem}
-.line-grid select,.line-grid input,.line-grid textarea{width:100%}
-.rm{width:32px;height:32px;border:1px solid #dee2e6;border-radius:6px;background:#fff;color:#f72585;cursor:pointer}
-.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:1000;padding:1rem}
-.modal.open{display:flex}
-.sheet{background:#fff;border-radius:10px;max-width:980px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.18)}
-.sheet-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;gap:1rem}
-.sheet-body{padding:1rem 1.25rem}
-.sheet-title{font-weight:700}
-.x{background:none;border:none;font-size:1.2rem;color:#6c757d;cursor:pointer}
-.mt8{margin-top:.5rem}
-.mt12{margin-top:.75rem}
-.mb12{margin-bottom:.75rem}
-@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid,.split{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}.line-grid{grid-template-columns:1fr 1fr 1fr 1fr}}
-@media(max-width:700px){.kpis{grid-template-columns:1fr}.tabs{overflow:auto}.line-grid{grid-template-columns:1fr 1fr}.topbar{padding:.75rem 1rem}}
+/* ── Tab nav ── */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px;background:var(--card);border-radius:var(--r-lg) var(--r-lg) 0 0;padding:8px 8px 0}
+.tab{padding:9px 16px;cursor:pointer;font-size:13px;font-weight:500;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:7px 7px 0 0;transition:.12s}
+.tab:hover{background:var(--card-hover);color:var(--ink)}
+.tab.active{background:var(--ink);color:var(--paper);border-bottom-color:transparent;border-radius:7px 7px 0 0}
+.tab-pane{display:none}.tab-pane.active{display:block}
 
-/* Bridge Hub accounting paper theme */
-:root{
-  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
-  --card:#faf3e3;--card-hover:#ebe0c5;
-  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
-  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;
-  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
-  --green:#27500A;--green-bg:#EAF3DE;--red:#791F1F;--red-bg:#FCEBEB;
-  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
-  --serif:'Instrument Serif',Georgia,serif;
-  --mono:'Geist Mono','Courier New',monospace;
+/* ── Status pills ── */
+.pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;font-family:var(--mono)}
+.pill.sent,.pill.overdue{background:var(--red-soft);color:var(--red)}
+.pill.draft{background:var(--paper-sunk);color:var(--ink-mute)}
+.pill.paid,.pill.received,.pill.active{background:var(--green-soft);color:var(--green)}
+.pill.partial{background:var(--amber-soft);color:var(--amber)}
+.pill.cancelled,.pill.inactive{background:var(--paper-sunk);color:var(--ink-ghost)}
+
+/* ── Mini stat grid ── */
+.mini-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:8px}
+.mini{background:var(--paper-soft);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.mini .lbl{font-size:10px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono)}
+.mini .val{font-size:1.1rem;font-weight:700;margin-top:4px;color:var(--ink)}
+
+/* ── Line-item grid ── */
+.line-grid{display:grid;grid-template-columns:1.2fr .6fr .7fr .8fr 1fr 32px;gap:8px;align-items:center;margin-bottom:8px}
+.line-grid select,.line-grid input,.line-grid textarea{width:100%;border:1px solid var(--line-strong);border-radius:7px;padding:7px 10px;font-size:12.5px;background:var(--paper-soft);color:var(--ink);outline:none;font-family:inherit}
+.line-grid input:focus,.line-grid select:focus,.line-grid textarea:focus{border-color:var(--accent);background:var(--card)}
+.rm{width:32px;height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--card);color:var(--red);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.rm:hover{background:var(--red-soft)}
+
+/* ── Sheet/Modal ── */
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(26,21,18,.5);backdrop-filter:blur(3px);z-index:200;padding:1rem}
+.modal.open{display:flex}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);max-width:980px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 64px -16px rgba(26,21,18,.4)}
+.sheet-head{padding:16px 20px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sheet-body{padding:18px 20px}
+.sheet-title{font-size:15px;font-weight:600;color:var(--ink)}
+.x{background:none;border:1px solid var(--line-strong);border-radius:7px;width:30px;height:30px;font-size:18px;color:var(--ink-dim);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.x:hover{background:var(--card-hover);color:var(--ink)}
+
+/* ── Utilities ── */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.section-note{font-size:12px;color:var(--ink-dim);margin-bottom:8px}
+.table-wrap{overflow-x:auto}
+.list{display:grid;gap:8px}
+.split{display:grid;grid-template-columns:1.4fr .9fr;gap:16px}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.mb12{margin-bottom:12px}
+.empty{padding:24px;text-align:center;color:var(--ink-ghost);font-family:var(--serif);font-style:italic}
+.card-body .list input,.card-body .list select,.card-body .list textarea{
+  border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:13px;
+  background:var(--paper-soft);color:var(--ink);outline:none;width:100%
 }
-body{font-family:var(--font);background:radial-gradient(900px 600px at 8% 0%,rgba(180,145,95,.12),transparent 55%),radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),var(--paper);color:var(--ink)}
-.topbar{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--line);padding:1rem 1.5rem}
-.topbar a{color:var(--ink-mute)}.topbar a:hover{color:var(--accent)}
-h1,.card-title,.sheet-title{font-family:var(--serif);font-weight:400;color:var(--ink);letter-spacing:0}
-.container{max-width:1440px;padding:1.5rem}
-.kpi,.tabs,.card,.mini,.sheet{background:var(--card);border:1px solid var(--line);box-shadow:none}
-.kpi{border-left:0;border-top:3px solid var(--accent);border-radius:10px}.kpi.warn{border-top-color:var(--red)}
-.kpi-label,.kpi-sub,.section-note,th{color:var(--ink-dim)}.kpi-val{color:var(--ink)}
-.tabs{border-bottom:1px solid var(--line);border-radius:10px;padding:.5rem;margin-bottom:1rem}
-.tab{color:var(--ink-mute);border-radius:8px;margin-bottom:0}.tab:hover{background:var(--card-hover);color:var(--ink)}
-.tab.active{background:var(--ink);color:var(--paper);border-bottom-color:transparent}
-.card{border-radius:10px;overflow:hidden}.card-head{border-bottom:1px solid var(--line-soft)}.card-body{background:rgba(250,243,227,.58)}
-input,select,textarea{background:var(--paper-soft);border:1px solid var(--line);color:var(--ink);border-radius:8px}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-.btn{border-radius:8px}.btn-primary{background:var(--ink);color:var(--paper)}.btn-primary:hover{background:var(--accent)}
-.btn-outline,.btn-ghost{background:var(--paper-soft);color:var(--ink-mute);border:1px solid var(--line)}.btn-outline:hover,.btn-ghost:hover{background:var(--card-hover);color:var(--ink)}
-th{background:var(--paper-sunk);border-bottom:1px solid var(--line);font-weight:600}
-td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card-hover)}
-.mono,.amount{font-family:var(--mono)}
-.pill.sent,.pill.overdue{background:var(--red-bg);color:var(--red)}.pill.paid,.pill.received{background:var(--green-bg);color:var(--green)}
-.pill.draft,.pill.cancelled{background:var(--paper-sunk);color:var(--ink-mute)}.pill.partial{background:#fff3cd;color:#6f5205}
-.modal{background:rgba(26,21,18,.48)}.sheet-head{border-bottom:1px solid var(--line-soft)}.x{color:var(--ink-dim)}
-.empty{color:var(--ink-dim);font-family:var(--serif);font-style:italic}
+.card-body .list input:focus,.card-body .list select:focus,.card-body .list textarea:focus{border-color:var(--accent)}
+textarea{min-height:64px;resize:vertical}
+
+@media(max-width:1100px){.split{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.line-grid{grid-template-columns:1fr 1fr;}.tabs{overflow-x:auto}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <a href="/static/reports.html">Reports</a>
-  <span style="color:#495057">›</span>
-  <h1>Purchases & Sales Workbench</h1>
-  <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn btn-outline" onclick="location.href='/static/inventory.html'">Inventory</button>
-    <button class="btn btn-outline" onclick="openModal('salesModal')">New Sales Invoice</button>
-    <button class="btn btn-primary" onclick="openModal('poModal')">+ Purchase Order</button>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Purchases &amp; Sales</em></div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="location.href='/static/inventory.html'">Inventory</button>
+      <button class="btn btn-ghost btn-sm" onclick="openModal('salesModal')">New Invoice</button>
+      <button class="btn btn-primary btn-sm" onclick="openModal('poModal')">+ Purchase Order</button>
+    </div>
   </div>
-</div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">TRADE &amp; PROCUREMENT</div>
+        <div class="p-title">Purchases <em>&amp; Sales</em></div>
+        <div class="p-sub">Purchase orders, sales invoices, partners and payment tracking.</div>
+      </div>
+    </div>
 
-<div class="container">
-  <div class="kpis">
-    <div class="kpi"><div class="kpi-label">Purchase Orders</div><div class="kpi-val" id="kPO">—</div><div class="kpi-sub">draft / sent / received</div></div>
-    <div class="kpi"><div class="kpi-label">Open Invoices</div><div class="kpi-val" id="kOpenInv">—</div><div class="kpi-sub">sent / overdue</div></div>
-    <div class="kpi warn"><div class="kpi-label">Overdue</div><div class="kpi-val" id="kOverdue">—</div><div class="kpi-sub">payment tracking</div></div>
-    <div class="kpi"><div class="kpi-label">Outstanding</div><div class="kpi-val" id="kOutstanding">—</div><div class="kpi-sub">GEL</div></div>
-  </div>
+    <!-- KPI row -->
+    <div class="grid-4" style="margin-bottom:20px">
+      <div class="kpi"><div class="kpi-label">Purchase Orders</div><div class="kpi-val" id="kPO">—</div><div class="kpi-sub">draft / sent / received</div></div>
+      <div class="kpi"><div class="kpi-label">Open Invoices</div><div class="kpi-val" id="kOpenInv">—</div><div class="kpi-sub">sent / overdue</div></div>
+      <div class="kpi kpi-red"><div class="kpi-label">Overdue</div><div class="kpi-val" id="kOverdue">—</div><div class="kpi-sub">payment tracking</div></div>
+      <div class="kpi"><div class="kpi-label">Outstanding</div><div class="kpi-val" id="kOutstanding">—</div><div class="kpi-sub">GEL</div></div>
+    </div>
 
-  <div class="tabs">
-    <div class="tab" onclick="switchTab('partners',this)">Partners</div>
-    <div class="tab active" onclick="switchTab('purchases',this)">Purchases</div>
-    <div class="tab" onclick="switchTab('sales',this)">Sales</div>
-    <div class="tab" onclick="switchTab('payments',this)">Payments</div>
-  </div>
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab" onclick="switchTab('partners',this)">Partners</div>
+      <div class="tab active" onclick="switchTab('purchases',this)">Purchases</div>
+      <div class="tab" onclick="switchTab('sales',this)">Sales</div>
+      <div class="tab" onclick="switchTab('payments',this)">Payments</div>
+    </div>
 
-  <div id="pane-partners" class="tab-pane">
-    <div class="grid">
-      <div class="card">
-        <div class="card-head"><span class="card-title">Suppliers</span><button class="btn btn-primary btn-sm" onclick="createPartner('supplier')">+ Supplier</button></div>
-        <div class="card-body">
-          <div class="grid mb12">
-            <input id="supplierName" placeholder="Supplier name">
-            <input id="supplierTax" placeholder="INN / tax ID">
+    <div id="pane-partners" class="tab-pane">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><div class="card-title">Suppliers</div><button class="btn btn-primary btn-sm" onclick="createPartner('supplier')">+ Supplier</button></div>
+          <div class="card-body">
+            <div class="grid-2 mb12">
+              <input id="supplierName" placeholder="Supplier name" style="border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none;width:100%">
+              <input id="supplierTax" placeholder="INN / tax ID" style="border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none;width:100%">
+            </div>
+            <div class="table-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="supplierBody"></tbody></table></div>
           </div>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="supplierBody"></tbody></table></div>
         </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><span class="card-title">Customers</span><button class="btn btn-primary btn-sm" onclick="createPartner('customer')">+ Customer</button></div>
-        <div class="card-body">
-          <div class="grid mb12">
-            <input id="customerName" placeholder="Customer name">
-            <input id="customerTax" placeholder="INN / tax ID">
+        <div class="card">
+          <div class="card-head"><div class="card-title">Customers</div><button class="btn btn-primary btn-sm" onclick="createPartner('customer')">+ Customer</button></div>
+          <div class="card-body">
+            <div class="grid-2 mb12">
+              <input id="customerName" placeholder="Customer name" style="border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none;width:100%">
+              <input id="customerTax" placeholder="INN / tax ID" style="border:1px solid var(--line-strong);border-radius:8px;padding:8px 11px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none;width:100%">
+            </div>
+            <div class="table-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="customerBody"></tbody></table></div>
           </div>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tax ID</th><th>Status</th><th></th></tr></thead><tbody id="customerBody"></tbody></table></div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div id="pane-purchases" class="tab-pane active">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">Purchase Orders</span>
-        <div class="toolbar">
-          <select id="poStatus" onchange="loadPOs()">
-            <option value="">All</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="partial">Partial</option>
-            <option value="received">Received</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/inventory.html#po'">Open inventory tab</button>
+    <div id="pane-purchases" class="tab-pane active">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Purchase Orders</div>
+          <div class="toolbar">
+            <select id="poStatus" onchange="loadPOs()" style="border:1px solid var(--line-strong);border-radius:8px;padding:7px 10px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="sent">Sent</option>
+              <option value="partial">Partial</option>
+              <option value="received">Received</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="location.href='/static/inventory.html#po'">Inventory tab</button>
+          </div>
         </div>
-      </div>
-      <div class="card-body table-wrap">
-        <table>
-          <thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
-          <tbody id="poBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div id="pane-sales" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">Sales Invoices</span>
-        <div class="toolbar">
-          <select id="invStatus" onchange="loadInvoices()">
-            <option value="">All</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="paid">Paid</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="overdue">Overdue</option>
-          </select>
-          <button class="btn btn-primary btn-sm" onclick="openModal('salesModal')">Create invoice</button>
-          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/outgoing_form.html'">Detailed builder</button>
-        </div>
-      </div>
-      <div class="card-body table-wrap">
-        <table>
-          <thead><tr><th>Invoice #</th><th>Partner</th><th>Date</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
-          <tbody id="invoiceBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div id="pane-payments" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">Payments & Aging</span>
-        <div class="toolbar">
-          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/aging_report.html'">Aging report</button>
-          <button class="btn btn-ghost btn-sm" onclick="location.href='/static/counterparty_ledger.html'">Counterparty ledger</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadPayments()">Refresh</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="mini-grid" id="paymentStats"></div>
-        <div class="mt12 table-wrap">
-          <table>
-            <thead><tr><th>Invoice #</th><th>Partner</th><th>Due</th><th>Status</th><th class="mono" style="text-align:right">Total</th><th></th></tr></thead>
-            <tbody id="paymentBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+        <div class="card-body table-wrap" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr></thead>
+            <tbody id="poBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
           </table>
         </div>
       </div>
     </div>
+
+    <div id="pane-sales" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Sales Invoices</div>
+          <div class="toolbar">
+            <select id="invStatus" onchange="loadInvoices()" style="border:1px solid var(--line-strong);border-radius:8px;padding:7px 10px;font-size:13px;background:var(--paper-soft);color:var(--ink);outline:none">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="sent">Sent</option>
+              <option value="paid">Paid</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="overdue">Overdue</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="openModal('salesModal')">Create invoice</button>
+            <button class="btn btn-ghost btn-sm" onclick="location.href='/static/outgoing_form.html'">Detailed builder</button>
+          </div>
+        </div>
+        <div class="card-body table-wrap" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Invoice #</th><th>Partner</th><th>Date</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr></thead>
+            <tbody id="invoiceBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="pane-payments" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Payments &amp; Aging</div>
+          <div class="toolbar">
+            <button class="btn btn-ghost btn-sm" onclick="location.href='/static/aging_report.html'">Aging report</button>
+            <button class="btn btn-ghost btn-sm" onclick="location.href='/static/counterparty_ledger.html'">Counterparty ledger</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadPayments()">Refresh</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="mini-grid" id="paymentStats"></div>
+          <div class="mt12 table-wrap">
+            <table class="tbl">
+              <thead><tr><th>Invoice #</th><th>Partner</th><th>Due</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr></thead>
+              <tbody id="paymentBody"><tr><td colspan="6"><div class="empty">Loading...</div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- PO Modal -->
 <div class="modal" id="poModal">
   <div class="sheet">
     <div class="sheet-head">
@@ -249,7 +213,7 @@ td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card
       <button class="x" onclick="closeModal('poModal')">×</button>
     </div>
     <div class="sheet-body">
-      <div class="grid">
+      <div class="split">
         <div>
           <div class="section-note mb12">Header</div>
           <div class="list">
@@ -267,14 +231,15 @@ td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card
           <button class="btn btn-ghost btn-sm mt8" onclick="addPoLine()">+ Add line</button>
         </div>
       </div>
-      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
-        <button class="btn btn-outline" onclick="closeModal('poModal')">Cancel</button>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-ghost" onclick="closeModal('poModal')">Cancel</button>
         <button class="btn btn-primary" onclick="createPO()">Create PO</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Receive Modal -->
 <div class="modal" id="receiveModal">
   <div class="sheet">
     <div class="sheet-head">
@@ -287,14 +252,15 @@ td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card
     <div class="sheet-body">
       <div id="receiveSummary" class="mini-grid"></div>
       <div id="receiveLines" class="mt12"></div>
-      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
-        <button class="btn btn-outline" onclick="closeModal('receiveModal')">Cancel</button>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-ghost" onclick="closeModal('receiveModal')">Cancel</button>
         <button class="btn btn-primary" onclick="submitReceipt()">Receive PO</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Sales Invoice Modal -->
 <div class="modal" id="salesModal">
   <div class="sheet">
     <div class="sheet-head">
@@ -305,7 +271,7 @@ td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card
       <button class="x" onclick="closeModal('salesModal')">×</button>
     </div>
     <div class="sheet-body">
-      <div class="grid">
+      <div class="split">
         <div class="list">
           <select id="salesType"><option value="service">Service</option><option value="goods">Goods</option></select>
           <input id="salesBuyer" placeholder="Customer name">
@@ -320,14 +286,20 @@ td{border-bottom:1px solid var(--line-soft)}tbody tr:hover{background:var(--card
         </div>
       </div>
       <div class="mt12" id="salesResult"></div>
-      <div class="mt12" style="display:flex;justify-content:flex-end;gap:.5rem">
-        <button class="btn btn-outline" onclick="closeModal('salesModal')">Cancel</button>
+      <div class="mt12" style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-ghost" onclick="closeModal('salesModal')">Cancel</button>
         <button class="btn btn-primary" onclick="createSalesInvoice()">Create invoice + draft</button>
       </div>
     </div>
   </div>
 </div>
 
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('purchases');
+});
+</script>
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
@@ -406,11 +378,11 @@ async function loadPOs(){
   }
   document.getElementById('poBody').innerHTML=orders.map(o=>`
     <tr>
-      <td class="mono">${esc(o.po_number||o.id)}</td>
+      <td style="font-family:var(--mono)">${esc(o.po_number||o.id)}</td>
       <td>${esc(o.supplier_name||'—')}</td>
       <td>${esc((o.po_date||'').toString().slice(0,10))}</td>
       <td>${pill(o.status)}</td>
-      <td class="mono" style="text-align:right">${fmt(o.total_amount||0)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(o.total_amount||0)}</td>
       <td style="text-align:right">
         <button class="btn btn-ghost btn-sm" onclick="openPO(${o.id})">Open</button>
         ${o.status==='draft'?`<button class="btn btn-ghost btn-sm" onclick="setPOStatus(${o.id},'sent')">Send</button>`:''}
@@ -441,8 +413,6 @@ async function openPO(id){
   `).join(''):'<div class="empty">No order lines</div>';
   openModal('receiveModal');
 }
-
-function openReceiveFromSelected(){ if(activePO) openPO(activePO.id); }
 
 async function submitReceipt(){
   if(!activePO) return;
@@ -534,7 +504,7 @@ function collectSalesLines(){
 async function createSalesInvoice(){
   const lines=collectSalesLines();
   const result=document.getElementById('salesResult');
-  if(!lines.length){result.innerHTML='<span style="color:#f72585">Add at least one line</span>';return;}
+  if(!lines.length){result.innerHTML='<span style="color:var(--red)">Add at least one line</span>';return;}
   const payload={
     invoice_type:document.getElementById('salesType').value,
     buyer_name:document.getElementById('salesBuyer').value.trim(),
@@ -544,9 +514,9 @@ async function createSalesInvoice(){
     due_date:document.getElementById('salesDue').value||null,
     line_items:lines,
   };
-  if(!payload.buyer_name){result.innerHTML='<span style="color:#f72585">Customer name is required</span>';return;}
+  if(!payload.buyer_name){result.innerHTML='<span style="color:var(--red)">Customer name is required</span>';return;}
   const d=await api('/trade/sales-invoices',{method:'POST',body:JSON.stringify(payload)});
-  if(!d?.ok){result.innerHTML=`<span style="color:#f72585">${esc(d?.message||'Invoice creation failed')}</span>`;return;}
+  if(!d?.ok){result.innerHTML=`<span style="color:var(--red)">${esc(d?.message||'Invoice creation failed')}</span>`;return;}
   result.innerHTML=`Invoice ${esc(d.data?.invoice?.invoice_number||'')} created · journal draft #${esc(d.data?.journal_draft_id||'')}`;
   await loadInvoices();
   await loadPayments();
@@ -559,11 +529,11 @@ async function loadInvoices(){
   document.getElementById('kOpenInv').textContent=String(invoices.filter(i=>['sent','overdue'].includes(String(i.status||'').toLowerCase())).length);
   document.getElementById('invoiceBody').innerHTML=invoices.length?invoices.map(inv=>`
     <tr>
-      <td class="mono">${esc(inv.invoice_number||inv.id)}</td>
+      <td style="font-family:var(--mono)">${esc(inv.invoice_number||inv.id)}</td>
       <td>${esc(inv.partner||'—')}</td>
       <td>${esc((inv.issue_date||'').toString().slice(0,10))}</td>
       <td>${pill(inv.status)}</td>
-      <td class="mono" style="text-align:right">${fmt(inv.total||inv.total_amount||0)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(inv.total||inv.total_amount||0)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-ghost btn-sm" onclick="setInvoiceStatus(${inv.id},'sent')">Sent</button>
         <button class="btn btn-ghost btn-sm" onclick="setInvoiceStatus(${inv.id},'paid')">Paid</button>
@@ -591,11 +561,11 @@ async function loadPayments(){
   const overdue=(inv&&inv.data&&inv.data.invoices)?inv.data.invoices:[];
   document.getElementById('paymentBody').innerHTML=overdue.length?overdue.map(x=>`
     <tr>
-      <td class="mono">${esc(x.invoice_number||x.id)}</td>
+      <td style="font-family:var(--mono)">${esc(x.invoice_number||x.id)}</td>
       <td>${esc(x.partner||'—')}</td>
       <td>${esc((x.due_date||'').toString().slice(0,10))}</td>
       <td>${pill(x.status)}</td>
-      <td class="mono" style="text-align:right">${fmt(x.total||x.total_amount||0)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(x.total||x.total_amount||0)}</td>
       <td style="text-align:right"><a class="btn btn-ghost btn-sm" href="/static/aging_report.html">Aging</a></td>
     </tr>`).join(''):'<tr><td colspan="6"><div class="empty">No overdue invoices</div></td></tr>';
 }

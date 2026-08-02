@@ -1,112 +1,90 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ka">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bridge Hub Approval Dashboard</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 24px;
-      background: #f7f9fc;
-      color: #1f2937;
-    }
-    h1 {
-      margin-bottom: 16px;
-    }
-    .toolbar {
-      margin-bottom: 16px;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-    button {
-      padding: 8px 14px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      background: #2563eb;
-      color: white;
-    }
-    button.secondary {
-      background: #6b7280;
-    }
-    .card {
-      background: white;
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
-    .row {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .meta {
-      color: #6b7280;
-      font-size: 14px;
-      margin-top: 6px;
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 8px;
-      border-radius: 999px;
-      font-size: 12px;
-      margin-right: 6px;
-    }
-    .badge-confidence {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .badge-status {
-      background: #e5e7eb;
-      color: #374151;
-    }
-    .badge-autopilot {
-      background: #dcfce7;
-      color: #166534;
-    }
-    .actions {
-      margin-top: 12px;
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    pre {
-      background: #111827;
-      color: #f9fafb;
-      padding: 12px;
-      border-radius: 10px;
-      overflow: auto;
-      white-space: pre-wrap;
-    }
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
-    .modal-overlay.hidden{display:none}
-    .modal-box{background:#fff;border-radius:14px;padding:28px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.25)}
-    .modal-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:4px}
-    .modal-sub{font-size:13px;color:#6b7280;margin-bottom:14px}
-    .modal-textarea{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:13px;color:#111827;resize:vertical;min-height:80px;outline:none;transition:.15s}
-    .modal-textarea:focus{border-color:#2563eb}
-    .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
-    .modal-err{font-size:11px;color:#dc2626;margin-top:5px;min-height:15px}
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Approval Queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
+<style>
+.queue-card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:18px 20px;margin-bottom:12px;
+  box-shadow:0 4px 16px -8px rgba(60,40,20,.1);
+}
+.queue-desc{font-weight:600;font-size:14px;color:var(--ink);margin-bottom:6px}
+.queue-meta{font-size:12px;color:var(--ink-dim);font-family:var(--mono);line-height:1.9}
+.queue-actions{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+pre.preview-box{
+  background:var(--ink);color:var(--paper);
+  padding:14px;border-radius:10px;overflow:auto;white-space:pre-wrap;
+  font-family:var(--mono);font-size:12px;margin-top:0;
+}
+</style>
 </head>
 <body>
-  <h1>Bridge Hub — Approval Dashboard</h1>
-
-  <div class="toolbar">
-    <button onclick="loadQueue()">Refresh Queue</button>
-    <button class="secondary" onclick="clearPreview()">Clear Preview</button>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Approval Queue</em></div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="loadQueue()">Refresh Queue</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearPreview()">Clear Preview</button>
+    </div>
   </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">WORKFLOW</div>
+        <div class="p-title">Approval <em>Queue</em></div>
+        <div class="p-sub">Review and action pending journal drafts.</div>
+      </div>
+      <div class="p-actions">
+        <button class="btn btn-primary" onclick="loadQueue()">Refresh</button>
+      </div>
+    </div>
 
-  <div id="queue"></div>
+    <div id="queue">
+      <div class="empty"><span class="empty-txt">იტვირთება…</span></div>
+    </div>
 
-  <h2>Preview</h2>
-  <pre id="preview">No preview loaded.</pre>
+    <div class="card" style="margin-top:20px">
+      <div class="card-head"><div class="card-title">Preview</div></div>
+      <div class="card-body" style="padding:0">
+        <pre class="preview-box" id="preview" style="margin:0;border-radius:0 0 10px 10px">No preview loaded.</pre>
+      </div>
+    </div>
+  </div>
+</div>
 
-  <script>
+<!-- Reject Modal -->
+<div class="modal-overlay" id="rejectModal" onclick="if(event.target===this)_closeRejectModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title">Reject Draft</div>
+      <button class="btn btn-ghost btn-sm" onclick="_closeRejectModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--ink-dim);margin-bottom:12px">Draft #<span id="rejDraftId"></span> — provide a reason</p>
+      <textarea class="inp" id="rejReason" rows="3" placeholder="Reason for rejection..." style="width:100%;resize:vertical"></textarea>
+      <div style="font-size:11px;color:var(--red);margin-top:5px;min-height:15px" id="rejErr"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="_closeRejectModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="_confirmReject()">Reject</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('queue');
+});
+</script>
+<script>
     async function loadQueue() {
       const res = await fetch('/approval/queue');
       const data = await res.json();
@@ -115,35 +93,33 @@
       root.innerHTML = '';
 
       if (!queue.length) {
-        root.innerHTML = '<div class="card">Queue is empty.</div>';
+        root.innerHTML = '<div class="empty"><span class="empty-txt">Queue is empty.</span></div>';
         return;
       }
 
       queue.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'card';
+        div.className = 'queue-card';
 
         const confidence = item.confidence ?? 'N/A';
         const status = item.status ?? 'unknown';
 
         div.innerHTML = `
-          <div class="row">
-            <div>
-              <strong>${item.description || 'No description'}</strong>
-              <div class="meta">Partner: ${item.partner || 'N/A'}</div>
-              <div class="meta">Amount: ${item.amount ?? 'N/A'}</div>
-              <div class="meta">Account: ${item.account_code || 'N/A'}</div>
-            </div>
-            <div>
-              <span class="badge badge-confidence">Confidence: ${confidence}</span>
-              <span class="badge badge-status">Status: ${status}</span>
-              ${item.review_required ? '' : '<span class="badge badge-autopilot">Autopilot Candidate</span>'}
-            </div>
+          <div class="queue-desc">${item.description || 'No description'}</div>
+          <div class="queue-meta">
+            Partner: ${item.partner || 'N/A'} &nbsp;·&nbsp;
+            Amount: ${item.amount ?? 'N/A'} &nbsp;·&nbsp;
+            Account: ${item.account_code || 'N/A'}
           </div>
-          <div class="actions">
-            <button onclick="approveDraft(${item.id})">Approve</button>
-            <button onclick="rejectDraft(${item.id})">Reject</button>
-            <button class="secondary" onclick='previewDraft(${JSON.stringify({
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <span class="chip chip-pending">Confidence: ${confidence}</span>
+            <span class="chip chip-draft">Status: ${status}</span>
+            ${!item.review_required ? '<span class="chip chip-approved">Autopilot Candidate</span>' : ''}
+          </div>
+          <div class="queue-actions">
+            <button class="btn btn-success btn-sm" onclick="approveDraft(${item.id})">Approve</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectDraft(${item.id})">Reject</button>
+            <button class="btn btn-ghost btn-sm" onclick='previewDraft(${JSON.stringify({
               description: item.description,
               partner: item.partner,
               amount: item.amount,
@@ -172,14 +148,19 @@
       document.getElementById('rejErr').textContent='';
       document.getElementById('rejDraftId').textContent=id;
       document.getElementById('rejectModal').classList.remove('hidden');
+      document.getElementById('rejectModal').style.display='flex';
       setTimeout(()=>document.getElementById('rejReason').focus(),60);
     }
-    function _closeRejectModal(){ document.getElementById('rejectModal').classList.add('hidden'); _rejectId=null; }
+    function _closeRejectModal(){
+      document.getElementById('rejectModal').style.display='none';
+      _rejectId=null;
+    }
     async function _confirmReject(){
       const reason = document.getElementById('rejReason').value.trim();
       if(!reason){ document.getElementById('rejErr').textContent='Enter a reason'; return; }
+      const id = _rejectId;
       _closeRejectModal();
-      const res = await fetch(`/approval/reject/${_rejectId}`, {
+      const res = await fetch(`/approval/reject/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
@@ -206,20 +187,6 @@
     }
 
     loadQueue();
-  </script>
-
-<!-- Reject Modal -->
-<div class="modal-overlay hidden" id="rejectModal" onclick="if(event.target===this)_closeRejectModal()">
-  <div class="modal-box">
-    <div class="modal-title">Reject Draft</div>
-    <div class="modal-sub">Draft #<span id="rejDraftId"></span> — provide a reason</div>
-    <textarea class="modal-textarea" id="rejReason" placeholder="Reason for rejection..."></textarea>
-    <div class="modal-err" id="rejErr"></div>
-    <div class="modal-actions">
-      <button style="padding:8px 14px;border-radius:8px;cursor:pointer;background:#6b7280;color:#fff;border:none" onclick="_closeRejectModal()">Cancel</button>
-      <button style="padding:8px 14px;border-radius:8px;cursor:pointer;background:#dc2626;color:#fff;border:none" onclick="_confirmReject()">Reject</button>
-    </div>
-  </div>
-</div>
+</script>
 </body>
 </html>

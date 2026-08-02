@@ -1,43 +1,68 @@
 <!DOCTYPE html>
-<html>
+<html lang="ka">
 <head>
-  <title>Bridge Hub Dashboard</title>
-  <style>
-    body { font-family: Arial; margin: 24px; background: #f7f9fc; }
-    .card {
-      background: white;
-      padding: 16px;
-      border-radius: 12px;
-      margin-bottom: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-    }
-    h1 { margin-bottom: 16px; }
-    .stale { opacity: 0.6; font-size: 0.85em; }
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
+<style>
+.stat-stale{opacity:.6;font-size:.85em;font-family:var(--serif);font-style:italic;color:var(--ink-dim)}
+</style>
 </head>
 <body>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Dashboard</em></div>
+  </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">OVERVIEW</div>
+        <div class="p-title">Bridge Hub <em>Dashboard</em></div>
+        <div class="p-sub">System status and key metrics at a glance.</div>
+      </div>
+    </div>
 
-<h1>Bridge Hub — Dashboard</h1>
+    <div class="grid-4" id="stats">
+      <div class="kpi kpi-accent"><div class="kpi-label">Loading</div><div class="kpi-val">—</div></div>
+    </div>
+  </div>
+</div>
 
-<div class="grid" id="stats"><div class="card stale">Loading…</div></div>
-
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('dashboard');
+});
+</script>
 <script>
 const CACHE_KEY = 'bh_main_dashboard';
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 function renderStats(data, stale) {
   const root = document.getElementById('stats');
-  const tag = stale ? ' <span class="stale">(cached)</span>' : '';
+  const tag = stale ? ' <span class="stat-stale">(cached)</span>' : '';
   root.innerHTML = `
-    <div class="card">Pending Drafts: ${data.pending_count ?? '—'}${tag}</div>
-    <div class="card">Auto-approved: ${data.auto_approved ?? '—'}</div>
-    <div class="card">System: ACTIVE</div>
-    <div class="card">Mode: Semi-Autonomous</div>
+    <div class="kpi kpi-accent">
+      <div class="kpi-label">Pending Drafts</div>
+      <div class="kpi-val">${data.pending_count ?? '—'}${tag}</div>
+    </div>
+    <div class="kpi kpi-green">
+      <div class="kpi-label">Auto-approved</div>
+      <div class="kpi-val">${data.auto_approved ?? '—'}</div>
+    </div>
+    <div class="kpi kpi-blue">
+      <div class="kpi-label">System</div>
+      <div class="kpi-val" style="font-size:18px">ACTIVE</div>
+    </div>
+    <div class="kpi kpi-amber">
+      <div class="kpi-label">Mode</div>
+      <div class="kpi-val" style="font-size:16px">Semi-Auto</div>
+    </div>
   `;
 }
 
@@ -71,6 +96,5 @@ async function loadStats() {
 
 loadStats();
 </script>
-
 </body>
 </html>

@@ -3,120 +3,95 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bridge Hub — ძირითადი საშუალებები</title>
+<title>Bridge Hub — Fixed Assets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/bh.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
-.topbar{background:#1a1a2e;color:#fff;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
-.topbar a{color:#adb5bd;text-decoration:none;font-size:.85rem}.topbar a:hover{color:#fff}
-h1{font-size:1.1rem;font-weight:600}
-.container{max-width:1300px;margin:0 auto;padding:1.5rem}
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1rem;margin-bottom:1.5rem}
-.kpi{background:#fff;border-radius:10px;padding:1.25rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #7209b7}
-.kpi-label{font-size:.75rem;color:#6c757d;text-transform:uppercase;letter-spacing:.05em}
-.kpi-val{font-size:1.8rem;font-weight:700;color:#7209b7;margin:.2rem 0}
-.kpi-sub{font-size:.75rem;color:#adb5bd}
-.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1rem}
-.card-head{padding:1rem 1.25rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
-.card-title{font-weight:600;font-size:.95rem}
-.card-body{padding:1rem 1.25rem}
-.btn{display:inline-flex;align-items:center;gap:.3rem;padding:.45rem .9rem;border:none;border-radius:6px;cursor:pointer;font-size:.85rem;font-weight:500;transition:all .15s}
-.btn-primary{background:#7209b7;color:#fff}.btn-primary:hover{background:#5e08a0}
-.btn-danger{background:#f72585;color:#fff}.btn-danger:hover{background:#d91d73}
-.btn-ghost{background:transparent;color:#6c757d;border:1px solid #dee2e6}.btn-ghost:hover{background:#f8f9fa}
-.btn-sm{padding:.3rem .65rem;font-size:.8rem}
-table{width:100%;border-collapse:collapse;font-size:.875rem}
-thead th{background:#f8f9fa;padding:.7rem 1rem;text-align:left;font-weight:600;color:#495057;border-bottom:2px solid #dee2e6}
-tbody td{padding:.65rem 1rem;border-bottom:1px solid #f0f2f5;vertical-align:middle}
-tbody tr:hover{background:#faf5ff}
-.badge{display:inline-block;padding:.25rem .6rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.badge-purple{background:#f0e6ff;color:#7209b7}
-.badge-blue{background:#e7edff;color:#4361ee}
-.badge-green{background:#d1f2e1;color:#198754}
-.badge-gray{background:#f0f2f5;color:#6c757d}
-.badge-red{background:#fde8ef;color:#f72585}
-.mono{font-family:'Courier New',monospace;font-weight:600}
-.text-right{text-align:right}
-.actions{display:flex;gap:.25rem}
-.empty{padding:3rem;text-align:center;color:#adb5bd}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
-.modal-overlay.open{display:flex}
-.modal{background:#fff;border-radius:12px;width:90%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
-.modal-head{padding:1.25rem 1.5rem;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;align-items:center}
-.modal-head h3{font-size:1rem;font-weight:600}
-.modal-body{padding:1.5rem}
-.modal-foot{padding:1rem 1.5rem;border-top:1px solid #f0f2f5;display:flex;justify-content:flex-end;gap:.5rem}
+.stab-bar{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:1rem}
+.stab{padding:.65rem 1.25rem;cursor:pointer;font-size:.88rem;font-weight:500;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-2px}
+.stab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:.75rem}
 .form-group{margin-bottom:.75rem}
-.form-group label{display:block;font-size:.82rem;font-weight:600;color:#495057;margin-bottom:.3rem}
-input,select,textarea{border:1px solid #dee2e6;border-radius:6px;padding:.45rem .75rem;font-size:.9rem;width:100%;background:#fff;color:#1a1a2e}
-input:focus,select:focus{outline:none;border-color:#7209b7;box-shadow:0 0 0 3px rgba(114,9,183,.1)}
+.form-group label{display:block;font-size:.82rem;font-weight:600;color:var(--ink-mute);margin-bottom:.3rem}
 .sched-table{width:100%;border-collapse:collapse;font-size:.82rem}
-.sched-table th{background:#f0e6ff;padding:.5rem .75rem;font-weight:600;color:#7209b7;text-align:right}
+.sched-table th{background:var(--accent-soft);padding:.5rem .75rem;font-weight:600;color:var(--accent);text-align:right;border-bottom:1px solid var(--line)}
 .sched-table th:first-child{text-align:left}
-.sched-table td{padding:.5rem .75rem;border-bottom:1px solid #f5f0ff;text-align:right}
-.sched-table td:first-child{text-align:left;font-weight:600}
-.sched-total{background:#f0e6ff;font-weight:700}
-.status-tabs{display:flex;gap:0;border-bottom:2px solid #f0f2f5;margin-bottom:1rem}
-.stab{padding:.65rem 1.25rem;cursor:pointer;font-size:.88rem;font-weight:500;color:#6c757d;border-bottom:2px solid transparent;margin-bottom:-2px}
-.stab.active{color:#7209b7;border-bottom-color:#7209b7}
-@media(max-width:600px){.form-row{grid-template-columns:1fr}}
+.sched-table td{padding:.5rem .75rem;border-bottom:1px solid var(--line-soft);text-align:right;font-family:var(--mono)}
+.sched-table td:first-child{text-align:left;font-weight:600;font-family:var(--font)}
+.sched-total{background:var(--accent-soft);font-weight:700}
+.sched-summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-bottom:1rem}
+.sched-kpi{background:var(--accent-soft);padding:.75rem;border-radius:8px;text-align:center}
+.sched-kpi .lbl{font-size:.72rem;color:var(--accent);font-family:var(--mono)}
+.sched-kpi .val{font-size:1.2rem;font-weight:700;color:var(--accent);margin-top:4px;font-family:var(--mono)}
+@media(max-width:600px){.form-row{grid-template-columns:1fr}.sched-summary{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/static/approval.html">← Dashboard</a>
-  <span style="color:#495057">›</span>
-  <h1>🏭 ძირითადი საშუალებები</h1>
-  <div style="margin-left:auto">
-    <button class="btn btn-primary btn-sm" onclick="openAdd()">+ დამატება</button>
-  </div>
-</div>
-
-<div class="container">
-  <div class="kpi-row">
-    <div class="kpi"><div class="kpi-label">სულ აქტივი</div><div class="kpi-val" id="kTotal">—</div><div class="kpi-sub">active</div></div>
-    <div class="kpi"><div class="kpi-label">სულ ღირ.</div><div class="kpi-val" id="kCost">—</div><div class="kpi-sub">GEL cost</div></div>
-    <div class="kpi"><div class="kpi-label">საშ. ვადა</div><div class="kpi-val" id="kLife">—</div><div class="kpi-sub">years avg</div></div>
-    <div class="kpi"><div class="kpi-label">მეთოდი SL</div><div class="kpi-val" id="kSL">—</div><div class="kpi-sub">straight-line</div></div>
-  </div>
-
-  <div class="status-tabs">
-    <div class="stab active" onclick="loadAssets('active',this)">✅ აქტიური</div>
-    <div class="stab" onclick="loadAssets('retired',this)">🗄️ ჩამოწერილი</div>
-  </div>
-
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">აქტივების სია</span>
+<aside class="sidebar" id="sidebar-mount"></aside>
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub <span class="sep">/</span> <em>Fixed Assets</em></div>
+    <div style="margin-left:auto">
+      <button class="btn btn-primary btn-sm" onclick="openAdd()">+ დამატება</button>
     </div>
-    <div style="overflow-x:auto">
-      <table>
-        <thead><tr>
-          <th>#</th><th>სახელი</th><th>კატეგ.</th><th>შეძენის თარ.</th>
-          <th class="text-right">ღირებ.</th><th class="text-right">ნარჩ. ღირ.</th>
-          <th>ვადა</th><th>მეთოდი</th><th>სტატ.</th><th></th>
-        </tr></thead>
-        <tbody id="assetBody">
-          <tr><td colspan="10"><div class="empty">⏳ იტვირთება...</div></td></tr>
-        </tbody>
-      </table>
+  </div>
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="p-eye">ASSETS</div>
+        <div class="p-title">ძირითადი <em>საშუალებები</em></div>
+        <div class="p-sub">Fixed asset register with depreciation schedules — straight-line and declining balance methods.</div>
+      </div>
+      <div class="p-actions">
+        <button class="btn btn-primary" onclick="openAdd()">+ Add Asset</button>
+      </div>
+    </div>
+
+    <div class="grid-4" style="margin-bottom:20px">
+      <div class="kpi kpi-accent"><div class="kpi-label">სულ აქტივი</div><div class="kpi-val" id="kTotal">—</div><div class="kpi-delta">active</div></div>
+      <div class="kpi kpi-green"><div class="kpi-label">სულ ღირ.</div><div class="kpi-val" id="kCost">—</div><div class="kpi-delta">GEL cost</div></div>
+      <div class="kpi kpi-blue"><div class="kpi-label">საშ. ვადა</div><div class="kpi-val" id="kLife">—</div><div class="kpi-delta">years avg</div></div>
+      <div class="kpi kpi-amber"><div class="kpi-label">SL Method</div><div class="kpi-val" id="kSL">—</div><div class="kpi-delta">straight-line</div></div>
+    </div>
+
+    <div class="stab-bar">
+      <div class="stab active" onclick="loadAssets('active',this)">აქტიური</div>
+      <div class="stab" onclick="loadAssets('retired',this)">ჩამოწერილი</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">აქტივების სია</div></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>#</th><th>სახელი</th><th>კატეგ.</th><th>შეძენის თარ.</th>
+            <th style="text-align:right">ღირებ.</th><th style="text-align:right">ნარჩ. ღირ.</th>
+            <th>ვადა</th><th>მეთოდი</th><th>სტატ.</th><th></th>
+          </tr></thead>
+          <tbody id="assetBody">
+            <tr><td colspan="10"><div class="empty"><span class="empty-txt">იტვირთება…</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- Add Modal -->
-<div class="modal-overlay" id="addModal">
-  <div class="modal">
+<div class="modal-overlay" id="addModal" onclick="if(event.target===this)closeModal('addModal')">
+  <div class="modal-box" style="max-width:560px">
     <div class="modal-head">
-      <h3>ახალი ძირითადი საშუალება</h3>
+      <div class="modal-title">ახალი ძირითადი საშუალება</div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('addModal')">✕</button>
     </div>
     <div class="modal-body">
       <div class="form-row">
-        <div class="form-group"><label>სახელი *</label><input id="aName" type="text" placeholder="ლეპტოპი HP"></div>
-        <div class="form-group"><label>კატეგორია</label>
-          <select id="aCat">
+        <div class="form-group"><label>სახელი *</label><input class="inp" id="aName" type="text" placeholder="ლეპტოპი HP"></div>
+        <div class="form-group">
+          <label>კატეგორია</label>
+          <select class="sel" id="aCat">
             <option value="equipment">მოწყობილობა</option>
             <option value="vehicle">სატრანსპ. საშ.</option>
             <option value="building">შენობა</option>
@@ -125,23 +100,24 @@ input:focus,select:focus{outline:none;border-color:#7209b7;box-shadow:0 0 0 3px 
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>შეძენის თარიღი *</label><input id="aDate" type="date"></div>
-        <div class="form-group"><label>ღირებულება (GEL) *</label><input id="aCost" type="number" min="0.01" step="0.01" value="1000"></div>
+        <div class="form-group"><label>შეძენის თარიღი *</label><input class="inp" id="aDate" type="date"></div>
+        <div class="form-group"><label>ღირებულება (GEL) *</label><input class="inp" id="aCost" type="number" min="0.01" step="0.01" value="1000"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>ნარჩენი ღირ. (GEL)</label><input id="aResidual" type="number" min="0" step="0.01" value="0"></div>
-        <div class="form-group"><label>სასარგებლო ვადა (წ.) *</label><input id="aLife" type="number" min="1" max="50" value="5"></div>
+        <div class="form-group"><label>ნარჩენი ღირ. (GEL)</label><input class="inp" id="aResidual" type="number" min="0" step="0.01" value="0"></div>
+        <div class="form-group"><label>სასარგებლო ვადა (წ.) *</label><input class="inp" id="aLife" type="number" min="1" max="50" value="5"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>ამორტ. მეთოდი</label>
-          <select id="aMethod">
+        <div class="form-group">
+          <label>ამორტ. მეთოდი</label>
+          <select class="sel" id="aMethod">
             <option value="straight_line">Straight Line (SL)</option>
             <option value="declining_balance">Declining Balance (DB)</option>
           </select>
         </div>
-        <div class="form-group"><label>საანგარიშო კოდი</label><input id="aAccount" type="text" value="1510"></div>
+        <div class="form-group"><label>საანგარიშო კოდი</label><input class="inp" id="aAccount" type="text" value="1510"></div>
       </div>
-      <div class="form-group"><label>შენიშვნა</label><textarea id="aNotes" rows="2"></textarea></div>
+      <div class="form-group"><label>შენიშვნა</label><textarea class="inp" id="aNotes" rows="2" style="width:100%;resize:vertical"></textarea></div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('addModal')">გაუქმება</button>
@@ -151,10 +127,10 @@ input:focus,select:focus{outline:none;border-color:#7209b7;box-shadow:0 0 0 3px 
 </div>
 
 <!-- Schedule Modal -->
-<div class="modal-overlay" id="schedModal">
-  <div class="modal" style="max-width:700px">
+<div class="modal-overlay" id="schedModal" onclick="if(event.target===this)closeModal('schedModal')">
+  <div class="modal-box" style="max-width:700px">
     <div class="modal-head">
-      <h3 id="schedTitle">ამორტიზაციის გრაფიკი</h3>
+      <div class="modal-title" id="schedTitle">ამორტიზაციის გრაფიკი</div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('schedModal')">✕</button>
     </div>
     <div class="modal-body" id="schedBody"></div>
@@ -164,6 +140,12 @@ input:focus,select:focus{outline:none;border-color:#7209b7;box-shadow:0 0 0 3px 
   </div>
 </div>
 
+<script src="/static/js/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    BridgeHub.loadSidebar('assets');
+});
+</script>
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';
 const TENANT=localStorage.getItem('tenant_id')||'';
@@ -177,15 +159,16 @@ async function api(path,method='GET',body=null){
 }
 function fmt(n){return Number(n||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('ka-GE');}catch{return d;}}
-function closeModal(id){document.getElementById(id).classList.remove('open');}
+function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function closeModal(id){document.getElementById(id).style.display='none';}
+function _openModal(id){document.getElementById(id).style.display='flex';}
 
 async function loadAssets(status='active',tabEl=null){
   if(tabEl){document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));tabEl.classList.add('active');}
   const d=await api('/fixed-assets/?status='+status);
   const tb=document.getElementById('assetBody');
-  if(!d||!d.ok){tb.innerHTML='<tr><td colspan="10"><div class="empty">შეცდომა</div></td></tr>';return;}
+  if(!d||!d.ok){tb.innerHTML='<tr><td colspan="10"><div class="empty"><span class="empty-txt">შეცდომა</span></div></td></tr>';return;}
   const assets=d.data||[];
-  // KPIs
   document.getElementById('kTotal').textContent=assets.length;
   const totalCost=assets.reduce((s,a)=>s+Number(a.cost||0),0);
   document.getElementById('kCost').textContent='₾'+fmt(totalCost);
@@ -193,32 +176,28 @@ async function loadAssets(status='active',tabEl=null){
   document.getElementById('kLife').textContent=avgLife||'—';
   document.getElementById('kSL').textContent=assets.filter(a=>a.depreciation_method==='straight_line').length;
 
-  if(!assets.length){tb.innerHTML='<tr><td colspan="10"><div class="empty">🏭 აქტივი არ მოიძებნა</div></td></tr>';return;}
-  const catMap={equipment:'🖥️',vehicle:'🚗',building:'🏢',intangible:'💡'};
-  const methClr={straight_line:'badge-purple',declining_balance:'badge-blue'};
-  const statClr={active:'badge-green',retired:'badge-gray'};
+  if(!assets.length){tb.innerHTML='<tr><td colspan="10"><div class="empty"><span class="empty-txt">აქტივი არ მოიძებნა</span></div></td></tr>';return;}
+  const catMap={equipment:'[EQ]',vehicle:'[VH]',building:'[BL]',intangible:'[IN]'};
   tb.innerHTML=assets.map(a=>`<tr>
     <td class="mono">#${a.id}</td>
     <td><strong>${esc(a.name)}</strong></td>
-    <td>${catMap[a.category]||'📦'} ${esc(a.category)}</td>
-    <td>${fmtDate(a.acquisition_date)}</td>
-    <td class="text-right"><strong>₾${fmt(a.cost)}</strong></td>
-    <td class="text-right">₾${fmt(a.residual_value)}</td>
-    <td>${a.useful_life_years} წ.</td>
-    <td><span class="badge ${methClr[a.depreciation_method]||'badge-gray'}">${a.depreciation_method==='straight_line'?'SL':'DB'}</span></td>
-    <td><span class="badge ${statClr[a.status]||'badge-gray'}">${a.status}</span></td>
-    <td><div class="actions">
-      <button class="btn btn-ghost btn-sm" onclick="showSchedule(${a.id})" title="გრაფიკი">📊</button>
-      ${a.status==='active'?`<button class="btn btn-danger btn-sm" onclick="retireAsset(${a.id})" title="ჩამოწერა">🗑️</button>`:''}
-    </div></td>
+    <td>${catMap[a.category]||'[?]'} ${esc(a.category)}</td>
+    <td class="mono">${fmtDate(a.acquisition_date)}</td>
+    <td class="mono" style="text-align:right"><strong>₾${fmt(a.cost)}</strong></td>
+    <td class="mono" style="text-align:right">₾${fmt(a.residual_value)}</td>
+    <td class="mono">${a.useful_life_years} წ.</td>
+    <td><span class="chip ${a.depreciation_method==='straight_line'?'chip-approved':'chip-pending'}">${a.depreciation_method==='straight_line'?'SL':'DB'}</span></td>
+    <td><span class="chip ${a.status==='active'?'chip-approved':'chip-inactive'}">${a.status}</span></td>
+    <td>
+      <button class="btn btn-ghost btn-sm" onclick="showSchedule(${a.id})" title="გრაფიკი">Sched</button>
+      ${a.status==='active'?`<button class="btn btn-danger btn-sm" onclick="retireAsset(${a.id})" title="ჩამოწერა">Retire</button>`:''}
+    </td>
   </tr>`).join('');
 }
 
-function esc(s){return(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
 function openAdd(){
   document.getElementById('aDate').value=new Date().toISOString().split('T')[0];
-  document.getElementById('addModal').classList.add('open');
+  _openModal('addModal');
 }
 
 async function saveAsset(){
@@ -236,7 +215,7 @@ async function saveAsset(){
     notes:document.getElementById('aNotes').value||null,
   };
   const d=await api('/fixed-assets/','POST',body);
-  if(d&&d.ok){toast('✅ შენახულია');closeModal('addModal');loadAssets();}
+  if(d&&d.ok){toast('შენახულია');closeModal('addModal');loadAssets();}
   else alert((d&&d.error&&d.error.details)||'შეცდომა');
 }
 
@@ -244,7 +223,7 @@ async function showSchedule(id){
   const d=await api('/fixed-assets/'+id+'/schedule');
   if(!d||!d.ok){alert('შეცდომა');return;}
   const {asset,schedule,total_depreciation,journal_template}=d.data;
-  document.getElementById('schedTitle').textContent=`📊 ${asset.name} — ამორტიზაციის გრაფიკი`;
+  document.getElementById('schedTitle').textContent=`${asset.name} — ამორტიზაციის გრაფიკი`;
   let rows=schedule.map(s=>`<tr>
     <td>${s.year} წ. (${s.period_date.slice(0,7)})</td>
     <td>₾${fmt(s.depreciation)}</td>
@@ -252,21 +231,12 @@ async function showSchedule(id){
     <td>₾${fmt(s.book_value)}</td>
   </tr>`).join('');
   document.getElementById('schedBody').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-bottom:1rem">
-      <div style="background:#f0e6ff;padding:.75rem;border-radius:8px;text-align:center">
-        <div style="font-size:.75rem;color:#7209b7">ღირებულება</div>
-        <div style="font-size:1.3rem;font-weight:700;color:#7209b7">₾${fmt(asset.cost)}</div>
-      </div>
-      <div style="background:#f0e6ff;padding:.75rem;border-radius:8px;text-align:center">
-        <div style="font-size:.75rem;color:#7209b7">სულ ამორტ.</div>
-        <div style="font-size:1.3rem;font-weight:700;color:#7209b7">₾${fmt(total_depreciation)}</div>
-      </div>
-      <div style="background:#f0e6ff;padding:.75rem;border-radius:8px;text-align:center">
-        <div style="font-size:.75rem;color:#7209b7">ნარჩენი</div>
-        <div style="font-size:1.3rem;font-weight:700;color:#7209b7">₾${fmt(asset.residual_value)}</div>
-      </div>
+    <div class="sched-summary">
+      <div class="sched-kpi"><div class="lbl">ღირებულება</div><div class="val">₾${fmt(asset.cost)}</div></div>
+      <div class="sched-kpi"><div class="lbl">სულ ამორტ.</div><div class="val">₾${fmt(total_depreciation)}</div></div>
+      <div class="sched-kpi"><div class="lbl">ნარჩენი</div><div class="val">₾${fmt(asset.residual_value)}</div></div>
     </div>
-    <div style="background:#f8f9fa;padding:.75rem;border-radius:8px;margin-bottom:1rem;font-size:.82rem">
+    <div style="background:var(--paper-soft);padding:.75rem;border-radius:8px;margin-bottom:1rem;font-size:.82rem;color:var(--ink-mute)">
       <strong>Journal:</strong> Dr ${journal_template.debit} / Cr ${journal_template.credit}
     </div>
     <div style="overflow-x:auto">
@@ -277,20 +247,23 @@ async function showSchedule(id){
       </table>
     </div>
   `;
-  document.getElementById('schedModal').classList.add('open');
+  _openModal('schedModal');
 }
 
 async function retireAsset(id){
   if(!confirm('ჩამოიწეროს ეს აქტივი?'))return;
   const d=await api('/fixed-assets/'+id,'DELETE');
-  if(d&&d.ok){toast('🗑️ ჩამოიწერა');loadAssets();}
+  if(d&&d.ok){toast('ჩამოიწერა');loadAssets();}
   else alert('შეცდომა');
 }
 
 function toast(msg){
   const t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:1.5rem;right:1.5rem;background:#7209b7;color:#fff;padding:.75rem 1.25rem;border-radius:8px;font-size:.88rem;font-weight:500;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15)';
-  t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);
+  t.className='toast toast-ok';
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.classList.add('show'),10);
+  setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.remove(),300)},3000);
 }
 
 loadAssets();

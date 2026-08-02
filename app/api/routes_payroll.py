@@ -165,6 +165,82 @@ def payroll_rsge_xml(req: PayrollRequest, request: Request):
     )
 
 
+class RsgeSubmitRequest(BaseModel):
+    run_id: int
+    period: str
+    employees: List = []
+
+
+@router.post("/rs-ge-submit")
+async def payroll_rsge_submit(req: RsgeSubmitRequest, request: Request):
+    """Submit PAYG declaration to RS.ge for a finalised payroll run.
+
+    Generates XML from the run's employee list, POSTs to RS.ge API,
+    and records the submission in payroll_submissions table.
+    """
+    require_permission(request, "payroll:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    from app.api.services.rsge_submission_service import submit_payg_declaration
+    from app.api.services.payroll_rsge_workflow_service import upsert_submission, submit_declaration
+
+    employees = [e if isinstance(e, dict) else e.dict() for e in req.employees]
+    payroll = calculate_payroll(employees, req.period)
+    xml = generate_rsge_xml(payroll)
+
+    submission_rec = await upsert_submission(tenant_id, req.run_id, req.period, xml)
+
+    result = await submit_payg_declaration(tenant_id, req.run_id, req.period, xml)
+
+    if result["ok"]:
+        try:
+            submission_rec = await submit_declaration(
+                tenant_id, req.run_id, result.get("submission_ref")
+            )
+        except ValueError:
+            pass
+
+    structured_log(
+        log,
+        logging.INFO if result["ok"] else logging.WARNING,
+        "rsge_submit",
+        tenant_id=tenant_id,
+        run_id=req.run_id,
+        period=req.period,
+        mode=result.get("mode"),
+        status=result.get("status"),
+        ref=result.get("submission_ref"),
+    )
+
+    return ok_response(
+        result["message"],
+        {
+            "tenant_id": tenant_id,
+            "run_id": req.run_id,
+            "period": req.period,
+            "submission": result,
+            "submission_record": submission_rec,
+        },
+    ) if result["ok"] else error_response(
+        result["message"],
+        "RSGE_SUBMISSION_FAILED",
+        result.get("error_detail") or result["message"],
+    )
+
+
+@router.get("/rs-ge-status/{submission_ref}")
+async def payroll_rsge_status(submission_ref: str, request: Request):
+    """Poll RS.ge for the status of a submitted PAYG declaration."""
+    require_permission(request, "payroll:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    from app.api.services.rsge_submission_service import check_submission_status
+    result = await check_submission_status(tenant_id, submission_ref)
+
+    return ok_response("RS.ge status", result) if result["ok"] else \
+        error_response(result["message"], "RSGE_STATUS_ERROR", result.get("message"))
+
+
 # ===============================
 # READ ENDPOINTS
 # ===============================

@@ -71,22 +71,22 @@ def sync_bog(req: SyncRequest, request: Request):
 # ========== All Banks ==========
 
 @router.post("/sync-all")
-def sync_all(req: SyncRequest, request: Request):
+async def sync_all(req: SyncRequest, request: Request):
     """
     ყველა ბანკიდან sync + queue-ში დამატება.
     """
     require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    result = sync_all_banks(tenant_id=tenant_id, days=req.days)
+    result = await sync_all_banks(tenant_id=tenant_id, days=req.days)
     return result
 
 
 @router.get("/sync-all")
-def sync_all_get(request: Request, days: int = 7):
+async def sync_all_get(request: Request, days: int = 7):
     """
     GET ვერსია — browser-იდან ტესტისთვის.
     """
     require_permission(request, "bank:process")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    result = sync_all_banks(tenant_id=tenant_id, days=days)
+    result = await sync_all_banks(tenant_id=tenant_id, days=days)
     return result

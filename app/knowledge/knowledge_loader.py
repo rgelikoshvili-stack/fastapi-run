@@ -5,9 +5,6 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
-
 from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
 from app.api.db import get_conn, _q
 
@@ -23,6 +20,7 @@ _TAX_FILENAME_KEYWORDS = (
 
 
 def _get_db():
+    import psycopg2  # lazy — only used in one-time migration and sync KB load
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL is not configured")
@@ -101,6 +99,7 @@ def get_accounting_section(topic):
 def _load_learned_from_db():
     try:
         conn = _get_db()
+        from psycopg2.extras import RealDictCursor  # lazy
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """

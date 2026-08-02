@@ -8,7 +8,6 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-import psycopg2
 from app.api.db import get_conn, _q
 from app.api.services.posting_service import create_journal_draft
 from app.api.services.inventory_costing_service import compute_dispatch_cogs, cogs_journal_lines
@@ -24,6 +23,7 @@ ACCOUNTING_MOVEMENT_TYPES = {"in", "out", "adjustment"}
 def ensure_inventory_tables(conn=None):
     close = conn is None
     if conn is None:
+        import psycopg2  # lazy — DDL bootstrap only, called via run_in_executor
         url = os.environ.get("DATABASE_URL")
         if not url:
             return

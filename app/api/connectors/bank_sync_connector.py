@@ -10,8 +10,7 @@ import json
 import urllib.request
 from datetime import datetime, timedelta
 from typing import Optional
-import psycopg2.extras
-from app.api.db import get_db
+from app.api.db import get_conn, _q
 
 log = logging.getLogger(__name__)
 
@@ -229,7 +228,7 @@ class BOGConnector:
 
 # ========== Unified Sync ==========
 
-def sync_all_banks(tenant_id: str = "default", days: int = 7) -> dict:
+async def sync_all_banks(tenant_id: str = "default", days: int = 7) -> dict:
     """
     ყველა ბანკიდან ტრანზაქციების sync.
     """
@@ -245,7 +244,7 @@ def sync_all_banks(tenant_id: str = "default", days: int = 7) -> dict:
     if bog_result.get("ok"):
         all_transactions.extend(bog_result.get("transactions", []))
 
-    saved = _save_to_queue(all_transactions, tenant_id)
+    saved = await _save_to_queue(all_transactions, tenant_id)
 
     return {
         "ok": True,
@@ -258,73 +257,63 @@ def sync_all_banks(tenant_id: str = "default", days: int = 7) -> dict:
     }
 
 
-def _save_to_queue(transactions: list, tenant_id: str) -> int:
+async def _save_to_queue(transactions: list, tenant_id: str) -> int:
     """
     ტრანზაქციები DB-ში queue-ში ინახება classification-ისთვის.
     """
     if not transactions:
         return 0
 
-    conn = get_db()
-    cur = conn.cursor()
     saved = 0
-
     try:
-        for tx in transactions:
-            try:
-                # classify transaction
+        async with get_conn() as conn:
+            for tx in transactions:
                 try:
-                    from app.knowledge.journal_builder import classify_transaction
-                    desc = tx.get("description", "")
-                    cls = classify_transaction(desc, tenant_id)
-                    acc_code = cls.get("account", "7910")
-                    conf = float(cls.get("confidence", 0.5))
-                    tx_type = tx.get("type", "debit")
-                    if tx_type == "debit":
-                        dr_acc = acc_code
+                    try:
+                        from app.knowledge.journal_builder import classify_transaction
+                        desc = tx.get("description", "")
+                        cls = classify_transaction(desc, tenant_id)
+                        acc_code = cls.get("account", "7910")
+                        conf = float(cls.get("confidence", 0.5))
+                        tx_type = tx.get("type", "debit")
+                        if tx_type == "debit":
+                            dr_acc = acc_code
+                            cr_acc = "1120"
+                        else:
+                            dr_acc = "1120"
+                            cr_acc = acc_code
+                    except Exception as e:
+                        log.warning("account classification failed: %s", e)
+                        acc_code = "7910"
+                        conf = 0.5
+                        dr_acc = "1210"
                         cr_acc = "1120"
-                    else:
-                        dr_acc = "1120"
-                        cr_acc = acc_code
-                except Exception as e:
-                    log.warning("account classification failed: %s", e)
-                    acc_code = "7910"
-                    conf = 0.5
-                    dr_acc = "1210"
-                    cr_acc = "1120"
 
-                cur.execute("""
-                    INSERT INTO journal_drafts (
-                        date, description, partner, amount,
-                        debit_account, credit_account, account_code,
-                        reason, confidence, status, source_type, tenant_id, created_at
-                    ) VALUES (
-                        %s, %s, %s, %s,
-                        %s, %s, %s,
-                        'bank_sync', %s, 'pending_approval',
-                        %s, %s, NOW()
+                    await conn.execute(_q("""
+                        INSERT INTO journal_drafts (
+                            date, description, partner, amount,
+                            debit_account, credit_account, account_code,
+                            reason, confidence, status, source_type, tenant_id, created_at
+                        ) VALUES (
+                            %s, %s, %s, %s,
+                            %s, %s, %s,
+                            'bank_sync', %s, 'pending_approval',
+                            %s, %s, NOW()
+                        )
+                    """),
+                        tx.get("date") or datetime.now().strftime("%Y-%m-%d"),
+                        tx.get("description", ""),
+                        tx.get("bank", ""),
+                        abs(float(tx.get("amount", 0))),
+                        dr_acc, cr_acc, acc_code,
+                        conf,
+                        f"bank_sync_{tx.get('bank', '').lower()}",
+                        tenant_id,
                     )
-                """, (
-                    tx.get("date") or datetime.now().strftime("%Y-%m-%d"),
-                    tx.get("description", ""),
-                    tx.get("bank", ""),
-                    abs(float(tx.get("amount", 0))),
-                    dr_acc, cr_acc, acc_code,
-                    conf,
-                    f"bank_sync_{tx.get('bank', '').lower()}",
-                    tenant_id,
-                ))
-                saved += 1
-            except Exception as e:
-                log.warning("transaction insert failed: %s", e)
-                continue
-
-        conn.commit()
+                    saved += 1
+                except Exception as e:
+                    log.warning("transaction insert failed: %s", e)
         return saved
     except Exception as e:
         log.error("bank sync failed: %s", e)
-        conn.rollback()
         return 0
-    finally:
-        cur.close()
-        conn.close()

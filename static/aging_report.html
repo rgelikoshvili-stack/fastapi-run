@@ -86,9 +86,7 @@
 
 <script src="/static/js/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    BridgeHub.loadSidebar('aging');
-});
+BridgeHub.loadSidebar('aging');
 </script>
 <script>
 const TOKEN=localStorage.getItem('access_token')||localStorage.getItem('bh_token')||'';

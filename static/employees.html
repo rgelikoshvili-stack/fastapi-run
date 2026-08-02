@@ -232,9 +232,7 @@
 <script src="/static/js/core/debounce.js"></script>
 <script src="/static/js/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    BridgeHub.loadSidebar('employees');
-});
+BridgeHub.loadSidebar('employees');
 </script>
 <script>
 const TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';

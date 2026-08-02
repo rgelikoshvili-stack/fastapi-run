@@ -1,18 +1,102 @@
 window.BridgeHub = window.BridgeHub || {};
 
-BridgeHub.loadSidebar = async function(currentPage) {
+/* Sidebar HTML is embedded here so it renders immediately — no async fetch. */
+const _BH_SIDEBAR_HTML = `
+<div class="brand">
+  <div class="logo">B</div>
+  <div style="min-width:0;flex:1">
+    <div class="bname">Bridge <em>Hub</em></div>
+    <div class="brole">Financial OS</div>
+  </div>
+</div>
+
+<nav class="nav" id="bh-nav">
+  <div class="sec">მთავარი</div>
+  <div class="item" data-page="dashboard" onclick="location.href='/static/approval.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+    <span class="lbl">Dashboard</span>
+  </div>
+  <div class="item" data-page="queue" onclick="location.href='/static/drafts.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+    <span class="lbl">Approval Queue</span>
+    <span class="badge" id="bh-pending-count" style="display:none">0</span>
+  </div>
+
+  <div class="sec">დოკუმენტები</div>
+  <div class="item" data-page="inbox" onclick="location.href='/static/documents.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+    <span class="lbl">Documents Hub</span>
+  </div>
+  <div class="item" data-page="waybills" onclick="location.href='/static/waybills.html'">
+    <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    <span class="lbl">ზედნადებები</span>
+  </div>
+  <div class="item" data-page="tax" onclick="location.href='/static/tax_invoices.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <span class="lbl">საგ. ინვოისები</span>
+  </div>
+
+  <div class="sec">ფინანსები</div>
+  <div class="item" data-page="invoices" onclick="location.href='/static/outgoing_form.html'">
+    <svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 10h8M8 14h6"/></svg>
+    <span class="lbl">ჩემი ინვოისები</span>
+  </div>
+  <div class="item" data-page="sales" onclick="location.href='/static/purchases_sales.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18l-2 7H6z"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/><path d="M7 6l1-3h8l1 3"/></svg>
+    <span class="lbl">Purchases &amp; Sales</span>
+  </div>
+  <div class="item" data-page="ledger" onclick="location.href='/static/ledger.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+    <span class="lbl">Account Ledger</span>
+  </div>
+  <div class="item" data-page="reports" onclick="location.href='/static/reports.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+    <span class="lbl">Reporting Workbench</span>
+  </div>
+  <div class="item" data-page="trial" onclick="location.href='/static/trial_balance.html'">
+    <svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    <span class="lbl">Trial Balance</span>
+  </div>
+  <div class="item" data-page="journal" onclick="location.href='/static/journal.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    <span class="lbl">Journal</span>
+  </div>
+  <div class="item" data-page="counterparty" onclick="location.href='/static/counterparty_ledger.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span class="lbl">Counterparties</span>
+  </div>
+  <div class="item" data-page="payroll" onclick="location.href='/static/payroll_ledger.html'">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h4.5a1.5 1.5 0 010 3H10"/></svg>
+    <span class="lbl">ხელფასი</span>
+  </div>
+
+  <div class="sec">სისტემა</div>
+  <div class="item" data-page="ai" onclick="location.href='/static/ai_control.html'">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+    <span class="lbl">AI Control</span>
+  </div>
+  <div class="item" data-page="settings" onclick="location.href='/static/settings.html'">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span class="lbl">Settings</span>
+  </div>
+</nav>
+
+<div class="foot">
+  <div class="av" id="bh-user-av">R</div>
+  <div>
+    <div class="uname" id="bh-user-name">—</div>
+    <div class="urole" id="bh-user-tenant">—</div>
+  </div>
+</div>
+`;
+
+BridgeHub.loadSidebar = function(currentPage) {
     const mount = document.getElementById('sidebar-mount');
     if (!mount) return;
-    try {
-        const res = await fetch('/static/components/sidebar.html');
-        if (!res.ok) throw new Error('sidebar fetch failed');
-        mount.innerHTML = await res.text();
-        BridgeHub._markActive(currentPage);
-        BridgeHub._loadUserInfo();
-        BridgeHub._loadPendingCount();
-    } catch (e) {
-        console.warn('[BridgeHub] sidebar load error:', e);
-    }
+    mount.innerHTML = _BH_SIDEBAR_HTML;
+    BridgeHub._markActive(currentPage);
+    BridgeHub._loadUserInfo();
+    BridgeHub._loadPendingCount();
 };
 
 BridgeHub._markActive = function(pageName) {

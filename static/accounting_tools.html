@@ -212,9 +212,7 @@
 
 <script src="/static/js/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    BridgeHub.loadSidebar('tools');
-});
+BridgeHub.loadSidebar('tools');
 </script>
 <script>
 const TOKEN  = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';

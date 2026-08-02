@@ -1,8 +1,5 @@
 import asyncio
 import logging
-import psycopg2
-import psycopg2.extras
-import psycopg2.errors
 
 from app.api.db import get_db, get_conn, _q
 from app.api.response_utils import ok_response, error_response
@@ -747,6 +744,7 @@ def autopilot_approve_service(
         result="started",
         error_code=None,
     )
+    import psycopg2.extras  # lazy — autopilot uses sync thread-pool path
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -869,7 +867,7 @@ def autopilot_approve_service(
     for draft in candidates:
         draft_id = draft["id"]
         conn2 = get_db()
-        cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)  # psycopg2 already imported above
 
         try:
             cur2.execute(
@@ -979,6 +977,7 @@ def autopilot_suggest_service(tenant_id: str):
     UI shows these as 'Ready' — human still clicks Approve.
     Never sets status = approved / auto_approved.
     """
+    import psycopg2.extras  # lazy — suggest runs in sync thread-pool path
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:

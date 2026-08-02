@@ -17,7 +17,7 @@ import app.api.services.llm_service as llm_service
 
 RULES = [
     (["ანაზღაურება", "თანხის მიღება", "გადახდა მიღებული", "შემოსული"], "6100", "income"),
-    (["ხელფასი", "თანამშრომელი", "hr გადარიცხვა"], "7120", "salary"),
+    (["ხელფასი", "თანამშრომელი", "hr გადარიცხვა"], "7210", "salary"),
     (["ქირის გადახდა", "იჯარა", "სასტუმრო"], "7110", "rent"),
     (["ელექტროენერგია", "წყალი", "გაზი", "ინტერნეტი", "მობილური", "მაგთიკომი", "სილქნეტი", "ველი", "gwp", "telasi"], "7130", "utility"),
     (["მომსახურების საფასური", "ბარათის მომსახურება", "sms შეტყობინება", "ყოველთვიური საკომისიო"], "7150", "bank_fee"),
@@ -28,7 +28,7 @@ RULES = [
     (["რეკლამა", "სარეკლამო", "პრომაცია"], "7170", "marketing"),
     (["მიწოდება", "კურიერი", "glopal", "express post"], "7185", "delivery"),
     (["payment", "client", "customer", "revenue", "sale", "income", "received"], "6100", "income"),
-    (["salary", "payroll", "wage", "ხელფასი", "compensation"], "7120", "salary"),
+    (["salary", "payroll", "wage", "ხელფასი", "compensation"], "7210", "salary"),
     (["rent", "ქირა", "lease", "rental"], "7110", "rent"),
     (["electricity", "power", "water", "gas", "internet", "mobile", "utility", "komunaluri"], "7130", "utility"),
     (["software", "subscription", "hosting", "google", "microsoft", "adobe", "openai", "saas"], "7140", "software"),

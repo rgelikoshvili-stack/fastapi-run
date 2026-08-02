@@ -425,7 +425,7 @@ async def get_counterparty_ledger(
 
 # ── 4. Payroll Ledger ───────────────────────────────────────────────────────
 
-_PAYROLL_ACCOUNTS = ("7110", "7120", "7130", "3370", "3380", "2120")
+_PAYROLL_ACCOUNTS = ("7110", "7120", "7210", "7130", "3320", "3330", "3335", "3370", "3380", "2120")
 
 async def get_payroll_ledger(
     tenant_id: str,

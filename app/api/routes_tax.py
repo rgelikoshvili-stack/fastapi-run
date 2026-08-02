@@ -439,7 +439,8 @@ def rs_ge_withholding(body: WithholdingRequest, request: Request):
 
 
 @router.get("/rs-ge/verify-inn/{inn}")
-def rs_ge_verify_inn(inn: str):
+def rs_ge_verify_inn(inn: str, request: Request):
     """Validate Georgian taxpayer INN format."""
+    require_permission(request, "reports:read")
     from app.integrations.rs_ge_api import verify_taxpayer_inn
     return ok_response("INN validation", verify_taxpayer_inn(inn))

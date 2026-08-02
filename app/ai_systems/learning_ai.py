@@ -31,19 +31,19 @@ from app.api.services.pattern_decay_service import get_pattern_health_summary
 # PUBLIC API — drop-in replacements with AI enhancement
 # ─────────────────────────────────────────────────────────────
 
-def learn_from_approval(draft: dict, tenant_id: str = "default") -> dict:
+async def learn_from_approval(draft: dict, tenant_id: str = "default") -> dict:
     """Wrap apply_approve_learning — no extra AI needed for approvals."""
-    result = apply_approve_learning(draft, tenant_id)
+    result = await apply_approve_learning(draft, tenant_id)
     return {"base": result, "ai_suggestion": None, "action": "approved"}
 
 
-def learn_from_rejection(draft: dict, reason: str, tenant_id: str = "default") -> dict:
+async def learn_from_rejection(draft: dict, reason: str, tenant_id: str = "default") -> dict:
     """Wrap apply_reject_learning — no extra AI needed for rejections."""
-    result = apply_reject_learning(draft, reason, tenant_id)
+    result = await apply_reject_learning(draft, reason, tenant_id)
     return {"base": result, "ai_suggestion": None, "action": "rejected"}
 
 
-def learn_from_correction(
+async def learn_from_correction(
     original_draft: dict,
     corrected_draft: dict,
     tenant_id: str = "default",
@@ -68,7 +68,13 @@ def learn_from_correction(
           "action": "corrected",
         }
     """
-    result = apply_correct_learning(original_draft, corrected_draft, tenant_id)
+    result = await apply_correct_learning(
+        draft=original_draft,
+        corrected_account_code=corrected_draft.get("account_code", ""),
+        corrected_reason=corrected_draft.get("reason", "manual_correction"),
+        corrected_by=corrected_draft.get("corrected_by", "manual_review"),
+        tenant_id=tenant_id,
+    )
     ai_suggestion = _ai_suggest_pattern(original_draft, corrected_draft, tenant_id)
     return {
         "base": result,

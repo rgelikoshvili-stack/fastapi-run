@@ -399,3 +399,48 @@ def run_table_migrations(cur):
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # year_close_signoffs / year_close_locks (Annual close)
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS year_close_signoffs (
+                id         SERIAL PRIMARY KEY,
+                tenant_id  TEXT        NOT NULL,
+                year       TEXT        NOT NULL,
+                role       TEXT        NOT NULL CHECK (role IN ('accountant','cfo','board')),
+                signed_by  TEXT        NOT NULL,
+                notes      TEXT,
+                signed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (tenant_id, year, role)
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("year_close_signoffs migration skipped: %s", _e)
+
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS year_close_locks (
+                id         SERIAL PRIMARY KEY,
+                tenant_id  TEXT        NOT NULL,
+                year       TEXT        NOT NULL,
+                locked_by  TEXT        NOT NULL,
+                locked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (tenant_id, year)
+            )
+        """)
+        conn.commit()
+    except Exception as _e:
+        conn.rollback()
+        log.debug("year_close_locks migration skipped: %s", _e)
+
+    for _yc_idx in [
+        "CREATE INDEX IF NOT EXISTS idx_year_close_signoffs_tenant_year ON year_close_signoffs (tenant_id, year)",
+        "CREATE INDEX IF NOT EXISTS idx_year_close_locks_tenant_year ON year_close_locks (tenant_id, year)",
+    ]:
+        try:
+            cur.execute(_yc_idx)
+            conn.commit()
+        except Exception:
+            conn.rollback()

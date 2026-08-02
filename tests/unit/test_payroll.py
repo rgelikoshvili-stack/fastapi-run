@@ -425,3 +425,30 @@ def test_payroll_journal_entries_each_balanced(monkeypatch):
     amounts = sorted(r["amount"] for r in conn._inserted)
     assert amounts == sorted([3000.0, 60.0, 600.0, 60.0]), \
         f"Expected [60, 60, 600, 3000], got {amounts}"
+
+
+def test_rsge_xml_escapes_employee_identity_fields():
+    from app.api.services.payroll_service import generate_rsge_xml
+
+    xml = generate_rsge_xml({
+        "period": "2026-05",
+        "employees": [{
+            "employee_name": "Nino & <Partner>",
+            "employee_id": "ID&123",
+            "gross_salary": 1000,
+            "payg_2pct": 20,
+            "pit_20pct": 200,
+            "net_salary": 780,
+        }],
+        "totals": {
+            "gross": 1000,
+            "payg": 20,
+            "pit": 200,
+            "employer_pension": 20,
+            "net": 780,
+        },
+    })
+
+    assert "Nino &amp; &lt;Partner&gt;" in xml
+    assert "ID&amp;123" in xml
+    assert "<Name>Nino & <Partner></Name>" not in xml

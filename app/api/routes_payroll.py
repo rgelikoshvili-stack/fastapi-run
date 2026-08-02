@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import logging
@@ -167,8 +167,8 @@ def payroll_rsge_xml(req: PayrollRequest, request: Request):
 
 class RsgeSubmitRequest(BaseModel):
     run_id: int
-    period: str
-    employees: List = []
+    period: Optional[str] = None
+    employees: List = Field(default_factory=list)
 
 
 @router.post("/rs-ge-submit")
@@ -184,13 +184,51 @@ async def payroll_rsge_submit(req: RsgeSubmitRequest, request: Request):
     from app.api.services.rsge_submission_service import submit_payg_declaration
     from app.api.services.payroll_rsge_workflow_service import upsert_submission, submit_declaration
 
-    employees = [e if isinstance(e, dict) else e.dict() for e in req.employees]
-    payroll = calculate_payroll(employees, req.period)
+    try:
+        run = await get_payroll_run(tenant_id, req.run_id)
+    except ValueError:
+        return http_error(404, "Payroll run not found", "PAYROLL_RUN_NOT_FOUND")
+
+    period = validate_payroll_period(req.period or run["period"])
+    if period != run["period"]:
+        return http_error(422, "Submitted period does not match payroll run period", "PAYROLL_PERIOD_MISMATCH")
+    if run["status"] != "pending_approval":
+        return http_error(409, "Payroll run must be finalized before RS.ge submission", "PAYROLL_RUN_NOT_FINALIZED")
+
+    employees = [
+        {
+            "employee_name": line["employee_name"],
+            "employee_id": line.get("employee_id") or line.get("personal_number"),
+            "period": period,
+            "gross_salary": float(line["gross_salary"]),
+            "payg_2pct": float(line["employee_pension_2pct"]),
+            "pit_20pct": float(line["pit_20pct"]),
+            "employer_pension_2pct": float(line["employer_pension_2pct"]),
+            "net_salary": float(line["net_salary"]),
+            "total_employer_cost": float(line["total_employer_cost"]),
+        }
+        for line in run.get("lines", [])
+    ]
+    totals = {
+        "gross": float(run["total_gross"]),
+        "payg": float(run["total_employee_pension"]),
+        "pit": float(run["total_pit"]),
+        "employer_pension": float(run["total_employer_pension"]),
+        "net": float(run["total_net"]),
+        "total_employer_cost": float(run["total_employer_cost"]),
+    }
+    payroll = {
+        "ok": True,
+        "period": period,
+        "employee_count": len(employees),
+        "employees": employees,
+        "totals": totals,
+    }
     xml = generate_rsge_xml(payroll)
 
-    submission_rec = await upsert_submission(tenant_id, req.run_id, req.period, xml)
+    submission_rec = await upsert_submission(tenant_id, req.run_id, period, xml)
 
-    result = await submit_payg_declaration(tenant_id, req.run_id, req.period, xml)
+    result = await submit_payg_declaration(tenant_id, req.run_id, period, xml)
 
     if result["ok"]:
         try:
@@ -206,7 +244,7 @@ async def payroll_rsge_submit(req: RsgeSubmitRequest, request: Request):
         "rsge_submit",
         tenant_id=tenant_id,
         run_id=req.run_id,
-        period=req.period,
+        period=period,
         mode=result.get("mode"),
         status=result.get("status"),
         ref=result.get("submission_ref"),
@@ -217,7 +255,7 @@ async def payroll_rsge_submit(req: RsgeSubmitRequest, request: Request):
         {
             "tenant_id": tenant_id,
             "run_id": req.run_id,
-            "period": req.period,
+            "period": period,
             "submission": result,
             "submission_record": submission_rec,
         },

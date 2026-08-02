@@ -23,6 +23,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -170,7 +171,7 @@ async def submit_payg_declaration(
             "submission_ref": None,
             "submitted_at": None,
             "message": f"RS.ge rejected the submission (HTTP {resp.status_code})",
-            "error_detail": str(err_body),
+            "error_detail": f"RS.ge validation failed with HTTP {resp.status_code}",
         }
 
     except httpx.TimeoutException:
@@ -193,7 +194,7 @@ async def submit_payg_declaration(
             "submission_ref": None,
             "submitted_at": None,
             "message": "RS.ge submission failed",
-            "error_detail": str(exc),
+            "error_detail": type(exc).__name__,
         }
 
 
@@ -223,7 +224,8 @@ async def check_submission_status(
         "Accept": "application/json",
         **_build_auth_header(creds["username"], creds["password"]),
     }
-    url = f"{RSGE_API_URL.rstrip('/')}{_PATH_STATUS.format(ref=submission_ref)}"
+    safe_ref = quote(submission_ref, safe="")
+    url = f"{RSGE_API_URL.rstrip('/')}{_PATH_STATUS.format(ref=safe_ref)}"
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
@@ -251,5 +253,5 @@ async def check_submission_status(
             "mode": "live",
             "submission_ref": submission_ref,
             "status": "error",
-            "message": str(exc),
+            "message": "RS.ge status check failed",
         }

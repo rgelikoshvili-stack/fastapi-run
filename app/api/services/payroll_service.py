@@ -10,6 +10,7 @@ from typing import Optional
 import logging
 import re
 import json
+from xml.etree import ElementTree as ET
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.policy.localization.georgia_pack import (
@@ -491,34 +492,26 @@ def generate_rsge_xml(payroll: dict) -> str:
     RS.ge-ისთვის XML ფორმატის გენერაცია.
     """
     period = payroll.get("period", datetime.now().strftime("%Y-%m"))
-    lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        f'<Declaration Period="{period}" Type="PAYG">',
-        '  <Employees>',
-    ]
+    root = ET.Element("Declaration", {"Period": period, "Type": "PAYG"})
+    employees_el = ET.SubElement(root, "Employees")
 
     for emp in payroll.get("employees", []):
-        lines.append('    <Employee>')
-        lines.append(f'      <Name>{emp["employee_name"]}</Name>')
+        employee_el = ET.SubElement(employees_el, "Employee")
+        ET.SubElement(employee_el, "Name").text = str(emp["employee_name"])
         if emp.get("employee_id"):
-            lines.append(f'      <PersonalID>{emp["employee_id"]}</PersonalID>')
-        lines.append(f'      <GrossSalary>{emp["gross_salary"]:.2f}</GrossSalary>')
-        lines.append(f'      <PAYG>{emp["payg_2pct"]:.2f}</PAYG>')
-        lines.append(f'      <PIT>{emp["pit_20pct"]:.2f}</PIT>')
-        lines.append(f'      <NetSalary>{emp["net_salary"]:.2f}</NetSalary>')
-        lines.append('    </Employee>')
+            ET.SubElement(employee_el, "PersonalID").text = str(emp["employee_id"])
+        ET.SubElement(employee_el, "GrossSalary").text = f'{float(emp["gross_salary"]):.2f}'
+        ET.SubElement(employee_el, "PAYG").text = f'{float(emp["payg_2pct"]):.2f}'
+        ET.SubElement(employee_el, "PIT").text = f'{float(emp["pit_20pct"]):.2f}'
+        ET.SubElement(employee_el, "NetSalary").text = f'{float(emp["net_salary"]):.2f}'
 
     totals = payroll.get("totals", {})
-    lines.extend([
-        '  </Employees>',
-        '  <Totals>',
-        f'    <TotalGross>{totals.get("gross", 0):.2f}</TotalGross>',
-        f'    <TotalPAYG>{totals.get("payg", 0):.2f}</TotalPAYG>',
-        f'    <TotalPIT>{totals.get("pit", 0):.2f}</TotalPIT>',
-        f'    <TotalEmployerPension>{totals.get("employer_pension", 0):.2f}</TotalEmployerPension>',
-        f'    <TotalNet>{totals.get("net", 0):.2f}</TotalNet>',
-        '  </Totals>',
-        '</Declaration>',
-    ])
+    totals_el = ET.SubElement(root, "Totals")
+    ET.SubElement(totals_el, "TotalGross").text = f'{float(totals.get("gross", 0)):.2f}'
+    ET.SubElement(totals_el, "TotalPAYG").text = f'{float(totals.get("payg", 0)):.2f}'
+    ET.SubElement(totals_el, "TotalPIT").text = f'{float(totals.get("pit", 0)):.2f}'
+    ET.SubElement(totals_el, "TotalEmployerPension").text = f'{float(totals.get("employer_pension", 0)):.2f}'
+    ET.SubElement(totals_el, "TotalNet").text = f'{float(totals.get("net", 0)):.2f}'
 
-    return "\n".join(lines)
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")

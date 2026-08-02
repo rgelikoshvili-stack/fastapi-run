@@ -65,7 +65,7 @@ YEAR_CHECKLIST_ITEMS = [
     {
         "id":    "vat_declarations_filed",
         "name":  "VAT declarations filed",
-        "description": "Account 3350 has at least one posted entry per month",
+        "description": "VAT accounts 1760/3310/3311 have at least one posted entry per month",
     },
 ]
 
@@ -87,7 +87,7 @@ async def _check_all_months_closed(conn, tenant_id: str, year: str) -> dict:
             month_str = f"{year}-{m:02d}"
             row = await conn.fetchrow(_q("""
                 SELECT COUNT(*) AS cnt FROM monthly_close_signoffs
-                WHERE tenant_id = %s AND period = %s AND role IN ('cfo', 'CFO')
+                WHERE tenant_id = %s AND month = %s AND role = 'cfo'
             """), tenant_id, month_str)
             if row and (row["cnt"] or 0) > 0:
                 months_ok += 1
@@ -106,7 +106,8 @@ async def _check_no_unposted_drafts(conn, tenant_id: str, year: str) -> dict:
         row = await conn.fetchrow(_q("""
             SELECT COUNT(*) AS cnt FROM journal_drafts
             WHERE tenant_id = %s
-              AND EXTRACT(YEAR FROM date) = %s
+              AND date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND EXTRACT(YEAR FROM date::date) = %s
               AND status IN ('drafted', 'pending_approval', 'pending')
         """), tenant_id, int(year))
         cnt = int(row["cnt"] or 0) if row else 0
@@ -122,21 +123,57 @@ async def _check_no_unposted_drafts(conn, tenant_id: str, year: str) -> dict:
 async def _check_trial_balance(conn, tenant_id: str, year: str) -> dict:
     try:
         row = await conn.fetchrow(_q("""
+            WITH draft_lines AS (
+                SELECT
+                    COALESCE(je->>'account_code', je->>'account') AS account_code,
+                    CASE
+                        WHEN je->>'type' = 'debit' THEN COALESCE((je->>'amount')::numeric, 0)
+                        ELSE COALESCE((je->>'debit')::numeric, 0)
+                    END AS debit,
+                    CASE
+                        WHEN je->>'type' = 'credit' THEN COALESCE((je->>'amount')::numeric, 0)
+                        ELSE COALESCE((je->>'credit')::numeric, 0)
+                    END AS credit
+                FROM journal_drafts jd,
+                     jsonb_array_elements(COALESCE(jd.journal_entries, '[]'::jsonb)) AS je
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND COALESCE(je->>'account_code', je->>'account') IS NOT NULL
+
+                UNION ALL
+
+                SELECT debit_account AS account_code, amount::numeric AS debit, 0::numeric AS credit
+                FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND debit_account IS NOT NULL
+                  AND jsonb_array_length(COALESCE(jd.journal_entries, '[]'::jsonb)) = 0
+
+                UNION ALL
+
+                SELECT credit_account AS account_code, 0::numeric AS debit, amount::numeric AS credit
+                FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND credit_account IS NOT NULL
+                  AND jsonb_array_length(COALESCE(jd.journal_entries, '[]'::jsonb)) = 0
+            )
             SELECT
-                COALESCE(SUM(
-                    CASE WHEN je->>'type' = 'debit' THEN (je->>'amount')::numeric ELSE 0 END
-                ), 0) AS total_debit,
-                COALESCE(SUM(
-                    CASE WHEN je->>'type' = 'credit' THEN (je->>'amount')::numeric ELSE 0 END
-                ), 0) AS total_credit
-            FROM journal_drafts,
-                 jsonb_array_elements(COALESCE(journal_entries, '[]'::jsonb)) AS je
-            WHERE tenant_id = %s
-              AND EXTRACT(YEAR FROM date) = %s
-              AND status IN ('approved', 'auto_approved', 'posted')
-        """), tenant_id, int(year))
+                COALESCE(SUM(debit), 0) AS total_debit,
+                COALESCE(SUM(credit), 0) AS total_credit,
+                COUNT(*) AS line_count
+            FROM draft_lines
+        """), tenant_id, int(year), tenant_id, int(year), tenant_id, int(year))
         if not row:
             return {"status": "unknown", "detail": "No posted entries found", "value": None}
+        if int(row["line_count"] or 0) == 0:
+            return {"status": "unknown", "detail": "No posted journal lines found", "value": None}
         debit  = Decimal(str(row["total_debit"]  or 0))
         credit = Decimal(str(row["total_credit"] or 0))
         diff   = abs(debit - credit)
@@ -155,8 +192,9 @@ async def _check_depreciation_posted(conn, tenant_id: str, year: str) -> dict:
         row = await conn.fetchrow(_q("""
             SELECT COUNT(*) AS cnt FROM journal_drafts
             WHERE tenant_id = %s
-              AND EXTRACT(YEAR FROM date) = %s
-              AND status IN ('approved', 'auto_approved', 'posted')
+              AND date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND EXTRACT(YEAR FROM date::date) = %s
+              AND status = 'posted'
               AND (
                   description ILIKE '%depreciation%'
                   OR description ILIKE '%amortiz%'
@@ -197,12 +235,18 @@ async def _check_payroll_all_submitted(conn, tenant_id: str, year: str) -> dict:
 async def _check_vat_declarations(conn, tenant_id: str, year: str) -> dict:
     try:
         rows = await conn.fetch(_q("""
-            SELECT DISTINCT TO_CHAR(date, 'YYYY-MM') AS month
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND EXTRACT(YEAR FROM date) = %s
-              AND status IN ('approved', 'auto_approved', 'posted')
-              AND (debit_account = '3350' OR credit_account = '3350')
+            SELECT DISTINCT TO_CHAR(jd.date::date, 'YYYY-MM') AS month
+            FROM journal_drafts jd
+            LEFT JOIN LATERAL jsonb_array_elements(COALESCE(jd.journal_entries, '[]'::jsonb)) AS je ON TRUE
+            WHERE jd.tenant_id = %s
+              AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND EXTRACT(YEAR FROM jd.date::date) = %s
+              AND jd.status = 'posted'
+              AND (
+                  jd.debit_account IN ('1760', '3310', '3311')
+                  OR jd.credit_account IN ('1760', '3310', '3311')
+                  OR COALESCE(je->>'account_code', je->>'account') IN ('1760', '3310', '3311')
+              )
         """), tenant_id, int(year))
         months_vat = len(rows)
         status = "ok" if months_vat >= 12 else "warning" if months_vat >= 6 else "fail"
@@ -246,75 +290,137 @@ async def run_year_checklist(tenant_id: str, year: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def generate_closing_entries(tenant_id: str, year: str) -> dict[str, Any]:
-    """Compute year-end closing entries: net income → retained earnings.
+    """Compute year-end closing entries: zero P&L accounts into retained earnings.
 
     Returns a preview of the closing journal entry.
-    Does NOT insert — caller decides whether to create the draft.
+    Does NOT insert - caller decides whether to create the draft.
     """
     async with get_conn() as conn:
-        row = await conn.fetchrow(_q("""
-            SELECT
-                COALESCE(SUM(
-                    CASE WHEN (debit_account LIKE '5%%' OR debit_account LIKE '6%%')
-                         THEN amount ELSE 0 END
-                ), 0) AS revenue_debit,
-                COALESCE(SUM(
-                    CASE WHEN (credit_account LIKE '5%%' OR credit_account LIKE '6%%')
-                         THEN amount ELSE 0 END
-                ), 0) AS revenue_credit,
-                COALESCE(SUM(
-                    CASE WHEN (debit_account LIKE '7%%')
-                         THEN amount ELSE 0 END
-                ), 0) AS expense_debit,
-                COALESCE(SUM(
-                    CASE WHEN (credit_account LIKE '7%%')
-                         THEN amount ELSE 0 END
-                ), 0) AS expense_credit
-            FROM journal_drafts
-            WHERE tenant_id = %s
-              AND EXTRACT(YEAR FROM date) = %s
-              AND status IN ('approved', 'auto_approved', 'posted')
-        """), tenant_id, int(year))
+        rows = await conn.fetch(_q("""
+            WITH draft_lines AS (
+                SELECT
+                    COALESCE(je->>'account_code', je->>'account') AS account_code,
+                    CASE
+                        WHEN je->>'type' = 'debit' THEN COALESCE((je->>'amount')::numeric, 0)
+                        ELSE COALESCE((je->>'debit')::numeric, 0)
+                    END AS debit,
+                    CASE
+                        WHEN je->>'type' = 'credit' THEN COALESCE((je->>'amount')::numeric, 0)
+                        ELSE COALESCE((je->>'credit')::numeric, 0)
+                    END AS credit
+                FROM journal_drafts jd,
+                     jsonb_array_elements(COALESCE(jd.journal_entries, '[]'::jsonb)) AS je
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND COALESCE(je->>'account_code', je->>'account') IS NOT NULL
 
-    if not row:
+                UNION ALL
+
+                SELECT debit_account AS account_code, amount::numeric AS debit, 0::numeric AS credit
+                FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND debit_account IS NOT NULL
+                  AND jsonb_array_length(COALESCE(jd.journal_entries, '[]'::jsonb)) = 0
+
+                UNION ALL
+
+                SELECT credit_account AS account_code, 0::numeric AS debit, amount::numeric AS credit
+                FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND EXTRACT(YEAR FROM jd.date::date) = %s
+                  AND jd.status = 'posted'
+                  AND credit_account IS NOT NULL
+                  AND jsonb_array_length(COALESCE(jd.journal_entries, '[]'::jsonb)) = 0
+            )
+            SELECT
+                account_code,
+                COALESCE(SUM(debit), 0) AS total_debit,
+                COALESCE(SUM(credit), 0) AS total_credit
+            FROM draft_lines
+            WHERE account_code LIKE '5%%'
+               OR account_code LIKE '6%%'
+               OR account_code LIKE '7%%'
+            GROUP BY account_code
+            ORDER BY account_code
+        """), tenant_id, int(year), tenant_id, int(year), tenant_id, int(year))
+
+    if not rows:
         return {"ok": False, "error": "No posted entries found for the year"}
 
-    revenue_debit  = float(row["revenue_debit"]  or 0)
-    revenue_credit = float(row["revenue_credit"] or 0)
-    expense_debit  = float(row["expense_debit"]  or 0)
-    expense_credit = float(row["expense_credit"] or 0)
+    lines: list[dict[str, Any]] = []
+    net_revenue = Decimal("0")
+    net_expense = Decimal("0")
+    closing_debits = Decimal("0")
+    closing_credits = Decimal("0")
 
-    net_revenue  = revenue_credit - revenue_debit
-    net_expense  = expense_debit - expense_credit
-    net_income   = round(net_revenue - net_expense, 2)
+    for row in rows:
+        account_code = str(row["account_code"] or "").strip()
+        debit = Decimal(str(row["total_debit"] or 0))
+        credit = Decimal(str(row["total_credit"] or 0))
+        balance = debit - credit
 
-    if net_income > 0:
-        lines = [
-            {"account_code": "6110", "debit": net_income, "credit": 0,
-             "description": f"Close revenue accounts {year}"},
-            {"account_code": RETAINED_EARNINGS_ACCOUNT, "debit": 0, "credit": net_income,
-             "description": f"Transfer net income to retained earnings {year}"},
-        ]
-        description = f"Year-end close {year}: net income {net_income:,.2f} GEL → retained earnings"
-    elif net_income < 0:
-        loss = abs(net_income)
-        lines = [
-            {"account_code": RETAINED_EARNINGS_ACCOUNT, "debit": loss, "credit": 0,
-             "description": f"Close net loss to retained earnings {year}"},
-            {"account_code": "7110", "debit": 0, "credit": loss,
-             "description": f"Close expense accounts {year}"},
-        ]
-        description = f"Year-end close {year}: net loss {loss:,.2f} GEL → retained earnings"
+        if account_code.startswith(REVENUE_ACCOUNT_PREFIXES):
+            net_revenue += credit - debit
+        elif account_code.startswith(EXPENSE_ACCOUNT_PREFIXES):
+            net_expense += debit - credit
+
+        if abs(balance) <= TOLERANCE_GEL:
+            continue
+
+        amount = abs(balance).quantize(Decimal("0.01"))
+        if balance < 0:
+            lines.append({
+                "account_code": account_code,
+                "debit": float(amount),
+                "credit": 0,
+                "description": f"Close P&L credit balance {account_code} for {year}",
+            })
+            closing_debits += amount
+        else:
+            lines.append({
+                "account_code": account_code,
+                "debit": 0,
+                "credit": float(amount),
+                "description": f"Close P&L debit balance {account_code} for {year}",
+            })
+            closing_credits += amount
+
+    net_income_dec = (net_revenue - net_expense).quantize(Decimal("0.01"))
+    net_income = float(net_income_dec)
+    plug = (closing_debits - closing_credits).quantize(Decimal("0.01"))
+
+    if plug > 0:
+        lines.append({
+            "account_code": RETAINED_EARNINGS_ACCOUNT,
+            "debit": 0,
+            "credit": float(plug),
+            "description": f"Transfer net income to retained earnings {year}",
+        })
+        description = f"Year-end close {year}: net income {net_income:,.2f} GEL to retained earnings"
+    elif plug < 0:
+        loss = abs(plug)
+        lines.append({
+            "account_code": RETAINED_EARNINGS_ACCOUNT,
+            "debit": float(loss),
+            "credit": 0,
+            "description": f"Close net loss to retained earnings {year}",
+        })
+        description = f"Year-end close {year}: net loss {loss:,.2f} GEL to retained earnings"
     else:
-        lines = []
         description = f"Year-end close {year}: net income = 0, no closing entry needed"
 
     return {
         "ok": True,
         "year": year,
         "tenant_id": tenant_id,
-        "net_revenue": round(net_revenue, 2),
-        "net_expense": round(net_expense, 2),
+        "net_revenue": float(net_revenue.quantize(Decimal("0.01"))),
+        "net_expense": float(net_expense.quantize(Decimal("0.01"))),
         "net_income": net_income,
         "closing_description": description,
         "closing_lines": lines,
@@ -389,11 +495,9 @@ async def get_year_close_status(tenant_id: str, year: str) -> dict[str, Any]:
         pass
 
     roles_signed = {s["role"] for s in signoffs}
-    ready_to_lock = (
-        critical_ok
-        and "cfo" in roles_signed
-        and not is_locked
-    )
+    required_lock_roles = {"accountant", "cfo"}
+    missing_lock_roles = sorted(required_lock_roles - roles_signed)
+    ready_to_lock = critical_ok and not missing_lock_roles and not is_locked
 
     return {
         "ok": True,
@@ -404,6 +508,8 @@ async def get_year_close_status(tenant_id: str, year: str) -> dict[str, Any]:
         "critical_checks_passed": critical_ok,
         "signoffs": signoffs,
         "roles_signed": sorted(roles_signed),
+        "required_lock_roles": sorted(required_lock_roles),
+        "missing_lock_roles": missing_lock_roles,
         "is_locked": is_locked,
         "ready_to_lock": ready_to_lock,
     }
@@ -420,7 +526,7 @@ async def lock_fiscal_year(
 ) -> dict[str, Any]:
     """Lock the fiscal year to prevent further postings.
 
-    Requires: CFO sign-off must exist and critical checks must pass.
+    Requires: accountant and CFO sign-offs must exist and critical checks must pass.
     """
     status = await get_year_close_status(tenant_id, year)
     if status.get("is_locked"):
@@ -431,8 +537,15 @@ async def lock_fiscal_year(
             "error": "Critical checks not passed — resolve unposted drafts and trial balance first",
             "checklist": status.get("checklist"),
         }
-    if "cfo" not in status.get("roles_signed", []):
-        return {"ok": False, "error": "CFO sign-off required before locking fiscal year"}
+    missing_roles = status.get("missing_lock_roles")
+    if missing_roles is None:
+        missing_roles = sorted({"accountant", "cfo"} - set(status.get("roles_signed", [])))
+    if missing_roles:
+        return {
+            "ok": False,
+            "error": "Missing required sign-offs before locking fiscal year",
+            "missing_roles": missing_roles,
+        }
 
     now = datetime.now(timezone.utc)
     async with get_conn() as conn:

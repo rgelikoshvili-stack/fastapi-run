@@ -167,8 +167,9 @@ async def list_items(tenant_id: str, search: str = "", category_id: Optional[int
                    i.costing_method, i.description,
                    c.name AS category_name,
                    COALESCE((
-                       SELECT SUM(CASE WHEN m.movement_type IN ('in','transfer') THEN m.quantity
-                                       ELSE -m.quantity END)
+                       SELECT SUM(CASE WHEN m.movement_type = 'in' THEN m.quantity
+                                       WHEN m.movement_type = 'out' THEN -m.quantity
+                                       ELSE 0 END)
                        FROM stock_movements m
                        WHERE m.item_id = i.id AND m.tenant_id = i.tenant_id
                    ), 0) AS current_stock
@@ -276,8 +277,9 @@ async def record_movement(tenant_id: str, data: dict) -> dict:
 
         if movement_type == "out":
             available = await conn.fetchval(_q("""
-                SELECT COALESCE(SUM(CASE WHEN movement_type IN ('in','transfer') THEN quantity
-                                         ELSE -quantity END), 0)
+                SELECT COALESCE(SUM(CASE WHEN movement_type = 'in' THEN quantity
+                                         WHEN movement_type = 'out' THEN -quantity
+                                         ELSE 0 END), 0)
                 FROM stock_movements
                 WHERE tenant_id = %s AND item_id = %s
             """), tenant_id, item_id)
@@ -398,8 +400,9 @@ async def get_movements(tenant_id: str, item_id: Optional[int] = None,
 async def get_current_stock(tenant_id: str, item_id: int) -> float:
     async with get_conn() as conn:
         val = await conn.fetchval(_q("""
-            SELECT COALESCE(SUM(CASE WHEN movement_type IN ('in','transfer') THEN quantity
-                                     ELSE -quantity END), 0)
+            SELECT COALESCE(SUM(CASE WHEN movement_type = 'in' THEN quantity
+                                     WHEN movement_type = 'out' THEN -quantity
+                                     ELSE 0 END), 0)
             FROM stock_movements
             WHERE tenant_id = %s AND item_id = %s
         """), tenant_id, item_id)
@@ -465,7 +468,7 @@ async def _in_out_movements(tenant_id: str, item_id: int, as_of: str):
 
     ins  = [{"qty": float(r["quantity"]), "cost": float(r["unit_cost"]), "date": r["movement_date"]}
             for r in rows if r["movement_type"] in ("in",)]
-    outs = [{"qty": float(r["quantity"])} for r in rows if r["movement_type"] in ("out", "transfer")]
+    outs = [{"qty": float(r["quantity"])} for r in rows if r["movement_type"] == "out"]
     return ins, outs
 
 

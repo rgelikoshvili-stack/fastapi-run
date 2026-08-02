@@ -85,7 +85,7 @@ def test_run_year_checklist_all_ok():
         if "status in" in sql.lower() and "drafted" in sql.lower():
             return {"cnt": 0}
         if "total_debit" in sql.lower():
-            return {"total_debit": "1000.00", "total_credit": "1000.00"}
+            return {"total_debit": "1000.00", "total_credit": "1000.00", "line_count": 2}
         if "depreciation" in sql.lower() or "7%" in sql:
             return {"cnt": 5}
         return None
@@ -93,7 +93,7 @@ def test_run_year_checklist_all_ok():
     async def fetch(sql, *args):
         if "payroll_submissions" in sql:
             return [{"period": f"2025-{i:02d}"} for i in range(1, 13)]
-        if "3350" in sql:
+        if "1760" in sql:
             return [{"month": f"2025-{i:02d}"} for i in range(1, 13)]
         return []
 
@@ -117,7 +117,7 @@ def test_run_year_checklist_unposted_drafts_fail():
         if "drafted" in sql.lower():
             return {"cnt": 3}
         if "total_debit" in sql.lower():
-            return {"total_debit": "500.00", "total_credit": "500.00"}
+            return {"total_debit": "500.00", "total_credit": "500.00", "line_count": 2}
         if "depreciation" in sql.lower():
             return {"cnt": 1}
         return None
@@ -125,7 +125,7 @@ def test_run_year_checklist_unposted_drafts_fail():
     async def fetch(sql, *args):
         if "payroll_submissions" in sql:
             return [{"period": f"2025-{i:02d}"} for i in range(1, 13)]
-        if "3350" in sql:
+        if "1760" in sql:
             return [{"month": f"2025-{i:02d}"} for i in range(1, 13)]
         return []
 
@@ -147,67 +147,66 @@ def test_run_year_checklist_unposted_drafts_fail():
 def test_generate_closing_entries_net_income():
     conn = AsyncMock()
 
-    async def fetchrow(sql, *args):
-        return {
-            "revenue_debit": "0",
-            "revenue_credit": "50000",
-            "expense_debit": "30000",
-            "expense_credit": "0",
-        }
+    async def fetch(sql, *args):
+        return [
+            {"account_code": "6110", "total_debit": "0", "total_credit": "50000"},
+            {"account_code": "7110", "total_debit": "30000", "total_credit": "0"},
+        ]
 
-    conn.fetchrow = fetchrow
+    conn.fetch = fetch
 
     with patch("app.api.services.year_close_service.get_conn", return_value=_make_cm(conn)):
         result = asyncio.run(generate_closing_entries(TENANT, YEAR))
 
     assert result["ok"] is True
     assert result["net_income"] == 20000.0
-    assert len(result["closing_lines"]) == 2
-    assert result["closing_lines"][0]["debit"] == 20000.0
-    assert result["closing_lines"][1]["credit"] == 20000.0
+    assert len(result["closing_lines"]) == 3
+    assert result["closing_lines"][0]["account_code"] == "6110"
+    assert result["closing_lines"][0]["debit"] == 50000.0
+    assert result["closing_lines"][1]["account_code"] == "7110"
+    assert result["closing_lines"][1]["credit"] == 30000.0
+    assert result["closing_lines"][2]["account_code"] == "4210"
+    assert result["closing_lines"][2]["credit"] == 20000.0
 
 
 def test_generate_closing_entries_net_loss():
     conn = AsyncMock()
 
-    async def fetchrow(sql, *args):
-        return {
-            "revenue_debit": "0",
-            "revenue_credit": "10000",
-            "expense_debit": "15000",
-            "expense_credit": "0",
-        }
+    async def fetch(sql, *args):
+        return [
+            {"account_code": "6110", "total_debit": "0", "total_credit": "10000"},
+            {"account_code": "7110", "total_debit": "15000", "total_credit": "0"},
+        ]
 
-    conn.fetchrow = fetchrow
+    conn.fetch = fetch
 
     with patch("app.api.services.year_close_service.get_conn", return_value=_make_cm(conn)):
         result = asyncio.run(generate_closing_entries(TENANT, YEAR))
 
     assert result["ok"] is True
     assert result["net_income"] == -5000.0
-    assert len(result["closing_lines"]) == 2
-    assert result["closing_lines"][0]["debit"] == 5000.0
+    assert len(result["closing_lines"]) == 3
+    assert result["closing_lines"][2]["account_code"] == "4210"
+    assert result["closing_lines"][2]["debit"] == 5000.0
 
 
 def test_generate_closing_entries_breakeven():
     conn = AsyncMock()
 
-    async def fetchrow(sql, *args):
-        return {
-            "revenue_debit": "0",
-            "revenue_credit": "10000",
-            "expense_debit": "10000",
-            "expense_credit": "0",
-        }
+    async def fetch(sql, *args):
+        return [
+            {"account_code": "6110", "total_debit": "0", "total_credit": "10000"},
+            {"account_code": "7110", "total_debit": "10000", "total_credit": "0"},
+        ]
 
-    conn.fetchrow = fetchrow
+    conn.fetch = fetch
 
     with patch("app.api.services.year_close_service.get_conn", return_value=_make_cm(conn)):
         result = asyncio.run(generate_closing_entries(TENANT, YEAR))
 
     assert result["ok"] is True
     assert result["net_income"] == 0.0
-    assert result["closing_lines"] == []
+    assert len(result["closing_lines"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +265,8 @@ def test_lock_fiscal_year_missing_cfo():
         result = asyncio.run(lock_fiscal_year(TENANT, YEAR, "user1"))
 
     assert result["ok"] is False
-    assert "CFO" in result["error"]
+    assert "sign-offs" in result["error"]
+    assert result["missing_roles"] == ["cfo"]
 
 
 def test_lock_fiscal_year_critical_checks_fail():
@@ -302,3 +302,12 @@ def test_lock_fiscal_year_success():
     assert result["ok"] is True
     assert result["year"] == YEAR
     assert result["locked_by"] == "user1"
+
+
+def test_year_close_permission_map():
+    from app.api.policy.permission_map import match_permission
+
+    assert match_permission("GET", "/year-close/status") == "reports:read"
+    assert match_permission("GET", "/year-close/checklist") == "reports:read"
+    assert match_permission("POST", "/year-close/signoff") == "posting:write"
+    assert match_permission("POST", "/year-close/lock") == "posting:write"

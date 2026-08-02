@@ -131,7 +131,7 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
     except Exception as _e:
         log.error("audit log failed for draft_corrected draft_id=%s: %s", draft_id, _e)
 
-    learning_result = apply_correct_learning(
+    learning_result = await apply_correct_learning(
         draft={
             "id": draft_id,
             "description": row["description"],
@@ -151,7 +151,7 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
 
     import asyncio as _asyncio
     _asyncio.ensure_future(save_transaction_memory(
-        row["description"], row["partner"], row["amount"], final["account_code"]
+        row["description"], row["partner"], row["amount"], final["account_code"], tenant_id=tenant_id
     ))
     memory_result = {"ok": True, "mode": "scheduled"}
 

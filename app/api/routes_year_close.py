@@ -22,6 +22,15 @@ router = APIRouter(prefix="/year-close", tags=["year-close"])
 _YEAR_RE = re.compile(r"^\d{4}$")
 
 
+def _can_sign_role(request: Request, requested_role: str) -> bool:
+    actor_role = getattr(request.state, "role", None)
+    if actor_role == "admin":
+        return True
+    if requested_role == "board":
+        return False
+    return actor_role == requested_role
+
+
 class YearSignoffPayload(BaseModel):
     year: str
     role: str
@@ -109,6 +118,12 @@ async def year_close_signoff(payload: YearSignoffPayload, request: Request):
     require_permission(request, "posting:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     actor = getattr(request.state, "user_id", "unknown")
+    if not _can_sign_role(request, payload.role):
+        return error_response(
+            "User role cannot sign for requested year-close role",
+            "FORBIDDEN_SIGNOFF_ROLE",
+            payload.role,
+        )
     try:
         result = await save_year_close_signoff(
             tenant_id,
@@ -128,7 +143,9 @@ async def year_close_lock(payload: YearLockPayload, request: Request):
     require_permission(request, "posting:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     actor = getattr(request.state, "user_id", "unknown")
+    if getattr(request.state, "role", None) not in ("admin", "cfo"):
+        return error_response("Only CFO or admin can lock a fiscal year", "FORBIDDEN_LOCK_ROLE", payload.year)
     result = await lock_fiscal_year(tenant_id, payload.year, locked_by=actor)
     if not result.get("ok"):
-        return error_response(result.get("error", "Lock failed"), "LOCK_FAILED", payload.year)
+        return error_response(result.get("error", "Lock failed"), "LOCK_FAILED", result)
     return ok_response(result.get("message", f"Fiscal year {payload.year} locked"), result)

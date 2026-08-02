@@ -207,10 +207,10 @@ async def learning_stats(request: Request):
 
 
 @router.get("/health")
-def learning_health(request: Request):
+async def learning_health(request: Request):
     require_permission(request, "patterns:manage")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    result = get_learning_health_service(tenant_id=tenant_id)
+    result = await get_learning_health_service(tenant_id=tenant_id)
     if result.get("ok"):
         return ok_response("Learning health", result)
     return error_response(

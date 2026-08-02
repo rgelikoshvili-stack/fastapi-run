@@ -50,6 +50,8 @@
     # ── Monthly Close Cockpit ─────────────────────────────────────────────────
     ("GET",    "/monthly-close",       "reports:read"),
     ("POST",   "/monthly-close",       "posting:write"),
+    ("GET",    "/year-close",          "reports:read"),
+    ("POST",   "/year-close",          "posting:write"),
 
     # ── ERP Dispatch (Multi-ERP) ──────────────────────────────────────────────
     ("GET",    "/erp-dispatch",        "posting:read"),

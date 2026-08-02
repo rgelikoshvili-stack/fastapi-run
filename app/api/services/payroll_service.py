@@ -132,7 +132,7 @@ def calculate_employee_payroll(
         "total_employer_cost": float(gross + employer_pension),
         "accounts": {
             "salary_expense": get_account("salary"),
-            "payg_payable": "3120",
+            "payg_payable": "3330",
             "pit_payable": "3320",
             "employer_pension_expense": EMPLOYER_PENSION_EXPENSE_ACCOUNT,
             "employer_pension_payable": EMPLOYER_PENSION_PAYABLE_ACCOUNT,

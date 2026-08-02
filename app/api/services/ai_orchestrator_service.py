@@ -173,7 +173,7 @@ async def orchestrate(
 
     # 4. Call Claude
     try:
-        claude_result = chat_with_claude_structured(
+        claude_result = await chat_with_claude_structured(
             message,
             context=full_context,
             tenant_id=tenant_id,

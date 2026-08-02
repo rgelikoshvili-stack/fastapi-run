@@ -11,8 +11,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from app.api.db import get_conn, _q
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +30,6 @@ def _cache_key(description: str, tenant_id: str) -> str:
     return hashlib.md5(f"{tenant_id}:{description.strip().lower()}".encode()).hexdigest()
 
 
-def _get_db():
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not configured")
-    return psycopg2.connect(database_url)
-
 
 def _safe_text(value: Any) -> str:
     if value is None:
@@ -52,34 +45,38 @@ def _extract_amount_from_text(text: str) -> float:
     return float(m.group(1).replace(",", "."))
 
 
-def _log_cost(tenant_id, model, tokens_in, tokens_out):
-    cost = (
+def _fire_log_cost(tenant_id, model, tokens_in, tokens_out) -> float:
+    """Sync wrapper — schedules _log_cost as a background task if loop is running."""
+    cost = round(
         tokens_in * MODEL_COSTS.get(model, {}).get("in", 0)
-        + tokens_out * MODEL_COSTS.get(model, {}).get("out", 0)
+        + tokens_out * MODEL_COSTS.get(model, {}).get("out", 0),
+        8,
     )
     try:
-        conn = _get_db()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
+        import asyncio as _aio
+        loop = _aio.get_running_loop()
+        loop.create_task(_log_cost(tenant_id, model, tokens_in, tokens_out))
+    except RuntimeError:
+        pass  # no running loop — skip logging (sync/thread-pool context)
+    return cost
+
+
+async def _log_cost(tenant_id, model, tokens_in, tokens_out) -> float:
+    cost = round(
+        tokens_in * MODEL_COSTS.get(model, {}).get("in", 0)
+        + tokens_out * MODEL_COSTS.get(model, {}).get("out", 0),
+        8,
+    )
+    try:
+        async with get_conn() as conn:
+            await conn.execute(_q("""
                 INSERT INTO llm_cost_log
                     (tenant_id, model, tokens_in, tokens_out, cost_usd, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    tenant_id,
-                    model,
-                    tokens_in,
-                    tokens_out,
-                    round(cost, 8),
-                    datetime.now(timezone.utc),
-                ),
-            )
-        conn.commit()
-        conn.close()
+            """), tenant_id, model, tokens_in, tokens_out, cost, datetime.now(timezone.utc))
     except Exception as e:
-        logger.warning(f"llm_cost_log: {e}")
-    return round(cost, 8)
+        logger.warning("llm_cost_log failed: %s", e)
+    return cost
 
 
 def classify(description: str, context: dict, tenant_id: str = "default") -> dict:
@@ -160,12 +157,7 @@ def _call_gpt(description: str, context: dict, model: str, tenant_id: str) -> di
     )
 
     data = json.loads(resp.choices[0].message.content)
-    cost = _log_cost(
-        tenant_id,
-        model,
-        resp.usage.prompt_tokens,
-        resp.usage.completion_tokens,
-    )
+    cost = _fire_log_cost(tenant_id, model, resp.usage.prompt_tokens, resp.usage.completion_tokens)
 
     return {
         "account_code": data.get("account_code"),
@@ -202,26 +194,20 @@ _chat_history: dict = {}
 _HISTORY_MAX_TURNS = 10
 
 
-def _load_history(session_id: str, tenant_id: str) -> list:
+async def _load_history(session_id: str, tenant_id: str) -> list:
     """Load from DB, fall back to in-memory cache."""
     if not session_id:
         return []
     if session_id in _chat_history:
         return _chat_history[session_id]
     try:
-        import json
-        conn = _get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT messages FROM chat_sessions WHERE session_id=%s AND tenant_id=%s",
-            (session_id, tenant_id),
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
+        async with get_conn() as conn:
+            row = await conn.fetchrow(_q(
+                "SELECT messages FROM chat_sessions WHERE session_id=%s AND tenant_id=%s"
+            ), session_id, tenant_id)
         if not row:
             return []
-        msgs = row[0]
+        msgs = row["messages"]
         if isinstance(msgs, str):
             msgs = json.loads(msgs)
         if isinstance(msgs, list):
@@ -231,36 +217,28 @@ def _load_history(session_id: str, tenant_id: str) -> list:
         return []
 
 
-def _save_history(session_id: str, tenant_id: str, messages: list, role: str = None) -> None:
+async def _save_history(session_id: str, tenant_id: str, messages: list, role: str = None) -> None:
     """Write-through: update cache + persist to DB."""
     if not session_id:
         return
-    import json
     trimmed = messages[-(2 * _HISTORY_MAX_TURNS):]
     _chat_history[session_id] = trimmed
     try:
-        conn = _get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO chat_sessions (session_id, tenant_id, role, messages, updated_at)
-            VALUES (%s, %s, %s, %s, NOW())
-            ON CONFLICT (session_id, tenant_id)
-            DO UPDATE SET
-                messages   = EXCLUDED.messages,
-                role       = COALESCE(EXCLUDED.role, chat_sessions.role),
-                updated_at = NOW()
-            """,
-            (session_id, tenant_id, role, json.dumps(trimmed, ensure_ascii=False)),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        async with get_conn() as conn:
+            await conn.execute(_q("""
+                INSERT INTO chat_sessions (session_id, tenant_id, role, messages, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (session_id, tenant_id)
+                DO UPDATE SET
+                    messages   = EXCLUDED.messages,
+                    role       = COALESCE(EXCLUDED.role, chat_sessions.role),
+                    updated_at = NOW()
+            """), session_id, tenant_id, role, json.dumps(trimmed, ensure_ascii=False))
     except Exception as e:
-        logger.warning("unexpected error: %s", e)
+        logger.warning("save_history failed: %s", e)
 
 
-def chat_with_claude(
+async def chat_with_claude(
     message: str,
     context: str = "",
     tenant_id: str = "default",
@@ -269,15 +247,14 @@ def chat_with_claude(
 ) -> Optional[str]:
     """Claude as main Bridge Hub chat brain with conversation history."""
     try:
-        import anthropic
+        from anthropic import AsyncAnthropic
         from app.api.services.prompt_profiles import get_profile
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
-        client = anthropic.Anthropic(api_key=api_key)
-
+        client = AsyncAnthropic(api_key=api_key)
         profile = get_profile(role)
         system = profile["system"]
         max_tokens = profile.get("max_tokens", 4096)
@@ -289,31 +266,25 @@ def chat_with_claude(
                 f"---\nUSER QUESTION:\n{message}"
             )
 
-        # Build messages with DB-persisted history
-        history = _load_history(session_id, tenant_id) if session_id else []
+        history = await _load_history(session_id, tenant_id) if session_id else []
         messages = history + [{"role": "user", "content": user_text}]
 
         model_id = "claude-3-5-sonnet-20241022"
-        resp = client.messages.create(
-            model=model_id,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
+        resp = await client.messages.create(
+            model=model_id, max_tokens=max_tokens, system=system, messages=messages,
         )
 
-        input_tokens = getattr(resp.usage, "input_tokens", 0)
-        output_tokens = getattr(resp.usage, "output_tokens", 0)
-        _log_cost(tenant_id, model_id, input_tokens, output_tokens)
+        await _log_cost(tenant_id, model_id,
+                        getattr(resp.usage, "input_tokens", 0),
+                        getattr(resp.usage, "output_tokens", 0))
 
         content = getattr(resp, "content", None) or []
         if not content:
             return None
-
-        text = getattr(content[0], "text", "") or ""
-        answer = text.strip() or None
+        answer = (getattr(content[0], "text", "") or "").strip() or None
 
         if answer and session_id:
-            _save_history(session_id, tenant_id, history + [
+            await _save_history(session_id, tenant_id, history + [
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
             ], role=role)
@@ -321,7 +292,7 @@ def chat_with_claude(
         return answer
 
     except Exception as e:
-        logger.error(f"claude chat error: {e}")
+        logger.error("claude chat error: %s", e)
         return None
 
 
@@ -352,7 +323,7 @@ suggested_actions rules:
 """
 
 
-def chat_with_claude_structured(
+async def chat_with_claude_structured(
     message: str,
     context: str = "",
     tenant_id: str = "default",
@@ -364,14 +335,14 @@ def chat_with_claude_structured(
     Falls back to plain text answer with empty actions on parse error.
     """
     try:
-        import anthropic
+        from anthropic import AsyncAnthropic
         from app.api.services.prompt_profiles import get_profile
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
-        client = anthropic.Anthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key)
         profile = get_profile(role)
         system = profile["system"] + _ACTIONS_SUFFIX
         max_tokens = profile.get("max_tokens", 4096)
@@ -383,26 +354,19 @@ def chat_with_claude_structured(
                 f"---\nUSER QUESTION:\n{message}"
             )
 
-        history = _load_history(session_id, tenant_id) if session_id else []
+        history = await _load_history(session_id, tenant_id) if session_id else []
         messages = history + [{"role": "user", "content": user_text}]
 
         model_id = "claude-sonnet-4-6"
-        resp = client.messages.create(
-            model=model_id,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
+        resp = await client.messages.create(
+            model=model_id, max_tokens=max_tokens, system=system, messages=messages,
         )
 
-        _log_cost(
-            tenant_id, model_id,
-            getattr(resp.usage, "input_tokens", 0),
-            getattr(resp.usage, "output_tokens", 0),
-        )
+        await _log_cost(tenant_id, model_id,
+                        getattr(resp.usage, "input_tokens", 0),
+                        getattr(resp.usage, "output_tokens", 0))
 
         raw = (getattr(resp.content[0], "text", "") or "").strip()
-
-        # Strip markdown fences
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -418,7 +382,7 @@ def chat_with_claude_structured(
             actions = []
 
         if answer and session_id:
-            _save_history(session_id, tenant_id, history + [
+            await _save_history(session_id, tenant_id, history + [
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
             ], role=role)
@@ -426,9 +390,8 @@ def chat_with_claude_structured(
         return {"answer": answer, "suggested_actions": actions}
 
     except (json.JSONDecodeError, KeyError, IndexError):
-        # JSON parse failed — fall back to plain chat
-        plain = chat_with_claude(message, context=context, tenant_id=tenant_id,
-                                 role=role, session_id=session_id)
+        plain = await chat_with_claude(message, context=context, tenant_id=tenant_id,
+                                       role=role, session_id=session_id)
         return {"answer": plain or "", "suggested_actions": []}
     except Exception as e:
         logger.error("chat_with_claude_structured error: %s", e)
@@ -444,12 +407,7 @@ def analyze_error(error_text: str, context: dict, tenant_id: str = "default") ->
             model="gemini-2.5-flash",
             contents=f"Balance.ge შეცდომა: {error_text}\nახსენი ქართულად 2 წინადადებით.",
         )
-        _log_cost(
-            tenant_id,
-            "gemini-2.5-flash",
-            len(error_text) // 4,
-            len(resp.text) // 4,
-        )
+        _fire_log_cost(tenant_id, "gemini-2.5-flash", len(error_text) // 4, len(resp.text) // 4)
         return resp.text.strip()
     except Exception:
         return f"შეცდომა: {error_text}"
@@ -486,28 +444,20 @@ def analyze_correction(
         }
 
 
-def get_cost_summary(tenant_id: str, days: int = 30) -> dict:
+async def get_cost_summary(tenant_id: str, days: int = 30) -> dict:
     try:
-        conn = _get_db()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
+        async with get_conn() as conn:
+            rows = await conn.fetch(_q("""
                 SELECT model, COUNT(*) calls, SUM(cost_usd) total_cost_usd
                 FROM llm_cost_log
                 WHERE tenant_id = %s
-                  AND created_at >= NOW() - INTERVAL %s
+                  AND created_at >= NOW() - INTERVAL '%s days'
                 GROUP BY model
                 ORDER BY total_cost_usd DESC
-                """,
-                (tenant_id, f"{days} days"),
-            )
-            rows = cur.fetchall()
-        conn.close()
-
-        total = sum(r["total_cost_usd"] or 0 for r in rows)
+            """), tenant_id, days)
+        total = sum(float(r["total_cost_usd"] or 0) for r in rows)
         return {
-            "tenant_id": tenant_id,
-            "days": days,
+            "tenant_id": tenant_id, "days": days,
             "total": round(total, 6),
             "by_model": [dict(r) for r in rows],
         }

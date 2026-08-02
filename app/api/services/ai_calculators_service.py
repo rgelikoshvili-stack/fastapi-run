@@ -170,7 +170,7 @@ async def run_learn_rule(request):
 
     if request.use_vector and _vector_db_available:
         try:
-            results["vector_db"] = learn_from_correction(
+            results["vector_db"] = await learn_from_correction(
                 request.pattern, request.account,
                 tenant_id=request.tenant_id, note=request.note,
             )

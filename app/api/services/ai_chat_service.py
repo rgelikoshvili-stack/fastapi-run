@@ -608,7 +608,7 @@ async def handle_ai_chat(
     context = (db_prompt + ("\n\n" + kb_context if kb_context else "")) if db_prompt else kb_context
 
     if CLAUDE_CHAT_AVAILABLE:
-        claude_result = chat_with_claude_structured(
+        claude_result = await chat_with_claude_structured(
             message, context=context, tenant_id=tenant_id, role=role, session_id=session_id
         )
         claude_answer = claude_result.get("answer")

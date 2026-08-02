@@ -210,6 +210,9 @@ def register_routers(app: FastAPI) -> None:
     from app.api.routes_monthly_close import router as monthly_close_router
     app.include_router(monthly_close_router)
 
+    from app.api.routes_year_close import router as year_close_router
+    app.include_router(year_close_router)
+
     from app.api.routes_erp_dispatch import router as erp_dispatch_router
     app.include_router(erp_dispatch_router)
 

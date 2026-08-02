@@ -73,7 +73,7 @@ tr:hover td{background:#fafafa}
     <div class="stat blue"><div class="stat-val" id="sTotal">—</div><div class="stat-label">სულ თანამშრომელი</div></div>
     <div class="stat green"><div class="stat-val" id="sActive">—</div><div class="stat-label">აქტიური</div></div>
     <div class="stat amber"><div class="stat-val" id="sTotalSalary">—</div><div class="stat-label">სულ სახელფასო ფონდი</div></div>
-    <div class="stat red"><div class="stat-val" id="sTotalPension">—</div><div class="stat-label">სულ საპენსიო (4%)</div></div>
+    <div class="stat red"><div class="stat-val" id="sTotalPension">—</div><div class="stat-label">სულ საპენსიო (2%)</div></div>
   </div>
 
   <!-- Pension Transfer -->
@@ -285,7 +285,7 @@ async function loadEmployees(){
     <table>
       <thead><tr>
         <th>სახელი</th><th>პირადი №</th><th>პოზიცია</th><th>დეპარტამენტი</th>
-        <th>ბრუტო</th><th>საპენსიო (4%)</th><th>სტატუსი</th><th>მოქმედება</th>
+        <th>ბრუტო</th><th>საპენსიო (2%)</th><th>სტატუსი</th><th>მოქმედება</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -357,7 +357,20 @@ async function generatePortalToken(id, name){
   const d = await api(`/employees/${id}/portal-token`, {method:'POST'});
   if(!d?.ok){alert('შეცდომა: '+(d?.message||''));return;}
   const url = window.location.origin + d.data.portal_url;
-  prompt(`🔗 ${name}-ის პორტალის ლინკი (30 დღე):`, url);
+  _openPortalModal(name, url);
+}
+function _openPortalModal(name, url){
+  document.getElementById('portalName').textContent = name;
+  document.getElementById('portalUrl').value = url;
+  document.getElementById('portalCopyMsg').textContent = '';
+  document.getElementById('portalModal').style.display = 'flex';
+}
+function _closePortalModal(){ document.getElementById('portalModal').style.display = 'none'; }
+function _copyPortalUrl(){
+  const inp = document.getElementById('portalUrl');
+  navigator.clipboard.writeText(inp.value).then(()=>{
+    document.getElementById('portalCopyMsg').textContent = '✓ კოპირებულია!';
+  }).catch(()=>{ inp.select(); document.execCommand('copy'); document.getElementById('portalCopyMsg').textContent = '✓ კოპირებულია!'; });
 }
 
 async function calculatePayrollSingle(){
@@ -458,5 +471,21 @@ async function loadPensionHistory(){
   document.getElementById('pensionResult').innerHTML=`<div style="line-height:1.8">${rows}</div>`;
 }
 </script>
+
+<!-- Portal Link Modal -->
+<div id="portalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:200;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;padding:28px;max-width:480px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.25)">
+    <div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:4px">🔗 პორტალის ლინკი</div>
+    <div style="font-size:13px;color:#6c757d;margin-bottom:14px"><span id="portalName"></span> · მოქმედია 30 დღე</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="portalUrl" type="text" readonly style="flex:1;border:1px solid #dee2e6;border-radius:8px;padding:9px 12px;font-size:13px;color:#1a1a2e;background:#f8f9fa;font-family:monospace" onclick="this.select()">
+      <button class="btn btn-primary btn-sm" onclick="_copyPortalUrl()">კოპირება</button>
+    </div>
+    <div id="portalCopyMsg" style="font-size:12px;color:#198754;margin-top:6px;min-height:18px"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="_closePortalModal()">დახურვა</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

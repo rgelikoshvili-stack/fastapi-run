@@ -155,6 +155,20 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .status-badge.rejected{background:var(--red-bg);color:var(--red)}
 .status-badge.auto_approved{background:var(--blue-soft);color:var(--blue)}
 .status-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(26,21,18,.5);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.hidden{display:none}
+.modal-box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px;max-width:440px;width:100%;box-shadow:0 20px 60px -10px rgba(26,21,18,.3)}
+.modal-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+.modal-icon.red{background:var(--red-bg);color:var(--red)}
+.modal-icon svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.modal-title{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.modal-sub{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-bottom:16px}
+.modal-textarea{width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:10px 12px;font-family:var(--font);font-size:13px;color:var(--ink);background:var(--paper-soft);resize:vertical;min-height:80px;outline:none;transition:.15s}
+.modal-textarea:focus{border-color:var(--accent);background:var(--paper)}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.modal-err{font-size:11px;color:var(--red);margin-top:6px;min-height:16px}
 </style>
 </head>
 <body>
@@ -504,14 +518,27 @@ async function approveDraft(){
   }catch(e){ alert('შეცდომა: '+e.message) }
 }
 
+function _openRejectModal(){
+  document.getElementById('rejectReason').value='';
+  document.getElementById('rejectErr').textContent='';
+  document.getElementById('rejectModal').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('rejectReason').focus(),60);
+}
+function _closeRejectModal(){ document.getElementById('rejectModal').classList.add('hidden'); }
+
 async function rejectDraft(){
   if(!DRAFT_ID) return;
-  const reason = prompt('უარყოფის მიზეზი:');
-  if(!reason) return;
+  _openRejectModal();
+}
+
+async function _confirmReject(){
+  const reason = document.getElementById('rejectReason').value.trim();
+  if(!reason){ document.getElementById('rejectErr').textContent='შეიყვანეთ მიზეზი'; return; }
+  _closeRejectModal();
   try{
     const r = await fetch(BASE+`/approval/reject/${DRAFT_ID}`,{method:'POST',headers:{..._authH(),'Content-Type':'application/json'},body:JSON.stringify({reason})});
     const d = await r.json();
-    if(d.ok){ alert('უარყოფილია'); loadDraft(); }
+    if(d.ok){ loadDraft(); }
     else alert('შეცდომა: '+(d.message||JSON.stringify(d)));
   }catch(e){ alert('შეცდომა: '+e.message) }
 }
@@ -533,11 +560,33 @@ loadCompanyInfo();
 loadDraft();
 </script>
 
+<!-- Reject Modal -->
+<div class="modal-overlay hidden" id="rejectModal" onclick="if(event.target===this)_closeRejectModal()">
+  <div class="modal-box">
+    <div class="modal-icon red">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    </div>
+    <div class="modal-title">ჩანაწერის უარყოფა</div>
+    <div class="modal-sub">Draft #<span id="rejectDraftId"></span> — შეიყვანეთ უარყოფის მიზეზი</div>
+    <textarea class="modal-textarea" id="rejectReason" placeholder="მიზეზი..."></textarea>
+    <div class="modal-err" id="rejectErr"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="_closeRejectModal()">გაუქმება</button>
+      <button class="btn btn-red" onclick="_confirmReject()">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        უარყოფა
+      </button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/js/sidebar.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     BridgeHub.loadSidebar('queue');
+    document.addEventListener('keydown', e => { if(e.key==='Escape') _closeRejectModal(); });
 });
+document.getElementById('rejectDraftId').textContent = new URLSearchParams(location.search).get('id')||'';
 </script>
 </body>
 </html>

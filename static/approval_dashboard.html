@@ -82,6 +82,15 @@
       overflow: auto;
       white-space: pre-wrap;
     }
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay.hidden{display:none}
+    .modal-box{background:#fff;border-radius:14px;padding:28px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.25)}
+    .modal-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:4px}
+    .modal-sub{font-size:13px;color:#6b7280;margin-bottom:14px}
+    .modal-textarea{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:13px;color:#111827;resize:vertical;min-height:80px;outline:none;transition:.15s}
+    .modal-textarea:focus{border-color:#2563eb}
+    .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+    .modal-err{font-size:11px;color:#dc2626;margin-top:5px;min-height:15px}
   </style>
 </head>
 <body>
@@ -156,17 +165,31 @@
       loadQueue();
     }
 
-    async function rejectDraft(id) {
-      const reason = prompt('Reject reason:', '') || '';
-      const res = await fetch(`/approval/reject/${id}`, {
+    let _rejectId = null;
+    function _openRejectModal(id){
+      _rejectId = id;
+      document.getElementById('rejReason').value='';
+      document.getElementById('rejErr').textContent='';
+      document.getElementById('rejDraftId').textContent=id;
+      document.getElementById('rejectModal').classList.remove('hidden');
+      setTimeout(()=>document.getElementById('rejReason').focus(),60);
+    }
+    function _closeRejectModal(){ document.getElementById('rejectModal').classList.add('hidden'); _rejectId=null; }
+    async function _confirmReject(){
+      const reason = document.getElementById('rejReason').value.trim();
+      if(!reason){ document.getElementById('rejErr').textContent='Enter a reason'; return; }
+      _closeRejectModal();
+      const res = await fetch(`/approval/reject/${_rejectId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
       const data = await res.json();
-      alert(data.message || 'Rejected');
+      if(!data.ok) alert(data.message || 'Error');
       loadQueue();
     }
+    async function rejectDraft(id) { _openRejectModal(id); }
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') _closeRejectModal(); });
 
     async function previewDraft(payload) {
       const res = await fetch('/approval/preview', {
@@ -184,5 +207,19 @@
 
     loadQueue();
   </script>
+
+<!-- Reject Modal -->
+<div class="modal-overlay hidden" id="rejectModal" onclick="if(event.target===this)_closeRejectModal()">
+  <div class="modal-box">
+    <div class="modal-title">Reject Draft</div>
+    <div class="modal-sub">Draft #<span id="rejDraftId"></span> — provide a reason</div>
+    <textarea class="modal-textarea" id="rejReason" placeholder="Reason for rejection..."></textarea>
+    <div class="modal-err" id="rejErr"></div>
+    <div class="modal-actions">
+      <button style="padding:8px 14px;border-radius:8px;cursor:pointer;background:#6b7280;color:#fff;border:none" onclick="_closeRejectModal()">Cancel</button>
+      <button style="padding:8px 14px;border-radius:8px;cursor:pointer;background:#dc2626;color:#fff;border:none" onclick="_confirmReject()">Reject</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

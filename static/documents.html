@@ -458,7 +458,8 @@ function copySubmitEmail(){
     el.textContent='✓ კოპირებულია!';
     setTimeout(()=>{el.textContent=orig;},1500);
   }).catch(()=>{
-    window.prompt('Copy:',_submitEmail);
+    const el=document.getElementById('submitEmailAddr');
+    if(el){ el.select?.(); document.execCommand('copy'); }
   });
 }
 

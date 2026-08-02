@@ -213,9 +213,7 @@ class TestOpeningBalancesRoutes:
         mock_request.state.user_id = "u1"
 
         with patch("app.api.routes_opening_balances.require_permission"):
-            result = asyncio.get_event_loop().run_until_complete(
-                upsert_balance("1110", payload, mock_request)
-            )
+            result = asyncio.run(upsert_balance("1110", payload, mock_request))
         assert result["ok"] is False
         assert result["error"]["code"] == "ACCOUNT_CODE_MISMATCH"
 

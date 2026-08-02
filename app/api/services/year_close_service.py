@@ -28,7 +28,7 @@ REVENUE_ACCOUNT_PREFIXES = ("5", "6")
 # Expense accounts: 7xxx
 EXPENSE_ACCOUNT_PREFIXES = ("7",)
 # Retained earnings / equity: 4xxx
-RETAINED_EARNINGS_ACCOUNT = "4310"
+RETAINED_EARNINGS_ACCOUNT = "4210"
 
 TOLERANCE_GEL = Decimal("0.05")
 
@@ -290,7 +290,7 @@ async def generate_closing_entries(tenant_id: str, year: str) -> dict[str, Any]:
 
     if net_income > 0:
         lines = [
-            {"account_code": "5000", "debit": net_income, "credit": 0,
+            {"account_code": "6110", "debit": net_income, "credit": 0,
              "description": f"Close revenue accounts {year}"},
             {"account_code": RETAINED_EARNINGS_ACCOUNT, "debit": 0, "credit": net_income,
              "description": f"Transfer net income to retained earnings {year}"},
@@ -301,7 +301,7 @@ async def generate_closing_entries(tenant_id: str, year: str) -> dict[str, Any]:
         lines = [
             {"account_code": RETAINED_EARNINGS_ACCOUNT, "debit": loss, "credit": 0,
              "description": f"Close net loss to retained earnings {year}"},
-            {"account_code": "7000", "debit": 0, "credit": loss,
+            {"account_code": "7110", "debit": 0, "credit": loss,
              "description": f"Close expense accounts {year}"},
         ]
         description = f"Year-end close {year}: net loss {loss:,.2f} GEL → retained earnings"

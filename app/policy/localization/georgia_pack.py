@@ -25,8 +25,8 @@ ACCOUNT_MAP = {
     "service_income":      "6110",
 
     # ხარჯები
-    "salary":              "7120",
-    "payroll":             "7120",
+    "salary":              "7210",
+    "payroll":             "7210",
     "bank_fee":            "7150",
     "transport":           "7160",
     "travel":              "7160",
@@ -56,7 +56,7 @@ ACCOUNT_MAP = {
     "vat_payable":         "3310",
     "vat_receivable":      "2210",
     "income_tax":          "3320",
-    "payg":                "3120",
+    "payg":                "3330",
     "cit_payable":         "3340",
     "withholding_payable": "3350",
     "dividend_payable":    "3370",

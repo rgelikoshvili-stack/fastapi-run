@@ -154,7 +154,7 @@ tr:hover td{background:#fafbfd}
           <div class="form-group">
             <label>Pension Fund</label>
             <select id="includePension">
-              <option value="true">Include (Employee 4% + Employer 2%)</option>
+              <option value="true">Include (Employee 2% + Employer 2%)</option>
               <option value="false">Exclude</option>
             </select>
           </div>
@@ -163,7 +163,7 @@ tr:hover td{background:#fafbfd}
         <div class="result-box" id="salaryResult" style="display:none">
           <div class="result-row"><span class="lbl">Gross Salary</span><span class="val" id="s-gross">—</span></div>
           <div class="result-row"><span class="lbl">Income Tax (20%)</span><span class="val" id="s-it">—</span></div>
-          <div class="result-row"><span class="lbl">Pension — Employee (4%)</span><span class="val" id="s-pe">—</span></div>
+          <div class="result-row"><span class="lbl">Pension — Employee (2%)</span><span class="val" id="s-pe">—</span></div>
           <div class="result-row"><span class="lbl">Pension — Employer (2%)</span><span class="val" id="s-pempl">—</span></div>
           <div class="result-row"><span class="lbl">Effective Tax Rate</span><span class="val" id="s-eff">—</span></div>
           <div class="result-row total"><span class="lbl">Net Salary (Take-Home)</span><span class="val" id="s-net">—</span></div>
@@ -270,7 +270,7 @@ tr:hover td{background:#fafbfd}
           <tr><td>VAT (დღგ)</td><td><span class="badge badge-blue">18%</span></td><td>Turnover &gt; 100,000 GEL</td><td>15th of next month</td></tr>
           <tr><td>Income Tax (PIT)</td><td><span class="badge badge-amber">20%</span></td><td>Employee gross salary</td><td>15th of next month</td></tr>
           <tr><td>Corporate Tax (CIT)</td><td><span class="badge badge-red">15%</span></td><td>Distributed profit only</td><td>On distribution</td></tr>
-          <tr><td>Pension (Employee)</td><td><span class="badge badge-green">4%</span></td><td>Gross salary</td><td>15th of next month</td></tr>
+          <tr><td>Pension (Employee)</td><td><span class="badge badge-green">2%</span></td><td>Gross salary</td><td>15th of next month</td></tr>
           <tr><td>Pension (Employer)</td><td><span class="badge badge-green">2%</span></td><td>Gross salary</td><td>15th of next month</td></tr>
           <tr><td>Dividend Tax</td><td><span class="badge badge-blue">5%</span></td><td>Dividend amount</td><td>On payment</td></tr>
           <tr><td>Property Tax</td><td><span class="badge badge-amber">1%</span></td><td>Asset value</td><td>Annual</td></tr>
@@ -390,7 +390,7 @@ async function calcVAT() {
     }
     const vatAmt = data.vat_amount || 0;
     const base = vatDir === 'add' ? (data.subtotal || amount) : (data.subtotal_excl_vat || amount);
-    const debitAcc = payment === 'paid' ? '1120 Bank' : '1410 Receivable';
+    const debitAcc = payment === 'paid' ? '1120 Bank' : '1210 AR';
     document.getElementById('vatJournal').innerHTML = `
       <div class="journal-entry">
         <div class="dr">Dr ${debitAcc} &nbsp;&nbsp;&nbsp; ${(base + vatAmt).toFixed(2)} GEL</div>
@@ -424,7 +424,7 @@ async function calcSalary() {
     const it = data.income_tax_20pct || 0, pe = data.pension_employee_4pct || 0, pemp = data.pension_employer_2pct || 0, net = data.net_salary || 0;
     document.getElementById('salaryJournal').innerHTML = `
       <div class="journal-entry">
-        <div class="dr">Dr 7110 Salary Expense &nbsp;&nbsp; ${(gross + pemp).toFixed(2)} GEL</div>
+        <div class="dr">Dr 7210 Salary Expense &nbsp;&nbsp; ${(gross + pemp).toFixed(2)} GEL</div>
         <div class="cr">&nbsp;&nbsp;Cr 3321 PIT Payable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${it.toFixed(2)} GEL</div>
         <div class="cr">&nbsp;&nbsp;Cr 3322 Pension Payable &nbsp; ${(pe + pemp).toFixed(2)} GEL</div>
         <div class="cr">&nbsp;&nbsp;Cr 3330 Salary Payable &nbsp;&nbsp; ${net.toFixed(2)} GEL</div>
@@ -471,11 +471,11 @@ async function calcDividend() {
       <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:4px">Step 1 — Declare Dividend</div>
       <div class="journal-entry">
         <div class="dr">Dr 4210 Retained Earnings &nbsp; ${amount.toFixed(2)} GEL</div>
-        <div class="cr">&nbsp;&nbsp;Cr 3320 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
+        <div class="cr">&nbsp;&nbsp;Cr 3370 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
       </div>
       <div style="font-size:12px;font-weight:600;color:#64748b;margin:10px 0 4px">Step 2 — Pay Dividend</div>
       <div class="journal-entry">
-        <div class="dr">Dr 3320 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
+        <div class="dr">Dr 3370 Dividends Payable &nbsp; ${amount.toFixed(2)} GEL</div>
         <div class="cr">&nbsp;&nbsp;Cr 3340 CIT Payable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${cit.toFixed(2)} GEL</div>
         <div class="cr">&nbsp;&nbsp;Cr 1120 Bank &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ${net.toFixed(2)} GEL</div>
       </div>`;

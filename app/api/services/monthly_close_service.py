@@ -65,7 +65,7 @@ async def _check_unposted_drafts(conn, tenant_id: str, month: str) -> dict:
             SELECT COUNT(*) FROM journal_drafts
             WHERE tenant_id = $1
               AND status IN ('drafted', 'awaiting_cfo', 'pending_approval')
-              AND created_at::date BETWEEN $2 AND $3::date
+              AND date BETWEEN $2 AND $3::date
         """),
         tenant_id, month_start, month_end,
     )
@@ -88,7 +88,7 @@ async def _check_reconciliation(conn, tenant_id: str, month: str) -> dict:
             FROM journal_drafts
             WHERE tenant_id = $1
               AND status = 'posted'
-              AND created_at::date BETWEEN $2 AND $3::date
+              AND date BETWEEN $2 AND $3::date
         """),
         tenant_id, month_start, month_end,
     )
@@ -152,16 +152,16 @@ async def _check_trial_balance(conn, tenant_id: str, month: str) -> dict:
             SELECT
                 COALESCE(SUM(
                     (SELECT COALESCE(SUM((l->>'debit')::numeric), 0)
-                     FROM jsonb_array_elements(lines_json::jsonb) l)
+                     FROM jsonb_array_elements(journal_entries) l)
                 ), 0) AS total_debit,
                 COALESCE(SUM(
                     (SELECT COALESCE(SUM((l->>'credit')::numeric), 0)
-                     FROM jsonb_array_elements(lines_json::jsonb) l)
+                     FROM jsonb_array_elements(journal_entries) l)
                 ), 0) AS total_credit
             FROM journal_drafts
             WHERE tenant_id = $1
               AND status = 'posted'
-              AND created_at::date BETWEEN $2 AND $3::date
+              AND date BETWEEN $2 AND $3::date
         """),
         tenant_id, month_start, month_end,
     )
@@ -212,10 +212,10 @@ async def get_trial_balance_snapshot(tenant_id: str, month: str) -> dict[str, An
                        SUM((l->>'debit')::numeric)  AS debit,
                        SUM((l->>'credit')::numeric) AS credit
                 FROM journal_drafts,
-                     jsonb_array_elements(lines_json::jsonb) AS l
+                     jsonb_array_elements(journal_entries) AS l
                 WHERE tenant_id = $1
                   AND status = 'posted'
-                  AND created_at::date BETWEEN $2 AND $3::date
+                  AND date BETWEEN $2 AND $3::date
                   AND (l->>'account_code') IS NOT NULL
                 GROUP BY account_code
                 ORDER BY account_code

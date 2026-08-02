@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
 from app.api.db import get_conn, _q
@@ -8,6 +8,25 @@ from app.api.authz import require_permission
 from app.api.tenant_context import resolve_tenant_id
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+# ── /invoice/parse (merged from routes_invoice.py) ────────────────────────────
+invoice_legacy_router = APIRouter(prefix="/invoice", tags=["invoice"])
+
+@invoice_legacy_router.post("/parse")
+async def parse_invoice(request: Request, file: UploadFile = File(...)):
+    require_permission(request, "approval:write")
+    try:
+        from app.services.route_bridge_service import bridge_invoice_payload
+        content = await file.read()
+        payload = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(content),
+            "content": content,
+        }
+        return bridge_invoice_payload(payload)
+    except Exception as e:
+        return error_response("Invoice parse failed", "INVOICE_PARSE_ERROR", str(e))
 
 class InvoiceItem(BaseModel):
     description: str

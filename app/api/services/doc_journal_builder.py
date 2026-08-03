@@ -84,19 +84,19 @@ def _buyer_entries(
         # Pension (employee portion)
         if pit_info["employee_pension"] > 0:
             entries.append({
-                "cr": "3380",
+                "cr": "3330",
                 "amount": pit_info["employee_pension"],
                 "note": "საპენსიო — დასაქმებული (2%)"
             })
         # Pension (employer portion) as additional expense
         if pit_info["employer_pension"] > 0:
             entries.append({
-                "dr": "7190",
+                "dr": "7220",
                 "amount": pit_info["employer_pension"],
                 "note": "საპენსიო — დამსაქმებელი (2%)"
             })
             entries.append({
-                "cr": "3380",
+                "cr": "3335",
                 "amount": pit_info["employer_pension"],
                 "note": "საპენსიო — დამსაქმებელი (2%)"
             })

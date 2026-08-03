@@ -33,14 +33,14 @@ def gaas_build_draft(tx: CanonicalBankTransaction, rule: dict) -> CanonicalJourn
     if vat_amount > 0:
         if rule["vat_class"].startswith("OUT"):
             lines.append(JournalLine(
-                account_code="2210",
-                account_name=GAAS_COA.get("2210",{}).get("name","VAT payable"),
+                account_code="3310",
+                account_name="დღგ გად.",
                 credit=vat_amount,
             ))
         elif rule["vat_class"].startswith("IN") and "DED" in rule["vat_class"]:
             lines.append(JournalLine(
-                account_code="1420",
-                account_name=GAAS_COA.get("1420",{}).get("name","VAT receivable"),
+                account_code="3311",
+                account_name="ჩათვლ. დღგ",
                 debit=vat_amount,
             ))
 

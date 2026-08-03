@@ -35,7 +35,7 @@ async def create_expense(data: ExpenseCreate, request: Request):
     async with get_conn() as conn:
         try:
             row = await conn.fetchrow(_q("SELECT account_code FROM expense_categories WHERE code=%s"), data.category)
-            account_code = row["account_code"] if row else "7190"
+            account_code = row["account_code"] if row else "7910"
             expense_date = data.date or datetime.now().strftime("%Y-%m-%d")
             new_id = await conn.fetchval(_q("""
                 INSERT INTO expenses (tenant_id, date, description, category, account_code, amount,

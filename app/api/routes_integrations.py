@@ -54,7 +54,7 @@ async def shopify_webhook(
                      debit_account, credit_account, account_code,
                      reason, confidence, status, source_type)
                 VALUES (%s, NOW()::date, %s, %s, %s,
-                        '1210', '6100', '6100',
+                        '1120', '6110', '6110',
                         'shopify_order', 0.90, 'pending_approval', 'shopify')
             """), tenant_id, f"Shopify Order #{order_num} — {cname}", cname, total)
     except Exception as e:
@@ -109,7 +109,7 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                      debit_account, credit_account, account_code,
                      reason, confidence, status, source_type)
                 VALUES (%s, NOW()::date, %s, %s, %s,
-                        '1120', '6100', '6100',
+                        '1120', '6110', '6110',
                         'stripe_payment', 0.95, 'pending_approval', 'stripe')
             """), tenant_id, f"Stripe {event_type} {payment_id[:12]} ({currency})", customer, amount)
     except Exception as e:
@@ -154,7 +154,7 @@ async def woocommerce_webhook(
                      debit_account, credit_account, account_code,
                      reason, confidence, status, source_type)
                 VALUES (%s, NOW()::date, %s, %s, %s,
-                        '1210', '6100', '6100',
+                        '1120', '6110', '6110',
                         'woocommerce_order', 0.88, 'pending_approval', 'woocommerce')
             """), tenant_id, f"WooCommerce Order #{order_id} — {cname}", cname, total)
     except Exception as e:

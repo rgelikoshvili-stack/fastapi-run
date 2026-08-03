@@ -10,27 +10,27 @@ from pydantic import BaseModel, Field
 log = logging.getLogger(__name__)
 
 DEFAULT_ACCOUNT_MAPPING = {
-    "payg": "3380",
-    "bank fee": "7190",
-    "commission": "7190",
-    "საკომ": "7190",
-    "salary": "7210",
+    "payg": "3330",        # დასაქ.საპ. (was 3380 — missing)
+    "bank fee": "7510",    # სბ.სკ. (was 7190 — missing)
+    "commission": "7510",  # სბ.სკ.
+    "საკომ": "7510",       # სბ.სკ.
+    "salary": "7210",      # ხ.ხ.
     "ხელფასი": "7210",
     "payroll": "7210",
-    "office": "7180",
-    "revenue": "6100",
-    "income": "6100",
-    "vat receivable": "1760",
-    "vat payable": "3310",
-    "rent": "7310",
-    "transport": "7730",
-    "advertising": "7710",
-    "entertainment": "7720",
-    "cit": "3340",
-    "pit": "3320",
-    "dividend": "3370",
+    "office": "7810",      # სხ.ა.ხ. (was 7180 — missing)
+    "revenue": "6110",     # გ-ვ.შემ. (was 6100 — missing)
+    "income": "6110",      # გ-ვ.შემ.
+    "vat receivable": "3311",  # ჩათვ.დღგ (was 1760 — missing)
+    "vat payable": "3310",     # დღგ გად.
+    "rent": "7310",        # ქ.ხ.
+    "transport": "7730",   # სატ.ხ.
+    "advertising": "7710", # რ.ხ.
+    "entertainment": "7720",  # წ.ხ.
+    "cit": "3340",         # CIT/მოგ.
+    "pit": "3320",         # PIT/საშ.
+    "dividend": "3370",    # გად.დივ.
     "დივიდენდი": "3370",
-    "tax": "3380",
+    "tax": "3320",         # PIT (was 3380 — missing; default to PIT)
 }
 
 _INVALID_CODES = {"", "-", "ETC", "etc", "N/A", "n/a", "None", "null", "undefined"}

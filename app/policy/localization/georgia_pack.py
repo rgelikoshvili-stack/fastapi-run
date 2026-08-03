@@ -217,7 +217,48 @@ def calculate_dividend(gross_profit: Decimal, recipient_is_resident: bool = True
 
 # ========== Account Resolution ==========
 
-def get_account(category: str, fallback: str = "7190") -> str:
+def apply_rules(tx: dict, tenant_id: str = "default") -> dict:
+    """Apply Georgian tax rules to a classified transaction.
+    Returns vat_suggested, vat_amount, payg_required, payg_amount.
+    """
+    amount = float(tx.get("amount") or 0)
+    account = tx.get("account_code", "")
+    desc = (tx.get("description") or "").lower()
+
+    vat_suggested = False
+    vat_amount = None
+    payg_required = False
+    payg_amount = None
+
+    # Salary/payroll accounts are never VAT-able
+    _payroll_accounts = {"7210", "7220", "3320", "3330", "3335"}
+    _is_payroll = account in _payroll_accounts or any(
+        k in desc for k in ("ხელფასი", "salary", "payroll", "wage", "pension")
+    )
+
+    # VAT suggestion: revenue or standard expenses (not salary, not tax accounts)
+    if not _is_payroll:
+        if account.startswith("6") and amount > 0:
+            vat_suggested = True
+            vat_amount = round(amount * float(VAT_RATE) / (1 + float(VAT_RATE)), 2)
+        elif account.startswith("7") and amount >= 1000:
+            vat_suggested = True
+            vat_amount = round(amount * float(VAT_RATE) / (1 + float(VAT_RATE)), 2)
+
+    # PAYG suggestion: salary accounts
+    if _is_payroll:
+        payg_required = True
+        payg_amount = round(amount * float(PAYG_RATE), 2)
+
+    return {
+        "vat_suggested": vat_suggested,
+        "vat_amount": vat_amount,
+        "payg_required": payg_required,
+        "payg_amount": payg_amount,
+    }
+
+
+def get_account(category: str, fallback: str = "7910") -> str:
     """
     კატეგორიის მიხედვით ანგარიშის კოდის მიღება
     """

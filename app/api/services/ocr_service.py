@@ -256,16 +256,16 @@ def _prepare_invoice_draft_data(invoice_fields: dict, tenant_id: str, source_typ
     from app.policy.localization.georgia_pack import get_account
     combined = description.lower() + " " + (partner or "").lower()
     if any(k in combined for k in ["communal", "კომუნალ", "electricity", "water", "gas", "გაზი", "elektro"]):
-        debit_account = "7210"
+        debit_account = "7410"   # კ.ხ. (utilities)
     elif any(k in combined for k in ["payroll", "salary", "ხელფასი", "wages"]):
-        debit_account = "6100"
+        debit_account = "7210"   # ხ.ხ. (salary)
     elif any(k in combined for k in ["rent", "იჯარა", "lease", "ქირა"]):
-        debit_account = "7220"
+        debit_account = "7310"   # ქ.ხ. (rent)
     elif any(k in combined for k in ["transport", "delivery", "მიტანა", "courier", "logistics"]):
-        debit_account = "7130"
+        debit_account = "7730"   # სატ.ხ. (transport)
     else:
-        debit_account = get_account("cost_of_service") or "7110"
-    credit_account = get_account("accounts_payable") or "3310"
+        debit_account = get_account("cost_of_goods") or "7110"
+    credit_account = get_account("accounts_payable") or "3110"
 
     journal_entries = None
     if vat_amount and vat_amount > 0 and net_amount and net_amount > 0:

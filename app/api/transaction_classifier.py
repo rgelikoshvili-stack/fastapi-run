@@ -653,7 +653,7 @@ def classify(
         }
 
     # 5. FALLBACK RULES
-    matched_account = "7190"
+    matched_account = "7910"
     matched_reason = "default_expense"
     confidence = 0.0
     keyword_matched = False
@@ -689,15 +689,15 @@ def classify(
                 raise ValueError("low confidence")
         except Exception:
             if paid_in_value is not None and paid_out_value is None:
-                matched_account = "6100"
+                matched_account = "6110"
                 matched_reason = "income_direction"
                 confidence = 0.65
             elif paid_out_value is not None and paid_in_value is None:
-                matched_account = "7190"
+                matched_account = "7910"
                 matched_reason = "expense_direction"
                 confidence = 0.55
             else:
-                matched_account = "7190"
+                matched_account = "7910"
                 matched_reason = "default_expense"
                 confidence = 0.4
 

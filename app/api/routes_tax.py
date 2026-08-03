@@ -288,7 +288,7 @@ async def tax_from_journal(year: int, request: Request):
         expenses = float(r["total"]) if r else 0.0
 
         r = await conn.fetchrow(_q(
-            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code='3100' AND date LIKE %s AND tenant_id = %s"),
+            "SELECT COALESCE(SUM(amount),0) as total FROM journal_drafts WHERE account_code LIKE '33%%' AND date LIKE %s AND tenant_id = %s"),
             f"{year}%", tenant_id)
         tax_paid = float(r["total"]) if r else 0.0
  

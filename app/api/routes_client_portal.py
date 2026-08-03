@@ -171,7 +171,7 @@ async def client_upload(
                         reason, confidence, status, source_type, tenant_id, created_at
                     ) VALUES (
                         NOW()::date, %s, %s, 0,
-                        '7100', '1210', '7100',
+                        '7110', '1120', '7110',
                         'client_upload', 0.5, 'pending_approval',
                         'client_upload', %s, NOW()
                     ) RETURNING id

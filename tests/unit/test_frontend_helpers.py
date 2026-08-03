@@ -66,16 +66,13 @@ def test_approval_page_uses_debounced_search_and_confirmation_modals():
 
 def test_reporting_and_trade_hubs_exist():
     reports = (ROOT / "reports.html").read_text(encoding="utf-8")
-    reporting_workbench = (ROOT / "reporting_workbench.html").read_text(encoding="utf-8")
     trade = (ROOT / "purchases_sales.html").read_text(encoding="utf-8")
     sidebar = (ROOT / "components" / "sidebar.html").read_text(encoding="utf-8")
 
     assert "Reporting Workbench" in reports
     assert "/static/financial_reports.html" in reports
-    assert "Reporting Workbench" in reporting_workbench
-    assert "/static/trial_balance.html" in reporting_workbench
-    assert "/static/financial_reports.html" in reporting_workbench
-    assert "/static/ledger.html" in reporting_workbench
+    assert "/static/trial_balance.html" in reports
+    assert "/static/ledger.html" in reports
     assert "/static/purchases_sales.html" in reports
     assert "Purchases & Sales Workbench" in trade
     assert "/inventory/purchase-orders" in trade

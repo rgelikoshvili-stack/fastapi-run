@@ -19,47 +19,49 @@ TAX_YEAR_END = "12-31"
 # ========== Account Mapping ==========
 
 ACCOUNT_MAP = {
-    # შემოსავლები
-    "income":              "6100",
-    "sales":               "6100",
-    "service_income":      "6110",
+    # შემოსავლები — COA: 6110=გ-ვ.შემ., 6120=მომ.შემ.
+    "income":              "6110",
+    "sales":               "6110",
+    "service_income":      "6120",
 
-    # ხარჯები
-    "salary":              "7210",
-    "payroll":             "7210",
-    "bank_fee":            "7150",
-    "transport":           "7160",
-    "travel":              "7160",
-    "reservation":         "7160",
-    "office":              "7180",
-    "office_supplies":     "7180",
-    "communication":       "7190",
-    "internet":            "7190",
-    "utilities":           "7170",
-    "rent":                "7110",
-    "cost_of_service":     "7100",
-    "cost_of_goods":       "7100",
-    "representation":      "7130",
-    "tax":                 "3100",
+    # ხარჯები — aligned to chart_of_accounts.py COA
+    "salary":              "7210",   # ხ.ხ.
+    "payroll":             "7210",   # ხ.ხ.
+    "cogs":                "7110",   # COGS
+    "cost_of_goods":       "7110",   # COGS
+    "cost_of_service":     "7110",   # COGS
+    "rent":                "7310",   # ქ.ხ. (7110=COGS, rent=7310)
+    "utilities":           "7410",   # კ.ხ.
+    "bank_fee":            "7510",   # სბ.სკ.
+    "transport":           "7730",   # სატ.ხ.
+    "travel":              "7730",   # სატ.ხ.
+    "reservation":         "7730",   # სატ.ხ.
+    "office":              "7810",   # სხ.ა.ხ.
+    "office_supplies":     "7810",   # სხ.ა.ხ.
+    "communication":       "7810",   # სხ.ა.ხ.
+    "internet":            "7810",   # სხ.ა.ხ.
+    "representation":      "7720",   # წ.ხ.
+    "marketing":           "7710",   # რ.ხ.
+    "depreciation":        "7610",   # ამ.ხ.
 
-    # ბანკი / ფული
-    "bank":                "1210",
-    "cash":                "1110",
-    "transfer":            "1211",
-    "currency_conversion": "1220",
+    # ბანკი / ფული — COA: 1120=საბანკო ანგ., 1110=სალარო
+    "bank":                "1120",   # საბანკო ანგ. (was 1210=AR — WRONG)
+    "cash":                "1110",   # სალარო
+    "transfer":            "1120",   # საბანკო ანგ. (was 1211 — missing)
+    "currency_conversion": "1130",   # სხვა ფ.ეკვ.
 
-    # კრედიტორები
-    "accounts_payable":    "3310",
-    "creditors":           "3310",
+    # კრედიტორები — COA: 3110=კრ.დავ.
+    "accounts_payable":    "3110",   # კრ.დავ. (was 3310=VAT — WRONG)
+    "creditors":           "3110",   # კრ.დავ.
 
     # საგადასახადო
-    "vat_payable":         "3310",
-    "vat_receivable":      "2210",
-    "income_tax":          "3320",
-    "payg":                "3330",
-    "cit_payable":         "3340",
-    "withholding_payable": "3350",
-    "dividend_payable":    "3370",
+    "vat_payable":         "3310",   # დღგ გად.
+    "vat_receivable":      "3311",   # ჩათვ.დღგ (was 2210 — missing)
+    "income_tax":          "3320",   # PIT/საშ.
+    "payg":                "3330",   # დასაქ.საპ.
+    "cit_payable":         "3340",   # CIT/მოგ.
+    "withholding_payable": "3350",   # Withholding
+    "dividend_payable":    "3370",   # გად.დივ.
 }
 
 

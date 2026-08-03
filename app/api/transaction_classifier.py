@@ -16,34 +16,52 @@ import app.api.services.llm_service as llm_service
 
 
 RULES = [
-    (["ანაზღაურება", "თანხის მიღება", "გადახდა მიღებული", "შემოსული"], "6100", "income"),
+    # შემოსავლები — 6110=გ-ვ.შემ., 6120=მომ.შემ.
+    (["ანაზღაურება", "თანხის მიღება", "გადახდა მიღებული", "შემოსული"], "6110", "income"),
+    (["payment", "client", "customer", "revenue", "sale", "income", "received"], "6110", "income"),
+    # ხელფასი — 7210=ხ.ხ., 3320=PIT, 3330=PAYG
     (["ხელფასი", "თანამშრომელი", "hr გადარიცხვა"], "7210", "salary"),
-    (["ქირის გადახდა", "იჯარა", "სასტუმრო"], "7110", "rent"),
-    (["ელექტროენერგია", "წყალი", "გაზი", "ინტერნეტი", "მობილური", "მაგთიკომი", "სილქნეტი", "ველი", "gwp", "telasi"], "7130", "utility"),
-    (["მომსახურების საფასური", "ბარათის მომსახურება", "sms შეტყობინება", "ყოველთვიური საკომისიო"], "7150", "bank_fee"),
-    (["საშემოსავლო", "მოგების გადასახადი", "სოციალური", "pension", "საპენსიო", "rs.ge", "revenue.mof.ge"], "3100", "tax"),
-    (["საკუთარ ანგარიშზე", "სხვა ანგარიშზე გადარიცხვა", "შიდა გადარიცხვა"], "1210", "transfer"),
-    (["სუპერმარკეტი", "პროდუქტების მაღაზია", "agrohub", "goodwill", "ori nabiji", "smart", "europroduct"], "7191", "grocery"),
-    (["საყოფაცხოვრებო", "სახლის ხარჯი", "რემონტი", "სარემონტო"], "7192", "household"),
-    (["რეკლამა", "სარეკლამო", "პრომაცია"], "7170", "marketing"),
-    (["მიწოდება", "კურიერი", "glopal", "express post"], "7185", "delivery"),
-    (["payment", "client", "customer", "revenue", "sale", "income", "received"], "6100", "income"),
-    (["salary", "payroll", "wage", "ხელფასი", "compensation"], "7210", "salary"),
-    (["rent", "ქირა", "lease", "rental"], "7110", "rent"),
-    (["electricity", "power", "water", "gas", "internet", "mobile", "utility", "komunaluri"], "7130", "utility"),
-    (["software", "subscription", "hosting", "google", "microsoft", "adobe", "openai", "saas"], "7140", "software"),
-    (["bank fee", "commission", "service fee", "account maintenance", "საკომისიო"], "7150", "bank_fee"),
-    (["transfer", "own account", "internal", "გადარიცხვა"], "1210", "transfer"),
-    (["tax", "vat", "rs.ge", "revenue service", "გადასახადი", "დღგ", "sagareo"], "3100", "tax"),
-    (["fuel", "petrol", "gas station", "taxi", "transport", "საწვავი"], "7160", "transport"),
-    (["marketing", "advertising", "ads", "facebook", "google ads"], "7170", "marketing"),
-    (["stationery", "supplies", "კანცელარია"], "7180", "office"),
-    (["courier", "delivery", "shipping", "მიტანა"], "7185", "delivery"),
-    (["grocery", "supermarket", "სასურსათო", "2nabiji", "carrefour", "nikora", "goodwill"], "7191", "grocery"),
-    (["საოჯახო", "household", "home expense"], "7192", "household"),
-    (["კონვერტაცია", "conversion", "exchange"], "1210", "conversion"),
-    (["cost of goods", "cost of service", "cogs"], "7100", "cost_of_goods"),
-    (["pos -", "pos transaction"], "7190", "pos_expense"),
+    (["salary", "payroll", "wage", "compensation"], "7210", "salary"),
+    # ქირა — 7310=ქ.ხ. (7110=COGS — rent is NOT 7110)
+    (["ქირის გადახდა", "იჯარა", "სასტუმრო"], "7310", "rent"),
+    (["rent", "ქირა", "lease", "rental"], "7310", "rent"),
+    # კომუნალური — 7410=კ.ხ.
+    (["ელექტროენერგია", "წყალი", "გაზი", "მაგთიკომი", "სილქნეტი", "ველი", "gwp", "telasi"], "7410", "utility"),
+    (["electricity", "power", "water", "gas", "utility", "komunaluri"], "7410", "utility"),
+    # ინტერნეტი/მობილური — 7810=სხ.ა.ხ.
+    (["ინტერნეტი", "მობილური", "internet", "mobile"], "7810", "software"),
+    # პროგრამული — 7810=სხ.ა.ხ.
+    (["software", "subscription", "hosting", "google", "microsoft", "adobe", "openai", "saas"], "7810", "software"),
+    (["stationery", "supplies", "კანცელარია"], "7810", "office"),
+    # საბანკო საკომისიო — 7510=სბ.სკ.
+    (["მომსახურების საფასური", "ბარათის მომსახურება", "sms შეტყობინება", "ყოველთვიური საკომისიო"], "7510", "bank_fee"),
+    (["bank fee", "commission", "service fee", "account maintenance", "საკომისიო"], "7510", "bank_fee"),
+    # გადასახადები — სწორი ანგარიშები: 3320=PIT, 3330=PAYG, 3310=VAT, 3340=CIT
+    (["საშემოსავლო გადასახადი", "pit", "income tax"], "3320", "pit"),
+    (["საპენსიო", "pension", "payg"], "3330", "payg"),
+    (["დღგ", "vat"], "3310", "vat_payable"),
+    (["მოგების გადასახადი", "cit", "corporate tax"], "3340", "cit"),
+    (["rs.ge", "revenue.mof.ge", "revenue service", "sagareo"], "3320", "tax"),
+    # შიდა გადარიცხვა — 1120=საბანკო ანგ.
+    (["საკუთარ ანგარიშზე", "სხვა ანგარიშზე გადარიცხვა", "შიდა გადარიცხვა"], "1120", "transfer"),
+    (["transfer", "own account", "internal", "გადარიცხვა"], "1120", "transfer"),
+    # სატრანსპორტო — 7730=სატ.ხ.
+    (["fuel", "petrol", "gas station", "taxi", "transport", "საწვავი"], "7730", "transport"),
+    (["courier", "delivery", "shipping", "მიტანა", "მიწოდება", "კურიერი", "glopal", "express post"], "7730", "transport"),
+    # მარკეტინგი — 7710=რ.ხ.
+    (["რეკლამა", "სარეკლამო", "პრომაცია"], "7710", "marketing"),
+    (["marketing", "advertising", "ads", "facebook", "google ads"], "7710", "marketing"),
+    # სხვა ხარჯი — 7910=სხვ.ხ.
+    (["სუპერმარკეტი", "პროდუქტების მაღაზია", "agrohub", "goodwill", "ori nabiji", "smart", "europroduct"], "7910", "other"),
+    (["grocery", "supermarket", "სასურსათო", "2nabiji", "carrefour", "nikora"], "7910", "other"),
+    (["საყოფაცხოვრებო", "სახლის ხარჯი", "რემონტი", "სარემონტო"], "7910", "other"),
+    (["საოჯახო", "household", "home expense"], "7910", "other"),
+    # COGS — 7110=COGS
+    (["cost of goods", "cost of service", "cogs"], "7110", "cost_of_goods"),
+    # კონვერტაცია — 7920=გ.კ.ზ.
+    (["კონვერტაცია", "conversion", "exchange"], "7920", "conversion"),
+    # POS / სხვა — 7910=სხვ.ხ.
+    (["pos -", "pos transaction"], "7910", "pos_expense"),
 ]
 
 

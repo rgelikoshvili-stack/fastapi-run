@@ -165,7 +165,7 @@ def test_tax_salary_endpoint_uses_2pct_employee_and_2pct_employer_pension():
 
     assert data["income_tax_20pct"] == 600
     assert data["pension_employee_2pct"] == 60
-    assert data["pension_employee_4pct"] == 60  # compatibility alias, value is now 2%
+    assert data["pension_employee_2pct_alias"] == 60  # renamed: was pension_employee_4pct (misleading), value is 2%
     assert data["pension_employer_2pct"] == 60
     assert data["net_salary"] == 2340
     assert data["total_employer_cost"] == 3060

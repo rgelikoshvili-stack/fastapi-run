@@ -22,7 +22,6 @@ try:
 except ImportError:
     ACCT_RULES_LOADED = False
     def format_gel(a: float) -> str:
-        require_permission(request, "reports:read")
         return f"{a:,.2f}₾"
  
 router = APIRouter(prefix="/tax", tags=["tax"])
@@ -176,7 +175,7 @@ def calculate_salary(req: SalaryRequest, request: Request):
         "income_tax_20pct": income_tax,
         "income_tax_formatted": format_gel(income_tax),
         "pension_employee_2pct": pension_employee,
-        "pension_employee_4pct": pension_employee,  # deprecated alias kept for API compatibility
+        "pension_employee_2pct_alias": pension_employee,  # deprecated alias — value is 2%, field renamed
         "pension_employee_formatted": format_gel(pension_employee),
         "pension_employer_2pct": pension_employer,
         "net_salary": net_salary,
@@ -294,7 +293,8 @@ async def tax_from_journal(year: int, request: Request):
  
     profit = round(revenue - expenses, 2)
     estimated_vat = round(revenue * 0.18, 2)
-    estimated_corporate = round(profit * 0.15, 2) if profit > 0 else 0
+    # Estonian gross-up: tax_base = profit / 0.85, CIT = base × 15%
+    estimated_corporate = round(profit / 0.85 * 0.15, 2) if profit > 0 else 0
  
     return ok_response("Tax from journal", {
         "year": year,
@@ -338,21 +338,21 @@ async def vat_register(request: Request, year: Optional[int] = None, month: Opti
             FROM journal_drafts
             WHERE {where}
               AND (
-                    account_code IN ('1760', '3310', '3311', '3410', '1230', '1231')
-                 OR debit_account IN ('1760', '3310', '3311', '3410', '1230', '1231')
-                 OR credit_account IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                    account_code IN ('3310', '3311')
+                 OR debit_account IN ('3310', '3311')
+                 OR credit_account IN ('3310', '3311')
                  OR EXISTS (
                     SELECT 1
                     FROM jsonb_array_elements(COALESCE(journal_entries, '[]'::jsonb)) AS entry
-                    WHERE entry->>'dr' IN ('1760', '3310', '3311', '3410', '1230', '1231')
-                       OR entry->>'cr' IN ('1760', '3310', '3311', '3410', '1230', '1231')
+                    WHERE entry->>'dr' IN ('3310', '3311')
+                       OR entry->>'cr' IN ('3310', '3311')
                  )
               )
             ORDER BY created_at DESC, id DESC
         """), *params)]
 
-    input_accounts = {"1760", "3311"}
-    output_accounts = {"3310", "3410", "1230", "1231"}
+    input_accounts = {"3311"}
+    output_accounts = {"3310"}
     input_vat = 0.0
     output_vat = 0.0
     for row in rows:

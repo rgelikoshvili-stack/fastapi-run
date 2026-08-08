@@ -88,10 +88,14 @@ class GeorgianJSONResponse(JSONResponse):
 
 
 # --- APP ---
+_show_docs = os.getenv("SHOW_DOCS", "false").lower() == "true"
 app = FastAPI(
     title="Bridge Hub v1.0.0",
     version="1.0.0",
     default_response_class=GeorgianJSONResponse,
+    docs_url="/docs" if _show_docs else None,
+    redoc_url="/redoc" if _show_docs else None,
+    openapi_url="/openapi.json" if _show_docs else None,
 )
 
 # --- STATIC FILES ---

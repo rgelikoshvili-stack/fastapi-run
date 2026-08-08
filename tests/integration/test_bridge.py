@@ -1,5 +1,6 @@
-# test_bridge.py - FIXED Tests
+# test_bridge.py — Bridge protocol routes were removed; keeping tests for reference.
 import pytest
+pytest.skip("Bridge protocol routes (PROCESSED_MESSAGES/IN_MEMORY_LOG) removed from main.py", allow_module_level=True)
 from fastapi.testclient import TestClient
 from main import app, PROCESSED_MESSAGES, IN_MEMORY_LOG
 

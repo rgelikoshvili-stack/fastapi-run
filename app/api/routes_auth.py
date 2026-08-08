@@ -140,7 +140,7 @@ def _send_reset_email(to_email: str, reset_link: str):
     smtp_user = os.environ.get("SMTP_USER", "")
     smtp_pass = os.environ.get("SMTP_PASS", "")
     if not smtp_user or not smtp_pass:
-        log.warning("SMTP not configured — reset link: %s", reset_link)
+        log.warning("SMTP not configured — reset link not sent for email=%s", to_email)
         return
 
     msg = MIMEMultipart("alternative")

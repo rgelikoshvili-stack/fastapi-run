@@ -1,9 +1,12 @@
+import logging
+import uuid
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.storage.database import SessionLocal
 from app.storage import models
-import uuid
-from datetime import datetime, timezone
+
+log = logging.getLogger(__name__)
 
 def save_journal_entry(entry: dict):
     db: Session = SessionLocal()
@@ -35,7 +38,7 @@ def save_journal_entry(entry: dict):
         return True
     except Exception as e:
         db.rollback()
-        print(f"DB save error: {e}")
+        log.warning("action=db_save_error error=%s", e)
         return False
     finally:
         db.close()
@@ -101,7 +104,7 @@ def save_vat_return(company_id: str, period: dict, totals: dict):
         return obj.id
     except Exception as e:
         db.rollback()
-        print(f"VAT return save error: {e}")
+        log.warning("action=vat_return_save_error error=%s", e)
         return None
     finally:
         db.close()

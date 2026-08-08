@@ -1,19 +1,16 @@
-from fastapi import APIRouter, Header
+import logging
+import secrets
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
 from typing import Optional
 from app.api.db import get_conn, _q
-from app.api.authz import ROLE_PERMISSIONS, has_role_permission
+from app.api.authz import ROLE_PERMISSIONS, has_role_permission, require_permission
 from app.api.response_utils import ok_response, error_response
-from app.api.authz import require_permission
 
+log = logging.getLogger(__name__)
 
-async def get_user_by_key(api_key: str):
-    require_permission(request, "tenants:manage")
-    async with get_conn() as conn:
-        row = await conn.fetchrow(_q("SELECT * FROM users WHERE api_key=%s AND active=TRUE"), api_key)
-    return dict(row) if row else None
+router = APIRouter(prefix="/rbac", tags=["rbac"])
 
-router = APIRouter(prefix="/auth", tags=["auth"])
 
 class UserCreate(BaseModel):
     name: str
@@ -21,8 +18,15 @@ class UserCreate(BaseModel):
     role: str = "accountant"
     tenant_id: Optional[int] = None
 
+
+async def get_user_by_key(api_key: str):
+    async with get_conn() as conn:
+        row = await conn.fetchrow(_q("SELECT * FROM users WHERE api_key=%s AND active=TRUE"), api_key)
+    return dict(row) if row else None
+
+
 @router.get("/me-apikey")
-async def get_me(x_api_key: Optional[str] = Header(None)):
+async def get_me(request: Request, x_api_key: Optional[str] = Header(None)):
     require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("API key required", "AUTH_ERROR", "Pass X-Api-Key header")
@@ -35,11 +39,12 @@ async def get_me(x_api_key: Optional[str] = Header(None)):
         "name": user["name"],
         "email": user["email"],
         "role": user["role"],
-        "permissions": perms
+        "permissions": perms,
     })
 
+
 @router.get("/users")
-async def list_users(x_api_key: Optional[str] = Header(None)):
+async def list_users(request: Request, x_api_key: Optional[str] = Header(None)):
     require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
@@ -51,8 +56,9 @@ async def list_users(x_api_key: Optional[str] = Header(None)):
             "SELECT id, name, email, role, active, created_at FROM users ORDER BY id")]
     return ok_response("Users", {"count": len(users), "users": users})
 
+
 @router.post("/users/create")
-async def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None)):
+async def create_user(data: UserCreate, request: Request, x_api_key: Optional[str] = Header(None)):
     require_permission(request, "tenants:manage")
     if not x_api_key:
         return error_response("Auth required", "AUTH_ERROR", "")
@@ -62,7 +68,6 @@ async def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None))
     if data.role not in ROLE_PERMISSIONS:
         return error_response("Invalid role", "VALIDATION_ERROR", f"Use: {list(ROLE_PERMISSIONS.keys())}")
     try:
-        import secrets
         api_key = secrets.token_hex(16)
         async with get_conn() as conn:
             new_id = await conn.fetchval(_q(
@@ -72,7 +77,8 @@ async def create_user(data: UserCreate, x_api_key: Optional[str] = Header(None))
         return error_response("Create failed", "CREATE_ERROR", str(e))
     return ok_response("User created", {"id": new_id, "email": data.email, "role": data.role, "api_key": api_key})
 
+
 @router.get("/roles")
-def list_roles():
+def list_roles(request: Request):
     require_permission(request, "tenants:manage")
     return ok_response("Roles & permissions", {r: sorted(p) for r, p in ROLE_PERMISSIONS.items()})

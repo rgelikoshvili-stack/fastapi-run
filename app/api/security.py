@@ -46,23 +46,40 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-# TODO(security): legacy static HTML still uses inline scripts/styles.
-# Move it to nonces/hashes before removing 'unsafe-inline' globally.
-SECURITY_HEADERS = {
+# CSP policy — two tiers:
+#   SECURITY_HEADERS       : strict — applied to all /api/ routes (no unsafe-inline)
+#   SECURITY_HEADERS_STATIC: lenient — applied to /static/ HTML pages that still use inline scripts
+# TODO(security): migrate static HTML to external JS files and remove SECURITY_HEADERS_STATIC.
+
+_CSP_COMMON = (
+    "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+    "img-src 'self' data: https: blob:; "
+    "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com https://fonts.gstatic.com; "
+    f"connect-src 'self' {os.getenv('APP_BASE_URL', '')} https://storage.googleapis.com; "
+    "frame-src 'self' blob:; "
+    "object-src 'none';"
+)
+
+_CSP_STRICT = (
+    _CSP_COMMON
+    + "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+    + "style-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
+)
+
+_CSP_STATIC = (
+    _CSP_COMMON
+    + "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+    + "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
+)
+
+_BASE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
     "X-XSS-Protection": "1; mode=block",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": (
-        "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com; "
-        "img-src 'self' data: https: blob:; "
-        "font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com https://fonts.gstatic.com; "
-        f"connect-src 'self' {os.getenv('APP_BASE_URL', '')} https://storage.googleapis.com; "
-        "frame-src 'self' blob:; "
-        "object-src 'self' blob:;"
-    ),
 }
+
+SECURITY_HEADERS = {**_BASE_HEADERS, "Content-Security-Policy": _CSP_STRICT}
+SECURITY_HEADERS_STATIC = {**_BASE_HEADERS, "Content-Security-Policy": _CSP_STATIC}

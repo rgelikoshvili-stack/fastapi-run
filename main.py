@@ -56,7 +56,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS
+from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS, SECURITY_HEADERS_STATIC
 
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -216,7 +216,9 @@ async def https_redirect(request: Request, call_next):
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
-    for k, v in SECURITY_HEADERS.items():
+    # Static HTML pages use inline scripts — apply lenient CSP for those paths only.
+    headers = SECURITY_HEADERS_STATIC if request.url.path.startswith("/static/") else SECURITY_HEADERS
+    for k, v in headers.items():
         response.headers[k] = v
     if "X-Powered-By" in response.headers:
         del response.headers["X-Powered-By"]
@@ -301,10 +303,13 @@ async def _run_startup_maintenance() -> None:
         log.warning("action=asyncpg_pool_init_failed non_fatal=true error=%s", e)
 
     loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, _run_db_migrations)
-    except Exception:
-        log.exception("action=db_migration_failed non_fatal=true")
+    if os.getenv("SKIP_MIGRATIONS", "false").lower() != "true":
+        try:
+            await loop.run_in_executor(None, _run_db_migrations)
+        except Exception:
+            log.exception("action=db_migration_failed non_fatal=true")
+    else:
+        log.info("action=db_migrations_skipped reason=SKIP_MIGRATIONS=true")
     try:
         await _ensure_email_tables()
         log.info("action=email_collector_tables_ready")

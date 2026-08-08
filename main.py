@@ -333,6 +333,12 @@ async def _run_startup_maintenance() -> None:
     except Exception as e:
         log.warning("action=inventory_tables_migration_failed non_fatal=true error=%s", e)
     try:
+        from app.startup.migrations_rsge import run_rsge_migrations
+        await loop.run_in_executor(None, run_rsge_migrations)
+        log.info("action=rsge_tables_ready")
+    except Exception as e:
+        log.warning("action=rsge_migrations_failed non_fatal=true error=%s", e)
+    try:
         from app.integrations.nbg_api import sync_rates_to_db
         from app.api.db import get_db_sync as _get_db_sync
 

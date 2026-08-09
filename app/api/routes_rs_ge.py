@@ -23,9 +23,25 @@ router = APIRouter(tags=["RS.ge"])
 # ── Connector helper ──────────────────────────────────────────────────────────
 
 def _connector(request: Request):
-    tenant_id = getattr(request.state, "tenant_id", "default")
+    """Build RsGeConnector, falling back to in-process credential cache if env vars absent."""
+    tenant_id = getattr(request.state, "tenant_id", "default") or "default"
     from app.api.connectors.rs_ge_connector import RsGeConnector
-    return RsGeConnector(tenant_id=tenant_id or "default")
+    conn = RsGeConnector(tenant_id=tenant_id)
+    if conn.mode == "demo":
+        creds = _cred_cache.get(tenant_id, {})
+        su = creds.get("su", "")
+        sp = creds.get("sp", "")
+        if su and sp:
+            conn.su = su
+            conn.sp = sp
+            conn.un_id = creds.get("un_id", "")
+            conn.mode = "live"
+    return conn
+
+
+# In-process cache: populated by auth/start so connector works without env vars.
+# Survives request lifetime; lost on process restart (env vars take over on restart).
+_cred_cache: dict = {}
 
 
 def _tid(request: Request) -> str:
@@ -87,6 +103,9 @@ async def auth_start(body: SoapAuthRequest, request: Request):
             actor=_actor(request), skip_verify=body.skip_verify,
         )
     if result.get("connected"):
+        # Populate in-process cache so connector works without env vars this session
+        _cred_cache[_tid(request)] = {"su": body.su, "sp": body.sp,
+                                       "un_id": result.get("un_id") or ""}
         return ok_response("RS.ge კავშირი დამყარდა", result)
     return error_response("RS.ge კავშირი ვერ დამყარდა", "AUTH_FAILED",
                           result.get("error", ""))

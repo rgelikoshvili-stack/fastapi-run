@@ -586,9 +586,13 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
               <input class="inp" id="rsgePassword" type="password" placeholder="RS.ge პაროლი" autocomplete="new-password"/>
             </div>
           </div>
-          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+          <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="rsgeSkipVerify" style="width:16px;height:16px;cursor:pointer"/>
+            <label for="rsgeSkipVerify" class="lbl" style="cursor:pointer;font-weight:400">RS.ge ვერიფიკაციის გამოტოვება (skip_verify) — სატესტო credentials-ისთვის</label>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
             <button class="btn btn-outline btn-sm" onclick="testRsGeConn()">🔌 სტატუსის შემოწმება</button>
-            <button class="btn btn-primary btn-sm" onclick="saveRsGeCreds()">💾 შენახვა და ვერიფიკაცია</button>
+            <button class="btn btn-primary btn-sm" onclick="saveRsGeCreds()">💾 შენახვა</button>
           </div>
           <div id="rsge-msg" style="margin-top:12px;font-size:13px;min-height:18px"></div>
         </div>
@@ -1137,22 +1141,24 @@ async function testRsGeConn() {
 async function saveRsGeCreds() {
   const su = document.getElementById('rsgeUsername').value.trim();
   const sp = document.getElementById('rsgePassword').value.trim();
+  const skipVerify = document.getElementById('rsgeSkipVerify').checked;
   const msg = document.getElementById('rsge-msg');
   if (!su) { msg.textContent = '⚠ სერვისის მომხმარებელი (su) აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
   if (!sp) { msg.textContent = '⚠ პაროლი (sp) აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
-  msg.textContent = '⏳ ვამოწმებ RS.ge-ზე...';
+  msg.textContent = skipVerify ? '⏳ ვინახავ...' : '⏳ ვამოწმებ RS.ge-ზე...';
   msg.style.color = 'var(--ink-mute)';
-  const d = await api('/rs-ge/auth/start', 'POST', { su, sp, skip_verify: false });
+  const d = await api('/rs-ge/auth/start', 'POST', { su, sp, skip_verify: skipVerify });
   if (d && d.ok && d.data && d.data.connected) {
-    msg.textContent = `✅ დაკავშირდა! masked: ${d.data.masked_su || ''}`;
+    const hint = d.data.masked_su || su;
+    msg.textContent = `✅ ${skipVerify ? 'შენახულია (ვერ. გარეშე)' : 'დაკავშირდა!'} · ${hint}`;
     msg.style.color = 'var(--green)';
     document.getElementById('rsgePassword').value = '';
-    document.getElementById('rsge-status-chip').textContent = `✓ დაყენებულია · ${d.data.masked_su || su}`;
+    document.getElementById('rsge-status-chip').textContent = `✓ დაყენებულია · ${hint}`;
     document.getElementById('rsge-status-chip').className = 'chip chip-approved';
     toast('RS.ge credentials შენახულია', 'ok');
   } else {
     const err = d?.data?.error || d?.error || d?.message || 'შეცდომა';
-    msg.textContent = '❌ ' + err;
+    msg.textContent = '❌ ' + err + (skipVerify ? '' : ' → სცადე "skip_verify" checkbox-ით');
     msg.style.color = 'var(--red)';
   }
 }

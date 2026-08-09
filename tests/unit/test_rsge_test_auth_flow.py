@@ -24,6 +24,21 @@ def test_auth_service_has_verify_pin():
     assert hasattr(m, "verify_pin")
 
 
+def test_eapi_auth_start_route_exposed():
+    import app.api.routes_rs_ge as routes_mod
+    src = inspect.getsource(routes_mod)
+    assert '"/auth/eapi/start"' in src
+    assert "start_eapi_auth" in src
+    assert "settings:write" in src
+
+
+def test_rsge_api_alias_registered():
+    import app.core.router_registry as registry
+    src = inspect.getsource(registry)
+    assert 'prefix="/api/rsge"' in src
+    assert 'prefix="/rs-ge"' in src
+
+
 def test_auth_service_has_get_connection_status():
     from app.api.services import rsge_auth_service as m
     assert hasattr(m, "get_connection_status")

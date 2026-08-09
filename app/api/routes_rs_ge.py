@@ -17,7 +17,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.services.rsge_config import mode_summary, require_test_mode, require_action_flag
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/rs-ge", tags=["RS.ge"])
+router = APIRouter(tags=["RS.ge"])
 
 
 # ── Connector helper ──────────────────────────────────────────────────────────
@@ -90,6 +90,29 @@ async def auth_start(body: SoapAuthRequest, request: Request):
         return ok_response("RS.ge კავშირი დამყარდა", result)
     return error_response("RS.ge კავშირი ვერ დამყარდა", "AUTH_FAILED",
                           result.get("error", ""))
+
+
+@router.post("/auth/eapi/start")
+async def auth_eapi_start(body: EapiAuthRequest, request: Request):
+    """Start RSoAuth/eAPI flow using PublicKey + SecretKey.
+
+    Returns connected=True for one-step auth, or masked_mobile for PIN flow.
+    Raw keys and tokens are never returned.
+    """
+    require_permission(request, "settings:write")
+    from app.api.db import get_conn
+    from app.api.services.rsge_auth_service import start_eapi_auth
+    async with get_conn() as conn:
+        result = await start_eapi_auth(
+            conn,
+            _tid(request),
+            body.public_key,
+            body.secret_key,
+            actor=_actor(request),
+        )
+    if result.get("connected") or result.get("steps") == 2:
+        return ok_response("RS.ge eAPI auth started", result)
+    return error_response("RS.ge eAPI auth failed", "EAPI_AUTH_FAILED", result.get("error", ""))
 
 
 @router.post("/auth/verify-pin")

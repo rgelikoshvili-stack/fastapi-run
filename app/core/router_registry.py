@@ -226,4 +226,5 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(admin_dashboard_router)
 
     from app.api.routes_rs_ge import router as rs_ge_router
-    app.include_router(rs_ge_router)
+    app.include_router(rs_ge_router, prefix="/rs-ge")
+    app.include_router(rs_ge_router, prefix="/api/rsge")

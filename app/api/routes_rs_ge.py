@@ -97,13 +97,20 @@ async def auth_start(body: SoapAuthRequest, request: Request):
     require_permission(request, "settings:write")
     from app.api.db import get_conn
     from app.api.services.rsge_auth_service import start_soap_auth
-    async with get_conn() as conn:
-        result = await start_soap_auth(
-            conn, _tid(request), body.su, body.sp,
-            actor=_actor(request), skip_verify=body.skip_verify,
+    try:
+        async with get_conn() as conn:
+            result = await start_soap_auth(
+                conn, _tid(request), body.su, body.sp,
+                actor=_actor(request), skip_verify=body.skip_verify,
+            )
+    except Exception as exc:
+        log.exception("[RS.GE] auth_start vault error tenant=%s", _tid(request))
+        return error_response(
+            "RS.ge კავშირი ვერ შეიქმნა (vault error)",
+            "VAULT_ERROR",
+            "Credential vault operation failed",
         )
     if result.get("connected"):
-        # Populate in-process cache so connector works without env vars this session
         _cred_cache[_tid(request)] = {"su": body.su, "sp": body.sp,
                                        "un_id": result.get("un_id") or ""}
         return ok_response("RS.ge კავშირი დამყარდა", result)

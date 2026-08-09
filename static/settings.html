@@ -636,7 +636,11 @@ function getToken() { return localStorage.getItem('access_token')||localStorage.
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() } };
   if (body) opts.body = JSON.stringify(body);
-  try { const r = await fetch(path, opts); return await r.json(); } catch { return null; }
+  try {
+    const r = await fetch(path, opts);
+    if (r.status === 401) { window.location.href = '/static/login.html'; return null; }
+    return await r.json();
+  } catch { return null; }
 }
 
 function esc(s) {
@@ -1157,9 +1161,13 @@ async function saveRsGeCreds() {
     document.getElementById('rsge-status-chip').className = 'chip chip-approved';
     toast('RS.ge credentials შენახულია', 'ok');
   } else {
-    const err = d?.data?.error || d?.error || d?.message || 'შეცდომა';
+    const errObj = d?.error || d?.data?.error;
+    const err = (typeof errObj === 'string') ? errObj
+              : (errObj?.details || errObj?.code || JSON.stringify(errObj))
+              || d?.message || d?.detail || 'უცნობი შეცდომა';
     msg.textContent = '❌ ' + err + (skipVerify ? '' : ' → სცადე "skip_verify" checkbox-ით');
     msg.style.color = 'var(--red)';
+    console.error('RS.ge auth error:', d);
   }
 }
 

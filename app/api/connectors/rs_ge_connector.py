@@ -418,14 +418,16 @@ class RsGeConnector(BaseConnector):
             invoices = []
             for inv in resp.iter("INVOICE"):
                 invoices.append({
-                    "id":             _xml_text(inv, "ID"),
-                    "invoice_no":     _xml_text(inv, "INVOICE_NUMBER"),
-                    "status":         _xml_text(inv, "STATUS"),
-                    "buyer_tin":      _xml_text(inv, "BUYER_TIN"),
-                    "buyer_name":     _xml_text(inv, "BUYER_NAME"),
-                    "operation_date": _xml_text(inv, "OPERATION_DATE"),
-                    "total":          _xml_text(inv, "TOTAL"),
-                    "vat":            _xml_text(inv, "VAT"),
+                    "ID":             _xml_text(inv, "ID"),
+                    "INVOICE_NUMBER": _xml_text(inv, "INVOICE_NUMBER"),
+                    "STATUS":         _xml_text(inv, "STATUS"),
+                    "SELLER_TIN":     _xml_text(inv, "SELLER_TIN"),
+                    "SELLER_NAME":    _xml_text(inv, "SELLER_NAME"),
+                    "BUYER_TIN":      _xml_text(inv, "BUYER_TIN"),
+                    "BUYER_NAME":     _xml_text(inv, "BUYER_NAME"),
+                    "OPERATION_DATE": _xml_text(inv, "OPERATION_DATE"),
+                    "TOTAL":          _xml_text(inv, "TOTAL"),
+                    "VAT":            _xml_text(inv, "VAT"),
                 })
             return invoices[:limit]
         except Exception as exc:

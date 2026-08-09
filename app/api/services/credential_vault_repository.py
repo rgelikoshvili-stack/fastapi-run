@@ -10,6 +10,7 @@ Never performs encryption or decryption.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -47,7 +48,7 @@ class CredentialVaultRepository:
         updated_by: Optional[str] = None,
     ) -> dict:
         now = datetime.now(timezone.utc)
-        meta = metadata or {}
+        meta_json = json.dumps(metadata or {})
         row = await conn.fetchrow(
             """
             INSERT INTO credential_vault_credentials (
@@ -55,7 +56,7 @@ class CredentialVaultRepository:
                 encrypted_value, key_version, masked_hint,
                 status, active, company_id, api_base, metadata,
                 created_at, updated_at, created_by, updated_by
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$12,$13,$14)
             ON CONFLICT (tenant_id, provider, credential_type)
             DO UPDATE SET
                 encrypted_value = EXCLUDED.encrypted_value,
@@ -74,7 +75,7 @@ class CredentialVaultRepository:
             """,
             tenant_id, provider, credential_type,
             encrypted_value, key_version, masked_hint,
-            status, active, company_id, api_base, meta,
+            status, active, company_id, api_base, meta_json,
             now, created_by, updated_by,
         )
         return dict(row) if row else {}
@@ -207,17 +208,17 @@ class CredentialVaultRepository:
         request_id: Optional[str] = None,
         metadata: Optional[dict] = None,
     ) -> None:
-        meta = metadata or {}
+        meta_json = json.dumps(metadata or {})
         try:
             await conn.execute(
                 """
                 INSERT INTO credential_vault_audit_events (
                     tenant_id, provider, credential_type, action,
                     actor, purpose, result, key_version, request_id, metadata
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
                 """,
                 tenant_id, provider, credential_type, action,
-                actor, purpose, result, key_version, request_id, meta,
+                actor, purpose, result, key_version, request_id, meta_json,
             )
         except Exception as exc:
             # Audit failures must not block the primary operation

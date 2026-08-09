@@ -18,6 +18,8 @@ import logging
 import os
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from html import unescape as html_unescape
+from xml.sax.saxutils import escape as xml_escape
 from typing import Optional
 
 import requests
@@ -30,7 +32,7 @@ _WAYBILL_WSDL  = "https://services.rs.ge/WayBillService/WayBillService.asmx"
 _INVOICE_WSDL  = "https://www.revenue.mof.ge/ntosservice/ntosservice.asmx"
 _TAXPAYER_REST = "https://xdata.rs.ge/TaxPayer/RSPublicInfo"
 _SOAP_NS       = "http://schemas.xmlsoap.org/soap/envelope/"
-_WB_NS         = "http://services.rs.ge/"
+_WB_NS         = "http://tempuri.org/"
 _INV_NS        = "http://tempuri.org/"
 
 WAYBILL_TYPES = {1: "შიდა გადაზიდვა", 2: "მიწოდება ტრანსპორტირებით",
@@ -43,7 +45,7 @@ def _soap_call(endpoint: str, method: str, ns: str, params: dict,
                timeout: int = 30) -> ET.Element:
     """Send a SOAP request and return the parsed response body element."""
     body_inner = "".join(
-        f"<{k}>{v}</{k}>" for k, v in params.items() if not k.startswith("_xml_")
+        f"<{k}>{xml_escape(str(v))}</{k}>" for k, v in params.items() if not k.startswith("_xml_")
     )
     for k, v in params.items():
         if k.startswith("_xml_"):
@@ -82,8 +84,48 @@ def _soap_call(endpoint: str, method: str, ns: str, params: dict,
 def _xml_text(element: Optional[ET.Element], tag: str, default: str = "") -> str:
     if element is None:
         return default
-    el = element.find(tag)
+    el = _find_first(element, tag)
     return (el.text or default).strip() if el is not None else default
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _find_first(element: Optional[ET.Element], tag: str) -> Optional[ET.Element]:
+    if element is None:
+        return None
+    for el in element.iter():
+        if _local_name(el.tag) == tag:
+            return el
+    return None
+
+
+def _parse_xml_payload(text: str) -> Optional[ET.Element]:
+    text = (text or "").strip()
+    if not text:
+        return None
+    for candidate in (text, html_unescape(text)):
+        try:
+            return ET.fromstring(candidate.encode("utf-8"))
+        except Exception:
+            continue
+    return None
+
+
+def _result_xml(response: ET.Element, result_tag: str) -> ET.Element:
+    """Return parsed XML contained in an ASMX *Result node, or the response."""
+    result_el = _find_first(response, result_tag)
+    if result_el is None:
+        return response
+    if list(result_el):
+        return result_el
+    parsed = _parse_xml_payload(result_el.text or "")
+    return parsed if parsed is not None else result_el
+
+
+def _x(value) -> str:
+    return xml_escape(str(value or ""))
 
 
 def _build_waybill_xml(wb: dict) -> str:
@@ -93,14 +135,14 @@ def _build_waybill_xml(wb: dict) -> str:
         goods += (
             "<GOODS>"
             f"<ID>{g.get('id', 0)}</ID>"
-            f"<W_NAME>{g.get('name', '')}</W_NAME>"
+            f"<W_NAME>{_x(g.get('name', ''))}</W_NAME>"
             f"<UNIT_ID>{g.get('unit_id', 1)}</UNIT_ID>"
-            f"<UNIT_TXT>{g.get('unit_txt', '')}</UNIT_TXT>"
+            f"<UNIT_TXT>{_x(g.get('unit_txt', ''))}</UNIT_TXT>"
             f"<QUANTITY>{g.get('quantity', 0)}</QUANTITY>"
             f"<PRICE>{g.get('price', 0)}</PRICE>"
             f"<STATUS>1</STATUS>"
             f"<AMOUNT>{g.get('amount', 0)}</AMOUNT>"
-            f"<BAR_CODE>{g.get('bar_code', '')}</BAR_CODE>"
+            f"<BAR_CODE>{_x(g.get('bar_code', ''))}</BAR_CODE>"
             f"<A_ID>{g.get('akciz_id', 0)}</A_ID>"
             f"<VAT_TYPE>{g.get('vat_type', 1)}</VAT_TYPE>"
             f"<QUANTITY_EXT>{g.get('quantity_ext', 0)}</QUANTITY_EXT>"
@@ -114,29 +156,29 @@ def _build_waybill_xml(wb: dict) -> str:
         "<WOOD_DOCS_LIST></WOOD_DOCS_LIST>"
         f"<ID>{wb.get('id', 0)}</ID>"
         f"<TYPE>{wb.get('type', 2)}</TYPE>"
-        f"<BUYER_TIN>{wb.get('buyer_tin', '')}</BUYER_TIN>"
+        f"<BUYER_TIN>{_x(wb.get('buyer_tin', ''))}</BUYER_TIN>"
         f"<CHEK_BUYER_TIN>{wb.get('check_buyer_tin', 1)}</CHEK_BUYER_TIN>"
-        f"<BUYER_NAME>{wb.get('buyer_name', '')}</BUYER_NAME>"
-        f"<START_ADDRESS>{wb.get('start_address', '')}</START_ADDRESS>"
-        f"<END_ADDRESS>{wb.get('end_address', '')}</END_ADDRESS>"
-        f"<DRIVER_TIN>{wb.get('driver_tin', '')}</DRIVER_TIN>"
+        f"<BUYER_NAME>{_x(wb.get('buyer_name', ''))}</BUYER_NAME>"
+        f"<START_ADDRESS>{_x(wb.get('start_address', ''))}</START_ADDRESS>"
+        f"<END_ADDRESS>{_x(wb.get('end_address', ''))}</END_ADDRESS>"
+        f"<DRIVER_TIN>{_x(wb.get('driver_tin', ''))}</DRIVER_TIN>"
         f"<CHEK_DRIVER_TIN>{wb.get('check_driver_tin', 1)}</CHEK_DRIVER_TIN>"
-        f"<DRIVER_NAME>{wb.get('driver_name', '')}</DRIVER_NAME>"
+        f"<DRIVER_NAME>{_x(wb.get('driver_name', ''))}</DRIVER_NAME>"
         f"<TRANSPORT_COAST>{wb.get('transport_cost', 0)}</TRANSPORT_COAST>"
-        f"<RECEPTION_INFO>{wb.get('reception_info', '')}</RECEPTION_INFO>"
-        f"<RECEIVER_INFO>{wb.get('receiver_info', '')}</RECEIVER_INFO>"
+        f"<RECEPTION_INFO>{_x(wb.get('reception_info', ''))}</RECEPTION_INFO>"
+        f"<RECEIVER_INFO>{_x(wb.get('receiver_info', ''))}</RECEIVER_INFO>"
         f"<DELIVERY_DATE></DELIVERY_DATE>"
         f"<STATUS>{wb.get('status', 1)}</STATUS>"
         f"<SELER_UN_ID>{wb.get('seller_un_id', '')}</SELER_UN_ID>"
-        f"<PAR_ID>{wb.get('parent_id', '')}</PAR_ID>"
+        f"<PAR_ID>{_x(wb.get('parent_id', ''))}</PAR_ID>"
         f"<FULL_AMOUNT>{wb.get('full_amount', 0)}</FULL_AMOUNT>"
-        f"<CAR_NUMBER>{wb.get('car_number', '')}</CAR_NUMBER>"
-        f"<S_USER_ID>{wb.get('s_user_id', '')}</S_USER_ID>"
+        f"<CAR_NUMBER>{_x(wb.get('car_number', ''))}</CAR_NUMBER>"
+        f"<S_USER_ID>{_x(wb.get('s_user_id', ''))}</S_USER_ID>"
         f"<BEGIN_DATE>{begin}</BEGIN_DATE>"
         f"<TRAN_COST_PAYER>{wb.get('tran_cost_payer', 1)}</TRAN_COST_PAYER>"
         f"<TRANS_ID>{wb.get('trans_id', 1)}</TRANS_ID>"
         f"<TRANS_TXT></TRANS_TXT>"
-        f"<COMMENT>{wb.get('comment', '')}</COMMENT>"
+        f"<COMMENT>{_x(wb.get('comment', ''))}</COMMENT>"
         f"<CATEGORY></CATEGORY>"
         f"<IS_MED></IS_MED>"
         "</WAYBILL>"
@@ -239,10 +281,14 @@ class RsGeConnector(BaseConnector):
             resp = _soap_call(
                 _WAYBILL_WSDL, "get_waybills_v1", _WB_NS,
                 {"su": self.su, "sp": self.sp,
-                 "last_update_date_s": start, "last_update_date_e": end}
+                 "last_update_date_s": start, "last_update_date_e": end,
+                 "buyer_tin": ""}
             )
+            payload = _result_xml(resp, "get_waybills_v1Result")
             items = []
-            for wb in resp.iter("WAYBILL"):
+            for wb in payload.iter():
+                if _local_name(wb.tag) != "WAYBILL":
+                    continue
                 items.append({
                     "id":             _xml_text(wb, "ID"),
                     "waybill_number": _xml_text(wb, "WAYBILL_NUMBER"),
@@ -272,8 +318,11 @@ class RsGeConnector(BaseConnector):
                 _WAYBILL_WSDL, "get_waybill", _WB_NS,
                 {"su": self.su, "sp": self.sp, "waybill_id": waybill_id}
             )
+            payload = _result_xml(resp, "get_waybillResult")
             goods = []
-            for g in resp.iter("GOODS"):
+            for g in payload.iter():
+                if _local_name(g.tag) != "GOODS":
+                    continue
                 goods.append({
                     "id":       _xml_text(g, "ID"),
                     "name":     _xml_text(g, "W_NAME"),
@@ -284,18 +333,18 @@ class RsGeConnector(BaseConnector):
                     "bar_code": _xml_text(g, "BAR_CODE"),
                 })
             return {
-                "id":             _xml_text(resp, "ID"),
-                "waybill_number": _xml_text(resp, "WAYBILL_NUMBER"),
-                "type":           _xml_text(resp, "TYPE"),
-                "status":         _xml_text(resp, "STATUS"),
-                "buyer_name":     _xml_text(resp, "BUYER_NAME"),
-                "buyer_tin":      _xml_text(resp, "BUYER_TIN"),
-                "start_address":  _xml_text(resp, "START_ADDRESS"),
-                "end_address":    _xml_text(resp, "END_ADDRESS"),
-                "driver_name":    _xml_text(resp, "DRIVER_NAME"),
-                "car_number":     _xml_text(resp, "CAR_NUMBER"),
-                "full_amount":    _xml_text(resp, "FULL_AMOUNT"),
-                "begin_date":     _xml_text(resp, "BEGIN_DATE"),
+                "id":             _xml_text(payload, "ID"),
+                "waybill_number": _xml_text(payload, "WAYBILL_NUMBER"),
+                "type":           _xml_text(payload, "TYPE"),
+                "status":         _xml_text(payload, "STATUS"),
+                "buyer_name":     _xml_text(payload, "BUYER_NAME"),
+                "buyer_tin":      _xml_text(payload, "BUYER_TIN"),
+                "start_address":  _xml_text(payload, "START_ADDRESS"),
+                "end_address":    _xml_text(payload, "END_ADDRESS"),
+                "driver_name":    _xml_text(payload, "DRIVER_NAME"),
+                "car_number":     _xml_text(payload, "CAR_NUMBER"),
+                "full_amount":    _xml_text(payload, "FULL_AMOUNT"),
+                "begin_date":     _xml_text(payload, "BEGIN_DATE"),
                 "goods_list":     goods,
             }
         except Exception as exc:
@@ -325,8 +374,9 @@ class RsGeConnector(BaseConnector):
                 _WAYBILL_WSDL, "get_waybill_types", _WB_NS,
                 {"su": self.su, "sp": self.sp}
             )
+            payload = _result_xml(resp, "get_waybill_typesResult")
             return [{"id": _xml_text(t, "ID"), "name": _xml_text(t, "NAME")}
-                    for t in resp.iter("WAYBILL_TYPE")]
+                    for t in payload.iter() if _local_name(t.tag) == "WAYBILL_TYPE"]
         except Exception as exc:
             log.warning("[RS.GE] get_waybill_types failed: %s", exc)
             return [{"id": k, "name": v} for k, v in WAYBILL_TYPES.items()]
@@ -342,8 +392,9 @@ class RsGeConnector(BaseConnector):
                 _WAYBILL_WSDL, "get_waybill_units", _WB_NS,
                 {"su": self.su, "sp": self.sp}
             )
+            payload = _result_xml(resp, "get_waybill_unitsResult")
             return [{"id": _xml_text(u, "ID"), "name": _xml_text(u, "NAME")}
-                    for u in resp.iter("WAYBILL_UNIT")]
+                    for u in payload.iter() if _local_name(u.tag) == "WAYBILL_UNIT"]
         except Exception as exc:
             log.warning("[RS.GE] get_waybill_units failed: %s", exc)
             return []

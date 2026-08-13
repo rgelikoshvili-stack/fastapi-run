@@ -271,40 +271,87 @@ class RsGeConnector(BaseConnector):
             log.warning("[RS.GE] save_waybill failed: %s", exc)
             return self._build_error(str(exc)[:200])
 
-    def history(self, tenant_id: str, limit: int = 50) -> list:
-        """Fetch recent waybills from RS.ge."""
+    def history(self, tenant_id: str, limit: int = 50,
+               date_from: str = "", date_to: str = "") -> list:
+        """Fetch sent waybills from RS.ge (where this service user is the seller)."""
         if self.mode == "demo":
             return []
-        try:
-            end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-            start = "2024-01-01T00:00:00"
-            resp = _soap_call(
-                _WAYBILL_WSDL, "get_waybills_v1", _WB_NS,
-                {"su": self.su, "sp": self.sp,
-                 "last_update_date_s": start, "last_update_date_e": end,
-                 "buyer_tin": ""}
-            )
-            payload = _result_xml(resp, "get_waybills_v1Result")
-            items = []
-            for wb in payload.iter():
-                if _local_name(wb.tag) != "WAYBILL":
-                    continue
-                items.append({
-                    "id":             _xml_text(wb, "ID"),
-                    "waybill_number": _xml_text(wb, "WAYBILL_NUMBER"),
-                    "type":           _xml_text(wb, "TYPE"),
-                    "status":         _xml_text(wb, "STATUS"),
-                    "buyer_name":     _xml_text(wb, "BUYER_NAME"),
-                    "buyer_tin":      _xml_text(wb, "BUYER_TIN"),
-                    "full_amount":    _xml_text(wb, "FULL_AMOUNT"),
-                    "begin_date":     _xml_text(wb, "BEGIN_DATE"),
-                })
-                if len(items) >= limit:
-                    break
-            return items
-        except Exception as exc:
-            log.warning("[RS.GE] get_waybills_v1 failed: %s", exc)
+        end = date_to or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        start = date_from or "2020-01-01T00:00:00"
+        resp = _soap_call(
+            _WAYBILL_WSDL, "get_waybills_v1", _WB_NS,
+            {"su": self.su, "sp": self.sp,
+             "last_update_date_s": start, "last_update_date_e": end,
+             "buyer_tin": ""}
+        )
+        payload = _result_xml(resp, "get_waybills_v1Result")
+        items = []
+        for wb in payload.iter():
+            if _local_name(wb.tag) != "WAYBILL":
+                continue
+            items.append({
+                "id":             _xml_text(wb, "ID"),
+                "waybill_number": _xml_text(wb, "WAYBILL_NUMBER"),
+                "type":           _xml_text(wb, "TYPE"),
+                "status":         _xml_text(wb, "STATUS"),
+                "buyer_name":     _xml_text(wb, "BUYER_NAME"),
+                "buyer_tin":      _xml_text(wb, "BUYER_TIN"),
+                "full_amount":    _xml_text(wb, "FULL_AMOUNT"),
+                "begin_date":     _xml_text(wb, "BEGIN_DATE"),
+                "direction":      "sent",
+            })
+            if len(items) >= limit:
+                break
+        log.info("[RS.GE] get_waybills_v1 sent=%d tenant=%s", len(items), tenant_id)
+        return items
+
+    def get_received_waybills(self, limit: int = 50) -> list:
+        """Fetch received waybills from RS.ge via get_buyer_waybills SOAP method.
+
+        Uses buyer-specific params from WSDL: create_date_s/e, not last_update_date_s/e.
+        Waybills are returned inside SUB_WAYBILLS element (not as top-level WAYBILL tags).
+        """
+        if self.mode == "demo":
             return []
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        start = "2020-01-01T00:00:00"
+        resp = _soap_call(
+            _WAYBILL_WSDL, "get_buyer_waybills", _WB_NS,
+            {"su": self.su, "sp": self.sp,
+             "create_date_s": start, "create_date_e": end,
+             "itypes": "", "seller_tin": "", "statuses": "",
+             "car_number": "", "driver_tin": "", "waybill_number": "",
+             "s_user_ids": "", "comment": ""}
+        )
+        payload = _result_xml(resp, "get_buyer_waybillsResult")
+
+        status_code = _xml_text(payload, "STATUS")
+        if status_code and status_code not in ("0", "1", ""):
+            log.warning("[RS.GE] get_buyer_waybills STATUS=%s tenant=%s", status_code, self.tenant_id)
+            raise RuntimeError(f"RS.ge get_buyer_waybills STATUS={status_code}")
+
+        items = []
+        for wb in payload.iter():
+            tag = _local_name(wb.tag)
+            if tag not in ("WAYBILL", "SUB_WAYBILL"):
+                continue
+            items.append({
+                "id":             _xml_text(wb, "ID"),
+                "waybill_number": _xml_text(wb, "WAYBILL_NUMBER"),
+                "type":           _xml_text(wb, "TYPE"),
+                "status":         _xml_text(wb, "STATUS"),
+                "buyer_name":     _xml_text(wb, "BUYER_NAME"),
+                "buyer_tin":      _xml_text(wb, "BUYER_TIN"),
+                "seller_name":    _xml_text(wb, "SELLER_NAME"),
+                "seller_tin":     _xml_text(wb, "SELLER_TIN"),
+                "full_amount":    _xml_text(wb, "FULL_AMOUNT"),
+                "begin_date":     _xml_text(wb, "BEGIN_DATE"),
+                "direction":      "received",
+            })
+            if len(items) >= limit:
+                break
+        log.info("[RS.GE] get_buyer_waybills count=%d tenant=%s", len(items), self.tenant_id)
+        return items
 
     # ── WayBill extras ───────────────────────────────────────────────────────
 
@@ -349,6 +396,78 @@ class RsGeConnector(BaseConnector):
             }
         except Exception as exc:
             log.warning("[RS.GE] get_waybill failed: %s", exc)
+            return {"error": str(exc)[:200]}
+
+    def get_waybill_by_number(self, waybill_number: str) -> dict:
+        """Fetch a single waybill by its public waybill number.
+
+        Works for both sent AND received waybills — does not require buyer access.
+        """
+        if self.mode == "demo":
+            return {"waybill_number": waybill_number, "mode": "demo",
+                    "status": "1", "full_amount": "0", "goods_list": []}
+        try:
+            resp = _soap_call(
+                _WAYBILL_WSDL, "get_waybill_by_number", _WB_NS,
+                {"su": self.su, "sp": self.sp, "waybill_number": waybill_number}
+            )
+            payload = _result_xml(resp, "get_waybill_by_numberResult")
+            goods = []
+            for g in payload.iter():
+                if _local_name(g.tag) != "GOODS":
+                    continue
+                goods.append({
+                    "id":           _xml_text(g, "ID"),
+                    "name":         _xml_text(g, "W_NAME"),
+                    "quantity":     _xml_text(g, "QUANTITY"),
+                    "price":        _xml_text(g, "PRICE"),
+                    "amount":       _xml_text(g, "AMOUNT"),
+                    "unit_id":      _xml_text(g, "UNIT_ID"),
+                    "unit_name":    _xml_text(g, "UNIT_NAME"),
+                    "bar_code":     _xml_text(g, "BAR_CODE"),
+                    "product_code": _xml_text(g, "BAR_CODE") or _xml_text(g, "ID"),
+                    "vat_type":     _xml_text(g, "VAT_TYPE"),
+                    "extra_qty":    _xml_text(g, "EXTRA_QUANTITY") or _xml_text(g, "ADDITIONAL_QUANTITY") or "0",
+                })
+            raw_status = _xml_text(payload, "STATUS") or ""
+            is_restricted = raw_status in ("-100", "-1", "-99") or (
+                raw_status.startswith("-1") and raw_status not in ("-10",)
+            )
+            wb_num = _xml_text(payload, "WAYBILL_NUMBER") or waybill_number
+            # For restricted (received) waybills RS.ge may return empty header fields too.
+            # Still return whatever we got so the caller can store/display basic info.
+            # goods_list will be empty; goods can be entered manually.
+            if is_restricted and not wb_num:
+                return {"error": f"RS.ge SOAP authorization failed (STATUS={raw_status})",
+                        "status": raw_status}
+            transport_date = (
+                _xml_text(payload, "TRANSPORT_DATE")
+                or _xml_text(payload, "BEGIN_DATE")
+                or ""
+            )
+            return {
+                "id":              _xml_text(payload, "ID"),
+                "waybill_number":  wb_num,
+                "type":            _xml_text(payload, "TYPE"),
+                "status":          raw_status,
+                "buyer_name":      _xml_text(payload, "BUYER_NAME"),
+                "buyer_tin":       _xml_text(payload, "BUYER_TIN"),
+                "seller_name":     _xml_text(payload, "SELLER_NAME"),
+                "seller_tin":      _xml_text(payload, "SELLER_TIN"),
+                "start_address":   _xml_text(payload, "START_ADDRESS"),
+                "end_address":     _xml_text(payload, "END_ADDRESS"),
+                "driver_name":     _xml_text(payload, "DRIVER_NAME"),
+                "car_number":      _xml_text(payload, "CAR_NUMBER"),
+                "full_amount":     _xml_text(payload, "FULL_AMOUNT"),
+                "begin_date":      _xml_text(payload, "BEGIN_DATE"),
+                "transport_date":  transport_date,
+                "goods_list":      goods,
+                "direction":       "received",
+                "comment":         _xml_text(payload, "COMMENT") or "",
+                "partial":         is_restricted,
+            }
+        except Exception as exc:
+            log.warning("[RS.GE] get_waybill_by_number failed: %s", exc)
             return {"error": str(exc)[:200]}
 
     def cancel_waybill(self, waybill_id: int) -> dict:
@@ -458,7 +577,7 @@ class RsGeConnector(BaseConnector):
             return self._build_error(str(exc)[:200])
 
     def get_user_invoices(self, limit: int = 50) -> list:
-        """Fetch invoice list for the service user."""
+        """Fetch invoice list for the service user, including OVERHEAD_NO (waybill link)."""
         if self.mode == "demo":
             return []
         try:
@@ -479,11 +598,67 @@ class RsGeConnector(BaseConnector):
                     "OPERATION_DATE": _xml_text(inv, "OPERATION_DATE"),
                     "TOTAL":          _xml_text(inv, "TOTAL"),
                     "VAT":            _xml_text(inv, "VAT"),
+                    # Waybill cross-reference (overhead = ზედნადები in RS.ge)
+                    "OVERHEAD_NO":    _xml_text(inv, "OVERHEAD_NO") or _xml_text(inv, "WAYBILL_NUMBER") or "",
+                    "OVERHEAD_DATE":  _xml_text(inv, "OVERHEAD_DATE") or "",
                 })
             return invoices[:limit]
         except Exception as exc:
             log.warning("[RS.GE] get_user_invoices failed: %s", exc)
             return []
+
+    def get_invoice_by_id(self, invoice_id: str) -> dict:
+        """Fetch full invoice detail with line items by invoice ID."""
+        if self.mode == "demo":
+            return {"id": invoice_id, "mode": "demo", "lines": []}
+        try:
+            resp = _soap_call(
+                _INVOICE_WSDL, "get_invoice", _INV_NS,
+                {"su": self.su, "sp": self.sp, "id": invoice_id}
+            )
+            # Try common result wrapper names
+            payload = None
+            for tag in ("get_invoiceResult", "GetInvoiceResult", "invoice", "INVOICE"):
+                try:
+                    payload = _result_xml(resp, tag)
+                    break
+                except Exception:
+                    pass
+            if payload is None:
+                payload = resp
+
+            lines = []
+            for g in payload.iter():
+                ln = _local_name(g.tag)
+                if ln not in ("GOODS", "LINE", "ITEM", "INVOICE_LINE"):
+                    continue
+                lines.append({
+                    "name":         _xml_text(g, "W_NAME") or _xml_text(g, "NAME") or _xml_text(g, "PRODUCT_NAME") or "",
+                    "quantity":     _xml_text(g, "QUANTITY") or _xml_text(g, "QTY") or "",
+                    "price":        _xml_text(g, "PRICE") or _xml_text(g, "UNIT_PRICE") or "",
+                    "amount":       _xml_text(g, "AMOUNT") or _xml_text(g, "TOTAL") or "",
+                    "unit_name":    _xml_text(g, "UNIT_NAME") or _xml_text(g, "UNIT") or "",
+                    "bar_code":     _xml_text(g, "BAR_CODE") or _xml_text(g, "BARCODE") or "",
+                    "vat_type":     _xml_text(g, "VAT_TYPE") or "",
+                    "product_code": _xml_text(g, "BAR_CODE") or _xml_text(g, "ID") or "",
+                })
+            return {
+                "id":              _xml_text(payload, "ID") or invoice_id,
+                "invoice_number":  _xml_text(payload, "INVOICE_NUMBER") or "",
+                "status":          _xml_text(payload, "STATUS") or "",
+                "seller_tin":      _xml_text(payload, "SELLER_TIN") or "",
+                "seller_name":     _xml_text(payload, "SELLER_NAME") or "",
+                "buyer_tin":       _xml_text(payload, "BUYER_TIN") or "",
+                "buyer_name":      _xml_text(payload, "BUYER_NAME") or "",
+                "operation_date":  _xml_text(payload, "OPERATION_DATE") or "",
+                "total":           _xml_text(payload, "TOTAL") or "",
+                "vat":             _xml_text(payload, "VAT") or "",
+                "overhead_no":     _xml_text(payload, "OVERHEAD_NO") or _xml_text(payload, "WAYBILL_NUMBER") or "",
+                "lines":           lines,
+            }
+        except Exception as exc:
+            log.warning("[RS.GE] get_invoice_by_id failed id=%s: %s", invoice_id, exc)
+            return {"error": str(exc)[:200], "lines": []}
 
     # ── TaxPayer (REST) ──────────────────────────────────────────────────────
 

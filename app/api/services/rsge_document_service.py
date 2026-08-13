@@ -39,6 +39,7 @@ class RsgeDocumentDTO:
     status_code: str                     # RS.ge status code (0-6)
     direction: str                       # incoming | outgoing | unknown
     currency: str = "GEL"
+    waybill_number: str = ""             # OVERHEAD_NO from RS.ge (linked waybill)
     lines: list = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
@@ -71,6 +72,7 @@ def _map_invoice_to_dto(raw: dict, own_inn: str = "") -> RsgeDocumentDTO:
         status=str(raw.get("STATUS_TXT") or raw.get("status") or ""),
         status_code=str(raw.get("STATUS") or raw.get("status_code") or ""),
         direction=direction,
+        waybill_number=str(raw.get("OVERHEAD_NO") or raw.get("overhead_no") or raw.get("waybill_number") or ""),
         lines=raw.get("lines") or [],
         raw=raw,
     )
@@ -127,11 +129,13 @@ async def list_documents(
             "status":            dto.status,
             "status_code":       dto.status_code,
             "direction":         dto.direction,
+            "waybill_number":    dto.waybill_number,
             "source":            "rs.ge",
             "synced":            bool(local),
             "synced_at":         str(local.get("synced_at") or ""),
             "evidence_id":       local.get("evidence_id"),
             "draft_id":          local.get("draft_id"),
+            "draft_status":      local.get("draft_status"),
             "local_id":          local.get("id"),
         })
     return results
@@ -193,15 +197,16 @@ async def _upsert_document(conn, tenant_id: str, dto: RsgeDocumentDTO,
         INSERT INTO rsge_documents
           (tenant_id, rsge_id, reg_no, doc_type, seller_inn, seller_name,
            buyer_inn, buyer_name, doc_date, amount, vat_amount, currency,
-           rsge_status, rsge_status_code, direction, source_hash, raw_payload,
-           synced_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+           rsge_status, rsge_status_code, direction, waybill_number,
+           source_hash, raw_payload, synced_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (tenant_id, rsge_id) DO UPDATE SET
           reg_no = EXCLUDED.reg_no,
           rsge_status = EXCLUDED.rsge_status,
           rsge_status_code = EXCLUDED.rsge_status_code,
           amount = EXCLUDED.amount,
           vat_amount = EXCLUDED.vat_amount,
+          waybill_number = EXCLUDED.waybill_number,
           source_hash = EXCLUDED.source_hash,
           raw_payload = EXCLUDED.raw_payload,
           synced_at = NOW()
@@ -213,9 +218,27 @@ async def _upsert_document(conn, tenant_id: str, dto: RsgeDocumentDTO,
         dto.seller_inn, dto.seller_name, dto.buyer_inn, dto.buyer_name,
         dto.doc_date or None, dto.amount, dto.vat_amount, dto.currency,
         dto.status, dto.status_code, dto.direction,
+        dto.waybill_number or None,
         dto.source_hash(), json.dumps(dto.raw),
     )
     return row["id"] if row else 0
+
+
+async def find_by_waybill_number(conn, tenant_id: str, waybill_number: str) -> list:
+    """Find synced invoices that reference a specific waybill number (OVERHEAD_NO)."""
+    from app.api.db import _q
+    try:
+        rows = await conn.fetch(
+            _q("SELECT id, rsge_id, reg_no, amount, vat_amount, doc_date, "
+               "rsge_status, direction, draft_id, draft_status, raw_payload "
+               "FROM rsge_documents WHERE tenant_id=%s AND waybill_number=%s "
+               "ORDER BY id DESC"),
+            tenant_id, waybill_number,
+        )
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.debug("find_by_waybill_number failed: %s", exc)
+        return []
 
 
 # ── Evidence creation ─────────────────────────────────────────────────────────
@@ -316,31 +339,52 @@ async def create_draft_from_document(
     if doc.get("draft_id"):
         return {"draft_id": doc["draft_id"], "created": False, "duplicate": True}
 
+    # Auto-detect own TIN from tenant settings if not explicitly provided
+    if not own_inn:
+        try:
+            from app.api.services.tenant_config_service import get_tenant_setting
+            own_inn = await get_tenant_setting(tenant_id, "rsge.own_tin", "") or ""
+        except Exception:
+            pass
+
     amount = float(doc.get("amount") or 0)
     vat = float(doc.get("vat_amount") or 0)
     net = round(amount - vat, 4)
     direction = doc.get("direction") or "unknown"
 
-    if own_inn and doc.get("buyer_inn") == own_inn:
-        direction = "incoming"
-    elif own_inn and doc.get("seller_inn") == own_inn:
-        direction = "outgoing"
+    if not own_inn:
+        direction = "company_identity_missing"
+    else:
+        is_buyer  = doc.get("buyer_inn")  == own_inn
+        is_seller = doc.get("seller_inn") == own_inn
+        if is_buyer and is_seller:
+            direction = "conflict_requires_review"
+        elif is_buyer:
+            direction = "incoming"
+        elif is_seller:
+            direction = "outgoing"
+        else:
+            direction = "unknown_requires_review"
 
+    ref = f"№{doc.get('reg_no') or doc.get('rsge_id')}"
     if direction == "incoming":
-        # Purchase: goods received + VAT credit / AP liability
-        description = (f"RS.ge შესყიდვა — {doc.get('seller_name') or doc.get('seller_inn')} | "
-                       f"№{doc.get('reg_no') or doc.get('rsge_id')}")
+        description = (f"RS.ge შესყიდვა — {doc.get('seller_name') or doc.get('seller_inn')} | {ref}")
         debit_acc, credit_acc = "1310", "3110"
         draft_type = "purchase"
     elif direction == "outgoing":
-        # Sale: AR receivable / revenue + VAT payable
-        description = (f"RS.ge გაყიდვა — {doc.get('buyer_name') or doc.get('buyer_inn')} | "
-                       f"№{doc.get('reg_no') or doc.get('rsge_id')}")
+        description = (f"RS.ge გაყიდვა — {doc.get('buyer_name') or doc.get('buyer_inn')} | {ref}")
         debit_acc, credit_acc = "1210", "6110"
         draft_type = "sale"
+    elif direction == "conflict_requires_review":
+        description = f"RS.ge კ. კ. (buyer=seller=own) | {ref}"
+        debit_acc, credit_acc = "1000", "3000"
+        draft_type = "conflict_requires_review"
+    elif direction == "company_identity_missing":
+        description = f"RS.ge (კომ. TIN ვ. გ.) — {ref}"
+        debit_acc, credit_acc = "1000", "3000"
+        draft_type = "company_identity_missing"
     else:
-        description = (f"RS.ge დოკუმენტი (გადამოწმება საჭიროა) — "
-                       f"№{doc.get('reg_no') or doc.get('rsge_id')}")
+        description = f"RS.ge (გ. გ. ს.) — {ref}"
         debit_acc, credit_acc = "1000", "3000"
         draft_type = "review_required"
 
@@ -379,6 +423,125 @@ async def create_draft_from_document(
         "vat": vat,
         "debit_account": debit_acc,
         "credit_account": credit_acc,
+    }
+
+
+# ── Correction / Cancellation draft suggestions ───────────────────────────────
+
+async def create_correction_draft_suggestion(
+    conn,
+    tenant_id: str,
+    local_doc_id: int,
+    actor: Optional[str] = None,
+) -> dict:
+    """Suggest a correction journal draft for a RS.ge corrected document.
+
+    Never auto-posts. Human approval required.
+    Returns draft with status='drafted' and draft_type='correction'.
+    """
+    from app.api.db import _q
+    doc_row = await conn.fetchrow(
+        _q("SELECT * FROM rsge_documents WHERE id = %s AND tenant_id = %s"),
+        local_doc_id, tenant_id,
+    )
+    if not doc_row:
+        raise ValueError(f"rsge_document id={local_doc_id} not found")
+    doc = dict(doc_row)
+
+    amount  = float(doc.get("amount") or 0)
+    vat     = float(doc.get("vat_amount") or 0)
+    net     = round(amount - vat, 4)
+    ref     = doc.get("reg_no") or doc.get("rsge_id") or ""
+    partner = doc.get("seller_name") or doc.get("buyer_name") or ""
+
+    description = (
+        f"RS.ge კ. ბ. ({ref}) — "
+        f"გ. გ. ს. {partner} — "
+        f"ოდ.: {amount:.2f} ₾"
+    )
+    row = await conn.fetchrow(
+        _q("""INSERT INTO journal_drafts
+               (tenant_id, description, amount, debit_account, credit_account,
+                date, status, partner, reason, source, ai_confidence)
+             VALUES (%s,%s,%s,%s,%s,%s,'drafted',%s,%s,'rs_ge_correction',0.70)
+             RETURNING id"""),
+        tenant_id, description, net,
+        "1310", "3110",
+        doc.get("doc_date") or date.today().isoformat(),
+        partner, f"RS.ge კ. #{ref}",
+    )
+    draft_id = row["id"] if row else 0
+    log.info("[RS.GE] correction draft created id=%s for rsge_doc=%s", draft_id, local_doc_id)
+    return {
+        "draft_id":   draft_id,
+        "draft_type": "correction",
+        "amount":     net,
+        "vat":        vat,
+        "original_doc_id": local_doc_id,
+        "description": description,
+        "note": "გ. ს. — ბ. გ. ა. ს. ვ. ა.",
+    }
+
+
+async def create_cancellation_reversal_draft(
+    conn,
+    tenant_id: str,
+    local_doc_id: int,
+    actor: Optional[str] = None,
+) -> dict:
+    """Suggest a cancellation/reversal draft for a RS.ge cancelled document.
+
+    Creates a reversal entry (negated amounts) for accountant review.
+    Never auto-posts. Approval required.
+    """
+    from app.api.db import _q
+    doc_row = await conn.fetchrow(
+        _q("SELECT * FROM rsge_documents WHERE id = %s AND tenant_id = %s"),
+        local_doc_id, tenant_id,
+    )
+    if not doc_row:
+        raise ValueError(f"rsge_document id={local_doc_id} not found")
+    doc = dict(doc_row)
+
+    amount  = float(doc.get("amount") or 0)
+    vat     = float(doc.get("vat_amount") or 0)
+    net     = round(amount - vat, 4)
+    ref     = doc.get("reg_no") or doc.get("rsge_id") or ""
+    partner = doc.get("seller_name") or doc.get("buyer_name") or ""
+    direction = doc.get("direction") or "unknown"
+
+    # Reversal swaps Dr/Cr
+    if direction == "incoming":
+        debit_acc, credit_acc = "3110", "1310"
+    elif direction == "outgoing":
+        debit_acc, credit_acc = "6110", "1210"
+    else:
+        debit_acc, credit_acc = "3000", "1000"
+
+    description = f"RS.ge გ. (სა.) ({ref}) — {partner}"
+    row = await conn.fetchrow(
+        _q("""INSERT INTO journal_drafts
+               (tenant_id, description, amount, debit_account, credit_account,
+                date, status, partner, reason, source, ai_confidence)
+             VALUES (%s,%s,%s,%s,%s,%s,'drafted',%s,%s,'rs_ge_cancellation',0.70)
+             RETURNING id"""),
+        tenant_id, description, net,
+        debit_acc, credit_acc,
+        doc.get("doc_date") or date.today().isoformat(),
+        partner, f"RS.ge გ. #{ref}",
+    )
+    draft_id = row["id"] if row else 0
+    log.info("[RS.GE] reversal draft created id=%s for rsge_doc=%s", draft_id, local_doc_id)
+    return {
+        "draft_id":   draft_id,
+        "draft_type": "cancellation_reversal",
+        "amount":     net,
+        "vat":        vat,
+        "debit_account":  debit_acc,
+        "credit_account": credit_acc,
+        "original_doc_id": local_doc_id,
+        "description": description,
+        "note": "გ. ს. — ბ. გ. ა. ს. ვ. ა.",
     }
 
 

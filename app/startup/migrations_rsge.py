@@ -123,6 +123,14 @@ _DDL = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_rsge_waybills_tenant ON rsge_waybills (tenant_id)",
+    "ALTER TABLE rsge_waybills ADD COLUMN IF NOT EXISTS draft_id INTEGER",
+    "ALTER TABLE rsge_waybills ADD COLUMN IF NOT EXISTS draft_status TEXT",
+    "ALTER TABLE rsge_waybills ADD COLUMN IF NOT EXISTS seller_name TEXT",
+    "ALTER TABLE rsge_waybills ADD COLUMN IF NOT EXISTS seller_tin TEXT",
+    # rsge_documents — waybill cross-reference (overhead_no from RS.ge invoice)
+    "ALTER TABLE rsge_documents ADD COLUMN IF NOT EXISTS waybill_number TEXT",
+    "ALTER TABLE rsge_documents ADD COLUMN IF NOT EXISTS draft_status TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_rsge_documents_waybill ON rsge_documents (tenant_id, waybill_number)",
     # ── rsge_actions ─────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS rsge_actions (
@@ -148,6 +156,56 @@ _DDL = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_rsge_actions_tenant ON rsge_actions (tenant_id)",
+    # ── rsge_partner_map ──────────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS rsge_partner_map (
+        id              SERIAL PRIMARY KEY,
+        tenant_id       TEXT        NOT NULL,
+        tin             TEXT        NOT NULL,
+        partner_name    TEXT,
+        account_code    TEXT        NOT NULL,
+        notes           TEXT,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (tenant_id, tin)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_rsge_partner_map_tenant ON rsge_partner_map (tenant_id)",
+    # ── rsge_item_map ─────────────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS rsge_item_map (
+        id              SERIAL PRIMARY KEY,
+        tenant_id       TEXT        NOT NULL,
+        item_code       TEXT        NOT NULL,
+        item_name       TEXT,
+        account_code    TEXT        NOT NULL,
+        vat_exempt      BOOLEAN     DEFAULT FALSE,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (tenant_id, item_code)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_rsge_item_map_tenant ON rsge_item_map (tenant_id)",
+    # ── rsge_comparison_results ───────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS rsge_comparison_results (
+        id              SERIAL PRIMARY KEY,
+        tenant_id       TEXT        NOT NULL,
+        waybill_id      INTEGER,
+        document_id     INTEGER,
+        comparison_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        match_type      TEXT        NOT NULL DEFAULT 'manual',
+        status          TEXT        NOT NULL DEFAULT 'pending',
+        wb_amount       NUMERIC(18,4) DEFAULT 0,
+        inv_amount      NUMERIC(18,4) DEFAULT 0,
+        diff_amount     NUMERIC(18,4) DEFAULT 0,
+        diff_lines      JSONB       DEFAULT '[]',
+        notes           TEXT,
+        reviewed_by     TEXT,
+        reviewed_at     TIMESTAMPTZ,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_rsge_comparison_tenant ON rsge_comparison_results (tenant_id)",
+    "CREATE INDEX IF NOT EXISTS idx_rsge_comparison_waybill ON rsge_comparison_results (tenant_id, waybill_id)",
     # ── rsge_taxpayer_cache ───────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS rsge_taxpayer_cache (

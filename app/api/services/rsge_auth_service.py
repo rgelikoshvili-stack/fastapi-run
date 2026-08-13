@@ -152,6 +152,15 @@ async def get_decrypted_soap_creds(conn, tenant_id: str) -> dict:
         return {"su": raw, "sp": ""}
 
 
+async def load_connector_creds(conn, tenant_id: str) -> dict:
+    """Public alias for loading connector credentials from vault.
+
+    Routes should call this instead of get_decrypted_soap_creds directly.
+    Returns {"su": ..., "sp": ..., "un_id": ...} — never log or return these values.
+    """
+    return await get_decrypted_soap_creds(conn, tenant_id)
+
+
 # ── RSoAuth eAPI — two-step auth ─────────────────────────────────────────────
 
 async def start_eapi_auth(

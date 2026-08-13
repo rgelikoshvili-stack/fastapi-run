@@ -55,9 +55,12 @@ async def list_waybills(
     tenant_id: str,
     connector,
     limit: int = 100,
+    date_from: str = "",
+    date_to: str = "",
 ) -> List[dict]:
     """Fetch waybill list from RS.ge and merge with local sync status."""
-    raw_list = connector.history(tenant_id, limit=limit)
+    raw_list = connector.history(tenant_id, limit=limit,
+                                 date_from=date_from, date_to=date_to)
 
     rsge_ids = [str(r.get("id") or r.get("ID") or "") for r in raw_list]
     local_map: dict = {}
@@ -65,7 +68,7 @@ async def list_waybills(
         try:
             from app.api.db import _q
             rows = await conn.fetch(
-                _q("SELECT rsge_id, id, evidence_id, synced_at "
+                _q("SELECT rsge_id, id, evidence_id, draft_id, draft_status, synced_at "
                    "FROM rsge_waybills WHERE tenant_id = %s AND rsge_id = ANY(%s)"),
                 tenant_id, rsge_ids,
             )
@@ -79,11 +82,13 @@ async def list_waybills(
         local = local_map.get(wb["rsge_id"], {})
         results.append({
             **wb,
-            "source":     "rs.ge",
-            "synced":     bool(local),
-            "synced_at":  str(local.get("synced_at") or ""),
-            "evidence_id": local.get("evidence_id"),
-            "local_id":   local.get("id"),
+            "source":       "rs.ge",
+            "synced":       bool(local),
+            "synced_at":    str(local.get("synced_at") or ""),
+            "evidence_id":  local.get("evidence_id"),
+            "draft_id":     local.get("draft_id"),
+            "draft_status": local.get("draft_status"),
+            "local_id":     local.get("id"),
         })
     return results
 

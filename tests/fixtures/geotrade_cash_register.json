@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Cash Register / Petty Cash",
+    "tenant_id": "geotrade_test",
+    "period": "2026-08"
+  },
+  "transactions": [
+    {
+      "id": "CASH-001",
+      "date": "2026-08-17",
+      "type": "receipt",
+      "description": "Bank withdrawal to cash — petty cash fund",
+      "amount": 500.00,
+      "direction": "in",
+      "bank_ref": "2026-08-17 Cash withdrawal to petty cash",
+      "expected_journal": [
+        {"dr": "1110", "cr": null, "amount": 500.00, "desc": "Cash in"},
+        {"dr": null, "cr": "1120", "amount": 500.00, "desc": "Bank out"}
+      ],
+      "cash_balance_after": 1500.00,
+      "notes": "Opening cash 1000 + 500 withdrawal = 1500"
+    },
+    {
+      "id": "CASH-002",
+      "date": "2026-08-18",
+      "type": "expense",
+      "description": "Office supplies — printer paper and pens",
+      "net_amount": 100.00,
+      "vat_amount": 18.00,
+      "gross_amount": 118.00,
+      "vat_type": "1",
+      "direction": "out",
+      "supplier": "Kantselaria",
+      "supplier_inn": "400000501",
+      "expected_journal": [
+        {"dr": "7910", "cr": null, "amount": 100.00, "desc": "Office supplies expense"},
+        {"dr": "3311", "cr": null, "amount": 18.00, "desc": "Input VAT"},
+        {"dr": null, "cr": "1110", "amount": 118.00, "desc": "Cash paid"}
+      ],
+      "cash_balance_after": 1382.00,
+      "notes": "1500 - 118 = 1382"
+    }
+  ],
+  "period_summary": {
+    "opening_cash": 1000.00,
+    "receipts": 500.00,
+    "payments": 118.00,
+    "closing_cash": 1382.00,
+    "validation": "1000 + 500 - 118 = 1382",
+    "negative_cash_check": "Cash must never go negative — blocked at application level"
+  }
+}

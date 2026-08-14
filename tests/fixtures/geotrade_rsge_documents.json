@@ -1,0 +1,209 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — RS.ge Tax Documents (mock)",
+    "own_company_inn": "400000001",
+    "tenant_id": "geotrade_test",
+    "warning": "FIXTURE ONLY. No real RS.ge credentials. No live RS.ge calls."
+  },
+  "documents": [
+    {
+      "id": "RS-INV-PUR-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-01",
+      "seller_name": "Office Supplier LLC",
+      "seller_inn": "400000101",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "currency": "GEL",
+      "net_amount": 5000.00,
+      "vat_amount": 900.00,
+      "gross_amount": 5900.00,
+      "vat_type": "1",
+      "goods": [
+        {
+          "name": "Keyboard A4Tech",
+          "bar_code": "KBD-A4T-001",
+          "unit": "ც.",
+          "quantity": 100,
+          "price": 50.00,
+          "amount": 5000.00,
+          "vat_type": "1",
+          "vat_amount": 900.00
+        }
+      ],
+      "expected_bridge_hub": {
+        "classification": "purchase",
+        "draft_journal": [
+          {"dr": "1310", "cr": null, "amount": 5000.00, "desc": "Keyboard inventory"},
+          {"dr": "3311", "cr": null, "amount": 900.00, "desc": "Input VAT"},
+          {"dr": null, "cr": "3110", "amount": 5900.00, "desc": "AP to Office Supplier"}
+        ],
+        "requires_approval": true,
+        "no_auto_post": true
+      }
+    },
+    {
+      "id": "RS-INV-SALE-001",
+      "source": "rs_ge_mock",
+      "direction": "outgoing",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-03",
+      "seller_name": "GeoTrade Test LLC",
+      "seller_inn": "400000001",
+      "buyer_name": "Client LTD",
+      "buyer_inn": "400000201",
+      "currency": "GEL",
+      "net_amount": 1600.00,
+      "vat_amount": 288.00,
+      "gross_amount": 1888.00,
+      "vat_type": "1",
+      "goods": [
+        {
+          "name": "Keyboard A4Tech",
+          "bar_code": "KBD-A4T-001",
+          "unit": "ც.",
+          "quantity": 20,
+          "price": 80.00,
+          "amount": 1600.00,
+          "vat_type": "1",
+          "vat_amount": 288.00
+        }
+      ],
+      "expected_bridge_hub": {
+        "classification": "sale",
+        "draft_journal_revenue": [
+          {"dr": "1210", "cr": null, "amount": 1888.00, "desc": "AR Client LTD"},
+          {"dr": null, "cr": "6110", "amount": 1600.00, "desc": "Sales Revenue"},
+          {"dr": null, "cr": "3310", "amount": 288.00, "desc": "Output VAT"}
+        ],
+        "draft_journal_cogs": [
+          {"dr": "7110", "cr": null, "amount": 1000.00, "desc": "COGS (20 x 50 FIFO)"},
+          {"dr": null, "cr": "1310", "amount": 1000.00, "desc": "Inventory out"}
+        ],
+        "requires_approval": true,
+        "no_auto_post": true
+      }
+    },
+    {
+      "id": "RS-INV-RENT-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-06",
+      "seller_name": "Rent House LLC",
+      "seller_inn": "400000301",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "currency": "GEL",
+      "net_amount": 1000.00,
+      "vat_amount": 180.00,
+      "gross_amount": 1180.00,
+      "vat_type": "1",
+      "goods": [
+        {
+          "name": "Office Rent — August 2026",
+          "bar_code": "",
+          "unit": "თვე",
+          "quantity": 1,
+          "price": 1000.00,
+          "amount": 1000.00,
+          "vat_type": "1",
+          "vat_amount": 180.00
+        }
+      ],
+      "expected_bridge_hub": {
+        "classification": "rent_expense",
+        "draft_journal": [
+          {"dr": "7310", "cr": null, "amount": 1000.00, "desc": "Rent Expense"},
+          {"dr": "3311", "cr": null, "amount": 180.00, "desc": "Input VAT"},
+          {"dr": null, "cr": "3110", "amount": 1180.00, "desc": "AP Rent House"}
+        ]
+      }
+    },
+    {
+      "id": "RS-INV-FA-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-08",
+      "seller_name": "Tech House LLC",
+      "seller_inn": "400000401",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "currency": "GEL",
+      "net_amount": 3000.00,
+      "vat_amount": 540.00,
+      "gross_amount": 3540.00,
+      "vat_type": "1",
+      "goods": [
+        {
+          "name": "Laptop Lenovo ThinkPad",
+          "bar_code": "LAPTOP-LNV-001",
+          "unit": "ც.",
+          "quantity": 1,
+          "price": 3000.00,
+          "amount": 3000.00,
+          "vat_type": "1",
+          "vat_amount": 540.00
+        }
+      ],
+      "expected_bridge_hub": {
+        "classification": "fixed_asset_purchase",
+        "draft_journal": [
+          {"dr": "1510", "cr": null, "amount": 3000.00, "desc": "Fixed Asset — Laptop"},
+          {"dr": "3311", "cr": null, "amount": 540.00, "desc": "Input VAT"},
+          {"dr": null, "cr": "3110", "amount": 3540.00, "desc": "AP Tech House"}
+        ]
+      }
+    },
+    {
+      "id": "RS-INV-MISMATCH-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-15",
+      "seller_name": "Unknown Supplier LLC",
+      "seller_inn": "400000999",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "currency": "GEL",
+      "net_amount": 2000.00,
+      "vat_amount": 360.00,
+      "gross_amount": 2360.00,
+      "expected_bridge_hub": {
+        "mismatch_type": "missing_in_bridge",
+        "risk": "RISK_HIGH",
+        "suggested_action": "Create draft from RS.ge document"
+      }
+    },
+    {
+      "id": "RS-INV-AMOUNT-MISMATCH-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "doc_type": "tax_invoice",
+      "status": "active",
+      "date": "2026-08-16",
+      "seller_name": "Office Supplier LLC",
+      "seller_inn": "400000101",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "currency": "GEL",
+      "net_amount": 5100.00,
+      "vat_amount": 918.00,
+      "gross_amount": 6018.00,
+      "expected_bridge_hub": {
+        "bridge_hub_recorded_amount": 5000.00,
+        "mismatch_type": "amount_mismatch",
+        "diff": 100.00,
+        "risk": "RISK_MEDIUM"
+      }
+    }
+  ]
+}

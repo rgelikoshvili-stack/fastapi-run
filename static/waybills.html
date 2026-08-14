@@ -360,7 +360,8 @@ async function loadWaybills(){
     updateStats();
     _page = 0;
     render();
-    document.getElementById('sideWbCount').textContent = _all.length;
+    const _sideEl = document.getElementById('sideWbCount');
+    if(_sideEl) _sideEl.textContent = _all.length;
   }catch(e){ _all = []; updateStats(); showEmpty('კავშირის შეცდომა'); }
 }
 

@@ -200,7 +200,7 @@ the full feedback loop risks silently degrading classification accuracy:
 - `app/api/engines/pattern_engine.py`
 - `app/api/services/learning_service.py`
 - `app/api/services/pattern_decay_service.py`
-- `app/api/services/transaction_classifier.py`
+- `app/api/transaction_classifier.py`
 
 ## Safety rules
 

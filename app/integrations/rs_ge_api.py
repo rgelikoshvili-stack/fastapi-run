@@ -3,11 +3,10 @@
 Provides helpers for:
  - VAT return filing data preparation (RS Form 10)
  - Withholding tax declaration (Form 1)
- - Taxpayer verification by INN
+ - Taxpayer verification by INN (offline format check + live RS.ge public API)
 
-Note: rs.ge does not have a public REST API — submissions are via their web portal.
-This module prepares structured payloads in rs.ge XML/JSON format for manual upload
-or future automation via Selenium/Playwright.
+Live API access (waybills, invoices, service user auth) is handled by
+app/api/connectors/rs_ge_connector.py — use that for all SOAP/REST calls.
 """
 import logging
 from decimal import Decimal
@@ -84,16 +83,25 @@ def build_withholding_declaration(
     }
 
 
-def verify_taxpayer_inn(inn: str) -> dict:
-    """Validate INN format (does not call rs.ge — offline validation only)."""
+def verify_taxpayer_inn(inn: str, live: bool = False) -> dict:
+    """Validate INN — offline format check or live RS.ge public API call.
+
+    Args:
+        inn:  Taxpayer identification number.
+        live: If True, calls xdata.rs.ge/TaxPayer/RSPublicInfo for live data.
+    """
     inn = inn.strip()
     if not inn.isdigit():
         return {"valid": False, "reason": "INN must contain digits only"}
-    if len(inn) == 9:
-        return {"valid": True, "type": "legal_entity", "inn": inn}
-    if len(inn) == 11:
-        return {"valid": True, "type": "individual", "inn": inn}
-    return {"valid": False, "reason": f"Invalid length {len(inn)} (expected 9 or 11)"}
+    if len(inn) not in (9, 11):
+        return {"valid": False, "reason": f"Invalid length {len(inn)} (expected 9 or 11)"}
+
+    if live:
+        from app.api.connectors.rs_ge_connector import RsGeConnector
+        return RsGeConnector().verify_taxpayer(inn)
+
+    entity_type = "legal_entity" if len(inn) == 9 else "individual"
+    return {"valid": True, "type": entity_type, "inn": inn, "source": "offline"}
 
 
 def format_period_code(year: int, month: Optional[int] = None) -> str:

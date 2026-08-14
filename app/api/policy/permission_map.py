@@ -202,6 +202,17 @@
     ("*",      "/rbac",               "tenants:manage"),
     ("*",      "/vault/credentials",  "tenants:manage"),
 
+    # ── RS.ge Integration ────────────────────────────────────────────────────
+    ("GET",    "/rs-ge",              "posting:read"),
+    ("POST",   "/rs-ge",              "posting:write"),
+    ("DELETE", "/rs-ge",              "posting:write"),
+    # Auth sub-routes require settings:write (credential management)
+    ("*",      "/rs-ge/auth",         "settings:write"),
+    ("GET",    "/api/rsge",           "posting:read"),
+    ("POST",   "/api/rsge",           "posting:write"),
+    ("DELETE", "/api/rsge",           "posting:write"),
+    ("*",      "/api/rsge/auth",      "settings:write"),
+
     # ── Settings / Integrations ───────────────────────────────────────────────
     ("*",      "/security",           "settings:write"),
     ("*",      "/integrations",       "settings:write"),

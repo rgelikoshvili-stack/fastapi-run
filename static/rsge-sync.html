@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bridge Hub — RS.ge სინქ. v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3ecdc;--paper-soft:#ebe2ce;--paper-sunk:#e3d8bf;
+  --card:#faf3e3;--card-hover:#ebe0c5;
+  --line:#dfd3b8;--line-soft:#ebe0c5;--line-strong:#d8c9a8;
+  --ink:#1a1512;--ink-soft:#3a2f28;--ink-mute:#5a4a3a;--ink-dim:#7a6a5a;--ink-ghost:#a89880;
+  --accent:#8c3c2d;--accent-d:#6a2e22;--accent-soft:rgba(140,60,45,.08);
+  --green:#27500A;--green-bg:#EAF3DE;--green-border:rgba(39,80,10,.2);
+  --amber:#7a4f00;--amber-bg:#FAEEDA;--amber-border:#EF9F27;
+  --red:#791F1F;--red-bg:#FCEBEB;--red-border:rgba(121,31,31,.2);
+  --blue:#3a5a8c;--blue-soft:rgba(58,90,140,.1);
+  --teal:#1a5a5a;--teal-soft:rgba(26,90,90,.1);
+  --font:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Instrument Serif',serif;
+  --mono:'Geist Mono',ui-monospace,monospace;
+  --sidebar:280px;--header:72px;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px}
+body{display:flex;min-height:100vh;background:
+  radial-gradient(900px 600px at 10% 0%,rgba(180,145,95,.12),transparent 55%),
+  radial-gradient(700px 500px at 100% 100%,rgba(140,60,45,.06),transparent 55%),
+  var(--paper);}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+/* SIDEBAR */
+.sidebar{width:var(--sidebar);background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);}
+.logo{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:22px;flex-shrink:0;}
+.bname{font-size:17px;font-weight:500;letter-spacing:-0.015em;line-height:1}
+.bname em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-soft);margin-left:2px}
+.brole{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);margin-top:3px}
+.nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
+.sec{padding:14px 4px 6px;display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);}
+.sec::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.1s;color:var(--ink-soft);margin:1px 0;}
+.item:hover{background:var(--card-hover)}
+.item .ic{width:16px;height:16px;stroke:var(--ink-mute);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.item .lbl{font-size:13.5px;color:var(--ink);flex:1;font-weight:450;}
+.item.active{background:var(--ink);}
+.item.active .lbl{color:var(--paper);font-weight:500}
+.item.active .ic{stroke:var(--paper)}
+.foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:11px;}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent-d));color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:16px;flex-shrink:0;}
+.uname{font-size:13px;font-weight:500}
+.urole{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);margin-top:1px}
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:var(--header);padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--paper);position:sticky;top:0;z-index:30;}
+.crumbs{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase;}
+.crumbs em{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);margin-left:2px}
+.icon-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.12s;}
+.icon-btn:hover{background:var(--card-hover)}
+.icon-btn svg{width:15px;height:15px;stroke:var(--ink-mute);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:500;transition:.12s;cursor:pointer;border:none;letter-spacing:-.01em;}
+.btn-primary{background:var(--ink);color:var(--paper);}
+.btn-primary:hover{background:var(--ink-soft)}
+.btn-primary:disabled{opacity:.45;cursor:default}
+.btn-secondary{background:var(--card);color:var(--ink-soft);border:1px solid var(--line-strong);}
+.btn-secondary:hover{background:var(--card-hover)}
+.btn-secondary:disabled{opacity:.45;cursor:default}
+.btn-green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border);}
+.btn-green:hover{background:#d5eac2}
+.btn-ai{background:linear-gradient(135deg,#6a3a7c,#3a5a8c);color:#fff;border:none;}
+.btn-ai:hover{opacity:.88}
+.content{flex:1;padding:24px 28px;overflow-y:auto}
+/* TABS */
+.tabs-wrap{display:flex;gap:2px;margin-bottom:18px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:4px;width:fit-content;}
+.tab{padding:7px 20px;border-radius:7px;font-size:13px;font-weight:500;color:var(--ink-dim);cursor:pointer;transition:.12s;}
+.tab.active{background:var(--ink);color:var(--paper);box-shadow:0 2px 8px -2px rgba(26,21,18,.35);}
+.tab:not(.active):hover{background:var(--card-hover);color:var(--ink)}
+/* FILTER BAR */
+.filter-bar{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.filter-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);white-space:nowrap;}
+.date-input{padding:6px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:7px;font-family:var(--mono);font-size:12px;color:var(--ink);outline:none;transition:.12s;}
+.date-input:focus{border-color:var(--accent);background:var(--card)}
+.sep{color:var(--ink-ghost);font-size:12px}
+/* ADD ROW */
+.add-bar{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.add-label{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-dim);white-space:nowrap;}
+.num-input{flex:1;min-width:160px;max-width:220px;padding:6px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:7px;font-family:var(--mono);font-size:12.5px;color:var(--ink);outline:none;transition:.12s;}
+.num-input:focus{border-color:var(--accent);background:var(--card)}
+.num-input::placeholder{color:var(--ink-ghost);font-family:var(--serif);font-style:italic;font-size:12px}
+.multi-input{flex:2;min-width:200px;padding:6px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:7px;font-family:var(--mono);font-size:12px;color:var(--ink);outline:none;transition:.12s;}
+.multi-input:focus{border-color:var(--accent);background:var(--card)}
+.multi-input::placeholder{color:var(--ink-ghost);font-family:var(--serif);font-style:italic;font-size:11.5px}
+/* STATS */
+.stats-strip{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.stat-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;min-width:90px;flex:1;}
+.stat-num{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.stat-lbl{font-size:10.5px;color:var(--ink-ghost);margin-top:2px;font-family:var(--serif);font-style:italic}
+/* TABLE */
+.tbl-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead th{padding:8px 12px;text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);border-bottom:1px solid var(--line);background:var(--paper-soft);white-space:nowrap;}
+tbody tr.data-row{border-bottom:1px solid var(--line-soft);transition:.1s;cursor:pointer}
+tbody tr.data-row:hover{background:var(--card-hover)}
+tbody tr.data-row.expanded{background:var(--paper-soft);}
+tbody tr.panel-row{border-bottom:1px solid var(--line);}
+td{padding:9px 12px;font-size:13px;color:var(--ink-soft);vertical-align:middle}
+.wb-num{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink)}
+.wb-id{font-family:var(--mono);font-size:9.5px;color:var(--ink-ghost);margin-top:1px}
+.party-name{font-size:12.5px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.party-inn{font-family:var(--mono);font-size:9.5px;color:var(--ink-ghost);margin-top:1px}
+td.amt{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink);text-align:right;white-space:nowrap}
+td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-space:nowrap}
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;font-family:var(--mono);}
+.badge-new{background:var(--paper-sunk);color:var(--ink-ghost)}
+.badge-synced{background:var(--blue-soft);color:var(--blue)}
+.badge-drafted{background:var(--amber-bg);color:var(--amber)}
+.badge-posted{background:var(--green-bg);color:var(--green)}
+.dir-chip{display:inline-flex;padding:2px 6px;border-radius:3px;font-size:9.5px;font-family:var(--mono);}
+.dir-sent{background:rgba(58,90,140,.08);color:var(--blue)}
+.dir-recv{background:var(--teal-soft);color:var(--teal)}
+/* ACCOUNTING PANEL */
+.acc-panel{padding:14px 16px 16px;background:var(--paper-soft)}
+.steps{display:flex;align-items:center;gap:5px;margin-bottom:12px;flex-wrap:wrap;}
+.step{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-ghost);}
+.step.done{color:var(--green)}
+.step.active{color:var(--accent);font-weight:600}
+.step-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid currentColor;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;font-weight:700;flex-shrink:0;}
+.step.done .step-dot{background:var(--green);border-color:var(--green);color:#fff;}
+.step-arrow{color:var(--line-strong);font-size:10px}
+/* wb info grid */
+.wb-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:12px;padding:10px 12px;background:var(--card);border:1px solid var(--line-soft);border-radius:8px;}
+.wi-item{display:flex;flex-direction:column;gap:2px;}
+.wi-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost);}
+.wi-val{font-size:12.5px;color:var(--ink);font-weight:450;}
+.wi-val.mono{font-family:var(--mono);font-size:12px;}
+/* goods editable grid */
+.goods-wrap{margin-bottom:12px;border:1px solid var(--line-soft);border-radius:7px;overflow:hidden;}
+.goods-head{display:grid;grid-template-columns:28px 76px 1fr 72px 100px 28px;gap:0;background:var(--paper-sunk);border-bottom:1px solid var(--line-strong);}
+.goods-head div{padding:5px 8px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);}
+.goods-item{display:grid;grid-template-columns:28px 76px 1fr 72px 100px 28px;gap:0;border-top:1px solid var(--line-soft);}
+.goods-item:hover{background:var(--card-hover)}
+.gi-idx{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--ink-ghost);background:var(--paper-sunk);border-right:1px solid var(--line-soft);}
+.gi-del{display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-ghost);font-size:13px;border-left:1px solid var(--line-soft);}
+.gi-del:hover{color:var(--red);background:var(--red-bg);}
+.gi-inp{width:100%;padding:6px 8px;border:none;border-right:1px solid var(--line-soft);background:transparent;font-family:var(--font);font-size:12.5px;color:var(--ink);outline:none;}
+.gi-inp:focus{background:var(--card);box-shadow:inset 0 0 0 2px var(--accent);}
+.gi-inp.num{font-family:var(--mono);text-align:right;}
+.gi-inp.name{font-size:12.5px;}
+.goods-add-row{display:flex;align-items:center;padding:5px 8px;border-top:1px solid var(--line-soft);gap:6px;cursor:pointer;color:var(--ink-ghost);}
+.goods-add-row:hover{background:var(--card-hover);color:var(--accent);}
+.gnum{font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink);}
+.gcode{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);}
+.gvat{font-size:10px;padding:1px 5px;background:var(--paper-sunk);border-radius:3px;color:var(--ink-dim);white-space:nowrap;display:inline-block;}
+/* 1C-style document header */
+.doc-hdr{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:0;margin-bottom:10px;overflow:hidden;}
+.doc-hdr-titlebar{background:var(--paper-sunk);border-bottom:1px solid var(--line-strong);padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.doc-hdr-doctype{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);flex:1;min-width:120px;}
+.doc-hdr-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink);padding:2px 9px;background:var(--ink);color:var(--paper);border-radius:4px;}
+.doc-hdr-date{font-family:var(--mono);font-size:12px;color:var(--ink-soft);}
+.doc-hdr-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0;padding:0;}
+.doc-hf{padding:7px 14px;border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);}
+.doc-hf:nth-child(2n){border-right:none;}
+.doc-hf-lbl{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost);margin-bottom:2px;}
+.doc-hf-val{font-size:12.5px;color:var(--ink);font-weight:500;}
+.doc-hf-val.mono{font-family:var(--mono);font-size:12px;}
+/* 1C-style goods table */
+.doc-tbl-section{margin-bottom:12px;}
+.doc-tbl-head{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--paper-sunk);border:1px solid var(--line-strong);border-bottom:none;border-radius:7px 7px 0 0;}
+.doc-tbl-label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);font-weight:600;}
+.doc-tbl-count{font-family:var(--mono);font-size:9px;padding:1px 6px;background:var(--line-strong);border-radius:10px;color:var(--ink-dim);}
+.doc-tbl-wrap{border:1px solid var(--line-strong);border-radius:0 0 7px 7px;overflow:hidden;overflow-x:auto;}
+.doc-tbl{width:100%;border-collapse:collapse;min-width:820px;table-layout:fixed;}
+.doc-tbl thead th{padding:5px 6px;background:var(--paper-sunk);border-bottom:1.5px solid var(--line-strong);font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-dim);white-space:nowrap;font-weight:600;vertical-align:middle;border-right:1px solid var(--line-soft);text-align:left;}
+.doc-tbl thead th:last-child{border-right:none;}
+.doc-tbl tbody tr{border-bottom:1px solid var(--line-soft);}
+.doc-tbl tbody tr:hover{background:rgba(180,145,95,.05)}
+.doc-tbl tfoot td{padding:5px 7px;background:var(--paper-sunk);border-top:1.5px solid var(--line-strong);font-family:var(--mono);font-size:11px;font-weight:700;color:var(--ink);text-align:right;}
+.doc-tbl tfoot .tfoot-lbl{text-align:left;font-family:var(--serif);font-style:italic;color:var(--ink-dim);font-size:12px;}
+.dt-n{width:28px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink-ghost);padding:4px 3px;background:var(--paper-sunk);border-right:1px solid var(--line-soft);}
+.dt-cell{border-right:1px solid var(--line-soft);padding:0;vertical-align:middle;}
+.dt-cell:last-child{border-right:none;}
+.dt-inp{padding:4px 6px;border:none;background:transparent;font-family:var(--font);font-size:12px;color:var(--ink);outline:none;width:100%;display:block;}
+.dt-inp:focus{background:rgba(140,60,45,.05);box-shadow:inset 0 0 0 1.5px var(--accent);}
+.dt-inp.num{font-family:var(--mono);text-align:right;font-size:11.5px;}
+.dt-inp.code{font-family:var(--mono);font-size:11px;}
+.dt-inp.acc-f{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);text-align:center;}
+.dt-ro{padding:4px 6px;font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);text-align:right;white-space:nowrap;display:block;}
+.dt-ro.acc{color:var(--green);font-weight:700;text-align:center;}
+.dt-sel{padding:3px 4px;border:none;background:transparent;font-size:11px;color:var(--ink);outline:none;width:100%;cursor:pointer;font-family:var(--font);}
+.dt-del{width:22px;text-align:center;cursor:pointer;color:var(--ink-ghost);font-size:12px;padding:0 3px;background:none;border:none;}
+.dt-del:hover{color:var(--red);}
+.dt-add-row{display:flex;align-items:center;gap:6px;padding:5px 9px;border-top:1px solid var(--line-soft);cursor:pointer;color:var(--ink-ghost);background:none;border:none;width:100%;font-family:var(--font);}
+.dt-add-row:hover{background:var(--card-hover);color:var(--accent);}
+/* presets */
+.preset-chips{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap;}
+.preset{display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border-radius:5px;border:1px solid var(--line-strong);font-size:11px;color:var(--ink-dim);cursor:pointer;transition:.12s;background:var(--card);}
+.preset:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+/* account fields */
+.acc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.acc-field{display:flex;flex-direction:column;gap:3px;}
+.acc-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);}
+.acc-row-in{display:flex;align-items:center;gap:6px;}
+.acc-input{width:80px;padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px;font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--card);outline:none;transition:.12s;}
+.acc-input:focus{border-color:var(--accent)}
+.acc-name{font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--ink-dim);}
+.desc-input{width:100%;padding:6px 9px;border:1px solid var(--line-strong);border-radius:6px;font-size:12px;color:var(--ink-soft);background:var(--card);outline:none;transition:.12s;font-family:var(--font);}
+.desc-input:focus{border-color:var(--accent)}
+/* AI suggestion box */
+.ai-box{background:linear-gradient(135deg,rgba(106,58,124,.06),rgba(58,90,140,.06));border:1px solid rgba(106,58,124,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:none;}
+.ai-box.show{display:block;}
+.ai-box-title{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:#6a3a7c;text-transform:uppercase;margin-bottom:6px;}
+.ai-suggestion{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ai-acc{font-family:var(--mono);font-size:12.5px;font-weight:700;color:#3a5a8c;padding:3px 8px;background:rgba(58,90,140,.1);border-radius:4px;}
+.ai-reason{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim);}
+.ai-apply{font-size:11px;padding:3px 8px;background:rgba(106,58,124,.1);color:#6a3a7c;border:1px solid rgba(106,58,124,.2);border-radius:4px;cursor:pointer;transition:.12s;}
+.ai-apply:hover{background:rgba(106,58,124,.18)}
+/* actions */
+.acc-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;}
+.result-band{padding:9px 12px;background:var(--green-bg);border:1px solid var(--green-border);border-radius:7px;font-size:12px;color:var(--green);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.result-band a{font-weight:600;text-decoration:underline;color:var(--green);}
+.error-band{padding:9px 12px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:7px;font-size:12px;color:var(--red);}
+/* invoice comparison */
+.inv-section{padding:10px 12px;border-radius:8px;margin-bottom:12px;display:flex;flex-direction:column;gap:6px;}
+.inv-pending{background:var(--paper-sunk);border:1px dashed var(--line-strong);flex-direction:row;align-items:center;gap:10px;}
+.inv-none{background:var(--paper-sunk);border:1px solid var(--line);flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px;}
+.inv-found{background:rgba(39,80,10,.04);border:1px solid var(--green-border);}
+.inv-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);font-weight:600;white-space:nowrap;}
+.inv-card{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:8px 10px;}
+.inv-summary{display:flex;flex-direction:column;gap:3px;margin-top:8px;padding:8px 10px;background:var(--paper-soft);border-radius:6px;}
+.inv-sum-row{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft);}
+.inv-sum-val{font-family:var(--mono);font-weight:600;color:var(--ink);}
+/* posted banner */
+.posted-banner{padding:10px 14px;background:var(--green-bg);border:1px solid var(--green-border);border-radius:8px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--green);}
+.posted-banner a{font-weight:600;text-decoration:underline;color:var(--green);}
+/* empty */
+.empty-state{text-align:center;padding:48px 20px}
+.empty-state svg{width:36px;height:36px;stroke:var(--line-strong);stroke-width:1.5;fill:none;margin:0 auto 10px;display:block}
+.empty-state p{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-dim);margin-bottom:4px}
+.empty-state span{font-size:11.5px;color:var(--ink-ghost)}
+/* toast */
+.toast-wrap{position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:7px;pointer-events:none;}
+.toast{padding:10px 14px;background:var(--ink);color:var(--paper);border-radius:9px;font-size:12px;box-shadow:0 6px 20px rgba(26,21,18,.4);display:flex;align-items:center;gap:7px;min-width:200px;max-width:340px;animation:slideIn .18s ease;pointer-events:all;}
+.toast.err{background:var(--accent)}
+.toast.ok{background:#27500A}
+@keyframes slideIn{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar-mount"></aside>
+
+<div class="main">
+  <div class="topbar">
+    <div class="crumbs">Bridge Hub / RS.ge / <em>სინქრ.</em></div>
+    <button class="icon-btn" title="განახლება" onclick="reloadActive()">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+    </button>
+  </div>
+
+  <div class="content">
+    <div style="margin-bottom:16px">
+      <div style="font-size:20px;font-weight:600;letter-spacing:-.02em">RS.ge <span style="font-family:var(--serif);font-style:italic;font-weight:400;color:var(--ink-dim);font-size:17px">სინქრ. · ბუღ. გატ.</span></div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-wrap">
+      <div class="tab active" id="tab-wb" onclick="switchTab('wb')">ზედნადებები</div>
+      <div class="tab" id="tab-inv" onclick="switchTab('inv')">ფაქტურები</div>
+      <div class="tab" id="tab-settings" onclick="switchTab('settings')">პარამ.</div>
+    </div>
+
+    <!-- ══════ WAYBILLS TAB ══════ -->
+    <div id="pane-wb">
+      <!-- Period filter -->
+      <div class="filter-bar">
+        <span class="filter-label">პერიოდი</span>
+        <input type="date" class="date-input" id="wbDateFrom" onchange="loadWaybills()"/>
+        <span class="sep">—</span>
+        <input type="date" class="date-input" id="wbDateTo" onchange="loadWaybills()"/>
+        <button class="btn btn-secondary" onclick="clearDates();loadWaybills()" style="margin-left:4px;font-size:11.5px">ყველა</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary" onclick="loadWaybills()" style="font-size:12px">
+          <svg style="width:12px;height:12px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          RS.ge-დან ჩამ.
+        </button>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-strip">
+        <div class="stat-card"><div class="stat-num" id="wbStatTotal">—</div><div class="stat-lbl">სულ</div></div>
+        <div class="stat-card"><div class="stat-num" id="wbStatSent">—</div><div class="stat-lbl">გაგზ.</div></div>
+        <div class="stat-card"><div class="stat-num" id="wbStatRecv">—</div><div class="stat-lbl">მიღ.</div></div>
+        <div class="stat-card"><div class="stat-num" id="wbStatNew">—</div><div class="stat-lbl">ახალი</div></div>
+        <div class="stat-card"><div class="stat-num" id="wbStatDrafted">—</div><div class="stat-lbl">დრ.</div></div>
+        <div class="stat-card"><div class="stat-num" id="wbStatPosted" style="color:var(--green)">—</div><div class="stat-lbl">გატ. ✓</div></div>
+      </div>
+
+      <!-- Add received by number -->
+      <div class="add-bar">
+        <span class="add-label">მიღ. ζεδ. ნომ.:</span>
+        <input class="num-input" id="wbNumInput" placeholder="0997264809…" onkeydown="if(event.key==='Enter')addByNumber()"/>
+        <button class="btn btn-secondary" onclick="addByNumber()">ჩამოტვ.</button>
+        <span style="color:var(--line-strong);font-size:11px">|</span>
+        <input class="multi-input" id="wbMultiInput" placeholder="0001, 0002, 0003 — რამ-მე ერთ-ზე"/>
+        <button class="btn btn-secondary" onclick="addMultiByNumber()">ყველა</button>
+      </div>
+
+      <div class="tbl-wrap" id="wbTable">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          <p>RS.ge-დან ჩამოტვ…</p>
+          <span>პერიოდი მიუთ. → "RS.ge-დან ჩამ." ან ზემოთ "↺"</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ INVOICES TAB ══════ -->
+    <div id="pane-inv" style="display:none">
+      <div class="filter-bar">
+        <span class="filter-label">RS.ge ფაქტ.</span>
+        <button class="btn btn-primary" onclick="loadInvoices()" style="font-size:12px">ჩამ.</button>
+      </div>
+      <div class="stats-strip">
+        <div class="stat-card"><div class="stat-num" id="invStatTotal">—</div><div class="stat-lbl">სულ</div></div>
+        <div class="stat-card"><div class="stat-num" id="invStatDrafted">—</div><div class="stat-lbl">დრ.</div></div>
+        <div class="stat-card"><div class="stat-num" id="invStatPosted" style="color:var(--green)">—</div><div class="stat-lbl">გატ.</div></div>
+      </div>
+      <div class="tbl-wrap" id="invTable">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <p>ფაქტ. ჩასამ.</p><span>ზემოთ "ჩამ." დააჭ.</span>
+        </div>
+      </div>
+    </div>
+    <!-- ══════ SETTINGS TAB ══════ -->
+    <div id="pane-settings" style="display:none">
+      <div style="max-width:560px;display:flex;flex-direction:column;gap:20px;padding-top:4px">
+
+        <!-- Own TIN card -->
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+          <div style="padding:14px 18px 10px;border-bottom:1px solid var(--line-soft)">
+            <div style="font-size:13.5px;font-weight:600;color:var(--ink)">კომპანიის საიდ. კოდი (TIN)</div>
+            <div style="font-size:12px;color:var(--ink-dim);margin-top:3px">გამოიყენება ავტომატური Dr/Cr მიმართულების გამოსათვლელად (შემ. / გამ.)</div>
+          </div>
+          <div style="padding:14px 18px;display:flex;gap:10px;align-items:center">
+            <input id="settingsOwnTin" type="text" placeholder="მაგ. 405176367"
+              style="flex:1;padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);font-family:var(--mono);font-size:13px;color:var(--ink);outline:none"/>
+            <button class="btn btn-primary" onclick="saveOwnTin()" id="ownTinSaveBtn">შენახვა</button>
+            <span id="ownTinStatus" style="font-size:11px;color:var(--ink-dim)"></span>
+          </div>
+        </div>
+
+        <!-- Partner map card -->
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+          <div style="padding:14px 18px 10px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13.5px;font-weight:600;color:var(--ink)">გამყიდველ TIN → ანგ. (Cr) მარტება</div>
+              <div style="font-size:12px;color:var(--ink-dim);margin-top:3px">მომწოდებლის TIN-ის კრედიტ ანგ. კოდზე დამახსოვრება</div>
+            </div>
+            <button class="btn btn-secondary" onclick="loadPartnerMap()" style="font-size:11.5px">↺ განახ.</button>
+          </div>
+          <div id="partnerMapList" style="padding:10px 18px;min-height:40px;font-size:12px;color:var(--ink-dim)">
+            <button class="btn btn-secondary" onclick="loadPartnerMap()" style="font-size:11.5px">ჩამ.</button>
+          </div>
+        </div>
+
+        <!-- Item map card -->
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+          <div style="padding:14px 18px 10px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13.5px;font-weight:600;color:var(--ink)">საქ. კოდი → ანგ. (Dr) მარტება</div>
+              <div style="font-size:12px;color:var(--ink-dim);margin-top:3px">ბარ-კოდი / პ-კოდი → სადებეტო ანგ. კოდი</div>
+            </div>
+            <button class="btn btn-secondary" onclick="loadItemMap()" style="font-size:11.5px">↺ განახ.</button>
+          </div>
+          <div id="itemMapList" style="padding:10px 18px;min-height:40px;font-size:12px;color:var(--ink-dim)">
+            <button class="btn btn-secondary" onclick="loadItemMap()" style="font-size:11.5px">ჩამ.</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+const BASE = '';
+let TOKEN = localStorage.getItem('access_token') || localStorage.getItem('bh_token') || '';
+const H = () => TOKEN ? {'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'} : {'Content-Type':'application/json'};
+
+// ── COA ──────────────────────────────────────────────────────────────────────
+const COA = {
+  '1110':'სალარო','1120':'საბ. ანგ.','1210':'მოთხ. კლ.',
+  '1310':'მარ. / საქ.','1320':'მზა პრ.','1410':'სხვ. მ.მ.','1420':'გდხ. ავ.',
+  '1510':'ძ. საშ.','1520':'დარ. ამ.','1610':'არამ. აქტ.',
+  '2110':'მიწა','2120':'შენობა','2130':'მოწ.','2140':'ტრ.','2190':'სხვ.ძ.ს.',
+  '3110':'კრ. დავ. (AP)','3120':'მიღ. ავ.','3310':'დღგ გად.',
+  '3311':'ჩათვ. დღგ','3320':'PIT','3330':'საპ.','3340':'CIT',
+  '4110':'საწ. კაპ.','4210':'გ.მ. (RE)','5310':'კაპ.',
+  '6110':'გ-ვ. შემ.','6120':'მომ. შემ.',
+  '7110':'COGS','7210':'ხ.ხ.','7310':'ქ.ხ.','7410':'კ.ხ.',
+  '7510':'სბ. სკ.','7610':'ამ. ხ.','7710':'მარ. ხ.',
+  '7730':'ს.ხ.','7810':'IT/Cloud','7910':'სხვ. ხ.','7920':'გ.კ.ზ.',
+  '7440':'სხვ. ოპ. ხ.',
+};
+function cn(c){ return COA[c] || '' }
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let _wbAll = [], _invAll = [];
+let _wbExp = null, _invExp = null;
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function _esc(s){ const d=document.createElement('div');d.textContent=s||'';return d.innerHTML; }
+function _amt(v){ return parseFloat(v||0).toLocaleString('ka-GE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _dt(s){ return s?String(s).substring(0,10):'—'; }
+function toast(msg, type=''){
+  const w=document.getElementById('toastWrap');
+  const d=document.createElement('div');
+  d.className='toast'+(type?' '+type:'');
+  d.textContent=msg;
+  w.appendChild(d);
+  setTimeout(()=>{d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(()=>d.remove(),300)},3800);
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function switchTab(t){
+  document.getElementById('pane-wb').style.display       = t==='wb'?'':'none';
+  document.getElementById('pane-inv').style.display      = t==='inv'?'':'none';
+  document.getElementById('pane-settings').style.display = t==='settings'?'':'none';
+  document.getElementById('tab-wb').classList.toggle('active',t==='wb');
+  document.getElementById('tab-inv').classList.toggle('active',t==='inv');
+  document.getElementById('tab-settings').classList.toggle('active',t==='settings');
+  if(t==='inv'&&_invAll.length===0) loadInvoices();
+  if(t==='settings') loadSettingsTab();
+}
+function reloadActive(){
+  if(document.getElementById('tab-wb').classList.contains('active')) loadWaybills();
+  else if(document.getElementById('tab-inv').classList.contains('active')) loadInvoices();
+}
+
+// ── DATES ─────────────────────────────────────────────────────────────────────
+function clearDates(){
+  document.getElementById('wbDateFrom').value='';
+  document.getElementById('wbDateTo').value='';
+}
+
+// ── WAYBILLS ─────────────────────────────────────────────────────────────────
+async function loadWaybills(){
+  const df = document.getElementById('wbDateFrom').value || '';
+  const dt = document.getElementById('wbDateTo').value   || '';
+  const params = new URLSearchParams({limit:'200'});
+  if(df) params.append('date_from', df+'T00:00:00');
+  if(dt) params.append('date_to',   dt+'T23:59:59');
+
+  document.getElementById('wbTable').innerHTML=`<div class="empty-state"><div class="spin" style="margin:0 auto 10px;border-color:var(--line-strong);border-top-color:var(--ink)"></div><p>RS.ge-დან ჩამოტვ…</p></div>`;
+  try{
+    const r = await fetch(BASE+'/rs-ge/waybills?'+params.toString(),{headers:H()});
+    const d = await r.json();
+    if(!d.ok){ toast('შეცდ.: '+(d.error?.details||d.message||'err'),'err'); renderWbTable(); return; }
+    const raw = d.data?.waybills||[];
+    const existingNums = new Set(raw.map(w=>w.waybill_number));
+    const manual = _wbAll.filter(w=>w._manual && !existingNums.has(w.waybill_number));
+    _wbAll = [...raw.map(w=>({
+      ...w,
+      _local_id: w.local_id||null,
+      _draft_id: w.draft_id||null,
+      _draft_status: w.draft_status||null,
+    })), ...manual];
+    updateWbStats();
+    renderWbTable();
+    if(d.data?.soap_error) toast('RS.ge SOAP: '+d.data.soap_error,'err');
+  }catch(e){ toast('კავშ. შ.','err'); renderWbTable(); }
+}
+
+function updateWbStats(){
+  const s={total:_wbAll.length,sent:0,recv:0,neww:0,drafted:0,posted:0};
+  _wbAll.forEach(w=>{
+    if(w.direction==='received') s.recv++; else s.sent++;
+    const ds=w._draft_status||w.draft_status||'';
+    if(ds==='posted') s.posted++;
+    else if(ds==='drafted'||w._draft_id||w.draft_id) s.drafted++;
+    else if(!w._local_id&&!w.local_id&&!w.synced) s.neww++;
+  });
+  document.getElementById('wbStatTotal').textContent  = s.total;
+  document.getElementById('wbStatSent').textContent   = s.sent;
+  document.getElementById('wbStatRecv').textContent   = s.recv;
+  document.getElementById('wbStatNew').textContent    = s.neww;
+  document.getElementById('wbStatDrafted').textContent= s.drafted;
+  document.getElementById('wbStatPosted').textContent = s.posted;
+}
+
+function _stBadge(wb){
+  const ds = wb._draft_status||wb.draft_status||'';
+  const did = wb._draft_id||wb.draft_id;
+  if(ds==='posted') return '<span class="badge badge-posted">✓ გატ.</span>';
+  if(did||ds==='drafted') return '<span class="badge badge-drafted">⏳ დრ.</span>';
+  if(wb._local_id||wb.local_id||wb.synced) return '<span class="badge badge-synced">↓ სინქ.</span>';
+  return '<span class="badge badge-new">ახ.</span>';
+}
+
+function renderWbTable(){
+  const el=document.getElementById('wbTable');
+  if(!_wbAll.length){
+    el.innerHTML=`<div class="empty-state">
+      <svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      <p>ζεδ. ვ. მ.</p><span>RS.ge-ზე ამ პერ. ζεδ. არ არ. ან SOAP შეცდ.</span></div>`;
+    return;
+  }
+  let rows='';
+  _wbAll.forEach((wb,i)=>{
+    const exp=_wbExp===i;
+    const dir=wb.direction==='received'
+      ?'<span class="dir-chip dir-recv">მიღ.</span>'
+      :'<span class="dir-chip dir-sent">გაგ.</span>';
+    const party=wb.direction==='received'
+      ?`<div class="party-name">${_esc(wb.seller_name||wb.buyer_name||'—')}</div><div class="party-inn">${_esc(wb.seller_tin||wb.buyer_tin||'')}</div>`
+      :`<div class="party-name">${_esc(wb.buyer_name||'—')}</div><div class="party-inn">${_esc(wb.buyer_tin||'')}</div>`;
+    rows+=`<tr class="data-row${exp?' expanded':''}" onclick="toggleWb(${i})">
+      <td><div class="wb-num">${_esc(wb.waybill_number||wb.rsge_id||'—')}</div><div class="wb-id">id:${_esc(wb.rsge_id||'')}</div></td>
+      <td>${party}</td>
+      <td>${dir}</td>
+      <td class="date-cell">${_dt(wb.begin_date)}</td>
+      <td class="amt">${_amt(wb.full_amount)}<span style="font-size:9px;color:var(--ink-ghost);margin-left:2px">₾</span></td>
+      <td>${_stBadge(wb)}</td>
+      <td style="text-align:center;color:var(--ink-ghost);font-size:11px;width:24px">${exp?'▲':'▼'}</td>
+    </tr>`;
+    if(exp) rows+=`<tr class="panel-row"><td colspan="7">${wbPanel(wb,i)}</td></tr>`;
+  });
+  el.innerHTML=`<table>
+    <thead><tr>
+      <th>ნომ.</th><th>კომპ.</th><th>მიმ/გ</th><th>თარ.</th>
+      <th style="text-align:right">₾</th><th>სტ.</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function toggleWb(i){
+  _wbExp=(_wbExp===i)?null:i;
+  renderWbTable();
+  // Auto-fetch goods from SOAP when expanding a waybill with no goods yet
+  if(_wbExp===i){
+    const wb=_wbAll[i];
+    const hasGoods=wb&&wb.goods_list&&wb.goods_list.length>0;
+    const hasLines=wb&&wb._lines&&wb._lines.length>0;
+    if(!hasGoods&&!hasLines&&(wb.waybill_number||wb.rsge_id)){
+      setTimeout(()=>fetchWbDetails(i),100);
+    } else {
+      // Already have data — still run suggestion (may have seller_tin from DB)
+      setTimeout(()=>suggestDraftAccounts(i),150);
+    }
+  }
+}
+
+function wbPanel(wb,idx){
+  const lid=wb._local_id||wb.local_id||null;
+  const did=wb._draft_id||wb.draft_id||null;
+  const ds=wb._draft_status||wb.draft_status||'';
+  const synced=!!lid;
+  const recv=wb.direction==='received';
+  const p=`wp${idx}`;
+
+  // If already posted
+  if(ds==='posted'){
+    return `<div class="acc-panel">
+      <div class="posted-banner">✓ ბუღ. გატ. — დრ. #${did||'?'} · <a href="/static/drafts.html" target="_blank">გ. ჟ.</a></div>
+    </div>`;
+  }
+
+  const docType=recv?'RS.ge შეს. (ზედნადები)':'RS.ge გაყ. (ზედნადები)';
+  const docNum=wb.waybill_number||wb.rsge_id||'—';
+  const docDate=_dt(wb.begin_date||wb.transport_date||'');
+  const docStatusBadge=_stBadge(wb);
+
+  const docHeader=`<div class="doc-hdr">
+    <div class="doc-hdr-titlebar">
+      <span class="doc-hdr-doctype">${_esc(docType)}</span>
+      <span class="doc-hdr-num">${_esc(docNum)}</span>
+      <span class="doc-hdr-date">${_esc(docDate)}</span>
+      <span style="margin-left:4px">${docStatusBadge}</span>
+      <span style="flex:1"></span>
+      ${!synced?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" id="${p}_syncBtn" onclick="syncWb(${idx})">📥 სინქ.</button>`:''}
+      ${synced&&!did?`<button class="btn btn-primary" style="font-size:11px;padding:4px 10px" id="${p}_draftBtn" onclick="createWbDraft(${idx},${lid})">📋 ბ.მ. შ.</button>`:''}
+      ${did?`<a href="/static/draft_detail.html?id=${did}" target="_blank" class="btn btn-green" style="font-size:11px;padding:4px 10px">✓ დ.#${did} →</a>`:''}
+    </div>
+    <div class="doc-hdr-body">
+      <div class="doc-hf"><div class="doc-hf-lbl">გამყ. / გამ-ი</div><div class="doc-hf-val">${_esc(wb.seller_name||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">გამ. ს/ნ</div><div class="doc-hf-val mono">${_esc(wb.seller_tin||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">მყ. / მიმ-ი</div><div class="doc-hf-val">${_esc(wb.buyer_name||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">მყ. ს/ნ</div><div class="doc-hf-val mono">${_esc(wb.buyer_tin||'—')}</div></div>
+      ${wb.driver_name?`<div class="doc-hf"><div class="doc-hf-lbl">მძ-ლი</div><div class="doc-hf-val">${_esc(wb.driver_name)}</div></div>`:''}
+      ${wb.car_number?`<div class="doc-hf"><div class="doc-hf-lbl">ავ. ნომ.</div><div class="doc-hf-val mono">${_esc(wb.car_number)}</div></div>`:''}
+      ${wb.start_address?`<div class="doc-hf"><div class="doc-hf-lbl">გ-ების დ. მ.</div><div class="doc-hf-val">${_esc(wb.start_address)}</div></div>`:''}
+      ${wb.end_address?`<div class="doc-hf"><div class="doc-hf-lbl">გ-ების ბ. მ.</div><div class="doc-hf-val">${_esc(wb.end_address)}</div></div>`:''}
+      <div class="doc-hf"><div class="doc-hf-lbl">სრ. თანხა</div><div class="doc-hf-val mono" style="color:var(--accent);font-weight:700">${_amt(wb.full_amount)} ₾</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">RS.ge სტ.</div><div class="doc-hf-val">${_status(wb.status||wb.rsge_status||'')}</div></div>
+      ${wb.comment?`<div class="doc-hf" style="grid-column:1/-1"><div class="doc-hf-lbl">შენ.</div><div class="doc-hf-val">${_esc(wb.comment)}</div></div>`:''}
+    </div>
+  </div>`;
+
+  const steps=`<div class="steps" style="margin-bottom:10px">
+    <div class="step ${synced?'done':'active'}"><div class="step-dot">${synced?'✓':'1'}</div>სინქ.</div>
+    <div class="step-arrow">›</div>
+    <div class="step ${synced?(did?'done':'active'):''}"><div class="step-dot">${did?'✓':'2'}</div>ბ.მ.</div>
+    <div class="step-arrow">›</div>
+    <div class="step ${did?'active':''}"><div class="step-dot">3</div>გ.</div>
+  </div>`;
+
+  // Waybill info grid (compact, after doc header — only show editable date)
+  const info='';
+
+  // Editable meta row (date + save button) — only when locally synced
+  const editDateVal=(wb.begin_date||'').slice(0,10);
+  const metaRow=synced?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 10px;background:var(--paper-sunk);border:1px solid var(--line-soft);border-radius:7px;flex-wrap:wrap">
+    <span style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);white-space:nowrap">ζεδ. თარ.:</span>
+    <input type="date" id="${p}_editDate" value="${editDateVal}" style="padding:4px 8px;border:1px solid var(--line-strong);border-radius:5px;background:var(--card);font-family:var(--mono);font-size:12px;color:var(--ink);outline:none;"/>
+    <button class="btn btn-secondary" id="${p}_saveBtn" onclick="saveWbMeta(${idx})" style="font-size:11.5px">💾 შენ.</button>
+  </div>`:'';
+
+  const defDr=recv?'1310':'1210';
+  const defCr=recv?'3110':'6110';
+  const wbAmtNum=parseFloat(wb.full_amount||0);
+  // Use invoice-combined amount if already fetched
+  const _lnkSumary=wb._invoice_summary||null;
+  const postAmt=_lnkSumary?.combined_total||wbAmtNum;
+  const defDesc=recv
+    ?`RS.ge შეს. — ${wb.seller_name||wb.buyer_name||''} #${wb.waybill_number||wb.rsge_id||''}`
+    :`RS.ge გაყ. — ${wb.buyer_name||''} #${wb.waybill_number||wb.rsge_id||''}`;
+
+  // Goods — initialise editable lines
+  if(!wb._lines){
+    wb._lines=(wb.goods_list&&wb.goods_list.length)
+      ?wb.goods_list.map(g=>({
+          code:g.bar_code||g.product_code||g.code||'',
+          name:g.name||'',
+          unit:g.unit_name||g.unit||'',
+          qty:g.quantity||'',
+          price:g.price||'',
+          amt:g.amount||'',
+          vat_type:String(g.vat_type??'1'),
+          acc:''
+        }))
+      :[];
+  }
+  const goods=_renderEditableGoods(idx,wb._lines,p,defDr);
+
+  // Invoice comparison section
+  const invSection=_buildInvSection(wb,idx);
+
+  return `<div class="acc-panel">
+    ${docHeader}
+    ${steps}
+    ${metaRow}
+    ${goods}
+    ${invSection}
+    <div style="margin-bottom:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px;font-weight:600">ბუღ. გატ. / საბ. ანგ.</div>
+      <div class="preset-chips" style="margin-bottom:8px">
+        <span class="preset" onclick="wbPreset(${idx},'purchase')">📦 შეს. 1310/3110</span>
+        <span class="preset" onclick="wbPreset(${idx},'sale')">💰 გაყ. 1210/6110</span>
+        <span class="preset" onclick="wbPreset(${idx},'fa')">🏗 ძ.ს. 2190/3110</span>
+        <span class="preset btn-ai" style="color:#fff;border-color:transparent" onclick="getAiSuggestion(${idx})">✨ AI</span>
+      </div>
+      <div class="ai-box" id="${p}_aibox" style="margin-bottom:8px">
+        <div class="ai-box-title">✨ AI შეთ.</div>
+        <div class="ai-suggestion" id="${p}_aisugg"></div>
+      </div>
+      <div class="acc-grid">
+        <div class="acc-field">
+          <div class="acc-label">სადებეტო ანგ. <span id="${p}_sug_dr" style="font-size:9px;color:var(--green);margin-left:4px"></span></div>
+          <div class="acc-row-in">
+            <input class="acc-input" id="${p}_dr" value="${defDr}" oninput="updCoa('${p}_dr','${p}_drn')"/>
+            <span class="acc-name" id="${p}_drn">${cn(defDr)}</span>
+          </div>
+        </div>
+        <div class="acc-field">
+          <div class="acc-label">საკრედიტო ანგ. <span id="${p}_sug_cr" style="font-size:9px;color:var(--green);margin-left:4px"></span>${recv?`<button onclick="savePartnerMap(${idx})" title="გამყ. TIN → ანგ. შენ." style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:11px;color:var(--accent);padding:0;line-height:1">📌 მარ.</button>`:''}</div>
+          <div class="acc-row-in">
+            <input class="acc-input" id="${p}_cr" value="${defCr}" oninput="updCoa('${p}_cr','${p}_crn')"/>
+            <span class="acc-name" id="${p}_crn">${cn(defCr)}</span>
+          </div>
+        </div>
+      </div>
+      ${recv?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;background:var(--paper-sunk);border:1px solid var(--line-soft);border-radius:6px">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12.5px;color:var(--ink-soft)">
+          <input type="checkbox" id="${p}_vatChk" onchange="toggleVatPreview(${idx})" style="cursor:pointer"/>
+          <span>დღგ 18% ცალ.</span>
+        </label>
+        <span id="${p}_vatPrev" style="font-size:11px;color:var(--ink-dim);font-family:var(--mono)"></span>
+      </div>`:''}
+      <div style="margin-top:8px">
+        <div class="acc-label" style="margin-bottom:3px">აღწ.</div>
+        <input class="desc-input" id="${p}_desc" value="${_esc(defDesc)}"/>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+        <div>
+          <div class="acc-label" style="margin-bottom:3px">გ. თანხა ₾</div>
+          <input class="acc-input" style="width:130px;font-size:13px" type="number" step="0.01" id="${p}_postamt"
+            value="${postAmt.toFixed(2)}" placeholder="0.00" oninput="toggleVatPreview(${idx})"/>
+        </div>
+        <div style="flex:1"></div>
+        ${synced?`<span style="font-size:11px;color:var(--green);font-family:var(--mono)">✓ DB#${lid}</span>`:''}
+      </div>
+    </div>
+    <div id="${p}_res"></div>
+  </div>`;
+}
+
+function _applyWbMeta(idx,data){
+  if(!data)return;
+  if(!parseFloat(_wbAll[idx].full_amount||0)&&data.full_amount) _wbAll[idx].full_amount=data.full_amount;
+  if(!_wbAll[idx].seller_name&&data.seller_name) _wbAll[idx].seller_name=data.seller_name;
+  if(!_wbAll[idx].buyer_name&&data.buyer_name) _wbAll[idx].buyer_name=data.buyer_name;
+}
+function _applyWbFields(idx,data){
+  if(!data)return;
+  const e=_wbAll[idx];
+  _wbAll[idx]={...e,
+    goods_list:data.goods_list||[],
+    seller_name:e.seller_name||data.seller_name||'',
+    seller_tin: e.seller_tin ||data.seller_tin ||'',
+    start_address:e.start_address||data.start_address||'',
+    end_address:  e.end_address  ||data.end_address  ||'',
+    driver_name:  e.driver_name  ||data.driver_name  ||'',
+    car_number:   e.car_number   ||data.car_number   ||'',
+  };
+  _applyWbMeta(idx,data);
+  // Auto-suggest accounts based on newly loaded partner/item data
+  setTimeout(()=>suggestDraftAccounts(idx),200);
+}
+// ── 1C-style goods table ───────────────────────────────────────────────────────
+function _vatLabel(v){
+  const m={'0':'განთავისუფ.','1':'ჩვ. 18%','2':'0%','3':'ჩათვ.','4':'გარ.'};
+  return m[String(v??'')] || String(v||'ჩვ. 18%');
+}
+function _computeLineVat(amt, vat_type){
+  const a=parseFloat(amt||0);
+  const t=String(vat_type??'1');
+  if(t==='1'||t==='3'){ const v=Math.round(a*18/118*100)/100; return {vat:v,total:a}; }
+  return {vat:0,total:a};
+}
+function _renderEditableGoods(idx,lines,p,drAcc){
+  if(!lines) lines=[];
+  const vatOpts=['1','2','0','3'].map(v=>`<option value="${v}">${_vatLabel(v)}</option>`).join('');
+
+  let totalQty=0,totalAmt=0,totalVat=0,totalFull=0;
+  const rows=lines.map((l,li)=>{
+    const qty=parseFloat(l.qty||0);
+    const price=parseFloat(l.price||0);
+    // amt: prefer explicit, else qty×price
+    const amt=parseFloat(l.amt||0)||(price&&qty?Math.round(qty*price*100)/100:0);
+    const {vat,total}=_computeLineVat(amt,l.vat_type);
+    totalQty+=qty; totalAmt+=amt; totalVat+=vat; totalFull+=total;
+    const selOpts=['1','2','0','3'].map(v=>`<option value="${v}"${String(l.vat_type??'1')===v?' selected':''}>${_vatLabel(v)}</option>`).join('');
+    const accVal=l.acc||drAcc||'1310';
+    return `<tr id="${p}_grow${li}">
+      <td class="dt-n">${li+1}</td>
+      <td class="dt-cell" style="width:76px"><input class="dt-inp code" value="${_esc(l.code||'')}" placeholder="კოდი" oninput="onGoodsChange(${idx},${li},'code',this.value)"/></td>
+      <td class="dt-cell"><input class="dt-inp" value="${_esc(l.name||'')}" placeholder="საქ./მომ. დასახ." oninput="onGoodsChange(${idx},${li},'name',this.value)"/></td>
+      <td class="dt-cell" style="width:50px"><input class="dt-inp" value="${_esc(l.unit||'')}" placeholder="ერთ." oninput="onGoodsChange(${idx},${li},'unit',this.value)"/></td>
+      <td class="dt-cell" style="width:80px"><input class="dt-inp num" id="${p}_gq${li}" value="${qty||''}" placeholder="0" oninput="onGoodsChange(${idx},${li},'qty',this.value)"/></td>
+      <td class="dt-cell" style="width:88px"><input class="dt-inp num" id="${p}_gpr${li}" value="${price||''}" placeholder="0.0000" oninput="onGoodsChange(${idx},${li},'price',this.value)"/></td>
+      <td class="dt-cell" style="width:90px"><input class="dt-inp num" id="${p}_ga${li}" value="${amt||''}" placeholder="0.00" oninput="onGoodsChange(${idx},${li},'amt',this.value)"/></td>
+      <td class="dt-cell" style="width:86px"><select class="dt-sel" onchange="onGoodsChange(${idx},${li},'vat_type',this.value)">${selOpts}</select></td>
+      <td class="dt-cell" style="width:80px"><span class="dt-ro" id="${p}_gv${li}">${vat>0?vat.toFixed(2):'—'}</span></td>
+      <td class="dt-cell" style="width:90px"><span class="dt-ro" style="font-weight:600;color:var(--ink)" id="${p}_gt${li}">${_amt(total)}</span></td>
+      <td class="dt-cell" style="width:62px"><input class="dt-inp acc-f" value="${_esc(accVal)}" placeholder="1310" oninput="onGoodsChange(${idx},${li},'acc',this.value)" title="Dr ანგ."/></td>
+      <td style="width:22px;padding:0;text-align:center;vertical-align:middle"><button class="dt-del" onclick="delGoodsRow(${idx},${li})" title="წაშ.">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="doc-tbl-section" id="${p}_gtbl">
+    <div class="doc-tbl-head">
+      <span class="doc-tbl-label">ნომენკლატურა</span>
+      <span class="doc-tbl-count">${lines.length}</span>
+    </div>
+    <div class="doc-tbl-wrap">
+      <table class="doc-tbl">
+        <colgroup>
+          <col style="width:28px"><col style="width:76px"><col><col style="width:50px">
+          <col style="width:80px"><col style="width:88px"><col style="width:90px">
+          <col style="width:86px"><col style="width:80px"><col style="width:90px">
+          <col style="width:62px"><col style="width:22px">
+        </colgroup>
+        <thead><tr>
+          <th style="width:28px">N</th>
+          <th>კოდი</th>
+          <th>ნომენკლატურა / დასახელება</th>
+          <th>ერთ.</th>
+          <th style="text-align:right">რაოდ.</th>
+          <th style="text-align:right">ერთ.ფ.</th>
+          <th style="text-align:right">თანხა</th>
+          <th>დღგ.ტ.</th>
+          <th style="text-align:right">დღგ</th>
+          <th style="text-align:right">ჯ.+დღგ</th>
+          <th style="text-align:center">ანგ.</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        ${lines.length?`<tfoot><tr>
+          <td colspan="4" class="tfoot-lbl" style="text-align:left;font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim)">სულ:</td>
+          <td id="${p}_tQty" style="text-align:right">${totalQty>0?totalQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):''}</td>
+          <td></td>
+          <td id="${p}_tAmt" style="text-align:right;font-weight:700;color:var(--accent)">${_amt(totalAmt)}</td>
+          <td></td>
+          <td id="${p}_tVat" style="text-align:right;color:var(--accent)">${totalVat>0?_amt(totalVat):''}</td>
+          <td id="${p}_tFull" style="text-align:right;font-weight:700;color:var(--ink)">${_amt(totalFull)}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>`:''}
+      </table>
+      <button class="dt-add-row" onclick="addGoodsRow(${idx})">
+        <span style="font-size:15px;line-height:1;font-weight:300">＋</span>
+        <span style="font-size:12px">სტრიქონის დამატება</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+function onGoodsChange(wbIdx,lineIdx,field,val){
+  if(!_wbAll[wbIdx]._lines) return;
+  _wbAll[wbIdx]._lines[lineIdx][field]=val;
+  const line=_wbAll[wbIdx]._lines[lineIdx];
+  const p=`wp${wbIdx}`;
+
+  // Auto-compute amt from qty × price when either changes
+  if(field==='qty'||field==='price'){
+    const qty=parseFloat(line.qty||0);
+    const price=parseFloat(line.price||0);
+    if(qty>0&&price>0){
+      const newAmt=Math.round(qty*price*100)/100;
+      line.amt=newAmt;
+      const amtEl=document.getElementById(`${p}_ga${lineIdx}`);
+      if(amtEl) amtEl.value=newAmt.toFixed(2);
+    }
+  }
+
+  // Refresh VAT and total cells for this row without full re-render
+  const amt=parseFloat(line.amt||0);
+  const {vat,total}=_computeLineVat(amt,line.vat_type);
+  const vatEl=document.getElementById(`${p}_gv${lineIdx}`);
+  const totEl=document.getElementById(`${p}_gt${lineIdx}`);
+  if(vatEl) vatEl.textContent=vat>0?vat.toFixed(2):'—';
+  if(totEl) totEl.textContent=_amt(total);
+
+  // Update grand total field for draft creation
+  const lines=_wbAll[wbIdx]._lines;
+  const grandTotal=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
+  const amtInp=document.getElementById(p+'_postamt');
+  if(amtInp) amtInp.value=grandTotal.toFixed(2);
+
+  // Update tfoot totals row
+  const tQty=lines.reduce((s,l)=>s+parseFloat(l.qty||0),0);
+  const tAmt=grandTotal;
+  const tVat=lines.reduce((s,l)=>{ const {vat}=_computeLineVat(parseFloat(l.amt||0),l.vat_type); return s+vat; },0);
+  const tFull=tAmt; // VAT-inclusive pricing: total = amt
+  const tQtyEl=document.getElementById(p+'_tQty');
+  const tAmtEl=document.getElementById(p+'_tAmt');
+  const tVatEl=document.getElementById(p+'_tVat');
+  const tFullEl=document.getElementById(p+'_tFull');
+  if(tQtyEl) tQtyEl.textContent=tQty>0?tQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):'';
+  if(tAmtEl) tAmtEl.textContent=_amt(tAmt);
+  if(tVatEl) tVatEl.textContent=tVat>0?_amt(tVat):'';
+  if(tFullEl) tFullEl.textContent=_amt(tFull);
+}
+
+function addGoodsRow(wbIdx){
+  if(!_wbAll[wbIdx]._lines) _wbAll[wbIdx]._lines=[];
+  _wbAll[wbIdx]._lines.push({code:'',name:'',unit:'',qty:'',price:'',amt:'',vat_type:'1',acc:''});
+  renderWbTable();
+  const p=`wp${wbIdx}`;
+  const newIdx=_wbAll[wbIdx]._lines.length-1;
+  setTimeout(()=>{
+    const rows=document.querySelectorAll(`#${p}_gtbl tbody tr`);
+    if(rows[newIdx]){
+      const inp=rows[newIdx].querySelector('input:nth-of-type(2)');
+      if(inp) inp.focus();
+    }
+  },50);
+}
+
+function delGoodsRow(wbIdx,lineIdx){
+  if(!_wbAll[wbIdx]._lines) return;
+  _wbAll[wbIdx]._lines.splice(lineIdx,1);
+  renderWbTable();
+}
+
+async function saveWbMeta(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const lid=wb._local_id||wb.local_id||null;
+  if(!lid){toast('ჯ. სინქ. გ.','err');return;}
+  const p=`wp${idx}`;
+  const btn=document.getElementById(p+'_saveBtn');
+  if(btn){btn.disabled=true;btn.textContent='...';}
+  try{
+    const dateEl=document.getElementById(p+'_editDate');
+    const editDate=dateEl?dateEl.value:'';
+    const goods=(wb._lines||[]).map(l=>({
+      bar_code:l.code||'',name:l.name||'',
+      unit_name:l.unit||'',
+      quantity:parseFloat(l.qty||0),
+      price:parseFloat(l.price||0)||null,
+      amount:parseFloat(l.amt||0),
+      vat_type:l.vat_type||'1',
+      account:l.acc||''
+    }));
+    const body={goods_list:goods};
+    if(editDate) body.begin_date=editDate;
+    const p2=document.getElementById(p+'_postamt');
+    const pa=p2?parseFloat(p2.value||0):0;
+    if(pa>0) body.full_amount=pa;
+    const r=await fetch(BASE+`/rs-ge/waybills/${lid}/edit-meta`,{
+      method:'PATCH',
+      headers:{...H(),'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(d.ok){
+      if(editDate) _wbAll[idx].begin_date=editDate+'T00:00:00';
+      if(pa>0) _wbAll[idx].full_amount=pa;
+      toast('შე. ✓','ok');
+    }else{
+      toast('შ. ვ.: '+(d.error?.details||d.message||''),'err');
+    }
+  }catch(e){toast('შ.','err');}
+  if(btn){btn.disabled=false;btn.textContent='💾 შენ.';}
+}
+
+// ── Invoice-Waybill comparison ───────────────────────────────────────────────
+function _buildInvSection(wb,idx){
+  const lid=wb._local_id||wb.local_id||null;
+  const inv=wb._invoice_data||null;
+  const p=`wp${idx}`;
+
+  if(!lid){
+    return `<div class="inv-section inv-pending">
+      <span class="inv-label">📄 ფ.</span>
+      <span style="font-size:11.5px;color:var(--ink-ghost);font-family:var(--serif);font-style:italic">სინქ. შ. ავტ. ფ. შ-მ.</span>
+    </div>`;
+  }
+
+  if(!inv){
+    return `<div class="inv-section inv-pending">
+      <span class="inv-label">📄 RS.ge ფ.</span>
+      <button class="btn btn-secondary" style="font-size:11px;padding:3px 9px" id="${p}_lnkBtn" onclick="fetchLinkedInvoice(${idx},${lid})">🔗 ფ. შ.</button>
+      <span style="font-size:10.5px;color:var(--ink-ghost);font-family:var(--serif);font-style:italic">— ამ ζεδ-ზე ფ. თ. ა.</span>
+    </div>`;
+  }
+
+  const s=inv.summary||{};
+  const hasInv=s.has_invoice||inv.rsge_invoices?.length>0;
+  const diff=inv.diff_lines||[];
+  const wbTotal=parseFloat(s.waybill_total||wb.full_amount||0);
+  const invTotal=parseFloat(s.invoice_total||0);
+  const extraTotal=parseFloat(s.extra_services_total||0);
+  const combined=parseFloat(s.combined_total||wbTotal);
+
+  if(!hasInv){
+    return `<div class="inv-section inv-none">
+      <span class="inv-label">📄 ფ.</span>
+      <span class="badge badge-new" style="font-size:9.5px">ფ. ა.</span>
+      <span style="font-size:11px;color:var(--ink-ghost);margin-left:4px;font-family:var(--serif);font-style:italic">RS.ge-ზე ამ ζεδ-ზე ფ. ვ. ნ.</span>
+      <button class="btn btn-secondary" style="font-size:11px;padding:3px 9px;margin-left:auto" onclick="fetchLinkedInvoice(${idx},${lid})">↺</button>
+    </div>`;
+  }
+
+  const invCards=inv.rsge_invoices.map(i=>`
+    <div class="inv-card">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="inv-label">ფ. #${_esc(i.invoice_number)}</span>
+        <span class="badge badge-synced" style="font-size:9px">${_esc(i.status)}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);margin-left:auto">${_amt(i.total)} ₾</span>
+      </div>
+      ${i.lines&&i.lines.length?`
+      <div class="goods-wrap" style="margin-top:6px">
+        <div class="goods-head"><div>№</div><div>სა.კ.</div><div>საქ./მომ.</div><div>ბ.ერთ.</div><div>რაოდ.</div><div>ერთ.ფ.</div><div>საქ.ღ.</div><div>დაბ.</div></div>
+        ${i.lines.map((l,li)=>`<div class="goods-item">
+          <div class="gnum" style="color:var(--ink-dim)">${li+1}</div>
+          <div class="gcode">${_esc(l.bar_code||l.product_code||'')}</div>
+          <div style="font-size:12px;color:var(--ink)">${_esc(l.name||'—')}</div>
+          <div class="gnum" style="text-align:left;color:var(--ink-dim)">${_esc(l.unit_name||'')}</div>
+          <div class="gnum">${_esc(l.quantity||'')}</div>
+          <div class="gnum">${_fnum(l.price)}</div>
+          <div class="gnum" style="font-weight:600">${_fnum(l.amount)}</div>
+          <div><span class="gvat">${_vatName(l.vat_type)}</span></div>
+        </div>`).join('')}
+      </div>`:'<div style="font-size:11px;color:var(--ink-ghost);padding:6px 0;font-family:var(--serif);font-style:italic">ფ. სტრ. ვ. (SOAP საბ. ა.)</div>'}
+    </div>`).join('');
+
+  const diffHtml=diff.length?`
+    <div style="margin-top:10px;padding:10px 12px;background:rgba(122,79,0,.05);border:1px solid var(--amber-border);border-radius:7px">
+      <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:6px">
+        ⚠ ζεδ-ზე ა. / ფ-ში დ. — დამ. მომ.
+      </div>
+      <div class="goods-wrap">
+        <div class="goods-head"><div>№</div><div>სა.კ.</div><div>საქ./მომ.</div><div>ბ.ერთ.</div><div>რ.</div><div>ერთ.ფ.</div><div>ს.ღ.</div><div>დ.</div></div>
+        ${diff.map((d,di)=>`<div class="goods-item" style="background:rgba(122,79,0,.04)">
+          <div class="gnum" style="color:var(--amber)">${di+1}</div>
+          <div class="gcode">${_esc(d.bar_code||d.product_code||'')}</div>
+          <div style="font-size:12px;color:var(--amber-dark,#5a3700);font-weight:500">${_esc(d.name||'—')} <span style="font-size:9px;color:var(--amber)">(ფ-ში)</span></div>
+          <div class="gnum" style="text-align:left">${_esc(d.unit_name||'')}</div>
+          <div class="gnum">${_esc(d.quantity||'')}</div>
+          <div class="gnum">${_fnum(d.price)}</div>
+          <div class="gnum" style="font-weight:700;color:var(--amber)">${_fnum(d.amount)}</div>
+          <div><span class="gvat">${_vatName(d.vat_type)}</span></div>
+        </div>`).join('')}
+      </div>
+    </div>`:'';
+
+  const sumHtml=`<div class="inv-summary">
+    <div class="inv-sum-row"><span>ζεδ. თ.</span><span class="inv-sum-val">${_amt(wbTotal)} ₾</span></div>
+    ${extraTotal>0?`<div class="inv-sum-row" style="color:var(--amber)"><span>+ ფ-ის დამ. მომ.</span><span class="inv-sum-val">${_amt(extraTotal)} ₾</span></div>`:''}
+    <div class="inv-sum-row" style="font-weight:700;color:var(--accent);font-size:13px;border-top:1px solid var(--line);padding-top:4px;margin-top:4px">
+      <span>სულ გ-ება</span><span class="inv-sum-val">${_amt(combined)} ₾ <button class="ai-apply" style="font-size:10px" onclick="setAmt(${idx},${combined})">გ. გ.</button></span>
+    </div>
+  </div>`;
+
+  return `<div class="inv-section inv-found">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="inv-label">📄 RS.ge ფ. (${inv.rsge_invoices.length})</span>
+      <span class="badge badge-posted">✓ ε.</span>
+      <button class="btn btn-secondary" style="font-size:11px;padding:3px 9px;margin-left:auto" onclick="fetchLinkedInvoice(${idx},${lid})">↺</button>
+    </div>
+    ${invCards}
+    ${diffHtml}
+    ${sumHtml}
+  </div>`;
+}
+
+async function fetchLinkedInvoice(idx,lid){
+  const p=`wp${idx}`;
+  const btn=document.getElementById(p+'_lnkBtn');
+  if(btn){btn.disabled=true;btn.textContent='...';}
+  try{
+    const r=await fetch(BASE+`/rs-ge/waybills/${lid}/linked-invoice`,{headers:H()});
+    const d=await r.json();
+    if(d.ok){
+      _wbAll[idx]._invoice_data=d.data;
+      _wbAll[idx]._invoice_summary=d.data?.summary||null;
+      // If invoice has goods lines and waybill had none, populate _lines
+      const invLines=d.data?.rsge_invoices?.[0]?.lines||[];
+      if(invLines.length&&(!_wbAll[idx]._lines||!_wbAll[idx]._lines.length)){
+        _wbAll[idx]._lines=invLines.map(l=>({
+          code:l.bar_code||l.product_code||'',
+          name:l.name||'',
+          unit:l.unit_name||'',
+          qty:l.quantity||'',
+          price:l.price||'',
+          amt:l.amount||'',
+          vat_type:String(l.vat_type??'1'),
+          acc:''
+        }));
+      }
+      // Auto-update amount field if combined differs
+      const combined=d.data?.summary?.combined_total||0;
+      if(combined>0){
+        const amtInp=document.getElementById(p+'_postamt');
+        if(amtInp) amtInp.value=combined.toFixed(2);
+      }
+      renderWbTable();
+      if(d.data?.summary?.has_invoice) toast('ფ. ε. ✓','ok');
+      else toast('ამ ζεδ-ზე ფ. ვ. ε.','');
+    }else{
+      toast('ფ. შ. ვ.: '+(d.error?.details||''),'err');
+    }
+  }catch(e){toast('შ.','err');}
+  if(btn){btn.disabled=false;btn.textContent='🔗 ფ. შ.';}
+}
+
+function setAmt(idx,val){
+  const p=`wp${idx}`;
+  const el=document.getElementById(p+'_postamt');
+  if(el) el.value=parseFloat(val).toFixed(2);
+}
+
+// RS.ge status label
+function _status(s){
+  const m={'1':'აქტიური','2':'დ-ბული','3':'წ-ული','4':'კ-ბული',
+           'ACTIVE':'აქტიური','INACTIVE':'დ-ბული','DELETED':'წ-ული','CANCELLED':'კ-ბული'};
+  const v=m[String(s||'').toUpperCase()]||m[String(s||'')]||s||'—';
+  const cl=(['1','ACTIVE','აქტიური'].includes(String(s||'').toUpperCase())||v==='აქტიური')?'badge-posted':'badge-new';
+  return `<span class="badge ${cl}">${_esc(v)}</span>`;
+}
+// VAT type name
+function _vatName(v){
+  const m={'0':'განთ.','1':'სტდ (18%)','2':'0%','3':'ჩათვ.','4':'გარ.','':'—'};
+  return m[String(v??'')] || String(v||'—');
+}
+// Format number
+function _fnum(v){
+  const n=parseFloat(v||0);
+  if(!n&&n!==0)return '—';
+  return n.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4});
+}
+
+// Fetch waybill goods — prefers DB raw_payload (for synced), falls back to SOAP
+async function fetchWbDetails(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const lid=wb._local_id||wb.local_id||null;
+
+  try{
+    let goods=[];
+    const num=wb.waybill_number||wb.rsge_id||'';
+
+    // Step 1: try DB by local_id
+    if(lid){
+      const r=await fetch(BASE+`/rs-ge/waybills/${lid}/goods`,{headers:H()});
+      const d=await r.json();
+      if(d.ok&&d.data?.goods?.length){
+        goods=d.data.goods;
+        _applyWbMeta(idx,d.data);
+      }
+    }
+
+    // Step 2: try DB by waybill_number (handles rsge_id mismatch between period filter & sync)
+    if(!goods.length&&num){
+      const r=await fetch(BASE+`/rs-ge/waybills/goods-by-number?waybill_number=${encodeURIComponent(num)}`,{headers:H()});
+      const d=await r.json();
+      if(d.ok&&d.data?.goods?.length){
+        goods=d.data.goods;
+        _applyWbMeta(idx,d.data);
+        // Also update local_id if found
+        if(d.data.local_id&&!_wbAll[idx]._local_id) _wbAll[idx]._local_id=d.data.local_id;
+      }
+    }
+
+    // Step 3: try SOAP (only if both DB lookups failed)
+    if(!goods.length&&num){
+      const r=await fetch(BASE+`/rs-ge/waybills/by-number?number=${encodeURIComponent(num)}`,{headers:H()});
+      const d=await r.json();
+      if(d.ok&&!d.data?.error&&d.data?.goods_list?.length){
+        goods=d.data.goods_list;
+        _applyWbFields(idx,d.data);
+      }
+      // If SOAP returns -100, silently ignore — user can fill grid manually
+    }
+
+    if(goods.length){
+      _wbAll[idx].goods_list=goods;
+      delete _wbAll[idx]._lines;
+      renderWbTable();
+      toast(`საქ. ✓ (${goods.length})`,'ok');
+    }else{
+      renderWbTable(); // show empty editable grid silently
+    }
+  }catch(e){ renderWbTable(); }
+}
+
+function updCoa(inp,nm){
+  const c=(document.getElementById(inp)||{}).value||'';
+  const el=document.getElementById(nm);
+  if(el) el.textContent=cn(c);
+}
+function wbPreset(idx,type){
+  const p=`wp${idx}`;
+  const m={purchase:{dr:'1310',cr:'3110'},sale:{dr:'1210',cr:'6110'},fa:{dr:'2190',cr:'3110'},vat:{dr:'3311',cr:'3110'}};
+  const s=m[type];if(!s)return;
+  const d=document.getElementById(p+'_dr');const c=document.getElementById(p+'_cr');
+  if(d){d.value=s.dr;updCoa(p+'_dr',p+'_drn');}
+  if(c){c.value=s.cr;updCoa(p+'_cr',p+'_crn');}
+}
+
+async function getAiSuggestion(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const p=`wp${idx}`;
+  const desc=wb.buyer_name||wb.seller_name||wb.waybill_number||'';
+  const amt=parseFloat(wb.full_amount||0);
+  try{
+    const r=await fetch(BASE+'/ai-journal/generate',{method:'POST',headers:H(),
+      body:JSON.stringify({partner:desc,amount:amt||1,description:desc,names:[],dates:[]})});
+    const d=await r.json();
+    if(d.ok&&d.data?.draft){
+      const dr=d.data.draft;
+      const box=document.getElementById(p+'_aibox');
+      const sugg=document.getElementById(p+'_aisugg');
+      if(box)box.classList.add('show');
+      if(sugg) sugg.innerHTML=`
+        <span class="ai-acc">${_esc(dr.account_code||'')}</span>
+        <span class="ai-reason">${_esc(dr.account_name||'')} · ${Math.round((dr.confidence||0)*100)}%</span>
+        <span class="ai-apply" onclick="applyAi(${idx},'${dr.account_code||''}')">გამ. Dr-ზე</span>`;
+    }
+  }catch(e){ toast('AI შ.','err'); }
+}
+function applyAi(idx,code){
+  const p=`wp${idx}`;
+  const d=document.getElementById(p+'_dr');
+  if(d){d.value=code;updCoa(p+'_dr',p+'_drn');}
+}
+
+// Auto-suggest Dr/Cr from partner/item mappings
+async function suggestDraftAccounts(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const p=`wp${idx}`;
+  try{
+    const body={seller_tin:wb.seller_tin||'',goods_list:wb.goods_list||[]};
+    const r=await fetch(BASE+'/rs-ge/suggest-draft',{method:'POST',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(!d.ok||d.data?.source==='default') return; // no mapping found
+    const sug=d.data;
+    const drEl=document.getElementById(p+'_dr');
+    const crEl=document.getElementById(p+'_cr');
+    // Only fill if user hasn't changed from defaults
+    const defaults=['1310','1210','2190'];
+    if(sug.debit_account&&drEl&&defaults.includes(drEl.value.trim())){
+      drEl.value=sug.debit_account;updCoa(p+'_dr',p+'_drn');
+      const lbl=document.getElementById(p+'_sug_dr');
+      if(lbl) lbl.textContent='📌 ავტო';
+    }
+    const crDefaults=['3110','6110'];
+    if(sug.credit_account&&crEl&&crDefaults.includes(crEl.value.trim())){
+      crEl.value=sug.credit_account;updCoa(p+'_cr',p+'_crn');
+      const lbl=document.getElementById(p+'_sug_cr');
+      if(lbl) lbl.textContent='📌 ავტო';
+    }
+  }catch(e){}
+}
+
+// VAT 18% split preview
+function toggleVatPreview(idx){
+  const p=`wp${idx}`;
+  const chk=document.getElementById(p+'_vatChk');
+  const prev=document.getElementById(p+'_vatPrev');
+  if(!prev)return;
+  const amtEl=document.getElementById(p+'_postamt');
+  const total=parseFloat(amtEl?amtEl.value:0)||0;
+  if(!chk||!chk.checked||total<=0){prev.textContent='';return;}
+  const vat=Math.round(total*18/118*100)/100;
+  const net=Math.round((total-vat)*100)/100;
+  prev.textContent=`ნეტო ${net.toFixed(2)} + დღგ ${vat.toFixed(2)} = ${total.toFixed(2)} ₾  →  Dr1310+Dr3311/Cr3110`;
+}
+
+// Save current seller TIN → Cr account as partner mapping
+async function savePartnerMap(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const tin=(wb.seller_tin||'').trim();
+  if(!tin){toast('გამ. TIN ვ.მ.','err');return;}
+  const p=`wp${idx}`;
+  const cr=(document.getElementById(p+'_cr')||{}).value?.trim()||'3110';
+  const name=wb.seller_name||'';
+  try{
+    const r=await fetch(BASE+'/rs-ge/partner-map',{method:'POST',headers:{...H(),'Content-Type':'application/json'},
+      body:JSON.stringify({tin,partner_name:name,account_code:cr})});
+    const d=await r.json();
+    if(d.ok) toast(`📌 ${tin} → ${cr} შე. ✓`,'ok');
+    else toast('შ. ვ.: '+(d.error?.details||''),'err');
+  }catch(e){toast('შ.','err');}
+}
+
+async function addByNumber(){
+  const inp=document.getElementById('wbNumInput');
+  const num=(inp.value||'').trim();
+  if(!num){toast('ნომ. შეიყვ.','err');return;}
+  inp.value='';
+  await _fetchByNum(num);
+}
+async function addMultiByNumber(){
+  const inp=document.getElementById('wbMultiInput');
+  const nums=(inp.value||'').split(/[,\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(!nums.length){toast('ნომ. შეიყვ.','err');return;}
+  for(const n of nums) await _fetchByNum(n);
+  inp.value='';
+}
+async function _fetchByNum(num){
+  try{
+    const r=await fetch(BASE+`/rs-ge/waybills/by-number?number=${encodeURIComponent(num)}`,{headers:H()});
+    const d=await r.json();
+    if(!d.ok){
+      const det=d.error?.details||d.message||'';
+      toast(`#${num}: ${det||'ვ. მ.'}`, 'err');
+      return;
+    }
+    const wb=d.data;if(!wb){toast('ცარ. პ.','err');return;}
+    if(!wb.waybill_number){toast(`#${num}: ζεδ. ვ. მ.`,'err');return;}
+    const ex=_wbAll.findIndex(w=>w.waybill_number===wb.waybill_number||(wb.rsge_id&&w.rsge_id===wb.rsge_id));
+    if(ex>=0) _wbAll[ex]={..._wbAll[ex],...wb,_manual:true};
+    else _wbAll.push({...wb,_manual:true,_local_id:null,_draft_id:null});
+    updateWbStats();renderWbTable();
+    if(wb.partial) toast(`ζεδ. #${wb.waybill_number} ε. (საქ. ε. — ε.)`, '');
+    else toast(`ζεδ. #${wb.waybill_number} ✓`,'ok');
+  }catch(e){toast(`#${num}: შ.`,'err');}
+}
+
+async function syncWb(idx){
+  const wb=_wbAll[idx];if(!wb)return;
+  const p=`wp${idx}`;
+  const btn=document.getElementById(p+'_syncBtn');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
+  try{
+    let lid=null;
+    if(wb._manual||wb.direction==='received'){
+      const r=await fetch(BASE+'/rs-ge/waybills/sync-by-number',{method:'POST',headers:H(),
+        body:JSON.stringify({waybill_number:wb.waybill_number||wb.rsge_id})});
+      const d=await r.json();
+      if(!d.ok){toast('სინქ.შ.:'+(d.error?.details||d.message||''),'err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}return;}
+      lid=d.data?.local_id;
+    }else{
+      const r=await fetch(BASE+'/rs-ge/waybills/sync-selected',{method:'POST',headers:H(),
+        body:JSON.stringify({waybill_ids:[String(wb.rsge_id||wb.id||wb.waybill_number)]})});
+      const d=await r.json();
+      if(!d.ok){toast('სინქ.შ.:'+(d.error?.details||d.message||''),'err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}return;}
+      lid=d.data?.synced?.[0]?.local_id;
+    }
+    if(!lid){toast('local_id ვ.მ.','err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}return;}
+    _wbAll[idx]._local_id=lid;
+    updateWbStats();renderWbTable();
+    toast('სინქ. ✓ — ფ. შ. …','ok');
+    // Auto-fetch linked invoice after sync
+    setTimeout(()=>fetchLinkedInvoice(idx,lid),400);
+  }catch(e){toast('სინქ. შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}}
+}
+
+async function createWbDraft(idx,lid){
+  const wb=_wbAll[idx];if(!wb||!lid)return;
+  const p=`wp${idx}`;
+  const dr=(document.getElementById(p+'_dr')||{}).value?.trim()||'1310';
+  const cr=(document.getElementById(p+'_cr')||{}).value?.trim()||'3110';
+  const desc=(document.getElementById(p+'_desc')||{}).value?.trim()||'';
+  const btn=document.getElementById(p+'_draftBtn');
+
+  // Compute amount from editable lines
+  const lines=wb._lines||[];
+  const linesTotal=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
+  const postAmt=parseFloat((document.getElementById(p+'_postamt')||{}).value||linesTotal||wb.full_amount||0);
+
+  const vatChk=document.getElementById(p+'_vatChk');
+  const vatSplit=!!(vatChk&&vatChk.checked);
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
+  try{
+    const r=await fetch(BASE+`/rs-ge/waybills/${lid}/create-draft`,{method:'POST',headers:H(),
+      body:JSON.stringify({
+        debit_account:dr,
+        credit_account:cr,
+        description:desc,
+        amount_override: postAmt>0?postAmt:undefined,
+        lines: lines.length?lines:undefined,
+        vat_split: vatSplit,
+        vat_rate: 18.0,
+        vat_account: '3311',
+      })});
+    const d=await r.json();
+    if(!d.ok){toast('დ.შ.შ.:'+(d.error?.details||d.message||''),'err');if(btn){btn.disabled=false;btn.innerHTML='📋 დ. შ.';}return;}
+    _wbAll[idx]._draft_id=d.data?.draft_id;
+    _wbAll[idx]._draft_status='drafted';
+    updateWbStats();renderWbTable();
+    toast(`დ. #${d.data?.draft_id} ✓ — დამ. რ.`,'ok');
+  }catch(e){toast('დ.შ. შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📋 დ. შ.';}}
+}
+
+// ── INVOICES ──────────────────────────────────────────────────────────────────
+async function loadInvoices(){
+  document.getElementById('invTable').innerHTML=`<div class="empty-state"><div class="spin" style="margin:0 auto 10px;border-color:var(--line-strong);border-top-color:var(--ink)"></div><p>RS.ge ფ. ჩამ…</p></div>`;
+  try{
+    const r=await fetch(BASE+'/rs-ge/documents?limit=100',{headers:H()});
+    const d=await r.json();
+    if(!d.ok){toast('ფ. შ.','err');return;}
+    _invAll=(d.data?.documents||[]).map(x=>({...x,_local_id:x.local_id||null,_draft_id:x.draft_id||null,_draft_status:x.draft_status||null}));
+    updateInvStats();renderInvTable();
+  }catch(e){toast('შ.','err');}
+}
+function updateInvStats(){
+  document.getElementById('invStatTotal').textContent  =_invAll.length;
+  document.getElementById('invStatDrafted').textContent=_invAll.filter(x=>x._draft_id&&x._draft_status!=='posted').length;
+  document.getElementById('invStatPosted').textContent =_invAll.filter(x=>x._draft_status==='posted').length;
+}
+function renderInvTable(){
+  const el=document.getElementById('invTable');
+  if(!_invAll.length){el.innerHTML=`<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>ფ. ვ.მ.</p></div>`;return;}
+  let rows='';
+  _invAll.forEach((inv,i)=>{
+    const exp=_invExp===i;
+    const st=inv._draft_status==='posted'?'<span class="badge badge-posted">✓ გ.</span>':
+             (inv._draft_id?'<span class="badge badge-drafted">⏳ დ.</span>':
+             (inv._local_id?'<span class="badge badge-synced">↓</span>':'<span class="badge badge-new">ახ.</span>'));
+    rows+=`<tr class="data-row${exp?' expanded':''}" onclick="toggleInv(${i})">
+      <td><div class="wb-num">${_esc(inv.reg_no||inv.rsge_id||'—')}</div></td>
+      <td><div class="party-name">${_esc(inv.seller_name||'—')}</div><div class="party-inn">${_esc(inv.seller_inn||'')}</div></td>
+      <td><div class="party-name">${_esc(inv.buyer_name||'—')}</div></td>
+      <td class="date-cell">${_dt(inv.doc_date)}</td>
+      <td class="amt">${_amt(inv.amount)}<span style="font-size:9px;color:var(--ink-ghost);margin-left:2px">₾</span></td>
+      <td>${st}</td>
+      <td style="text-align:center;color:var(--ink-ghost);font-size:11px;width:24px">${exp?'▲':'▼'}</td>
+    </tr>`;
+    if(exp) rows+=`<tr class="panel-row"><td colspan="7">${invPanel(inv,i)}</td></tr>`;
+  });
+  el.innerHTML=`<table><thead><tr><th>№</th><th>გამყ.</th><th>მყ.</th><th>თარ.</th><th style="text-align:right">₾</th><th>სტ.</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function toggleInv(i){_invExp=(_invExp===i)?null:i;renderInvTable();}
+
+function invPanel(inv,idx){
+  const lid=inv._local_id||inv.local_id||null;
+  const did=inv._draft_id||inv.draft_id||null;
+  const ds=inv._draft_status||'';
+  const synced=!!lid;
+  if(ds==='posted') return `<div class="acc-panel"><div class="posted-banner">✓ გ. — დ. #${did||'?'} · <a href="/static/drafts.html" target="_blank">ჟ.</a></div></div>`;
+  const isIn=inv.direction==='incoming';
+  const p=`ip${idx}`;
+  const defDr=isIn?'1310':'1210';const defCr=isIn?'3110':'6110';
+  const defDesc=isIn?`RS.ge ფ. შეს. — ${inv.seller_name||''} №${inv.reg_no||''}`:`RS.ge ფ. გ. — ${inv.buyer_name||''} №${inv.reg_no||''}`;
+  return `<div class="acc-panel">
+    <div class="steps">
+      <div class="step ${synced?'done':'active'}"><div class="step-dot">${synced?'✓':'1'}</div>სინქ.</div>
+      <div class="step-arrow">›</div>
+      <div class="step ${synced?(did?'done':'active'):''}"><div class="step-dot">${did?'✓':'2'}</div>დ.</div>
+      <div class="step-arrow">›</div>
+      <div class="step ${did?'active':''}"><div class="step-dot">3</div>გ.</div>
+    </div>
+    <div class="preset-chips">
+      <span class="preset" onclick="invPreset(${idx},'purchase')">📦 შეს. 1310/3110</span>
+      <span class="preset" onclick="invPreset(${idx},'sale')">💰 გ. 1210/6110</span>
+      <span class="preset" onclick="invPreset(${idx},'vat')">🧾 დღგ 3311/3310</span>
+      <span class="preset btn-ai" style="color:#fff;border-color:transparent" onclick="getInvAi(${idx})">✨ AI</span>
+    </div>
+    <div class="ai-box" id="${p}_aibox"><div class="ai-box-title">✨ AI</div><div class="ai-suggestion" id="${p}_aisugg"></div></div>
+    <div class="acc-grid">
+      <div class="acc-field"><div class="acc-label">სადებ.</div><div class="acc-row-in"><input class="acc-input" id="${p}_dr" value="${defDr}" oninput="updCoa('${p}_dr','${p}_drn')"/><span class="acc-name" id="${p}_drn">${cn(defDr)}</span></div></div>
+      <div class="acc-field"><div class="acc-label">საკრ.</div><div class="acc-row-in"><input class="acc-input" id="${p}_cr" value="${defCr}" oninput="updCoa('${p}_cr','${p}_crn')"/><span class="acc-name" id="${p}_crn">${cn(defCr)}</span></div></div>
+    </div>
+    <div style="margin-bottom:10px"><div class="acc-label" style="margin-bottom:3px">აღწ.</div><input class="desc-input" id="${p}_desc" value="${_esc(defDesc)}"/></div>
+    <div class="acc-actions">
+      ${!synced?`<button class="btn btn-secondary" id="${p}_sb" onclick="syncInv(${idx})">📥 სინქ.</button>`:
+                `<span style="font-size:11px;color:var(--green);font-family:var(--mono)">✓ #${lid}</span>`}
+      ${synced&&!did?`<button class="btn btn-primary" id="${p}_db" onclick="createInvDraft(${idx},${lid})">📋 დ. შ.</button>`:''}
+      ${did?`<div class="result-band">✓ დ. #${did} — <a href="/static/drafts.html" target="_blank">გ. რ.</a></div>`:''}
+    </div>
+  </div>`;
+}
+function invPreset(idx,type){
+  const p=`ip${idx}`;
+  const m={purchase:{dr:'1310',cr:'3110'},sale:{dr:'1210',cr:'6110'},vat:{dr:'3311',cr:'3310'}};
+  const s=m[type];if(!s)return;
+  const d=document.getElementById(p+'_dr');const c=document.getElementById(p+'_cr');
+  if(d){d.value=s.dr;updCoa(p+'_dr',p+'_drn');}
+  if(c){c.value=s.cr;updCoa(p+'_cr',p+'_crn');}
+}
+async function getInvAi(idx){
+  const inv=_invAll[idx];if(!inv)return;
+  const p=`ip${idx}`;
+  try{
+    const r=await fetch(BASE+'/ai-journal/generate',{method:'POST',headers:H(),
+      body:JSON.stringify({partner:inv.seller_name||'',amount:parseFloat(inv.amount||1),description:inv.seller_name||'',names:[],dates:[]})});
+    const d=await r.json();
+    if(d.ok&&d.data?.draft){
+      const dr=d.data.draft;
+      const box=document.getElementById(p+'_aibox');const sugg=document.getElementById(p+'_aisugg');
+      if(box)box.classList.add('show');
+      if(sugg)sugg.innerHTML=`<span class="ai-acc">${_esc(dr.account_code||'')}</span><span class="ai-reason">${_esc(dr.account_name||'')} · ${Math.round((dr.confidence||0)*100)}%</span><span class="ai-apply" onclick="applyInvAi(${idx},'${dr.account_code||''}')">გამ. Dr-ზე</span>`;
+    }
+  }catch(e){}
+}
+function applyInvAi(idx,code){const p=`ip${idx}`;const d=document.getElementById(p+'_dr');if(d){d.value=code;updCoa(p+'_dr',p+'_drn');}}
+
+async function syncInv(idx){
+  const inv=_invAll[idx];if(!inv)return;
+  const p=`ip${idx}`;const btn=document.getElementById(p+'_sb');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
+  try{
+    const r=await fetch(BASE+'/rs-ge/documents/sync-selected',{method:'POST',headers:H(),
+      body:JSON.stringify({rsge_ids:[String(inv.rsge_id||inv.id)],own_inn:''})});
+    const d=await r.json();
+    if(!d.ok){toast('სინქ.შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}return;}
+    const lid=d.data?.synced?.[0]?.local_id;
+    if(!lid){toast('local_id ვ.მ.','err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}return;}
+    _invAll[idx]._local_id=lid;updateInvStats();renderInvTable();toast('სინქ. ✓','ok');
+  }catch(e){toast('შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📥 სინქ.';}}
+}
+async function createInvDraft(idx,lid){
+  const p=`ip${idx}`;const btn=document.getElementById(p+'_db');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
+  try{
+    await fetch(BASE+`/rs-ge/documents/${lid}/create-evidence`,{method:'POST',headers:H()});
+    const r=await fetch(BASE+`/rs-ge/documents/${lid}/create-draft`,{method:'POST',headers:H(),body:JSON.stringify({own_inn:''})});
+    const d=await r.json();
+    if(!d.ok){toast('დ.შ. შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📋 დ. შ.';}return;}
+    _invAll[idx]._draft_id=d.data?.draft_id;_invAll[idx]._draft_status='drafted';
+    updateInvStats();renderInvTable();toast(`ფ. დ. #${d.data?.draft_id} ✓`,'ok');
+  }catch(e){toast('შ.','err');if(btn){btn.disabled=false;btn.innerHTML='📋 დ. შ.';}}
+}
+
+// ── SETTINGS TAB ─────────────────────────────────────────────────────────────
+async function loadSettingsTab(){
+  // Load own TIN
+  try{
+    const r=await fetch(BASE+'/rs-ge/own-tin',{headers:H()});
+    const d=await r.json();
+    if(d.ok){
+      const tin=d.data?.own_tin||'';
+      document.getElementById('settingsOwnTin').value=tin;
+      const st=document.getElementById('ownTinStatus');
+      st.textContent=tin?'✓ შენახ.':'';
+      st.style.color=tin?'var(--green)':'var(--ink-dim)';
+    }
+  }catch(e){}
+  loadPartnerMap();
+  loadItemMap();
+}
+
+async function saveOwnTin(){
+  const tin=(document.getElementById('settingsOwnTin').value||'').trim();
+  if(!tin){toast('TIN შ.','err');return;}
+  const btn=document.getElementById('ownTinSaveBtn');
+  if(btn){btn.disabled=true;}
+  try{
+    const r=await fetch(BASE+'/rs-ge/own-tin',{method:'POST',headers:H(),body:JSON.stringify({tin})});
+    const d=await r.json();
+    const st=document.getElementById('ownTinStatus');
+    if(d.ok){
+      st.textContent='✓ შენახ.';st.style.color='var(--green)';
+      toast('კომ. TIN შენახ.: '+tin,'ok');
+    } else {
+      st.textContent='შ. ვ.';st.style.color='var(--red)';
+      toast('TIN ვ. შ.','err');
+    }
+  }catch(e){toast('შ.','err');}
+  if(btn){btn.disabled=false;}
+}
+
+async function loadPartnerMap(){
+  const el=document.getElementById('partnerMapList');
+  if(!el)return;
+  el.innerHTML='<span style="color:var(--ink-dim);font-size:12px">იტ...</span>';
+  try{
+    const r=await fetch(BASE+'/rs-ge/partner-map',{headers:H()});
+    const d=await r.json();
+    if(d.ok&&d.data?.length){
+      el.innerHTML=d.data.map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--ink-dim);min-width:90px">${m.tin}</span>
+          <span style="flex:1;font-size:12px;color:var(--ink)">${m.partner_name||'—'}</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--blue);background:var(--blue-soft);padding:2px 7px;border-radius:5px">${m.account_code}</span>
+          <button onclick="deletePartnerMap(${m.id})" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;padding:0 4px">✕</button>
+        </div>`).join('');
+    } else {
+      el.innerHTML='<span style="color:var(--ink-dim);font-size:12px">ჩ. არ მ.</span>';
+    }
+  }catch(e){el.innerHTML='<span style="color:var(--red);font-size:12px">შ.</span>';}
+}
+
+async function deletePartnerMap(id){
+  await fetch(BASE+'/rs-ge/partner-map/'+id,{method:'DELETE',headers:H()});
+  loadPartnerMap();toast('წ.','ok');
+}
+
+async function loadItemMap(){
+  const el=document.getElementById('itemMapList');
+  if(!el)return;
+  el.innerHTML='<span style="color:var(--ink-dim);font-size:12px">იტ...</span>';
+  try{
+    const r=await fetch(BASE+'/rs-ge/item-map',{headers:H()});
+    const d=await r.json();
+    if(d.ok&&d.data?.length){
+      el.innerHTML=d.data.map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--ink-dim);min-width:80px">${m.item_code}</span>
+          <span style="flex:1;font-size:12px;color:var(--ink)">${m.item_name||'—'}</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);background:var(--teal-soft);padding:2px 7px;border-radius:5px">${m.account_code}</span>
+          ${m.vat_exempt?'<span style="font-size:10px;color:var(--amber);background:var(--amber-bg);padding:1px 5px;border-radius:4px">დდ</span>':''}
+          <button onclick="deleteItemMap(${m.id})" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;padding:0 4px">✕</button>
+        </div>`).join('');
+    } else {
+      el.innerHTML='<span style="color:var(--ink-dim);font-size:12px">ჩ. არ მ.</span>';
+    }
+  }catch(e){el.innerHTML='<span style="color:var(--red);font-size:12px">შ.</span>';}
+}
+
+async function deleteItemMap(id){
+  await fetch(BASE+'/rs-ge/item-map/'+id,{method:'DELETE',headers:H()});
+  loadItemMap();toast('წ.','ok');
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+// Set default dates: current month
+(()=>{
+  const now=new Date();
+  const y=now.getFullYear();
+  const m=String(now.getMonth()+1).padStart(2,'0');
+  document.getElementById('wbDateFrom').value=`${y}-${m}-01`;
+  document.getElementById('wbDateTo').value=`${y}-${m}-${String(now.getDate()).padStart(2,'0')}`;
+})();
+loadWaybills();
+</script>
+
+<script src="/static/js/sidebar.js"></script>
+<script>if(typeof BridgeHub!=='undefined')BridgeHub.loadSidebar('rs-sync');</script>
+</body>
+</html>

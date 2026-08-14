@@ -564,35 +564,34 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
           </div>
         </div>
       </div>
+    </div><!-- /panel-email -->
     <!-- ══════════ RS.GE INTEGRATION ══════════ -->
     <div class="tab-panel" id="panel-rsge">
       <div class="s-card">
         <div class="s-head">
           <div>
             <div class="s-title">RS.ge — საქართველოს შემოსავლების სამსახური</div>
-            <div class="s-sub">eService პორტალის credentials — საგადასახადო დეკლარაციებისთვის</div>
+            <div class="s-sub">RS.ge SOAP WayBill/Invoice სერვისის credentials</div>
           </div>
           <span id="rsge-status-chip" class="chip chip-draft">Loading…</span>
         </div>
         <div class="s-body">
           <div class="form-row">
             <div class="form-col">
-              <label class="lbl">RS.ge Username / Email</label>
-              <input class="inp" id="rsgeUsername" type="text" placeholder="yourname@example.com" autocomplete="off"/>
+              <label class="lbl">სერვისის მომხმარებელი <span style="color:var(--ink-dim);font-weight:400">(su)</span></label>
+              <input class="inp" id="rsgeUsername" type="text" placeholder="INN ან username" autocomplete="off"/>
             </div>
             <div class="form-col">
-              <label class="lbl">Password</label>
-              <input class="inp" id="rsgePassword" type="password" placeholder="RS.ge პორტალის პაროლი" autocomplete="new-password"/>
+              <label class="lbl">სერვისის პაროლი <span style="color:var(--ink-dim);font-weight:400">(sp)</span></label>
+              <input class="inp" id="rsgePassword" type="password" placeholder="RS.ge პაროლი" autocomplete="new-password"/>
             </div>
           </div>
-          <div class="form-row" style="margin-top:8px">
-            <div class="form-col" style="max-width:260px">
-              <label class="lbl">გადასახადის გადამხდელის INN (სურვილისამებრ)</label>
-              <input class="inp" id="rsgeTaxpayerInn" type="text" placeholder="123456789" maxlength="11"/>
-            </div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="rsgeSkipVerify" style="width:16px;height:16px;cursor:pointer"/>
+            <label for="rsgeSkipVerify" class="lbl" style="cursor:pointer;font-weight:400">RS.ge ვერიფიკაციის გამოტოვება (skip_verify) — სატესტო credentials-ისთვის</label>
           </div>
-          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
-            <button class="btn btn-outline btn-sm" onclick="testRsGeConn()">🔌 კავშირის ტესტი</button>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="testRsGeConn()">🔌 სტატუსის შემოწმება</button>
             <button class="btn btn-primary btn-sm" onclick="saveRsGeCreds()">💾 შენახვა</button>
           </div>
           <div id="rsge-msg" style="margin-top:12px;font-size:13px;min-height:18px"></div>
@@ -604,12 +603,10 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
           <div class="s-title">RS.ge — ხელმისაწვდომი ოპერაციები</div>
         </div>
         <div class="s-body" style="font-size:13px;line-height:1.8;color:var(--ink-mute)">
-          <p>📄 <strong>დღგ-ის დეკლარაცია</strong> — VAT Declaration XML გენერაცია → ატვირთვა RS.ge-ზე</p>
-          <p>👥 <strong>ხელფასის გადასახადი</strong> — PAYG/პენსია XML ექსპორტი (Payroll → RS.ge XML)</p>
-          <p>🏢 <strong>კორპ. გადასახადი</strong> — CIT 15% — წლიური დეკლარაცია</p>
-          <p style="margin-top:10px;padding:10px;background:var(--amber-bg);border-radius:8px;color:var(--amber)">
-            ⚠ პირდაპირი API ინტეგრაცია (ავტო-პოსტინგი) — coming soon. ამჟამად Bridge Hub XML-ს ქმნის, შენ ახვედრი RS.ge-ზე.
-          </p>
+          <p>📋 <strong>ზედნადებები</strong> — RS.ge WayBill SOAP → სინქრ. → Evidence → სააღრიცხვო დრაფტი</p>
+          <p>🧾 <strong>ინვოისები / ანგარიშ-ფაქტურები</strong> — incoming/outgoing → Bridge Hub DB</p>
+          <p>✅ <strong>confirm / reject / correct / cancel</strong> — test mode-ში RS.ge-ზე მოქმედებები</p>
+          <p>🔍 <strong>გადამხდელის ვერიფიკაცია</strong> — INN → RS.ge public REST API (auth-ის გარეშე)</p>
         </div>
       </div>
 
@@ -639,7 +636,11 @@ function getToken() { return localStorage.getItem('access_token')||localStorage.
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() } };
   if (body) opts.body = JSON.stringify(body);
-  try { const r = await fetch(path, opts); return await r.json(); } catch { return null; }
+  try {
+    const r = await fetch(path, opts);
+    if (r.status === 401) { window.location.href = '/static/login.html'; return null; }
+    return await r.json();
+  } catch { return null; }
 }
 
 function esc(s) {
@@ -1100,13 +1101,19 @@ async function triggerEmailPoll() {
 // ── RS.GE ──
 async function loadRsGeStatus() {
   const chip = document.getElementById('rsge-status-chip');
-  const d = await api('/rsge-credentials/status');
-  if (!d) return;
-  if (d.configured) {
-    chip.textContent = `✓ დაყენებულია · ${d.username}`;
+  chip.textContent = '...';
+  const d = await api('/rs-ge/auth/status');
+  if (!d || !d.ok) {
+    chip.textContent = 'არ არის დაყენებული';
+    chip.className = 'chip chip-draft';
+    return;
+  }
+  const data = d.data || {};
+  if (data.soap_configured || data.token_configured) {
+    const hint = data.soap_masked_hint || '';
+    chip.textContent = `✓ დაყენებულია${hint ? ' · ' + hint : ''}`;
     chip.className = 'chip chip-approved';
-    if (d.username) document.getElementById('rsgeUsername').value = d.username;
-    if (d.taxpayer_inn) document.getElementById('rsgeTaxpayerInn').value = d.taxpayer_inn;
+    if (hint) document.getElementById('rsgeUsername').placeholder = hint;
   } else {
     chip.textContent = 'არ არის დაყენებული';
     chip.className = 'chip chip-draft';
@@ -1116,34 +1123,51 @@ async function loadRsGeStatus() {
 async function testRsGeConn() {
   const msg = document.getElementById('rsge-msg');
   msg.textContent = '🔌 ვამოწმებ...';
-  const d = await api('/rsge-credentials/test', 'POST');
+  msg.style.color = 'var(--ink-mute)';
+  const d = await api('/rs-ge/status');
   if (d && d.ok) {
-    msg.textContent = '✅ ' + (d.message || 'წარმატებულია');
-    msg.style.color = 'var(--green)';
+    const data = d.data || {};
+    const connected = data.connected;
+    const mode = data.mode || '';
+    if (connected) {
+      msg.textContent = `✅ კავშირი OK · mode: ${mode}`;
+      msg.style.color = 'var(--green)';
+    } else {
+      msg.textContent = `⚠ mode: ${mode} — credentials შეიყვანეთ`;
+      msg.style.color = 'var(--amber)';
+    }
   } else {
-    msg.textContent = '❌ ' + (d?.error || 'credentials არ მოიძებნა');
+    msg.textContent = '❌ RS.ge სერვისი მიუწვდომელია';
     msg.style.color = 'var(--red)';
   }
 }
 
 async function saveRsGeCreds() {
-  const username = document.getElementById('rsgeUsername').value.trim();
-  const password = document.getElementById('rsgePassword').value.trim();
-  const inn = document.getElementById('rsgeTaxpayerInn').value.trim();
+  const su = document.getElementById('rsgeUsername').value.trim();
+  const sp = document.getElementById('rsgePassword').value.trim();
+  const skipVerify = document.getElementById('rsgeSkipVerify').checked;
   const msg = document.getElementById('rsge-msg');
-  if (!username) { msg.textContent = '⚠ Username აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
-  if (!password) { msg.textContent = '⚠ Password აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
-  const d = await api('/rsge-credentials/save', 'POST', { username, password, taxpayer_inn: inn });
-  if (d && d.ok) {
-    msg.textContent = '✅ შენახულია!';
+  if (!su) { msg.textContent = '⚠ სერვისის მომხმარებელი (su) აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  if (!sp) { msg.textContent = '⚠ პაროლი (sp) აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  msg.textContent = skipVerify ? '⏳ ვინახავ...' : '⏳ ვამოწმებ RS.ge-ზე...';
+  msg.style.color = 'var(--ink-mute)';
+  const d = await api('/rs-ge/auth/start', 'POST', { su, sp, skip_verify: skipVerify });
+  if (d && d.ok && d.data && d.data.connected) {
+    const hint = d.data.masked_su || su;
+    msg.textContent = `✅ ${skipVerify ? 'შენახულია (ვერ. გარეშე)' : 'დაკავშირდა!'} · ${hint}`;
     msg.style.color = 'var(--green)';
     document.getElementById('rsgePassword').value = '';
-    document.getElementById('rsge-status-chip').textContent = `✓ დაყენებულია · ${username}`;
+    document.getElementById('rsge-status-chip').textContent = `✓ დაყენებულია · ${hint}`;
     document.getElementById('rsge-status-chip').className = 'chip chip-approved';
     toast('RS.ge credentials შენახულია', 'ok');
   } else {
-    msg.textContent = '❌ ' + (d?.error || 'შეცდომა');
+    const errObj = d?.error || d?.data?.error;
+    const err = (typeof errObj === 'string') ? errObj
+              : (errObj?.details || errObj?.code || JSON.stringify(errObj))
+              || d?.message || d?.detail || 'უცნობი შეცდომა';
+    msg.textContent = '❌ ' + err + (skipVerify ? '' : ' → სცადე "skip_verify" checkbox-ით');
     msg.style.color = 'var(--red)';
+    console.error('RS.ge auth error:', d);
   }
 }
 

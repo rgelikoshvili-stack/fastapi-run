@@ -1,0 +1,101 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Opening Balances",
+    "tenant_id": "geotrade_test",
+    "company_name": "GeoTrade Test LLC",
+    "own_company_inn": "400000001",
+    "vat_payer": true,
+    "period": "2026-08-01",
+    "currency": "GEL",
+    "notes": "Opening balances for August 2026. DR total = CR total = 29500.00",
+    "dr_total": 29500.00,
+    "cr_total": 29500.00
+  },
+  "balances": [
+    {
+      "account_code": "1110",
+      "account_name": "სალარო (ნაღდი)",
+      "type": "asset",
+      "debit": 1000.00,
+      "credit": 0.00,
+      "normal_side": "debit",
+      "comment": "Opening cash balance"
+    },
+    {
+      "account_code": "1120",
+      "account_name": "საბანკო ანგ.",
+      "type": "asset",
+      "debit": 20000.00,
+      "credit": 0.00,
+      "normal_side": "debit",
+      "comment": "Opening bank balance"
+    },
+    {
+      "account_code": "1210",
+      "account_name": "მოთხ. კლ-ზე",
+      "type": "asset",
+      "debit": 1500.00,
+      "credit": 0.00,
+      "normal_side": "debit",
+      "comment": "Opening AR — unpaid customer invoice from prior period"
+    },
+    {
+      "account_code": "1310",
+      "account_name": "მარ. / საქ.",
+      "type": "asset",
+      "debit": 2000.00,
+      "credit": 0.00,
+      "normal_side": "debit",
+      "comment": "Opening inventory (accessories, prior period)"
+    },
+    {
+      "account_code": "1510",
+      "account_name": "ძირ. საშ.",
+      "type": "asset",
+      "debit": 5000.00,
+      "credit": 0.00,
+      "normal_side": "debit",
+      "comment": "Office computer purchased prior period"
+    },
+    {
+      "account_code": "1520",
+      "account_name": "დარ. ამ. (კ.)",
+      "type": "contra_asset",
+      "debit": 0.00,
+      "credit": 500.00,
+      "normal_side": "credit",
+      "comment": "Accumulated depreciation on prior fixed asset"
+    },
+    {
+      "account_code": "3110",
+      "account_name": "კრ. დავ.",
+      "type": "liability",
+      "debit": 0.00,
+      "credit": 2500.00,
+      "normal_side": "credit",
+      "comment": "Opening AP — unpaid supplier invoice from prior period"
+    },
+    {
+      "account_code": "3320",
+      "account_name": "PIT / საშ.",
+      "type": "liability",
+      "debit": 0.00,
+      "credit": 300.00,
+      "normal_side": "credit",
+      "comment": "PIT payable from prior month payroll"
+    },
+    {
+      "account_code": "4110",
+      "account_name": "საწ.კაპ.",
+      "type": "equity",
+      "debit": 0.00,
+      "credit": 26200.00,
+      "normal_side": "credit",
+      "comment": "Owner equity (capital + retained earnings combined for opening)"
+    }
+  ],
+  "idempotency": {
+    "rule": "If the same account_code + period exists, do NOT insert a duplicate. Upsert by (tenant_id, account_code, as_of_date).",
+    "expected_behavior": "Second import of this file produces same balances, no duplicate rows."
+  }
+}

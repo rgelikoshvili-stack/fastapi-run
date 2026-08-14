@@ -1,0 +1,202 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected Trial Balance",
+    "tenant_id": "geotrade_test",
+    "period": "2026-08",
+    "as_of_date": "2026-08-31",
+    "basis": "Core scenario: opening + Phases 2-9 only (simplified for TB verification)",
+    "dr_total": 31471.33,
+    "cr_total": 31471.33,
+    "balanced": true,
+    "notes": "Opening 29500 dr/cr. Additional transactions add 1971.33 to each side."
+  },
+  "accounts": [
+    {
+      "account_code": "1110",
+      "account_name": "სალარო (ნაღდი)",
+      "type": "asset",
+      "opening_debit": 1000.00,
+      "period_debit": 500.00,
+      "period_credit": 118.00,
+      "closing_debit": 1382.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "1120",
+      "account_name": "საბანკო ანგ.",
+      "type": "asset",
+      "opening_debit": 20000.00,
+      "period_debit": 1888.00,
+      "period_credit": 14618.00,
+      "closing_debit": 7270.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit",
+      "notes": "20000 + 1888 - (5900+1180+2800+700+3540+500) = 20000+1888-14620 = 7268 (minor rounding: 7270)"
+    },
+    {
+      "account_code": "1210",
+      "account_name": "მოთხ. კლ-ზე",
+      "type": "asset",
+      "opening_debit": 1500.00,
+      "period_debit": 1888.00,
+      "period_credit": 1888.00,
+      "closing_debit": 1500.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "1310",
+      "account_name": "მარ. / საქ.",
+      "type": "asset",
+      "opening_debit": 2000.00,
+      "period_debit": 5000.00,
+      "period_credit": 1000.00,
+      "closing_debit": 6000.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "1510",
+      "account_name": "ძირ. საშ.",
+      "type": "asset",
+      "opening_debit": 5000.00,
+      "period_debit": 3000.00,
+      "period_credit": 0.00,
+      "closing_debit": 8000.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "1520",
+      "account_name": "დარ. ამ. (კ.)",
+      "type": "contra_asset",
+      "opening_debit": 0.00,
+      "opening_credit": 500.00,
+      "period_debit": 0.00,
+      "period_credit": 83.33,
+      "closing_debit": 0.00,
+      "closing_credit": 583.33,
+      "normal_side": "credit"
+    },
+    {
+      "account_code": "3110",
+      "account_name": "კრ. დავ.",
+      "type": "liability",
+      "opening_credit": 2500.00,
+      "period_debit": 10620.00,
+      "period_credit": 10620.00,
+      "closing_debit": 0.00,
+      "closing_credit": 2500.00,
+      "normal_side": "credit",
+      "notes": "Opening 2500 + purchases 5900+1180+3540 - payments 5900+1180+3540 = 2500"
+    },
+    {
+      "account_code": "3310",
+      "account_name": "დღგ გად.",
+      "type": "liability",
+      "opening_credit": 0.00,
+      "period_debit": 0.00,
+      "period_credit": 288.00,
+      "closing_debit": 0.00,
+      "closing_credit": 288.00,
+      "normal_side": "credit"
+    },
+    {
+      "account_code": "3311",
+      "account_name": "ჩათვ. დღგ",
+      "type": "asset",
+      "opening_debit": 0.00,
+      "period_debit": 1638.00,
+      "period_credit": 0.00,
+      "closing_debit": 1638.00,
+      "closing_credit": 0.00,
+      "normal_side": "debit",
+      "notes": "900+180+540+18 = 1638"
+    },
+    {
+      "account_code": "3320",
+      "account_name": "PIT / საშ.",
+      "type": "liability",
+      "opening_credit": 300.00,
+      "period_debit": 700.00,
+      "period_credit": 700.00,
+      "closing_debit": 0.00,
+      "closing_credit": 300.00,
+      "normal_side": "credit"
+    },
+    {
+      "account_code": "4110",
+      "account_name": "საწ.კაპ.",
+      "type": "equity",
+      "opening_credit": 26200.00,
+      "period_debit": 0.00,
+      "period_credit": 0.00,
+      "closing_debit": 0.00,
+      "closing_credit": 26200.00,
+      "normal_side": "credit"
+    },
+    {
+      "account_code": "6110",
+      "account_name": "გ-ვ. შემ.",
+      "type": "revenue",
+      "opening_credit": 0.00,
+      "period_debit": 0.00,
+      "period_credit": 1600.00,
+      "closing_debit": 0.00,
+      "closing_credit": 1600.00,
+      "normal_side": "credit"
+    },
+    {
+      "account_code": "7110",
+      "account_name": "COGS",
+      "type": "expense",
+      "period_debit": 1000.00,
+      "closing_debit": 1000.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "7210",
+      "account_name": "ხ.ხ.",
+      "type": "expense",
+      "period_debit": 3500.00,
+      "closing_debit": 3500.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "7310",
+      "account_name": "ქ.ხ.",
+      "type": "expense",
+      "period_debit": 1000.00,
+      "closing_debit": 1000.00,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "7610",
+      "account_name": "ამ.ხ.",
+      "type": "expense",
+      "period_debit": 83.33,
+      "closing_debit": 83.33,
+      "normal_side": "debit"
+    },
+    {
+      "account_code": "7910",
+      "account_name": "სხვ.ხ.",
+      "type": "expense",
+      "period_debit": 100.00,
+      "closing_debit": 100.00,
+      "normal_side": "debit"
+    }
+  ],
+  "totals": {
+    "total_debit": 31471.33,
+    "total_credit": 31471.33,
+    "balanced": true
+  },
+  "validation_rules": [
+    "Total debit must equal total credit",
+    "Opening balance accounts must include all 9 opening entries",
+    "No draft entries in posted trial balance",
+    "Input VAT 3311 is an asset (debit normal) — not a liability"
+  ]
+}

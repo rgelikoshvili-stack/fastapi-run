@@ -1,0 +1,113 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — RS.ge Waybills (mock ზედნადებები)",
+    "own_company_inn": "400000001",
+    "tenant_id": "geotrade_test",
+    "warning": "FIXTURE ONLY. No real RS.ge credentials. No live RS.ge calls."
+  },
+  "waybills": [
+    {
+      "id": "RS-WB-PUR-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "wb_type": "waybill",
+      "status": "active",
+      "date": "2026-08-01",
+      "transport_type": "auto",
+      "driver_name": "გიორგი მამულაძე",
+      "car_number": "GEO-123-BB",
+      "seller_name": "Office Supplier LLC",
+      "seller_inn": "400000101",
+      "seller_address": "თბილისი, ვაკე, ალეხანდრე ყაზბეგის 45",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "buyer_address": "თბილისი, საბურთალო, ნუცუბიძის 14",
+      "start_address": "Office Supplier LLC საწყობი",
+      "end_address": "GeoTrade Test LLC ოფისი",
+      "linked_invoice_id": "RS-INV-PUR-001",
+      "goods": [
+        {
+          "name": "Keyboard A4Tech",
+          "bar_code": "KBD-A4T-001",
+          "unit": "ც.",
+          "quantity": 100,
+          "price": 50.00,
+          "amount": 5000.00,
+          "vat_type": "1"
+        }
+      ],
+      "expected_bridge_hub": {
+        "direction_detected": "incoming",
+        "linked_to_invoice": "RS-INV-PUR-001",
+        "buyer_inn_matches_own": true,
+        "no_duplicate_on_resync": true
+      }
+    },
+    {
+      "id": "RS-WB-SALE-001",
+      "source": "rs_ge_mock",
+      "direction": "outgoing",
+      "wb_type": "waybill",
+      "status": "active",
+      "date": "2026-08-03",
+      "transport_type": "auto",
+      "driver_name": "დავით კვარაცხელია",
+      "car_number": "GEO-456-CC",
+      "seller_name": "GeoTrade Test LLC",
+      "seller_inn": "400000001",
+      "seller_address": "თბილისი, საბურთალო, ნუცუბიძის 14",
+      "buyer_name": "Client LTD",
+      "buyer_inn": "400000201",
+      "buyer_address": "თბილისი, ისანი, კახეთის გზ. 2",
+      "start_address": "GeoTrade Test LLC საწყობი",
+      "end_address": "Client LTD ოფისი",
+      "linked_invoice_id": "RS-INV-SALE-001",
+      "goods": [
+        {
+          "name": "Keyboard A4Tech",
+          "bar_code": "KBD-A4T-001",
+          "unit": "ც.",
+          "quantity": 20,
+          "price": 80.00,
+          "amount": 1600.00,
+          "vat_type": "1"
+        }
+      ],
+      "expected_bridge_hub": {
+        "direction_detected": "outgoing",
+        "linked_to_invoice": "RS-INV-SALE-001",
+        "seller_inn_matches_own": true,
+        "no_duplicate_on_resync": true
+      }
+    },
+    {
+      "id": "RS-WB-UNLINKED-001",
+      "source": "rs_ge_mock",
+      "direction": "incoming",
+      "wb_type": "waybill",
+      "status": "active",
+      "date": "2026-08-20",
+      "seller_name": "Office Supplier LLC",
+      "seller_inn": "400000101",
+      "buyer_name": "GeoTrade Test LLC",
+      "buyer_inn": "400000001",
+      "linked_invoice_id": null,
+      "goods": [
+        {
+          "name": "Office Chair",
+          "bar_code": "CHAIR-001",
+          "unit": "ც.",
+          "quantity": 2,
+          "price": 300.00,
+          "amount": 600.00,
+          "vat_type": "1"
+        }
+      ],
+      "expected_bridge_hub": {
+        "mismatch_type": "waybill_invoice_unlinked",
+        "risk": "RISK_MEDIUM",
+        "suggested_action": "Link waybill to matching RS.ge invoice"
+      }
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected VAT Report",
+    "tenant_id": "geotrade_test",
+    "period": "2026-08",
+    "vat_payer": true,
+    "vat_rate": 0.18,
+    "own_inn": "400000001"
+  },
+  "input_vat": {
+    "purchases_rs_inv_pur_001": {
+      "supplier": "Office Supplier LLC",
+      "net": 5000.00,
+      "vat": 900.00,
+      "account": "3311"
+    },
+    "rent_rs_inv_rent_001": {
+      "supplier": "Rent House LLC",
+      "net": 1000.00,
+      "vat": 180.00,
+      "account": "3311"
+    },
+    "fixed_asset_rs_inv_fa_001": {
+      "supplier": "Tech House LLC",
+      "net": 3000.00,
+      "vat": 540.00,
+      "account": "3311"
+    },
+    "petty_cash_office_supplies": {
+      "supplier": "Kantselaria",
+      "net": 100.00,
+      "vat": 18.00,
+      "account": "3311"
+    },
+    "total_input_vat": 1638.00
+  },
+  "output_vat": {
+    "sale_rs_inv_sale_001": {
+      "customer": "Client LTD",
+      "net": 1600.00,
+      "vat": 288.00,
+      "account": "3310"
+    },
+    "total_output_vat": 288.00
+  },
+  "vat_adjustments": {
+    "sales_return_output_vat_reversal": {
+      "customer": "Client LTD",
+      "net_reversed": -160.00,
+      "vat_reversed": -28.80,
+      "account": "3310",
+      "notes": "Phase 12 return — 2 keyboards"
+    },
+    "total_adjustment_output": -28.80
+  },
+  "net_vat_position": {
+    "input_vat": 1638.00,
+    "output_vat_gross": 288.00,
+    "output_vat_net_after_return": 259.20,
+    "net_vat_receivable": 1378.80,
+    "interpretation": "Input > Output → GeoTrade has VAT receivable from Revenue Service",
+    "notes": "Typical for import/trading company purchasing more than selling in early months"
+  },
+  "vat_document_list": [
+    {
+      "doc_id": "RS-INV-PUR-001",
+      "type": "input",
+      "date": "2026-08-01",
+      "counterparty": "Office Supplier LLC",
+      "counterparty_inn": "400000101",
+      "net": 5000.00,
+      "vat": 900.00
+    },
+    {
+      "doc_id": "RS-INV-SALE-001",
+      "type": "output",
+      "date": "2026-08-03",
+      "counterparty": "Client LTD",
+      "counterparty_inn": "400000201",
+      "net": 1600.00,
+      "vat": 288.00
+    },
+    {
+      "doc_id": "RS-INV-RENT-001",
+      "type": "input",
+      "date": "2026-08-06",
+      "counterparty": "Rent House LLC",
+      "counterparty_inn": "400000301",
+      "net": 1000.00,
+      "vat": 180.00
+    },
+    {
+      "doc_id": "RS-INV-FA-001",
+      "type": "input",
+      "date": "2026-08-08",
+      "counterparty": "Tech House LLC",
+      "counterparty_inn": "400000401",
+      "net": 3000.00,
+      "vat": 540.00
+    },
+    {
+      "doc_id": "CASH-002",
+      "type": "input",
+      "date": "2026-08-18",
+      "counterparty": "Kantselaria",
+      "counterparty_inn": "400000501",
+      "net": 100.00,
+      "vat": 18.00
+    },
+    {
+      "doc_id": "RS-INV-SALE-001-RETURN",
+      "type": "output_reversal",
+      "date": "2026-08-12",
+      "counterparty": "Client LTD",
+      "counterparty_inn": "400000201",
+      "net": -160.00,
+      "vat": -28.80
+    }
+  ],
+  "validation_rules": [
+    "Input VAT (3311) is an asset — net debit balance",
+    "Output VAT (3310) is a liability — net credit balance",
+    "VAT return/correction reduces output VAT",
+    "Net VAT receivable = Input - Output",
+    "All VAT must link to an RS.ge document or manual journal with approval",
+    "No phantom VAT entries without source document"
+  ]
+}

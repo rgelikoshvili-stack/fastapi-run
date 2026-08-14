@@ -1,0 +1,76 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected CFO Dashboard",
+    "tenant_id": "geotrade_test",
+    "as_of": "2026-08-31",
+    "gap_label": "EXPECTED_GAP_CFO_DASHBOARD",
+    "gap_note": "Not all dashboard metrics may be implemented in admin_dashboard_service.py. Tested metrics marked with 'implemented: true/false'."
+  },
+  "metrics": {
+    "cash_position": {
+      "cash_1110": 1382.00,
+      "bank_1120": 7268.00,
+      "total_liquid": 8650.00,
+      "implemented": true
+    },
+    "profitability": {
+      "net_revenue": 1600.00,
+      "cogs": 1000.00,
+      "gross_profit": 600.00,
+      "gross_margin_pct": 37.5,
+      "opex": 4683.33,
+      "net_profit_loss": -4083.33,
+      "net_margin_pct": -255.2,
+      "implemented": true
+    },
+    "vat_position": {
+      "input_vat": 1638.00,
+      "output_vat": 288.00,
+      "net_vat_receivable": 1350.00,
+      "implemented": true
+    },
+    "ar_status": {
+      "total_ar": 1500.00,
+      "ar_overdue": 0.00,
+      "oldest_invoice_days": 0,
+      "implemented": true
+    },
+    "ap_status": {
+      "total_ap": 2500.00,
+      "ap_upcoming_30d": 2500.00,
+      "oldest_invoice_days": 0,
+      "implemented": true
+    },
+    "inventory": {
+      "total_inventory_value": 6000.00,
+      "keyboard_qty": 80,
+      "keyboard_value": 4000.00,
+      "low_stock_items": [],
+      "implemented": "partial",
+      "gap": "EXPECTED_GAP_CFO_DASHBOARD"
+    },
+    "rsge_mismatch": {
+      "total_mismatches": 3,
+      "risk_high": 1,
+      "risk_medium": 2,
+      "implemented": true
+    },
+    "unapproved_drafts": {
+      "count": 0,
+      "implemented": true,
+      "notes": "In test scenario all drafts are approved before report"
+    },
+    "period_lock": {
+      "august_2026_locked": false,
+      "implemented": true
+    }
+  },
+  "validation_rules": [
+    "Cash = sum of 1110 + 1120",
+    "Net profit from P&L service",
+    "VAT from 3310/3311 ledger balances",
+    "AR/AP from aging service",
+    "RS.ge mismatch count from comparison service",
+    "If metric not implemented, test is marked xfail with gap label"
+  ]
+}

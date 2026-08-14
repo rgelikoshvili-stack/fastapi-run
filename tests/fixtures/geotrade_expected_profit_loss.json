@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected Profit & Loss",
+    "tenant_id": "geotrade_test",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "basis": "Accrual. Core scenario Phases 2-9.",
+    "standard": "IAS 1 / Georgian accounting"
+  },
+  "revenue": {
+    "sales_revenue_6110": 1600.00,
+    "sales_returns_adjustment": 0.00,
+    "net_revenue": 1600.00
+  },
+  "cost_of_goods_sold": {
+    "cogs_7110": 1000.00,
+    "cogs_returns_adjustment": 0.00,
+    "net_cogs": 1000.00
+  },
+  "gross_profit": {
+    "amount": 600.00,
+    "gross_margin_pct": 37.5,
+    "formula": "(1600 - 1000) / 1600 = 37.5%"
+  },
+  "operating_expenses": {
+    "salary_expense_7210": 3500.00,
+    "rent_expense_7310": 1000.00,
+    "depreciation_7610": 83.33,
+    "office_supplies_7910": 100.00,
+    "total_opex": 4683.33
+  },
+  "operating_profit_loss": {
+    "amount": -4083.33,
+    "formula": "600 - 4683.33 = -4083.33"
+  },
+  "other_income_expense": {
+    "fx_gain_loss": 0.00,
+    "interest_expense_7520": 0.00,
+    "notes": "FX and interest covered in full_coverage test separately"
+  },
+  "net_profit_loss": {
+    "amount": -4083.33,
+    "interpretation": "Net loss for August 2026",
+    "retained_earnings_impact": -4083.33
+  },
+  "validation_rules": [
+    "Net revenue = gross sales - returns",
+    "Gross profit = net revenue - COGS",
+    "Only POSTED entries included",
+    "DRAFT entries excluded",
+    "VAT not included in revenue or expense",
+    "Depreciation must appear in P&L",
+    "Salary accrual (not cash basis) drives payroll expense"
+  ],
+  "extended_pl_with_full_scenario": {
+    "_note": "If all BIZ-1 phases included, these additional items appear in P&L:",
+    "additional_expenses": {
+      "interest_expense": 150.00,
+      "insurance_expense_monthly": 100.00,
+      "utility_accrual": 300.00,
+      "fx_loss": 50.00
+    },
+    "additional_revenue": {
+      "fx_gain": 0.00
+    }
+  }
+}

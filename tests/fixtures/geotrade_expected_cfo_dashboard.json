@@ -3,8 +3,7 @@
     "scenario": "GeoTrade Test LLC — Expected CFO Dashboard",
     "tenant_id": "geotrade_test",
     "as_of": "2026-08-31",
-    "gap_label": "EXPECTED_GAP_CFO_DASHBOARD",
-    "gap_note": "Not all dashboard metrics may be implemented in admin_dashboard_service.py. Tested metrics marked with 'implemented: true/false'."
+    "biz2_note": "BIZ-2: EXPECTED_GAP_CFO_DASHBOARD closed. cfo_dashboard_service.py implements all metrics. Low-stock rules remain partial (count=0, documented limitation)."
   },
   "metrics": {
     "cash_position": {

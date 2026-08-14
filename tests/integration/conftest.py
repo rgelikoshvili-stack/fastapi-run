@@ -206,6 +206,11 @@ def cash_register_fixture(geotrade_fixtures):
     return geotrade_fixtures["geotrade_cash_register"]
 
 
+@pytest.fixture(scope="session")
+def cashflow_fixture(geotrade_fixtures):
+    return geotrade_fixtures["geotrade_expected_cashflow"]
+
+
 # ---------------------------------------------------------------------------
 # Helper: load specific RS.ge document by ID
 # ---------------------------------------------------------------------------

@@ -66,17 +66,15 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
             payload["amount_gel"]    = float(amount_gel)
             payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
         except Exception as _fx_exc:
-            # Currency rate lookup failed — falling back to 1.0 is financially wrong.
-            # Log so ops can fix the rate table; the caller should not silently receive
-            # a GEL-equivalent that equals the foreign-currency face value.
             log.warning(
-                "FX rate lookup failed for %s→GEL (draft date=%s): %s — "
-                "falling back to exchange_rate=1.0 which IS INCORRECT. "
-                "Populate the currency_rates table to fix this.",
+                "FX rate lookup failed for %s->GEL (draft date=%s): %s. "
+                "Blocking non-GEL posting until currency_rates is populated.",
                 currency, draft.get("date"), _fx_exc,
             )
-            payload["amount_gel"]    = float(amount)
-            payload["exchange_rate"] = 1.0
+            raise ValueError(
+                f"FX_RATE_MISSING: FX rate for {currency}->GEL not found "
+                f"(date={draft.get('date')}). Populate currency_rates before posting."
+            ) from _fx_exc
     else:
         payload["amount_gel"]    = float(amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
         payload["exchange_rate"] = 1.0

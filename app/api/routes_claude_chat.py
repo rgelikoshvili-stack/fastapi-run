@@ -176,29 +176,29 @@ async def _tool_create_draft(inp: dict, tenant_id: str) -> dict:
 
 
 async def _tool_approve_draft(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_conn, _q
     try:
         draft_id = int(inp["draft_id"])
-        async with get_conn() as conn:
-            row = await conn.fetchrow(_q("""
-                UPDATE journal_drafts
-                SET status = 'approved', approved_by = 'chat_ai', approved_at = NOW()
-                WHERE id = %s AND tenant_id = %s AND status IN ('pending', 'PENDING')
-                RETURNING id, description, amount, status
-            """), draft_id, tenant_id)
-            if row:
-                return {
-                    "success": True,
-                    "draft_id": row["id"],
-                    "description": row["description"],
-                    "amount": float(row["amount"] or 0),
-                    "status": row["status"],
-                    "message": f"გატარება #{row['id']} დამტკიცდა",
-                }
-            return {"success": False, "error": f"გატარება #{draft_id} ვერ მოიძებნა ან უკვე დამტკიცებულია"}
+        return {
+            "success": False,
+            "approval_required": True,
+            "action": "approve_draft",
+            "draft_id": draft_id,
+            "message": (
+                "AI cannot approve drafts directly. Human accountant/CFO "
+                "approval is required through the approval workflow."
+            ),
+            "next_endpoint": f"/api/approval/approve/{draft_id}",
+            "next_method": "POST",
+            "safety": {
+                "ai_direct_approval_blocked": True,
+                "requires_rbac": True,
+                "requires_period_lock_check": True,
+                "requires_cfo_gate": True,
+                "requires_audit_event": True,
+            },
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
-
 
 async def _tool_list_pending(inp: dict, tenant_id: str) -> dict:
     from app.api.db import get_conn, _q
@@ -410,6 +410,51 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                         parts.append("\n".join(lines))
                 except Exception as e:
                     log.warning("unexpected error: %s", e)
+
+            try:
+                rsge_counts = {}
+                for name, table in [
+                    ("waybills", "waybills"),
+                    ("tax_invoices", "tax_invoices"),
+                    ("commercial_invoices", "commercial_invoices"),
+                    ("triangle_matches", "triangle_matches"),
+                    ("evidence_bundles", "evidence_bundles"),
+                ]:
+                    try:
+                        rsge_counts[name] = int(await conn.fetchval(
+                            _q(f"SELECT COUNT(*) FROM {table} WHERE tenant_id = %s"),
+                            tenant_id,
+                        ) or 0)
+                    except Exception:
+                        rsge_counts[name] = "unavailable"
+                try:
+                    locked_periods = int(await conn.fetchval(_q("""
+                        SELECT COUNT(*) FROM period_locks
+                        WHERE tenant_id = %s AND unlocked_at IS NULL
+                    """), tenant_id) or 0)
+                except Exception:
+                    locked_periods = "unavailable"
+                try:
+                    missing_fx = int(await conn.fetchval(_q("""
+                        SELECT COUNT(*) FROM journal_drafts jd
+                        WHERE jd.tenant_id = %s
+                          AND COALESCE(UPPER(jd.currency), 'GEL') <> 'GEL'
+                          AND NOT EXISTS (
+                            SELECT 1 FROM currency_rates cr
+                            WHERE UPPER(cr.from_currency) = UPPER(jd.currency)
+                              AND UPPER(cr.to_currency) = 'GEL'
+                          )
+                    """), tenant_id) or 0)
+                except Exception:
+                    missing_fx = "unavailable"
+                parts.append(
+                    "AI accounting context counts:\n"
+                    f"  waybills: {rsge_counts['waybills']} | tax invoices: {rsge_counts['tax_invoices']} | commercial invoices: {rsge_counts['commercial_invoices']}\n"
+                    f"  triangle matches: {rsge_counts['triangle_matches']} | evidence bundles: {rsge_counts['evidence_bundles']}\n"
+                    f"  locked periods: {locked_periods} | non-GEL drafts missing FX: {missing_fx}"
+                )
+            except Exception as e:
+                log.warning("ai accounting context summary failed: %s", e)
         return "\n\n".join(parts)
     except Exception as e:
         log.warning("db context fetch failed: %s", e)

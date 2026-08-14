@@ -309,7 +309,14 @@ def test_oris_connector_not_ready_does_not_mark_draft_posted():
     conn.fetchrow = AsyncMock(side_effect=[draft, None, None])
     conn.fetchval = AsyncMock(side_effect=[None, 44])
 
+    readiness = {
+        "ok": False,
+        "status": {"connected": False, "mode": "live", "tenant_id": "tenant-a"},
+        "message": "ORIS connector not implemented",
+    }
+
     with patch("app.api.services.posting_service.get_conn", return_value=_async_cm(conn)), \
+         patch("app.api.services.posting_service._get_connector_readiness", return_value=readiness), \
          patch("app.api.services.posting_service.log_event"):
         result = asyncio.run(apply_posting_service(1, "oris", tenant_id="tenant-a"))
 
@@ -317,4 +324,3 @@ def test_oris_connector_not_ready_does_not_mark_draft_posted():
     assert result["error"]["code"] == "CONNECTOR_NOT_READY"
     assert "not implemented" in result["error"]["details"]["message"].lower()
     conn.execute.assert_not_awaited()
-

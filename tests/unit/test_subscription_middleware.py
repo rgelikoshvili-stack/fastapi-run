@@ -27,7 +27,7 @@ from app.api.middleware.subscription_middleware import (
 )
 from app.api.services.subscription_enforcement_service import ActionCategory
 
-NOW = datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc).replace(microsecond=0)
 FUTURE = NOW + timedelta(days=30)
 PAST = NOW - timedelta(days=1)
 

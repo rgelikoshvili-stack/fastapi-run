@@ -26,6 +26,9 @@ TOOL_DESCRIPTIONS = {
     "financial_summary":        "P&L, revenue, expenses, profit summary for the tenant",
     "tax_summary":              "VAT/PIT/CIT payable summary from approved entries",
     "search_documents":         "Full-text search across drafts, invoices, waybills by keyword",
+    "get_rsge_document_status": "Read-only RS.ge document/waybill/tax invoice status lookup",
+    "get_triangle_match_status": "Read-only waybill + tax invoice + commercial invoice match status",
+    "get_accounting_risk_summary": "Read-only accounting risk summary for missing/mismatched documents",
     "prepare_approval_preview": "Prepare an approval preview for a draft (human must confirm)",
     "prepare_posting_preview":  "Prepare a posting preview to Balance.ge or 1C (human must confirm)",
 }
@@ -284,12 +287,231 @@ async def _search_documents(params: dict, tenant_id: str) -> dict:
         except Exception as e:
             log.debug("search outgoing: %s", e)
 
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, waybill_number as description,
+                       COALESCE(seller_name, buyer_name, '') as partner,
+                       total_amount as amount, status, 'waybill' as source_table
+                FROM waybills
+                WHERE tenant_id = %s
+                  AND (
+                    waybill_number ILIKE %s OR seller_name ILIKE %s OR buyer_name ILIKE %s
+                    OR seller_inn ILIKE %s OR buyer_inn ILIKE %s
+                  )
+                ORDER BY waybill_date DESC NULLS LAST, id DESC LIMIT %s
+            """), tenant_id, like, like, like, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search waybills: %s", e)
+
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, invoice_number as description,
+                       COALESCE(seller_name, buyer_name, '') as partner,
+                       total_amount as amount, status, 'tax_invoice' as source_table
+                FROM tax_invoices
+                WHERE tenant_id = %s
+                  AND (
+                    invoice_number ILIKE %s OR invoice_series ILIKE %s
+                    OR seller_name ILIKE %s OR buyer_name ILIKE %s
+                    OR seller_inn ILIKE %s OR buyer_inn ILIKE %s
+                  )
+                ORDER BY invoice_date DESC NULLS LAST, id DESC LIMIT %s
+            """), tenant_id, like, like, like, like, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search tax invoices: %s", e)
+
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id, invoice_number as description,
+                       COALESCE(seller_name, buyer_name, '') as partner,
+                       total_amount as amount, status, 'commercial_invoice' as source_table
+                FROM commercial_invoices
+                WHERE tenant_id = %s
+                  AND (
+                    invoice_number ILIKE %s OR seller_name ILIKE %s OR buyer_name ILIKE %s
+                    OR seller_inn ILIKE %s OR buyer_inn ILIKE %s
+                  )
+                ORDER BY invoice_date DESC NULLS LAST, id DESC LIMIT %s
+            """), tenant_id, like, like, like, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search commercial invoices: %s", e)
+
+        try:
+            rows = await conn.fetch(_q("""
+                SELECT id::text as id,
+                       COALESCE(source_type, 'evidence') as description,
+                       COALESCE(status, '') as status,
+                       confidence as amount,
+                       'evidence_bundle' as source_table
+                FROM evidence_bundles
+                WHERE tenant_id = %s
+                  AND (
+                    source_type ILIKE %s OR status ILIKE %s
+                    OR journal_draft_id::text ILIKE %s OR journal_entry_id::text ILIKE %s
+                  )
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST LIMIT %s
+            """), tenant_id, like, like, like, like, limit)
+            results += [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("search evidence bundles: %s", e)
+
     return {
         "approval_required": False,
         "query": query,
         "total_found": len(results),
         "results": results[:limit],
         "summary": f"'{query}'-ზე {len(results)} შედეგი",
+    }
+
+
+async def _get_rsge_document_status(params: dict, tenant_id: str) -> dict:
+    number = (params.get("number") or params.get("document_number") or "").strip()
+    if not number:
+        return {"error": "number required"}
+    like = f"%{number}%"
+    results = []
+    async with get_conn() as conn:
+        lookups = [
+            ("waybill", """
+                SELECT id, waybill_number as number, status, seller_name, seller_inn,
+                       buyer_name, buyer_inn, waybill_date as document_date,
+                       total_amount, vat_amount
+                FROM waybills
+                WHERE tenant_id = %s AND waybill_number ILIKE %s
+                ORDER BY waybill_date DESC NULLS LAST, id DESC LIMIT 10
+            """),
+            ("tax_invoice", """
+                SELECT id, invoice_number as number, status, seller_name, seller_inn,
+                       buyer_name, buyer_inn, invoice_date as document_date,
+                       total_amount, vat_amount
+                FROM tax_invoices
+                WHERE tenant_id = %s AND invoice_number ILIKE %s
+                ORDER BY invoice_date DESC NULLS LAST, id DESC LIMIT 10
+            """),
+            ("commercial_invoice", """
+                SELECT id, invoice_number as number, status, seller_name, seller_inn,
+                       buyer_name, buyer_inn, invoice_date as document_date,
+                       total_amount, vat_amount
+                FROM commercial_invoices
+                WHERE tenant_id = %s AND invoice_number ILIKE %s
+                ORDER BY invoice_date DESC NULLS LAST, id DESC LIMIT 10
+            """),
+        ]
+        for source_table, sql in lookups:
+            try:
+                rows = await conn.fetch(_q(sql), tenant_id, like)
+                for row in rows:
+                    item = _safe(row)
+                    item["source_table"] = source_table
+                    results.append(item)
+            except Exception as e:
+                log.debug("rsge status lookup %s: %s", source_table, e)
+    return {"approval_required": False, "number": number, "found": bool(results), "results": results}
+
+
+async def _get_triangle_match_status(params: dict, tenant_id: str) -> dict:
+    document_id = params.get("document_id")
+    waybill_number = (params.get("waybill_number") or "").strip()
+    limit = min(int(params.get("limit", 10)), 50)
+    results = []
+    async with get_conn() as conn:
+        try:
+            base_sql = """
+                SELECT tm.id, tm.waybill_id, tm.tax_invoice_id, tm.commercial_invoice_id,
+                       tm.match_score, tm.match_status, tm.mismatch_fields,
+                       tm.waybill_total, tm.tax_invoice_total, tm.commercial_invoice_total,
+                       tm.amount_diff, tm.journal_draft_id,
+                       wb.waybill_number, ti.invoice_number as tax_invoice_number,
+                       ci.invoice_number as commercial_invoice_number
+                FROM triangle_matches tm
+                LEFT JOIN waybills wb ON wb.id = tm.waybill_id AND wb.tenant_id = tm.tenant_id
+                LEFT JOIN tax_invoices ti ON ti.id = tm.tax_invoice_id AND ti.tenant_id = tm.tenant_id
+                LEFT JOIN commercial_invoices ci ON ci.id = tm.commercial_invoice_id AND ci.tenant_id = tm.tenant_id
+            """
+            if document_id:
+                rows = await conn.fetch(_q(base_sql + " WHERE tm.tenant_id = %s AND tm.id = %s LIMIT %s"),
+                                        tenant_id, int(document_id), limit)
+            elif waybill_number:
+                rows = await conn.fetch(_q(base_sql + " WHERE tm.tenant_id = %s AND wb.waybill_number ILIKE %s LIMIT %s"),
+                                        tenant_id, f"%{waybill_number}%", limit)
+            else:
+                rows = await conn.fetch(_q(base_sql + " WHERE tm.tenant_id = %s ORDER BY tm.id DESC LIMIT %s"),
+                                        tenant_id, limit)
+            results = [_safe(r) for r in rows]
+        except Exception as e:
+            log.debug("triangle match status: %s", e)
+    for item in results:
+        status = str(item.get("match_status") or "").lower()
+        amount_diff = float(item.get("amount_diff") or 0)
+        item["risk_level"] = "high" if status == "mismatch" or amount_diff else "low"
+    return {"approval_required": False, "found": bool(results), "results": results}
+
+
+async def _get_accounting_risk_summary(params: dict, tenant_id: str) -> dict:
+    summary = {
+        "waybills_without_tax_invoice": None,
+        "tax_invoices_without_waybill": None,
+        "triangle_mismatches": None,
+        "evidence_open": None,
+        "pending_approvals": None,
+        "locked_periods": None,
+        "missing_fx_rates": None,
+    }
+    async with get_conn() as conn:
+        checks = {
+            "waybills_without_tax_invoice": """
+                SELECT COUNT(*) FROM waybills wb
+                LEFT JOIN tax_invoices ti
+                  ON ti.related_waybill_id = wb.id AND ti.tenant_id = wb.tenant_id
+                WHERE wb.tenant_id = %s AND ti.id IS NULL
+            """,
+            "tax_invoices_without_waybill": """
+                SELECT COUNT(*) FROM tax_invoices
+                WHERE tenant_id = %s AND related_waybill_id IS NULL
+            """,
+            "triangle_mismatches": """
+                SELECT COUNT(*) FROM triangle_matches
+                WHERE tenant_id = %s
+                  AND (match_status IN ('partial', 'mismatch') OR COALESCE(amount_diff, 0) <> 0)
+            """,
+            "evidence_open": """
+                SELECT COUNT(*) FROM evidence_bundles
+                WHERE tenant_id = %s AND status NOT IN ('posted', 'archived')
+            """,
+            "pending_approvals": """
+                SELECT COUNT(*) FROM journal_drafts
+                WHERE tenant_id = %s AND status IN ('pending', 'PENDING', 'pending_approval', 'drafted')
+            """,
+            "locked_periods": """
+                SELECT COUNT(*) FROM period_locks
+                WHERE tenant_id = %s AND unlocked_at IS NULL
+            """,
+            "missing_fx_rates": """
+                SELECT COUNT(*) FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND COALESCE(UPPER(jd.currency), 'GEL') <> 'GEL'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM currency_rates cr
+                    WHERE UPPER(cr.from_currency) = UPPER(jd.currency)
+                      AND UPPER(cr.to_currency) = 'GEL'
+                  )
+            """,
+        }
+        for key, sql in checks.items():
+            try:
+                summary[key] = int(await conn.fetchval(_q(sql), tenant_id) or 0)
+            except Exception as e:
+                log.debug("risk summary %s: %s", key, e)
+                summary[key] = "unavailable"
+    risk_flags = [key for key, value in summary.items() if isinstance(value, int) and value > 0]
+    return {
+        "approval_required": False,
+        "summary": summary,
+        "risk_flags": risk_flags,
+        "risk_level": "high" if risk_flags else "low",
     }
 
 
@@ -396,6 +618,9 @@ _TOOL_MAP = {
     "financial_summary":        _financial_summary,
     "tax_summary":              _tax_summary,
     "search_documents":         _search_documents,
+    "get_rsge_document_status": _get_rsge_document_status,
+    "get_triangle_match_status": _get_triangle_match_status,
+    "get_accounting_risk_summary": _get_accounting_risk_summary,
     "prepare_approval_preview": _prepare_approval_preview,
     "prepare_posting_preview":  _prepare_posting_preview,
 }

@@ -808,12 +808,12 @@ function _renderEditableGoods(idx,lines,p,drAcc){
         <tbody>${rows}</tbody>
         ${lines.length?`<tfoot><tr>
           <td colspan="4" class="tfoot-lbl" style="text-align:left;font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim)">სულ:</td>
-          <td style="text-align:right">${totalQty>0?totalQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):''}</td>
+          <td id="${p}_tQty" style="text-align:right">${totalQty>0?totalQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):''}</td>
           <td></td>
-          <td style="text-align:right;font-weight:700;color:var(--accent)">${_amt(totalAmt)}</td>
+          <td id="${p}_tAmt" style="text-align:right;font-weight:700;color:var(--accent)">${_amt(totalAmt)}</td>
           <td></td>
-          <td style="text-align:right;color:var(--accent)">${totalVat>0?_amt(totalVat):''}</td>
-          <td style="text-align:right;font-weight:700;color:var(--ink)">${_amt(totalFull)}</td>
+          <td id="${p}_tVat" style="text-align:right;color:var(--accent)">${totalVat>0?_amt(totalVat):''}</td>
+          <td id="${p}_tFull" style="text-align:right;font-weight:700;color:var(--ink)">${_amt(totalFull)}</td>
           <td colspan="2"></td>
         </tr></tfoot>`:''}
       </table>
@@ -856,6 +856,20 @@ function onGoodsChange(wbIdx,lineIdx,field,val){
   const grandTotal=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
   const amtInp=document.getElementById(p+'_postamt');
   if(amtInp) amtInp.value=grandTotal.toFixed(2);
+
+  // Update tfoot totals row
+  const tQty=lines.reduce((s,l)=>s+parseFloat(l.qty||0),0);
+  const tAmt=grandTotal;
+  const tVat=lines.reduce((s,l)=>{ const {vat}=_computeLineVat(parseFloat(l.amt||0),l.vat_type); return s+vat; },0);
+  const tFull=tAmt; // VAT-inclusive pricing: total = amt
+  const tQtyEl=document.getElementById(p+'_tQty');
+  const tAmtEl=document.getElementById(p+'_tAmt');
+  const tVatEl=document.getElementById(p+'_tVat');
+  const tFullEl=document.getElementById(p+'_tFull');
+  if(tQtyEl) tQtyEl.textContent=tQty>0?tQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):'';
+  if(tAmtEl) tAmtEl.textContent=_amt(tAmt);
+  if(tVatEl) tVatEl.textContent=tVat>0?_amt(tVat):'';
+  if(tFullEl) tFullEl.textContent=_amt(tFull);
 }
 
 function addGoodsRow(wbIdx){
@@ -895,7 +909,8 @@ async function saveWbMeta(idx){
       quantity:parseFloat(l.qty||0),
       price:parseFloat(l.price||0)||null,
       amount:parseFloat(l.amt||0),
-      vat_type:l.vat_type||'1'
+      vat_type:l.vat_type||'1',
+      account:l.acc||''
     }));
     const body={goods_list:goods};
     if(editDate) body.begin_date=editDate;

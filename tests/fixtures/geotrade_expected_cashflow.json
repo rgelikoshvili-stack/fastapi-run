@@ -5,8 +5,7 @@
     "period_start": "2026-08-01",
     "period_end": "2026-08-31",
     "method": "indirect",
-    "gap_label": "EXPECTED_GAP_CASHFLOW_CLASSIFICATION",
-    "gap_note": "Detailed cashflow classification (operating vs investing vs financing) may not be fully automated in Bridge Hub. Net change in cash/bank is verifiable. Full indirect method cashflow may require manual mapping."
+    "biz2_note": "BIZ-2: EXPECTED_GAP_CASHFLOW_CLASSIFICATION closed. cashflow_classification_service.py implements operating/investing/financing classification."
   },
   "operating_activities": {
     "net_profit_loss": -4083.33,

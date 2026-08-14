@@ -14,6 +14,14 @@ import pytest
 
 from app.api.services.inventory_costing_service import fifo_cogs, wacg_cogs, compute_cogs
 from app.api.services.taxation_engine import calculate_vat
+from app.api.services.cashflow_classification_service import (
+    classify_cashflow_line,
+    build_cashflow_direct,
+)
+from app.api.services.cfo_dashboard_service import (
+    build_cfo_dashboard_from_data,
+    AGING_BUCKETS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -560,3 +568,199 @@ class TestARAPAging:
     def test_partial_payment_excluded(self, aging_fixture):
         partial = aging_fixture["partial_payment_test"]
         assert partial["remaining_after_all_payments"] == 0.00
+
+
+# ---------------------------------------------------------------------------
+# Phase BIZ-2 — Cashflow Classification (EXPECTED_GAP_CASHFLOW closed)
+# ---------------------------------------------------------------------------
+
+class TestCashflowClassificationBIZ2:
+
+    def test_classify_customer_receipt_operating(self):
+        result = classify_cashflow_line("1120", "1210", 1888.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "inflow"
+
+    def test_classify_customer_advance_operating(self):
+        result = classify_cashflow_line("1120", "3120", 1000.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "inflow"
+
+    def test_classify_supplier_payment_operating(self):
+        result = classify_cashflow_line("3110", "1120", 5900.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_classify_rent_payment_operating(self):
+        result = classify_cashflow_line("7310", "1120", 1180.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_classify_payroll_operating(self):
+        result = classify_cashflow_line("3130", "1120", 2730.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_classify_pit_payment_operating(self):
+        result = classify_cashflow_line("3320", "1120", 700.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_classify_interest_payment_operating(self):
+        result = classify_cashflow_line("3420", "1120", 150.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_classify_fixed_asset_purchase_investing(self):
+        result = classify_cashflow_line("1510", "1120", 3540.00)
+        assert result["category"] == "investing"
+        assert result["direction"] == "outflow"
+
+    def test_classify_loan_receipt_financing(self):
+        result = classify_cashflow_line("1120", "3410", 10000.00)
+        assert result["category"] == "financing"
+        assert result["direction"] == "inflow"
+
+    def test_classify_loan_repayment_financing(self):
+        result = classify_cashflow_line("3410", "1120", 1000.00)
+        assert result["category"] == "financing"
+        assert result["direction"] == "outflow"
+
+    def test_bank_cash_transfer_internal_excluded(self):
+        result = classify_cashflow_line("1110", "1120", 500.00)
+        assert result["category"] == "internal"
+        assert result["direction"] == "none"
+
+    def test_depreciation_non_cash_excluded(self):
+        result = classify_cashflow_line("7610", "1520", 83.33)
+        assert result["category"] == "non_cash"
+        assert result["direction"] == "none"
+
+    def test_accrual_non_cash_excluded(self):
+        result = classify_cashflow_line("7410", "3420", 300.00)
+        assert result["category"] == "non_cash"
+
+    def test_prepaid_payment_operating(self):
+        result = classify_cashflow_line("1430", "1120", 1200.00)
+        assert result["category"] == "operating"
+        assert result["direction"] == "outflow"
+
+    def test_prepaid_recognition_non_cash(self):
+        result = classify_cashflow_line("7410", "1430", 100.00)
+        assert result["category"] == "non_cash"
+
+    def test_fx_revaluation_non_cash(self):
+        result = classify_cashflow_line("7920", "3110", 50.00)
+        assert result["category"] == "non_cash"
+
+    def test_cashflow_direct_investing_net(self):
+        lines = [
+            {"dr": "1510", "cr": "1120", "amount": 3540.00, "description": "FA purchase"},
+        ]
+        result = build_cashflow_direct(lines)
+        assert result["investing"]["net"] == -3540.00
+
+    def test_cashflow_direct_financing_net(self):
+        lines = [
+            {"dr": "1120", "cr": "3410", "amount": 10000.00, "description": "Loan"},
+            {"dr": "3410", "cr": "1120", "amount": 1000.00,  "description": "Repayment"},
+        ]
+        result = build_cashflow_direct(lines)
+        assert result["financing"]["net"] == 9000.00
+
+    def test_cashflow_service_importable(self):
+        from app.api.services.cashflow_classification_service import classify_cashflow_line
+        assert callable(classify_cashflow_line)
+
+    def test_cashflow_route_exists(self):
+        import importlib
+        mod = importlib.import_module("app.api.routes_financial_statements")
+        assert hasattr(mod, "cashflow_statement")
+
+    def test_cashflow_fixture_structure(self, cashflow_fixture):
+        assert "operating_activities" in cashflow_fixture
+        assert "cash_movements_direct" in cashflow_fixture
+
+    def test_cashflow_fixture_direct_movements(self, cashflow_fixture):
+        direct = cashflow_fixture["cash_movements_direct"]
+        assert direct["opening_total"] == 21000.00
+        assert direct["inflows"]["customer_receipt_rs_inv_sale_001"] == 1888.00
+        assert direct["inflows"]["bank_loan"] == 10000.00
+
+    def test_cashflow_fixture_gap_removed(self, cashflow_fixture):
+        assert "gap_label" not in cashflow_fixture.get("_meta", {})
+
+
+# ---------------------------------------------------------------------------
+# Phase BIZ-2 — CFO Dashboard (EXPECTED_GAP_CFO_DASHBOARD closed)
+# ---------------------------------------------------------------------------
+
+class TestCFODashboardBIZ2:
+
+    def test_cfo_service_importable(self):
+        from app.api.services.cfo_dashboard_service import build_cfo_dashboard_from_data
+        assert callable(build_cfo_dashboard_from_data)
+
+    def test_cfo_route_importable(self):
+        import importlib
+        spec = importlib.util.find_spec("app.api.routes_cfo_dashboard")
+        assert spec is not None
+
+    def test_cfo_dashboard_cash_position(self, cfo_dashboard_fixture):
+        cp = cfo_dashboard_fixture["metrics"]["cash_position"]
+        assert cp["cash_1110"] == 1382.00
+
+    def test_cfo_dashboard_profitability(self, cfo_dashboard_fixture):
+        pr = cfo_dashboard_fixture["metrics"]["profitability"]
+        assert pr["net_revenue"] == 1600.00
+        assert abs(pr["net_profit_loss"] - (-4083.33)) < 0.01
+
+    def test_cfo_dashboard_vat_position(self, cfo_dashboard_fixture):
+        assert cfo_dashboard_fixture["metrics"]["vat_position"]["input_vat"] == 1638.00
+
+    def test_cfo_dashboard_ar_status(self, cfo_dashboard_fixture):
+        assert cfo_dashboard_fixture["metrics"]["ar_status"]["total_ar"] == 1500.00
+
+    def test_cfo_dashboard_rsge_mismatch(self, cfo_dashboard_fixture):
+        rs = cfo_dashboard_fixture["metrics"]["rsge_mismatch"]
+        assert rs["total_mismatches"] == 3
+
+    def test_cfo_dashboard_period_lock(self, cfo_dashboard_fixture):
+        assert "august_2026_locked" in cfo_dashboard_fixture["metrics"]["period_lock"]
+
+    def test_cfo_pure_cash_totals(self):
+        tb = {"1110": 1382.00, "1120": 4668.00}
+        result = build_cfo_dashboard_from_data(
+            trial_balance=tb,
+            pnl={"revenue": {"total": 0}, "cogs": {"total": 0},
+                 "gross_profit": 0, "opex": {"total": 0}, "ebit": 0},
+        )
+        assert result["cash_position"]["total_liquid"] == 6050.00
+
+    def test_cfo_aging_buckets_bridge_hub_format(self):
+        for bucket in AGING_BUCKETS:
+            assert bucket in ("current_0_30", "31_60", "61_90", "91_120", "over_120")
+
+    def test_cfo_no_secret_in_output(self):
+        result = build_cfo_dashboard_from_data(
+            trial_balance={"1110": 100.0},
+            pnl={"revenue": {"total": 0}, "cogs": {"total": 0},
+                 "gross_profit": 0, "opex": {"total": 0}, "ebit": 0},
+        )
+        import json
+        s = json.dumps(result)
+        for forbidden in ["access_token", "JWT_SECRET", "VAULT_ENCRYPTION_KEY"]:
+            assert forbidden not in s
+
+    def test_cfo_fixed_asset_nbv(self):
+        tb = {"1510": 8000.00, "1520": -583.33}
+        result = build_cfo_dashboard_from_data(
+            trial_balance=tb,
+            pnl={"revenue": {"total": 0}, "cogs": {"total": 0},
+                 "gross_profit": 0, "opex": {"total": 0}, "ebit": 0},
+        )
+        fa = result["fixed_assets"]
+        assert abs(fa["net_book_value"] - (8000.00 - 583.33)) < 0.01
+
+    def test_cfo_dashboard_fixture_gap_removed(self, cfo_dashboard_fixture):
+        assert "gap_label" not in cfo_dashboard_fixture.get("_meta", {})

@@ -1,0 +1,71 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected Balance Sheet",
+    "tenant_id": "geotrade_test",
+    "as_of_date": "2026-08-31",
+    "basis": "Core scenario Phases 2-9.",
+    "standard": "IAS 1",
+    "assets_total": 25204.67,
+    "liabilities_total": 3088.00,
+    "equity_total": 22116.67,
+    "balanced": true,
+    "check": "25204.67 = 3088.00 + 22116.67 ✓"
+  },
+  "assets": {
+    "current_assets": {
+      "cash_1110": 1382.00,
+      "bank_1120": 7268.00,
+      "accounts_receivable_1210": 1500.00,
+      "inventory_1310": 6000.00,
+      "input_vat_receivable_3311": 1638.00,
+      "total_current_assets": 17788.00
+    },
+    "non_current_assets": {
+      "fixed_assets_cost_1510": 8000.00,
+      "less_accumulated_depreciation_1520": -583.33,
+      "net_fixed_assets": 7416.67,
+      "total_non_current_assets": 7416.67
+    },
+    "total_assets": 25204.67
+  },
+  "liabilities": {
+    "current_liabilities": {
+      "accounts_payable_3110": 2500.00,
+      "output_vat_payable_3310": 288.00,
+      "pit_payable_3320": 300.00,
+      "total_current_liabilities": 3088.00
+    },
+    "non_current_liabilities": {
+      "total_non_current_liabilities": 0.00
+    },
+    "total_liabilities": 3088.00
+  },
+  "equity": {
+    "share_capital_4110": 26200.00,
+    "retained_earnings_prior": 0.00,
+    "current_period_profit_loss": -4083.33,
+    "total_equity": 22116.67,
+    "formula": "26200 + 0 + (-4083.33) = 22116.67"
+  },
+  "validation_rules": [
+    "Total Assets = Total Liabilities + Total Equity",
+    "Fixed assets shown net of accumulated depreciation",
+    "Input VAT 3311 shown as current asset (not netted against output VAT)",
+    "Output VAT 3310 shown as current liability separately",
+    "Period P&L flows directly into equity section",
+    "No draft journal entries in Balance Sheet"
+  ],
+  "extended_bs_full_scenario": {
+    "_note": "With all BIZ-1 phases, additional items on Balance Sheet:",
+    "additional_assets": {
+      "supplier_advances_1420": 0.00,
+      "prepaid_expenses_1430": 1100.00
+    },
+    "additional_liabilities": {
+      "customer_advances_3120": 0.00,
+      "bank_loan_3410": 9000.00,
+      "interest_payable_3420": 0.00,
+      "accrued_liabilities": 300.00
+    }
+  }
+}

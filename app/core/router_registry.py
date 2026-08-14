@@ -224,3 +224,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_admin_dashboard import router as admin_dashboard_router
     app.include_router(admin_dashboard_router)
+
+    from app.api.routes_cfo_dashboard import router as cfo_dashboard_router
+    app.include_router(cfo_dashboard_router)

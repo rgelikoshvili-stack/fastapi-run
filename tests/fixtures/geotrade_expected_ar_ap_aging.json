@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected AR/AP Aging",
+    "tenant_id": "geotrade_test",
+    "report_date": "2026-09-15",
+    "buckets": ["current (0-30)", "31-60", "61-90", "91-120", "120+"],
+    "notes": "Bridge Hub aging uses buckets: 0-30, 31-60, 61-90, 91-120, over_120"
+  },
+  "test_invoices": [
+    {
+      "id": "AR-AGING-001",
+      "type": "ar",
+      "customer": "Client LTD",
+      "customer_inn": "400000201",
+      "invoice_date": "2026-08-01",
+      "due_date": "2026-08-31",
+      "original_amount": 1888.00,
+      "paid_amount": 1888.00,
+      "remaining": 0.00,
+      "days_overdue_at_report_date": 15,
+      "expected_bucket": null,
+      "notes": "FULLY PAID — must NOT appear in aging report"
+    },
+    {
+      "id": "AR-AGING-002",
+      "type": "ar",
+      "customer": "Old Client LLC",
+      "customer_inn": "400000202",
+      "invoice_date": "2026-07-31",
+      "due_date": "2026-08-15",
+      "original_amount": 2000.00,
+      "paid_amount": 0.00,
+      "remaining": 2000.00,
+      "days_overdue_at_report_date": 31,
+      "expected_bucket": "31_60",
+      "notes": "45 days from invoice date to report date (2026-07-31 to 2026-09-15 = 46 days). Overdue since 2026-08-15."
+    },
+    {
+      "id": "AP-AGING-001",
+      "type": "ap",
+      "supplier": "Old Supplier LLC",
+      "supplier_inn": "400000102",
+      "invoice_date": "2026-07-01",
+      "due_date": "2026-07-15",
+      "original_amount": 3000.00,
+      "paid_amount": 0.00,
+      "remaining": 3000.00,
+      "days_overdue_at_report_date": 62,
+      "expected_bucket": "61_90",
+      "notes": "Invoice 2026-07-01. Due 2026-07-15. Report date 2026-09-15 = 62 days overdue."
+    },
+    {
+      "id": "AP-AGING-002",
+      "type": "ap",
+      "supplier": "Office Supplier LLC",
+      "supplier_inn": "400000101",
+      "invoice_date": "2026-08-01",
+      "due_date": "2026-09-01",
+      "original_amount": 5900.00,
+      "paid_amount": 5900.00,
+      "remaining": 0.00,
+      "days_overdue_at_report_date": 14,
+      "expected_bucket": null,
+      "notes": "FULLY PAID — must NOT appear in aging report"
+    }
+  ],
+  "expected_ar_aging_summary": {
+    "report_date": "2026-09-15",
+    "buckets": {
+      "current_0_30": {"count": 0, "amount": 0.00},
+      "31_60": {"count": 1, "amount": 2000.00, "counterparties": ["Old Client LLC"]},
+      "61_90": {"count": 0, "amount": 0.00},
+      "91_120": {"count": 0, "amount": 0.00},
+      "over_120": {"count": 0, "amount": 0.00}
+    },
+    "total_ar_overdue": 2000.00
+  },
+  "expected_ap_aging_summary": {
+    "report_date": "2026-09-15",
+    "buckets": {
+      "current_0_30": {"count": 0, "amount": 0.00},
+      "31_60": {"count": 0, "amount": 0.00},
+      "61_90": {"count": 1, "amount": 3000.00, "counterparties": ["Old Supplier LLC"]},
+      "91_120": {"count": 0, "amount": 0.00},
+      "over_120": {"count": 0, "amount": 0.00}
+    },
+    "total_ap_overdue": 3000.00
+  },
+  "partial_payment_test": {
+    "invoice_id": "AP-PARTIAL-001",
+    "type": "ap",
+    "supplier": "Supplier LLC Part",
+    "original_amount": 2400.00,
+    "payments": [
+      {"date": "2026-08-20", "amount": 1000.00},
+      {"date": "2026-08-22", "amount": 1400.00}
+    ],
+    "remaining_after_all_payments": 0.00,
+    "notes": "After both payments AP = 0. Must not appear in aging."
+  },
+  "validation_rules": [
+    "Paid invoices excluded from aging",
+    "Partially paid — only remaining balance in aging",
+    "Aging uses report_date, not today's date",
+    "Bridge Hub buckets: current(0-30), 31_60, 61_90, 91_120, over_120",
+    "Spec bucket 90+ maps to Bridge Hub 91_120 + over_120 combined"
+  ]
+}

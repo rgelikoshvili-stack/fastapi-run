@@ -1,0 +1,74 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Expected Cash Flow Statement",
+    "tenant_id": "geotrade_test",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "method": "indirect",
+    "biz2_note": "BIZ-2: EXPECTED_GAP_CASHFLOW_CLASSIFICATION closed. cashflow_classification_service.py implements operating/investing/financing classification."
+  },
+  "operating_activities": {
+    "net_profit_loss": -4083.33,
+    "adjustments_for_non_cash": {
+      "depreciation": 83.33
+    },
+    "working_capital_changes": {
+      "increase_in_ar": -1888.00,
+      "decrease_in_ar_from_payment": 1888.00,
+      "increase_in_inventory": -5000.00,
+      "decrease_in_inventory_cogs": 1000.00,
+      "increase_in_input_vat": -1638.00,
+      "increase_in_ap": 10620.00,
+      "decrease_in_ap_payments": -10620.00,
+      "increase_in_pit_payable": 700.00,
+      "decrease_in_pit_payment": -700.00
+    },
+    "total_operating": -13638.00,
+    "_note": "Simplified; real cashflow requires full movement analysis"
+  },
+  "investing_activities": {
+    "fixed_asset_purchase": -3540.00,
+    "total_investing": -3540.00
+  },
+  "financing_activities": {
+    "loan_received": 0.00,
+    "loan_repayment": 0.00,
+    "total_financing": 0.00
+  },
+  "cash_movements_direct": {
+    "description": "Direct verification of cash/bank movements (more reliable than indirect method)",
+    "opening_cash": 1000.00,
+    "opening_bank": 20000.00,
+    "opening_total": 21000.00,
+    "inflows": {
+      "customer_receipt_rs_inv_sale_001": 1888.00,
+      "customer_advance_client_ltd": 1000.00,
+      "bank_loan": 10000.00
+    },
+    "outflows": {
+      "supplier_payment_keyboards": 5900.00,
+      "rent_payment": 1180.00,
+      "salary_payment": 2730.00,
+      "pit_payment": 700.00,
+      "fa_payment_laptop": 3540.00,
+      "supplier_advance": 1200.00,
+      "partial_payment_1": 1000.00,
+      "partial_payment_2": 1400.00,
+      "interest_payment": 150.00,
+      "insurance_prepaid": 1200.00,
+      "fx_supplier_payment": 2750.00
+    },
+    "petty_cash_expense": 118.00,
+    "closing_cash": 1382.00,
+    "closing_bank": 4668.00,
+    "closing_total": 6050.00
+  },
+  "validation_rules": [
+    "Opening cash + bank movements = Closing cash",
+    "Supplier payments reduce bank and clear AP",
+    "Customer receipts increase bank and clear AR",
+    "Loan receipt is financing inflow, not operating",
+    "Fixed asset purchase is investing outflow, not operating",
+    "Interest payment may be operating or financing depending on policy"
+  ]
+}

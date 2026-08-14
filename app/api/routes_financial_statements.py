@@ -9,6 +9,7 @@ from app.api.authz import require_permission
 from app.api.services.financial_statements_service import (
     build_profit_and_loss,
     build_balance_sheet,
+    build_cashflow_statement,
 )
 from app.api.services.gl_reconciliation_service import reconcile_gl_bank
 
@@ -119,6 +120,30 @@ async def profit_and_loss_by_month(
     date_from = date(year, month, 1).isoformat()
     date_to   = date(year, month, last_day).isoformat()
     return await build_profit_and_loss(tenant_id, date_from, date_to)
+
+
+@router.get("/cashflow")
+async def cashflow_statement(
+    request: Request,
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to:   Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    """IAS 7 — Statement of Cash Flows (direct method, operating/investing/financing)."""
+    require_permission(request, "reports:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return await build_cashflow_statement(tenant_id, date_from, date_to)
+
+
+@financial_statements_alias_router.get("/cashflow")
+async def cashflow_statement_alias(
+    request: Request,
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to:   Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    """IAS 7 — Statement of Cash Flows (alias path)."""
+    require_permission(request, "reports:read")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return await build_cashflow_statement(tenant_id, date_from, date_to)
 
 
 @router.get("/gl-reconciliation")

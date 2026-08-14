@@ -30,6 +30,10 @@ from app.api.connectors.oris_connector import OrisConnector
 BLOCKING_POST_STATUSES = {"posted", "simulated_success"}
 
 
+class FxRateMissingError(ValueError):
+    """Raised when FX rate is not available for a non-GEL posting."""
+
+
 def _normalize_target(target: str) -> str:
     t = (target or "").strip().lower()
     if t == "1c":
@@ -66,17 +70,17 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
             payload["amount_gel"]    = float(amount_gel)
             payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
         except Exception as _fx_exc:
-            # Currency rate lookup failed — falling back to 1.0 is financially wrong.
-            # Log so ops can fix the rate table; the caller should not silently receive
-            # a GEL-equivalent that equals the foreign-currency face value.
-            log.warning(
+            # P0-4 FIX: Block non-GEL posting when FX rate is unavailable.
+            # Falling back to 1.0 is financially wrong and causes incorrect ledger entries.
+            log.error(
                 "FX rate lookup failed for %s→GEL (draft date=%s): %s — "
-                "falling back to exchange_rate=1.0 which IS INCORRECT. "
-                "Populate the currency_rates table to fix this.",
+                "posting BLOCKED. Populate the currency_rates table to fix this.",
                 currency, draft.get("date"), _fx_exc,
             )
-            payload["amount_gel"]    = float(amount)
-            payload["exchange_rate"] = 1.0
+            raise FxRateMissingError(
+                f"FX rate for {currency}→GEL not found (date={draft.get('date')}). "
+                "Populate the currency_rates table before posting non-GEL entries."
+            )
     else:
         payload["amount_gel"]    = float(amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
         payload["exchange_rate"] = 1.0
@@ -1030,7 +1034,16 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     details=readiness,
                 )
 
-            payload = await _draft_to_posting_payload(draft)
+            try:
+                payload = await _draft_to_posting_payload(draft)
+            except FxRateMissingError as _fx_missing:
+                await tr.rollback()
+                structured_log(log, logging.ERROR, "posting_attempt_failed",
+                    draft_id=draft_id, tenant_id=tenant_id, target=target_normalized,
+                    result="error", error_code="FX_RATE_MISSING")
+                return error_response(str(_fx_missing), code="FX_RATE_MISSING",
+                    details={"currency": draft.get("currency"), "draft_date": draft.get("date")})
+
             entry_hash = _compute_entry_hash(
                 draft_id, tenant_id,
                 draft.get("amount", 0),
@@ -1242,7 +1255,13 @@ async def dry_run_posting_service(
         if line_error:
             return error_response(line_error, code="INVALID_JOURNAL_LINES")
 
-        payload = await _draft_to_posting_payload(draft)
+        try:
+            payload = await _draft_to_posting_payload(draft)
+        except FxRateMissingError as _fx_missing:
+            return error_response(str(_fx_missing), code="FX_RATE_MISSING",
+                details={"currency": draft.get("currency"), "draft_date": draft.get("date"),
+                         "mode": "dry_run"})
+
         entry_hash = _compute_entry_hash(
             draft_id, tenant_id,
             draft.get("amount", 0),

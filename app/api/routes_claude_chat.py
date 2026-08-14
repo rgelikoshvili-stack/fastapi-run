@@ -42,11 +42,17 @@ _ACC_KEYWORDS = {
 SYSTEM_PROMPT = """\
 შენ ხარ Bridge Hub AI — ქართული ფინანსური OS-ის AI ბუღალტერი.
 შენ შეგიძლია:
-• ბუღალტრული გატარებების შექმნა (create_journal_draft)
-• მოლოდინში მყოფი გატარებების დამტკიცება (approve_draft)
+• ბუღალტრული გატარებების შექმნა (create_journal_draft) — draft იქმნება PENDING სტატუსით
 • გატარებების ძებნა და ნახვა (search_transactions, list_pending_drafts)
 • ანგარიშების ნაშთის გამოთვლა (get_account_balance)
 • ტრანზაქციის კლასიფიკაცია (classify_transaction)
+• დამტკიცების რეკომენდაცია (approve_draft) — AI ვერ ასრულებს თვითონ, ადამიანი ამტკიცებს
+
+ᲛᲜᲘᲨᲕᲜᲔᲚᲝᲕᲐᲜᲘ უსაფრთხოების წესი:
+AI ვერ ასრულებს გატარების პირდაპირ დამტკიცებას. approve_draft tool-ი
+აბრუნებს დამტკიცების მოთხოვნას ადამიანისთვის. ბუღალტერი ან CFO
+ადასტურებს /api/approval/approve/{id} endpoint-ის მეშვეობით.
+ეს უზრუნველყოფს: period lock check, CFO gate (≥₾10,000), audit log.
 
 შენი ექსპერტიზა:
 • ქართული საგადასახადო კოდექსი — დღგ 18%, საშემოსავლო 20%, მოგების 15%, სოციალური 2%
@@ -57,7 +63,7 @@ SYSTEM_PROMPT = """\
 მოქმედების პრინციპი:
 1. თუ მომხმარებელი ითხოვს გატარებას → create_journal_draft-ს გამოიყენე
 2. თუ ანგარიშები გაუგია → classify_transaction-ს გამოიყენე პირველ
-3. დამტკიცებამდე დაასახელე რა გააკეთე (Dr/Cr)
+3. დამტკიცებამდე დაასახელე რა გააკეთე (Dr/Cr) და შეახსენე რომ ადამიანი ამტკიცებს
 4. ქართულად ილაპარაკე, სრულად და გარჩეულად
 """
 
@@ -81,12 +87,16 @@ TOOLS = [
     },
     {
         "name": "approve_draft",
-        "description": "მოლოდინში მყოფი გატარების დამტკიცება draft ID-ით.",
+        "description": (
+            "გატარების დამტკიცების მოთხოვნის მომზადება. "
+            "AI ვერ ასრულებს პირდაპირ დამტკიცებას — tool-ი აბრუნებს approval_required=true "
+            "და ბმულს ბუღალტრისთვის. ადამიანი ადასტურებს /api/approval/approve/{draft_id}."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "draft_id": {"type": "integer", "description": "გატარების ID (create_journal_draft-ის შემდეგ ცნობილი)"},
-                "comment":  {"type": "string",  "description": "დამტკიცების კომენტარი (სურვილისამებრ)"},
+                "comment":  {"type": "string",  "description": "დამტკიცების კომენტარი ბუღალტრისთვის (სურვილისამებრ)"},
             },
             "required": ["draft_id"],
         },
@@ -176,28 +186,31 @@ async def _tool_create_draft(inp: dict, tenant_id: str) -> dict:
 
 
 async def _tool_approve_draft(inp: dict, tenant_id: str) -> dict:
-    from app.api.db import get_conn, _q
+    # P0-1 FIX: AI must NOT approve directly.
+    # Direct DB UPDATE was removed. Returns approval_required=True with link to human endpoint.
+    # Enforcement chain (period lock, CFO gate, audit log, RBAC, row lock) lives in
+    # approval_service.approve_draft_service() — called by the human accountant via POST endpoint.
     try:
         draft_id = int(inp["draft_id"])
-        async with get_conn() as conn:
-            row = await conn.fetchrow(_q("""
-                UPDATE journal_drafts
-                SET status = 'approved', approved_by = 'chat_ai', approved_at = NOW()
-                WHERE id = %s AND tenant_id = %s AND status IN ('pending', 'PENDING')
-                RETURNING id, description, amount, status
-            """), draft_id, tenant_id)
-            if row:
-                return {
-                    "success": True,
-                    "draft_id": row["id"],
-                    "description": row["description"],
-                    "amount": float(row["amount"] or 0),
-                    "status": row["status"],
-                    "message": f"გატარება #{row['id']} დამტკიცდა",
-                }
-            return {"success": False, "error": f"გატარება #{draft_id} ვერ მოიძებნა ან უკვე დამტკიცებულია"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"success": False, "error": f"draft_id ვალიდური არ არის: {exc}"}
+    comment = (inp.get("comment") or "").strip()
+    return {
+        "approval_required": True,
+        "action": "approve_draft",
+        "draft_id": draft_id,
+        "comment": comment or None,
+        "message": (
+            "AI ვერ ასრულებს პირდაპირ დამტკიცებას. "
+            "ადამიანის (ბუღალტერი / CFO) დამტკიცება საჭიროა."
+        ),
+        "next_endpoint": f"/api/approval/approve/{draft_id}",
+        "next_method": "POST",
+        "warning": (
+            "დამტკიცება მოითხოვს: period lock check, CFO gate (≥₾10,000), "
+            "audit_events ჩანაწერი, RBAC, row-level lock."
+        ),
+    }
 
 
 async def _tool_list_pending(inp: dict, tenant_id: str) -> dict:
@@ -410,6 +423,68 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
                         parts.append("\n".join(lines))
                 except Exception as e:
                     log.warning("unexpected error: %s", e)
+
+            # ── P0-5: RS.ge document counts ───────────────────────────────────
+            try:
+                wb_row = await conn.fetchrow(_q(
+                    "SELECT COUNT(*) AS cnt FROM waybills WHERE tenant_id = %s"
+                ), tenant_id)
+                ti_row = await conn.fetchrow(_q(
+                    "SELECT COUNT(*) AS cnt FROM tax_invoices WHERE tenant_id = %s"
+                ), tenant_id)
+                mm_row = await conn.fetchrow(_q(
+                    "SELECT COUNT(*) AS cnt FROM triangle_matches "
+                    "WHERE tenant_id = %s AND match_status = 'mismatch'"
+                ), tenant_id)
+                eb_row = await conn.fetchrow(_q(
+                    "SELECT COUNT(*) AS cnt FROM evidence_bundles WHERE tenant_id = %s"
+                ), tenant_id)
+                wb_cnt = int((wb_row or {}).get("cnt") or 0)
+                ti_cnt = int((ti_row or {}).get("cnt") or 0)
+                mm_cnt = int((mm_row or {}).get("cnt") or 0)
+                eb_cnt = int((eb_row or {}).get("cnt") or 0)
+                if wb_cnt or ti_cnt or mm_cnt or eb_cnt:
+                    parts.append(
+                        f"📄 RS.ge დოკუმენტები:\n"
+                        f"  ზედნადები: {wb_cnt} | სფ: {ti_cnt} | "
+                        f"შეუსაბამობა: {mm_cnt} | evidence bundles: {eb_cnt}"
+                    )
+            except Exception as _rsge_ctx_err:
+                log.debug("rsge context fetch skipped: %s", _rsge_ctx_err)
+
+            # ── P0-5: Period lock status for current month ────────────────────
+            try:
+                from datetime import date as _today_cls
+                _now = _today_cls.today()
+                lock_row = await conn.fetchrow(_q("""
+                    SELECT 1 FROM period_locks
+                    WHERE tenant_id = %s AND period_year = %s
+                      AND (period_month = 0 OR period_month = %s)
+                      AND unlocked_at IS NULL
+                    LIMIT 1
+                """), tenant_id, _now.year, _now.month)
+                if lock_row is not None:
+                    parts.append(
+                        f"🔒 PERIOD LOCK: {_now.year}-{_now.month:02d} პერიოდი დახურულია. "
+                        "ახალი გატარებები ამ პერიოდში ვერ დაიმტკიცება."
+                    )
+            except Exception as _pl_ctx_err:
+                log.debug("period lock context fetch skipped: %s", _pl_ctx_err)
+
+            # ── P0-5: FX rate availability ────────────────────────────────────
+            try:
+                fx_row = await conn.fetchrow(_q("""
+                    SELECT COUNT(*) AS cnt FROM currency_rates
+                    WHERE updated_at >= NOW() - INTERVAL '7 days'
+                """))
+                if int((fx_row or {}).get("cnt") or 0) == 0:
+                    parts.append(
+                        "⚠️ FX RATE WARNING: currency_rates ცხრილი ცარიელია ან მოძველებულია (>7 დღე). "
+                        "არა-GEL გატარებები ვერ დაიპოსტება სანამ FX კურსი არ განახლდება."
+                    )
+            except Exception as _fx_ctx_err:
+                log.debug("fx rate context fetch skipped: %s", _fx_ctx_err)
+
         return "\n\n".join(parts)
     except Exception as e:
         log.warning("db context fetch failed: %s", e)

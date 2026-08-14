@@ -103,28 +103,67 @@ async def lock_period(request: Request, payload: dict):
 
     label = "Full Year" if month == 0 else date(year, month, 1).strftime("%B %Y")
     log.info("action=period_lock tenant=%s year=%d month=%d by=%s", tenant_id, year, month, user)
+    try:
+        from app.api.audit_service import log_event
+        log_event(
+            "period_locked",
+            {"period_year": year, "period_month": month, "label": label, "notes": notes},
+            actor=user,
+            tenant_id=tenant_id,
+        )
+    except Exception as _ae:
+        log.warning("audit event failed for period_lock: %s", _ae)
     return ok_response(f"Period locked: {label} {year}", {"year": year, "month": month, "locked": True})
 
 
 @router.post("/unlock")
 async def unlock_period(request: Request, payload: dict):
-    """Unlock a period. payload: {year, month}"""
+    """Unlock a period. payload: {year, month, reason} — reason is required (admin audited).
+
+    Unlock is admin-only (settings:write). Reason must be non-blank.
+    Every unlock is written to the audit log.
+    """
     require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    year  = int(payload.get("year", date.today().year))
-    month = int(payload.get("month", 0))
-    user  = getattr(request.state, "user_email", "system")
+    year   = int(payload.get("year", date.today().year))
+    month  = int(payload.get("month", 0))
+    reason = str(payload.get("reason", "")).strip()
+    user   = getattr(request.state, "user_email", "system")
+
+    if not reason:
+        return http_error(
+            400,
+            "reason is required to unlock a period. Provide a brief justification.",
+            "UNLOCK_REASON_REQUIRED",
+        )
 
     try:
         async with get_conn() as conn:
             await conn.execute(_CREATE_TABLE)
             await conn.execute(_q("""
                 UPDATE period_locks
-                SET unlocked_at = NOW(), locked_by = %s
+                SET unlocked_at = NOW(), locked_by = %s, notes = COALESCE(notes, '') || ' | UNLOCK: ' || %s
                 WHERE tenant_id = %s AND period_year = %s AND period_month = %s
-            """), user, tenant_id, year, month)
+            """), user, reason, tenant_id, year, month)
     except Exception as e:
         return http_error(500, str(e), "DB_ERROR")
 
-    log.info("action=period_unlock tenant=%s year=%d month=%d by=%s", tenant_id, year, month, user)
-    return ok_response("Period unlocked", {"year": year, "month": month, "locked": False})
+    label = "Full Year" if month == 0 else date(year, month, 1).strftime("%B %Y") if month else f"year {year}"
+    log.info("action=period_unlock tenant=%s year=%d month=%d by=%s reason=%s",
+             tenant_id, year, month, user, reason)
+    try:
+        from app.api.audit_service import log_event
+        log_event(
+            "period_unlocked",
+            {
+                "period_year":  year,
+                "period_month": month,
+                "label":        label,
+                "reason":       reason,
+            },
+            actor=user,
+            tenant_id=tenant_id,
+        )
+    except Exception as _ae:
+        log.warning("audit event failed for period_unlock: %s", _ae)
+    return ok_response("Period unlocked", {"year": year, "month": month, "locked": False, "reason": reason})

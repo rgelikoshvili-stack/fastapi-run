@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "scenario": "GeoTrade Test LLC — Payroll August 2026",
+    "tenant_id": "geotrade_test",
+    "period": "2026-08",
+    "tax_rates": {
+      "pit": 0.20,
+      "payg_employee": 0.02,
+      "payg_employer": 0.02
+    }
+  },
+  "employees": [
+    {
+      "id": "EMP-001",
+      "name": "ნინო გიორგაძე",
+      "personal_id": "01234567890",
+      "position": "Accountant",
+      "gross_salary": 2000.00,
+      "pit_20pct": 400.00,
+      "payg_employee_2pct": 40.00,
+      "net_to_employee": 1560.00,
+      "payg_employer_2pct": 40.00,
+      "total_employer_cost": 2040.00
+    },
+    {
+      "id": "EMP-002",
+      "name": "ლაშა ბერიძე",
+      "personal_id": "09876543210",
+      "position": "Sales Manager",
+      "gross_salary": 1500.00,
+      "pit_20pct": 300.00,
+      "payg_employee_2pct": 30.00,
+      "net_to_employee": 1170.00,
+      "payg_employer_2pct": 30.00,
+      "total_employer_cost": 1530.00
+    }
+  ],
+  "period_totals": {
+    "gross_salary": 3500.00,
+    "pit_total": 700.00,
+    "payg_employee_total": 70.00,
+    "net_payable_to_employees": 2730.00,
+    "payg_employer_total": 70.00,
+    "total_employer_cost": 3570.00,
+    "notes": "PIT 700 + PAYG_employee 70 withheld from gross 3500; net = 3500-700-70 = 2730"
+  },
+  "expected_journals": {
+    "accrual": {
+      "description": "Payroll accrual — August 2026",
+      "date": "2026-08-31",
+      "lines": [
+        {"dr": "7210", "cr": null, "amount": 3500.00, "desc": "Salary expense gross"},
+        {"dr": null, "cr": "3130", "amount": 2730.00, "desc": "Net salary payable to employees"},
+        {"dr": null, "cr": "3320", "amount": 700.00, "desc": "PIT payable (20%)"},
+        {"dr": null, "cr": "3330", "amount": 70.00, "desc": "PAYG employee pension payable (2%)"}
+      ],
+      "dr_total": 3500.00,
+      "cr_total": 3500.00,
+      "balanced": true
+    },
+    "employer_payg_accrual": {
+      "description": "Employer pension contribution accrual",
+      "date": "2026-08-31",
+      "lines": [
+        {"dr": "7210", "cr": null, "amount": 70.00, "desc": "Employer PAYG contribution (2%)"},
+        {"dr": null, "cr": "3335", "amount": 70.00, "desc": "Employer PAYG payable"}
+      ],
+      "dr_total": 70.00,
+      "cr_total": 70.00,
+      "balanced": true
+    },
+    "salary_payment": {
+      "description": "Salary bank payment",
+      "date": "2026-08-15",
+      "lines": [
+        {"dr": "3130", "cr": null, "amount": 2730.00, "desc": "Clear salary payable"},
+        {"dr": null, "cr": "1120", "amount": 2730.00, "desc": "Bank payment"}
+      ]
+    },
+    "pit_payment": {
+      "description": "PIT payment to Revenue Service",
+      "date": "2026-08-15",
+      "lines": [
+        {"dr": "3320", "cr": null, "amount": 700.00, "desc": "Clear PIT payable"},
+        {"dr": null, "cr": "1120", "amount": 700.00, "desc": "Bank payment"}
+      ]
+    }
+  },
+  "scenario_notes": "BIZ-1 simplified payroll: uses PIT 20% only for net calc. Full scenario in spec uses 3500 gross / 700 PIT / 2800 net for test simplicity. PAYG tested separately."
+}

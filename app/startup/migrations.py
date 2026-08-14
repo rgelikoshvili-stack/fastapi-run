@@ -117,6 +117,10 @@ def run_db_migrations():
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS completeness_alerts  JSONB",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS journal_entries      JSONB",
             "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS raw_extraction       JSONB",
+            # BIZ-3: reversal/adjustment tracking columns
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS reversal_of_draft_id INTEGER",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS reversal_reason       TEXT",
+            "ALTER TABLE journal_drafts ADD COLUMN IF NOT EXISTS entry_type            TEXT DEFAULT 'normal'",
         ]:
             try:
                 cur.execute(_jd_col)

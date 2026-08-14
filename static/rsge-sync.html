@@ -156,6 +156,46 @@ td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-
 .gnum{font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink);}
 .gcode{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);}
 .gvat{font-size:10px;padding:1px 5px;background:var(--paper-sunk);border-radius:3px;color:var(--ink-dim);white-space:nowrap;display:inline-block;}
+/* 1C-style document header */
+.doc-hdr{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:0;margin-bottom:10px;overflow:hidden;}
+.doc-hdr-titlebar{background:var(--paper-sunk);border-bottom:1px solid var(--line-strong);padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.doc-hdr-doctype{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim);flex:1;min-width:120px;}
+.doc-hdr-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink);padding:2px 9px;background:var(--ink);color:var(--paper);border-radius:4px;}
+.doc-hdr-date{font-family:var(--mono);font-size:12px;color:var(--ink-soft);}
+.doc-hdr-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0;padding:0;}
+.doc-hf{padding:7px 14px;border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);}
+.doc-hf:nth-child(2n){border-right:none;}
+.doc-hf-lbl{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost);margin-bottom:2px;}
+.doc-hf-val{font-size:12.5px;color:var(--ink);font-weight:500;}
+.doc-hf-val.mono{font-family:var(--mono);font-size:12px;}
+/* 1C-style goods table */
+.doc-tbl-section{margin-bottom:12px;}
+.doc-tbl-head{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--paper-sunk);border:1px solid var(--line-strong);border-bottom:none;border-radius:7px 7px 0 0;}
+.doc-tbl-label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);font-weight:600;}
+.doc-tbl-count{font-family:var(--mono);font-size:9px;padding:1px 6px;background:var(--line-strong);border-radius:10px;color:var(--ink-dim);}
+.doc-tbl-wrap{border:1px solid var(--line-strong);border-radius:0 0 7px 7px;overflow:hidden;overflow-x:auto;}
+.doc-tbl{width:100%;border-collapse:collapse;min-width:820px;table-layout:fixed;}
+.doc-tbl thead th{padding:5px 6px;background:var(--paper-sunk);border-bottom:1.5px solid var(--line-strong);font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-dim);white-space:nowrap;font-weight:600;vertical-align:middle;border-right:1px solid var(--line-soft);text-align:left;}
+.doc-tbl thead th:last-child{border-right:none;}
+.doc-tbl tbody tr{border-bottom:1px solid var(--line-soft);}
+.doc-tbl tbody tr:hover{background:rgba(180,145,95,.05)}
+.doc-tbl tfoot td{padding:5px 7px;background:var(--paper-sunk);border-top:1.5px solid var(--line-strong);font-family:var(--mono);font-size:11px;font-weight:700;color:var(--ink);text-align:right;}
+.doc-tbl tfoot .tfoot-lbl{text-align:left;font-family:var(--serif);font-style:italic;color:var(--ink-dim);font-size:12px;}
+.dt-n{width:28px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink-ghost);padding:4px 3px;background:var(--paper-sunk);border-right:1px solid var(--line-soft);}
+.dt-cell{border-right:1px solid var(--line-soft);padding:0;vertical-align:middle;}
+.dt-cell:last-child{border-right:none;}
+.dt-inp{padding:4px 6px;border:none;background:transparent;font-family:var(--font);font-size:12px;color:var(--ink);outline:none;width:100%;display:block;}
+.dt-inp:focus{background:rgba(140,60,45,.05);box-shadow:inset 0 0 0 1.5px var(--accent);}
+.dt-inp.num{font-family:var(--mono);text-align:right;font-size:11.5px;}
+.dt-inp.code{font-family:var(--mono);font-size:11px;}
+.dt-inp.acc-f{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);text-align:center;}
+.dt-ro{padding:4px 6px;font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);text-align:right;white-space:nowrap;display:block;}
+.dt-ro.acc{color:var(--green);font-weight:700;text-align:center;}
+.dt-sel{padding:3px 4px;border:none;background:transparent;font-size:11px;color:var(--ink);outline:none;width:100%;cursor:pointer;font-family:var(--font);}
+.dt-del{width:22px;text-align:center;cursor:pointer;color:var(--ink-ghost);font-size:12px;padding:0 3px;background:none;border:none;}
+.dt-del:hover{color:var(--red);}
+.dt-add-row{display:flex;align-items:center;gap:6px;padding:5px 9px;border-top:1px solid var(--line-soft);cursor:pointer;color:var(--ink-ghost);background:none;border:none;width:100%;font-family:var(--font);}
+.dt-add-row:hover{background:var(--card-hover);color:var(--accent);}
 /* presets */
 .preset-chips{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap;}
 .preset{display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border-radius:5px;border:1px solid var(--line-strong);font-size:11px;color:var(--ink-dim);cursor:pointer;transition:.12s;background:var(--card);}
@@ -536,7 +576,38 @@ function wbPanel(wb,idx){
     </div>`;
   }
 
-  const steps=`<div class="steps">
+  const docType=recv?'RS.ge შეს. (ზედნადები)':'RS.ge გაყ. (ზედნადები)';
+  const docNum=wb.waybill_number||wb.rsge_id||'—';
+  const docDate=_dt(wb.begin_date||wb.transport_date||'');
+  const docStatusBadge=_stBadge(wb);
+
+  const docHeader=`<div class="doc-hdr">
+    <div class="doc-hdr-titlebar">
+      <span class="doc-hdr-doctype">${_esc(docType)}</span>
+      <span class="doc-hdr-num">${_esc(docNum)}</span>
+      <span class="doc-hdr-date">${_esc(docDate)}</span>
+      <span style="margin-left:4px">${docStatusBadge}</span>
+      <span style="flex:1"></span>
+      ${!synced?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" id="${p}_syncBtn" onclick="syncWb(${idx})">📥 სინქ.</button>`:''}
+      ${synced&&!did?`<button class="btn btn-primary" style="font-size:11px;padding:4px 10px" id="${p}_draftBtn" onclick="createWbDraft(${idx},${lid})">📋 ბ.მ. შ.</button>`:''}
+      ${did?`<a href="/static/draft_detail.html?id=${did}" target="_blank" class="btn btn-green" style="font-size:11px;padding:4px 10px">✓ დ.#${did} →</a>`:''}
+    </div>
+    <div class="doc-hdr-body">
+      <div class="doc-hf"><div class="doc-hf-lbl">გამყ. / გამ-ი</div><div class="doc-hf-val">${_esc(wb.seller_name||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">გამ. ს/ნ</div><div class="doc-hf-val mono">${_esc(wb.seller_tin||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">მყ. / მიმ-ი</div><div class="doc-hf-val">${_esc(wb.buyer_name||'—')}</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">მყ. ს/ნ</div><div class="doc-hf-val mono">${_esc(wb.buyer_tin||'—')}</div></div>
+      ${wb.driver_name?`<div class="doc-hf"><div class="doc-hf-lbl">მძ-ლი</div><div class="doc-hf-val">${_esc(wb.driver_name)}</div></div>`:''}
+      ${wb.car_number?`<div class="doc-hf"><div class="doc-hf-lbl">ავ. ნომ.</div><div class="doc-hf-val mono">${_esc(wb.car_number)}</div></div>`:''}
+      ${wb.start_address?`<div class="doc-hf"><div class="doc-hf-lbl">გ-ების დ. მ.</div><div class="doc-hf-val">${_esc(wb.start_address)}</div></div>`:''}
+      ${wb.end_address?`<div class="doc-hf"><div class="doc-hf-lbl">გ-ების ბ. მ.</div><div class="doc-hf-val">${_esc(wb.end_address)}</div></div>`:''}
+      <div class="doc-hf"><div class="doc-hf-lbl">სრ. თანხა</div><div class="doc-hf-val mono" style="color:var(--accent);font-weight:700">${_amt(wb.full_amount)} ₾</div></div>
+      <div class="doc-hf"><div class="doc-hf-lbl">RS.ge სტ.</div><div class="doc-hf-val">${_status(wb.status||wb.rsge_status||'')}</div></div>
+      ${wb.comment?`<div class="doc-hf" style="grid-column:1/-1"><div class="doc-hf-lbl">შენ.</div><div class="doc-hf-val">${_esc(wb.comment)}</div></div>`:''}
+    </div>
+  </div>`;
+
+  const steps=`<div class="steps" style="margin-bottom:10px">
     <div class="step ${synced?'done':'active'}"><div class="step-dot">${synced?'✓':'1'}</div>სინქ.</div>
     <div class="step-arrow">›</div>
     <div class="step ${synced?(did?'done':'active'):''}"><div class="step-dot">${did?'✓':'2'}</div>ბ.მ.</div>
@@ -544,23 +615,8 @@ function wbPanel(wb,idx){
     <div class="step ${did?'active':''}"><div class="step-dot">3</div>გ.</div>
   </div>`;
 
-  // Waybill info grid
-  const info=`<div class="wb-info">
-    <div class="wi-item"><div class="wi-label">ζεδ. ნომ.</div><div class="wi-val mono">${_esc(wb.waybill_number||wb.rsge_id||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">ID</div><div class="wi-val mono">${_esc(wb.rsge_id||wb.id||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">გამყ. / გამ-ი</div><div class="wi-val">${_esc(wb.seller_name||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">გამ. სს/ს.ნ.</div><div class="wi-val mono">${_esc(wb.seller_tin||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">მყ./მიმ-ი</div><div class="wi-val">${_esc(wb.buyer_name||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">მყ. სს/ს.ნ.</div><div class="wi-val mono">${_esc(wb.buyer_tin||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">ტ-ების დ. მისამ.</div><div class="wi-val">${_esc(wb.start_address||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">ტ-ების ბ. მისამ.</div><div class="wi-val">${_esc(wb.end_address||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">მძ-ლი</div><div class="wi-val">${_esc(wb.driver_name||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">ავ. ნომ.</div><div class="wi-val mono">${_esc(wb.car_number||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">ტ. თარ. (დ)</div><div class="wi-val mono">${_esc(wb.transport_date||wb.begin_date||'—')}</div></div>
-    <div class="wi-item"><div class="wi-label">სრ. თანხა</div><div class="wi-val mono" style="color:var(--accent);font-weight:600">${_amt(wb.full_amount)} ₾</div></div>
-    <div class="wi-item"><div class="wi-label">სტ.</div><div class="wi-val">${_status(wb.status||wb.rsge_status||'')}</div></div>
-    ${wb.comment?`<div class="wi-item" style="grid-column:1/-1"><div class="wi-label">შენ.</div><div class="wi-val">${_esc(wb.comment)}</div></div>`:''}
-  </div>`;
+  // Waybill info grid (compact, after doc header — only show editable date)
+  const info='';
 
   // Editable meta row (date + save button) — only when locally synced
   const editDateVal=(wb.begin_date||'').slice(0,10);
@@ -569,15 +625,6 @@ function wbPanel(wb,idx){
     <input type="date" id="${p}_editDate" value="${editDateVal}" style="padding:4px 8px;border:1px solid var(--line-strong);border-radius:5px;background:var(--card);font-family:var(--mono);font-size:12px;color:var(--ink);outline:none;"/>
     <button class="btn btn-secondary" id="${p}_saveBtn" onclick="saveWbMeta(${idx})" style="font-size:11.5px">💾 შენ.</button>
   </div>`:'';
-
-  // Goods
-  // Initialise editable lines for this waybill
-  if(!wb._lines){
-    wb._lines=(wb.goods_list&&wb.goods_list.length)
-      ?wb.goods_list.map(g=>({code:g.bar_code||g.product_code||g.code||'',name:g.name||'',qty:g.quantity||'',amt:g.amount||''}))
-      :[];
-  }
-  const goods=_renderEditableGoods(idx,wb._lines,p);
 
   const defDr=recv?'1310':'1210';
   const defCr=recv?'3110':'6110';
@@ -589,68 +636,80 @@ function wbPanel(wb,idx){
     ?`RS.ge შეს. — ${wb.seller_name||wb.buyer_name||''} #${wb.waybill_number||wb.rsge_id||''}`
     :`RS.ge გაყ. — ${wb.buyer_name||''} #${wb.waybill_number||wb.rsge_id||''}`;
 
+  // Goods — initialise editable lines
+  if(!wb._lines){
+    wb._lines=(wb.goods_list&&wb.goods_list.length)
+      ?wb.goods_list.map(g=>({
+          code:g.bar_code||g.product_code||g.code||'',
+          name:g.name||'',
+          unit:g.unit_name||g.unit||'',
+          qty:g.quantity||'',
+          price:g.price||'',
+          amt:g.amount||'',
+          vat_type:String(g.vat_type??'1'),
+          acc:''
+        }))
+      :[];
+  }
+  const goods=_renderEditableGoods(idx,wb._lines,p,defDr);
+
   // Invoice comparison section
   const invSection=_buildInvSection(wb,idx);
 
   return `<div class="acc-panel">
+    ${docHeader}
     ${steps}
-    ${info}
     ${metaRow}
     ${goods}
     ${invSection}
-    <div class="preset-chips">
-      <span class="preset" onclick="wbPreset(${idx},'purchase')">📦 შეს. 1310/3110</span>
-      <span class="preset" onclick="wbPreset(${idx},'sale')">💰 გაყ. 1210/6110</span>
-      <span class="preset" onclick="wbPreset(${idx},'fa')">🏗 ძ.ს. 2190/3110</span>
-      <span class="preset" onclick="wbPreset(${idx},'vat')">🧾 დღგ 3311/3110</span>
-      <span class="preset btn-ai" style="color:#fff;border-color:transparent" onclick="getAiSuggestion(${idx})">✨ AI მუხ.</span>
-    </div>
-    <div class="ai-box" id="${p}_aibox">
-      <div class="ai-box-title">✨ AI შეთ.</div>
-      <div class="ai-suggestion" id="${p}_aisugg"></div>
-    </div>
-    <div class="acc-grid">
-      <div class="acc-field">
-        <div class="acc-label">სადებეტო ანგ. <span id="${p}_sug_dr" style="font-size:9px;color:var(--green);margin-left:4px"></span></div>
-        <div class="acc-row-in">
-          <input class="acc-input" id="${p}_dr" value="${defDr}" oninput="updCoa('${p}_dr','${p}_drn')"/>
-          <span class="acc-name" id="${p}_drn">${cn(defDr)}</span>
+    <div style="margin-bottom:8px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px;font-weight:600">ბუღ. გატ. / საბ. ანგ.</div>
+      <div class="preset-chips" style="margin-bottom:8px">
+        <span class="preset" onclick="wbPreset(${idx},'purchase')">📦 შეს. 1310/3110</span>
+        <span class="preset" onclick="wbPreset(${idx},'sale')">💰 გაყ. 1210/6110</span>
+        <span class="preset" onclick="wbPreset(${idx},'fa')">🏗 ძ.ს. 2190/3110</span>
+        <span class="preset btn-ai" style="color:#fff;border-color:transparent" onclick="getAiSuggestion(${idx})">✨ AI</span>
+      </div>
+      <div class="ai-box" id="${p}_aibox" style="margin-bottom:8px">
+        <div class="ai-box-title">✨ AI შეთ.</div>
+        <div class="ai-suggestion" id="${p}_aisugg"></div>
+      </div>
+      <div class="acc-grid">
+        <div class="acc-field">
+          <div class="acc-label">სადებეტო ანგ. <span id="${p}_sug_dr" style="font-size:9px;color:var(--green);margin-left:4px"></span></div>
+          <div class="acc-row-in">
+            <input class="acc-input" id="${p}_dr" value="${defDr}" oninput="updCoa('${p}_dr','${p}_drn')"/>
+            <span class="acc-name" id="${p}_drn">${cn(defDr)}</span>
+          </div>
+        </div>
+        <div class="acc-field">
+          <div class="acc-label">საკრედიტო ანგ. <span id="${p}_sug_cr" style="font-size:9px;color:var(--green);margin-left:4px"></span>${recv?`<button onclick="savePartnerMap(${idx})" title="გამყ. TIN → ანგ. შენ." style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:11px;color:var(--accent);padding:0;line-height:1">📌 მარ.</button>`:''}</div>
+          <div class="acc-row-in">
+            <input class="acc-input" id="${p}_cr" value="${defCr}" oninput="updCoa('${p}_cr','${p}_crn')"/>
+            <span class="acc-name" id="${p}_crn">${cn(defCr)}</span>
+          </div>
         </div>
       </div>
-      <div class="acc-field">
-        <div class="acc-label">საკრედიტო ანგ. <span id="${p}_sug_cr" style="font-size:9px;color:var(--green);margin-left:4px"></span>${recv?`<button onclick="savePartnerMap(${idx})" title="გამყ. TIN → ანგ. შენ." style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:11px;color:var(--accent);padding:0;line-height:1">📌 მარ.</button>`:''}</div>
-        <div class="acc-row-in">
-          <input class="acc-input" id="${p}_cr" value="${defCr}" oninput="updCoa('${p}_cr','${p}_crn')"/>
-          <span class="acc-name" id="${p}_crn">${cn(defCr)}</span>
+      ${recv?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;background:var(--paper-sunk);border:1px solid var(--line-soft);border-radius:6px">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12.5px;color:var(--ink-soft)">
+          <input type="checkbox" id="${p}_vatChk" onchange="toggleVatPreview(${idx})" style="cursor:pointer"/>
+          <span>დღგ 18% ცალ.</span>
+        </label>
+        <span id="${p}_vatPrev" style="font-size:11px;color:var(--ink-dim);font-family:var(--mono)"></span>
+      </div>`:''}
+      <div style="margin-top:8px">
+        <div class="acc-label" style="margin-bottom:3px">აღწ.</div>
+        <input class="desc-input" id="${p}_desc" value="${_esc(defDesc)}"/>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+        <div>
+          <div class="acc-label" style="margin-bottom:3px">გ. თანხა ₾</div>
+          <input class="acc-input" style="width:130px;font-size:13px" type="number" step="0.01" id="${p}_postamt"
+            value="${postAmt.toFixed(2)}" placeholder="0.00" oninput="toggleVatPreview(${idx})"/>
         </div>
+        <div style="flex:1"></div>
+        ${synced?`<span style="font-size:11px;color:var(--green);font-family:var(--mono)">✓ DB#${lid}</span>`:''}
       </div>
-    </div>
-    ${recv?`<div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;background:var(--paper-sunk);border:1px solid var(--line-soft);border-radius:6px">
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12.5px;color:var(--ink-soft)">
-        <input type="checkbox" id="${p}_vatChk" onchange="toggleVatPreview(${idx})" style="cursor:pointer"/>
-        <span>დღგ 18% ცალ.</span>
-      </label>
-      <span id="${p}_vatPrev" style="font-size:11px;color:var(--ink-dim);font-family:var(--mono)"></span>
-    </div>`:''}
-    <div style="margin-bottom:10px">
-      <div class="acc-label" style="margin-bottom:3px">აღწ.</div>
-      <input class="desc-input" id="${p}_desc" value="${_esc(defDesc)}"/>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="flex:1">
-        <div class="acc-label" style="margin-bottom:3px">გ. თანხა ₾</div>
-        <input class="acc-input" style="width:120px;font-size:13px" type="number" step="0.01" id="${p}_postamt"
-          value="${postAmt.toFixed(2)}" placeholder="0.00" oninput="toggleVatPreview(${idx})"/>
-      </div>
-    </div>
-    <div class="acc-actions">
-      ${!synced
-        ?`<button class="btn btn-secondary" id="${p}_syncBtn" onclick="syncWb(${idx})">📥 სინქ.</button>`
-        :`<span style="font-size:11px;color:var(--green);font-family:var(--mono)">✓ #${lid}</span>`}
-      ${synced&&!did
-        ?`<button class="btn btn-primary" id="${p}_draftBtn" onclick="createWbDraft(${idx},${lid})">📋 დ. შ.</button>`:''}
-      ${did
-        ?`<div class="result-band">✓ დ. #${did} — <a href="/static/drafts.html" target="_blank">გ. რ.</a> · <a href="/static/draft_detail.html?id=${did}" target="_blank">სანახ.</a></div>`:''}
     </div>
     <div id="${p}_res"></div>
   </div>`;
@@ -678,42 +737,90 @@ function _applyWbFields(idx,data){
   // Auto-suggest accounts based on newly loaded partner/item data
   setTimeout(()=>suggestDraftAccounts(idx),200);
 }
-// ── Editable goods grid ───────────────────────────────────────────────────────
-function _renderEditableGoods(idx,lines,p){
+// ── 1C-style goods table ───────────────────────────────────────────────────────
+function _vatLabel(v){
+  const m={'0':'განთავისუფ.','1':'ჩვ. 18%','2':'0%','3':'ჩათვ.','4':'გარ.'};
+  return m[String(v??'')] || String(v||'ჩვ. 18%');
+}
+function _computeLineVat(amt, vat_type){
+  const a=parseFloat(amt||0);
+  const t=String(vat_type??'1');
+  if(t==='1'||t==='3'){ const v=Math.round(a*18/118*100)/100; return {vat:v,total:a}; }
+  return {vat:0,total:a};
+}
+function _renderEditableGoods(idx,lines,p,drAcc){
   if(!lines) lines=[];
-  const rows=lines.map((l,li)=>`
-    <div class="goods-item" id="${p}_grow${li}">
-      <div class="gi-idx">${li+1}</div>
-      <input class="gi-inp code" id="${p}_gc${li}" value="${_esc(l.code||'')}" placeholder="კოდი" oninput="onGoodsChange(${idx},${li},'code',this.value)" style="font-family:var(--mono);font-size:11px"/>
-      <input class="gi-inp name" id="${p}_gn${li}" value="${_esc(l.name||'')}" placeholder="საქ./მომ. დასახ." oninput="onGoodsChange(${idx},${li},'name',this.value)"/>
-      <input class="gi-inp num" id="${p}_gq${li}" value="${_esc(l.qty||'')}" placeholder="0" oninput="onGoodsChange(${idx},${li},'qty',this.value)"/>
-      <input class="gi-inp num" id="${p}_ga${li}" value="${_esc(l.amt||'')}" placeholder="0.00" oninput="onGoodsChange(${idx},${li},'amt',this.value)"/>
-      <div class="gi-del" onclick="delGoodsRow(${idx},${li})" title="წ.">✕</div>
-    </div>`).join('');
+  const vatOpts=['1','2','0','3'].map(v=>`<option value="${v}">${_vatLabel(v)}</option>`).join('');
 
-  const total=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
+  let totalQty=0,totalAmt=0,totalVat=0,totalFull=0;
+  const rows=lines.map((l,li)=>{
+    const qty=parseFloat(l.qty||0);
+    const price=parseFloat(l.price||0);
+    // amt: prefer explicit, else qty×price
+    const amt=parseFloat(l.amt||0)||(price&&qty?Math.round(qty*price*100)/100:0);
+    const {vat,total}=_computeLineVat(amt,l.vat_type);
+    totalQty+=qty; totalAmt+=amt; totalVat+=vat; totalFull+=total;
+    const selOpts=['1','2','0','3'].map(v=>`<option value="${v}"${String(l.vat_type??'1')===v?' selected':''}>${_vatLabel(v)}</option>`).join('');
+    const accVal=l.acc||drAcc||'1310';
+    return `<tr id="${p}_grow${li}">
+      <td class="dt-n">${li+1}</td>
+      <td class="dt-cell" style="width:76px"><input class="dt-inp code" value="${_esc(l.code||'')}" placeholder="კოდი" oninput="onGoodsChange(${idx},${li},'code',this.value)"/></td>
+      <td class="dt-cell"><input class="dt-inp" value="${_esc(l.name||'')}" placeholder="საქ./მომ. დასახ." oninput="onGoodsChange(${idx},${li},'name',this.value)"/></td>
+      <td class="dt-cell" style="width:50px"><input class="dt-inp" value="${_esc(l.unit||'')}" placeholder="ერთ." oninput="onGoodsChange(${idx},${li},'unit',this.value)"/></td>
+      <td class="dt-cell" style="width:80px"><input class="dt-inp num" id="${p}_gq${li}" value="${qty||''}" placeholder="0" oninput="onGoodsChange(${idx},${li},'qty',this.value)"/></td>
+      <td class="dt-cell" style="width:88px"><input class="dt-inp num" id="${p}_gpr${li}" value="${price||''}" placeholder="0.0000" oninput="onGoodsChange(${idx},${li},'price',this.value)"/></td>
+      <td class="dt-cell" style="width:90px"><input class="dt-inp num" id="${p}_ga${li}" value="${amt||''}" placeholder="0.00" oninput="onGoodsChange(${idx},${li},'amt',this.value)"/></td>
+      <td class="dt-cell" style="width:86px"><select class="dt-sel" onchange="onGoodsChange(${idx},${li},'vat_type',this.value)">${selOpts}</select></td>
+      <td class="dt-cell" style="width:80px"><span class="dt-ro" id="${p}_gv${li}">${vat>0?vat.toFixed(2):'—'}</span></td>
+      <td class="dt-cell" style="width:90px"><span class="dt-ro" style="font-weight:600;color:var(--ink)" id="${p}_gt${li}">${_amt(total)}</span></td>
+      <td class="dt-cell" style="width:62px"><input class="dt-inp acc-f" value="${_esc(accVal)}" placeholder="1310" oninput="onGoodsChange(${idx},${li},'acc',this.value)" title="Dr ანგ."/></td>
+      <td style="width:22px;padding:0;text-align:center;vertical-align:middle"><button class="dt-del" onclick="delGoodsRow(${idx},${li})" title="წაშ.">✕</button></td>
+    </tr>`;
+  }).join('');
 
-  return `<div class="goods-wrap" id="${p}_gtbl">
-    <div class="goods-head">
-      <div></div>
-      <div>კოდი</div>
-      <div>საქ./მომ. დასახ.</div>
-      <div style="text-align:right">რაოდ.</div>
-      <div style="text-align:right">თანხა ₾</div>
-      <div></div>
+  return `<div class="doc-tbl-section" id="${p}_gtbl">
+    <div class="doc-tbl-head">
+      <span class="doc-tbl-label">ნომენკლატურა</span>
+      <span class="doc-tbl-count">${lines.length}</span>
     </div>
-    ${rows}
-    ${lines.length?`<div class="goods-item" style="background:var(--paper-sunk)">
-      <div class="gi-idx"></div>
-      <div></div>
-      <div style="padding:5px 8px;font-size:11px;color:var(--ink-dim);font-family:var(--serif);font-style:italic">სულ</div>
-      <div class="gi-inp num" style="padding:5px 8px;font-weight:700;pointer-events:none">${lines.reduce((s,l)=>s+parseFloat(l.qty||0),0).toFixed(3)}</div>
-      <div class="gi-inp num" style="padding:5px 8px;font-weight:700;color:var(--accent);pointer-events:none">${_amt(total)}</div>
-      <div></div>
-    </div>`:''}
-    <div class="goods-add-row" onclick="addGoodsRow(${idx})">
-      <span style="font-size:16px;line-height:1">+</span>
-      <span style="font-size:12px">სტრ. დ.</span>
+    <div class="doc-tbl-wrap">
+      <table class="doc-tbl">
+        <colgroup>
+          <col style="width:28px"><col style="width:76px"><col><col style="width:50px">
+          <col style="width:80px"><col style="width:88px"><col style="width:90px">
+          <col style="width:86px"><col style="width:80px"><col style="width:90px">
+          <col style="width:62px"><col style="width:22px">
+        </colgroup>
+        <thead><tr>
+          <th style="width:28px">N</th>
+          <th>კოდი</th>
+          <th>ნომენკლატურა / დასახელება</th>
+          <th>ერთ.</th>
+          <th style="text-align:right">რაოდ.</th>
+          <th style="text-align:right">ერთ.ფ.</th>
+          <th style="text-align:right">თანხა</th>
+          <th>დღგ.ტ.</th>
+          <th style="text-align:right">დღგ</th>
+          <th style="text-align:right">ჯ.+დღგ</th>
+          <th style="text-align:center">ანგ.</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        ${lines.length?`<tfoot><tr>
+          <td colspan="4" class="tfoot-lbl" style="text-align:left;font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ink-dim)">სულ:</td>
+          <td style="text-align:right">${totalQty>0?totalQty.toLocaleString('ka-GE',{minimumFractionDigits:4,maximumFractionDigits:4}):''}</td>
+          <td></td>
+          <td style="text-align:right;font-weight:700;color:var(--accent)">${_amt(totalAmt)}</td>
+          <td></td>
+          <td style="text-align:right;color:var(--accent)">${totalVat>0?_amt(totalVat):''}</td>
+          <td style="text-align:right;font-weight:700;color:var(--ink)">${_amt(totalFull)}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>`:''}
+      </table>
+      <button class="dt-add-row" onclick="addGoodsRow(${idx})">
+        <span style="font-size:15px;line-height:1;font-weight:300">＋</span>
+        <span style="font-size:12px">სტრიქონის დამატება</span>
+      </button>
     </div>
   </div>`;
 }
@@ -721,25 +828,48 @@ function _renderEditableGoods(idx,lines,p){
 function onGoodsChange(wbIdx,lineIdx,field,val){
   if(!_wbAll[wbIdx]._lines) return;
   _wbAll[wbIdx]._lines[lineIdx][field]=val;
-  // Update total display without full re-render
+  const line=_wbAll[wbIdx]._lines[lineIdx];
   const p=`wp${wbIdx}`;
+
+  // Auto-compute amt from qty × price when either changes
+  if(field==='qty'||field==='price'){
+    const qty=parseFloat(line.qty||0);
+    const price=parseFloat(line.price||0);
+    if(qty>0&&price>0){
+      const newAmt=Math.round(qty*price*100)/100;
+      line.amt=newAmt;
+      const amtEl=document.getElementById(`${p}_ga${lineIdx}`);
+      if(amtEl) amtEl.value=newAmt.toFixed(2);
+    }
+  }
+
+  // Refresh VAT and total cells for this row without full re-render
+  const amt=parseFloat(line.amt||0);
+  const {vat,total}=_computeLineVat(amt,line.vat_type);
+  const vatEl=document.getElementById(`${p}_gv${lineIdx}`);
+  const totEl=document.getElementById(`${p}_gt${lineIdx}`);
+  if(vatEl) vatEl.textContent=vat>0?vat.toFixed(2):'—';
+  if(totEl) totEl.textContent=_amt(total);
+
+  // Update grand total field for draft creation
   const lines=_wbAll[wbIdx]._lines;
-  const total=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
-  // Update amount field for draft creation
+  const grandTotal=lines.reduce((s,l)=>s+parseFloat(l.amt||0),0);
   const amtInp=document.getElementById(p+'_postamt');
-  if(amtInp) amtInp.value=total.toFixed(2);
+  if(amtInp) amtInp.value=grandTotal.toFixed(2);
 }
 
 function addGoodsRow(wbIdx){
   if(!_wbAll[wbIdx]._lines) _wbAll[wbIdx]._lines=[];
-  _wbAll[wbIdx]._lines.push({code:'',name:'',qty:'',amt:''});
+  _wbAll[wbIdx]._lines.push({code:'',name:'',unit:'',qty:'',price:'',amt:'',vat_type:'1',acc:''});
   renderWbTable();
-  // Focus new row name input
   const p=`wp${wbIdx}`;
   const newIdx=_wbAll[wbIdx]._lines.length-1;
   setTimeout(()=>{
-    const el=document.getElementById(`${p}_gn${newIdx}`);
-    if(el) el.focus();
+    const rows=document.querySelectorAll(`#${p}_gtbl tbody tr`);
+    if(rows[newIdx]){
+      const inp=rows[newIdx].querySelector('input:nth-of-type(2)');
+      if(inp) inp.focus();
+    }
   },50);
 }
 
@@ -761,7 +891,11 @@ async function saveWbMeta(idx){
     const editDate=dateEl?dateEl.value:'';
     const goods=(wb._lines||[]).map(l=>({
       bar_code:l.code||'',name:l.name||'',
-      quantity:parseFloat(l.qty||0),amount:parseFloat(l.amt||0)
+      unit_name:l.unit||'',
+      quantity:parseFloat(l.qty||0),
+      price:parseFloat(l.price||0)||null,
+      amount:parseFloat(l.amt||0),
+      vat_type:l.vat_type||'1'
     }));
     const body={goods_list:goods};
     if(editDate) body.begin_date=editDate;
@@ -899,7 +1033,16 @@ async function fetchLinkedInvoice(idx,lid){
       // If invoice has goods lines and waybill had none, populate _lines
       const invLines=d.data?.rsge_invoices?.[0]?.lines||[];
       if(invLines.length&&(!_wbAll[idx]._lines||!_wbAll[idx]._lines.length)){
-        _wbAll[idx]._lines=invLines.map(l=>({code:l.bar_code||l.product_code||'',name:l.name||'',qty:l.quantity||'',amt:l.amount||''}));
+        _wbAll[idx]._lines=invLines.map(l=>({
+          code:l.bar_code||l.product_code||'',
+          name:l.name||'',
+          unit:l.unit_name||'',
+          qty:l.quantity||'',
+          price:l.price||'',
+          amt:l.amount||'',
+          vat_type:String(l.vat_type??'1'),
+          acc:''
+        }));
       }
       // Auto-update amount field if combined differs
       const combined=d.data?.summary?.combined_total||0;

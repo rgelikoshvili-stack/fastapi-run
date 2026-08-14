@@ -46,6 +46,10 @@ const _BH_SIDEBAR_HTML = `
     <svg class="ic" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
     <span class="lbl">ზედნადებები</span>
   </div>
+  <div class="item" data-page="rs-sync" onclick="location.href='/static/rsge-sync.html'">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    <span class="lbl">RS.ge სინქ.</span>
+  </div>
 
   <!-- ─── ბუღალტერია ───────────────────────────── -->
   <div class="sec">ბუღალტერია</div>

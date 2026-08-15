@@ -101,6 +101,7 @@ async def get_suggestions(request: Request, q: str = "", field: str = "partner")
 
 @router.get("/queue")
 async def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0, q: str = ""):
+    require_permission(request, "approval:read")
     _validate_pagination(limit, offset)
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     return await get_queue_service(status, limit, offset, tenant_id=tenant_id, q=q)

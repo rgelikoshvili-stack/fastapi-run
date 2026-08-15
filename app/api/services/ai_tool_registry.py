@@ -40,6 +40,8 @@ TOOL_DESCRIPTIONS = {
     "get_monthly_close_status":   "Run the monthly close checklist for a period: unposted drafts, reconciliation, trial balance, payroll, opening balances",
     "get_rsge_documents":         "List RS.ge-imported waybills and tax invoices; filter by seller_inn, buyer_inn, or status",
     "get_document_chain":         "Cross-reference: show all documents linked to a party (INN/name) or document number — waybills, tax invoices, bank payments, journal drafts in one view",
+    # Sprint 4
+    "get_ledger_truth":           "Posted ledger health check: phantom posts, sync mismatches, failed postings, duplicate posts. Returns health_score 0-100.",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -1330,6 +1332,23 @@ def _safe(row) -> dict:
     return d
 
 
+async def _get_ledger_truth(params: dict, tenant_id: str) -> dict:
+    """Sprint 4 — Posted Ledger Truth AI tool."""
+    from app.api.services.ledger_truth_service import run_ledger_truth, quick_ledger_health
+
+    period_from = (params.get("period_from") or params.get("from") or "").strip() or None
+    period_to   = (params.get("period_to")   or params.get("to")   or "").strip() or None
+    quick = str(params.get("quick", "false")).lower() in ("true", "1", "yes")
+    limit = min(int(params.get("limit") or 20), 50)
+
+    if quick:
+        result = await quick_ledger_health(tenant_id)
+    else:
+        result = await run_ledger_truth(tenant_id, period_from=period_from, period_to=period_to, limit=limit)
+
+    return {"approval_required": False, **result}
+
+
 _TOOL_MAP = {
     "explain_draft":              _explain_draft,
     "show_risks":                 _show_risks,
@@ -1353,4 +1372,6 @@ _TOOL_MAP = {
     "get_rsge_documents":           _get_rsge_documents,
     # Sprint 3C
     "get_document_chain":           _get_document_chain,
+    # Sprint 4
+    "get_ledger_truth":             _get_ledger_truth,
 }

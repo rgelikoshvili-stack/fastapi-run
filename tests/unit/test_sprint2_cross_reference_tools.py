@@ -90,8 +90,8 @@ def test_sprint2_tools_in_descriptions(name):
 
 
 def test_total_tool_count():
-    # 13 original + 4 sprint 2 + 1 sprint 3A + 1 sprint 3C
-    assert len(_TOOL_MAP) == 19
+    # 13 original + 4 sprint 2 + 1 sprint 3A + 1 sprint 3C + 1 sprint 4
+    assert len(_TOOL_MAP) == 20
 
 
 # ─────────────────────────────────────────────────────────────

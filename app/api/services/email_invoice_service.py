@@ -61,7 +61,11 @@ ALLOWED = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx")
 
 
 def _get_tenant_imap_creds(tenant_id: str = None):
-    """Return (user, password) — tenant DB creds first, fallback to env vars."""
+    """Return (user, password) — tenant DB creds first, fallback to env vars.
+
+    Supports both vault-encrypted rows (credential_status='active') and
+    legacy plaintext rows (credential_status='legacy_plaintext').
+    """
     if tenant_id:
         try:
             import psycopg2, os as _os
@@ -70,14 +74,28 @@ def _get_tenant_imap_creds(tenant_id: str = None):
                 _conn = psycopg2.connect(_url)
                 with _conn.cursor() as _cur:
                     _cur.execute(
-                        "SELECT email, app_password FROM tenant_email_credentials "
-                        "WHERE tenant_id = %s AND active = TRUE",
+                        "SELECT tec.email, tec.app_password, tec.credential_status, "
+                        "       vc.encrypted_value, vc.key_version "
+                        "FROM tenant_email_credentials tec "
+                        "LEFT JOIN credential_vault_credentials vc "
+                        "  ON vc.tenant_id = tec.tenant_id "
+                        "  AND vc.provider = 'email' "
+                        "  AND vc.credential_type = 'imap_app_password' "
+                        "  AND vc.active = TRUE "
+                        "WHERE tec.tenant_id = %s AND tec.active = TRUE",
                         (tenant_id,),
                     )
                     row = _cur.fetchone()
                 _conn.close()
                 if row:
-                    return row[0], row[1]
+                    email_addr, app_pw, status, enc_val, key_ver = row
+                    if status == "active" and enc_val and key_ver:
+                        from app.api.services.secret_crypto_provider import SecretCryptoProvider
+                        plaintext = SecretCryptoProvider().decrypt_secret(enc_val, key_ver)
+                        return email_addr, plaintext
+                    # Legacy plaintext fallback
+                    if app_pw and app_pw != "[stored-in-vault]":
+                        return email_addr, app_pw
         except Exception as e:
             log.warning("tenant creds failed: %s", e)
     return IMAP_USER, IMAP_PASS

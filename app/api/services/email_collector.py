@@ -220,6 +220,36 @@ def _extract_text_from_pdf(data: bytes) -> str:
         return ""
 
 
+def _extract_text_from_image(data: bytes, filename: str) -> str:
+    """Run Claude Vision OCR on PNG/JPG and return a text description for AI classifier."""
+    try:
+        from app.api.services.ocr_service import _extract_with_claude_vision
+        fields = _extract_with_claude_vision(data, filename)
+        if not fields:
+            return ""
+        parts = [f"Document type: invoice"]
+        if fields.get("seller"):
+            parts.append(f"Partner/Seller: {fields['seller']}")
+        if fields.get("invoice_number"):
+            parts.append(f"Invoice number: {fields['invoice_number']}")
+        if fields.get("date"):
+            parts.append(f"Date: {fields['date']}")
+        if fields.get("total_amount"):
+            currency = fields.get("currency") or "GEL"
+            parts.append(f"Total amount: {fields['total_amount']} {currency}")
+        if fields.get("vat_amount"):
+            parts.append(f"VAT amount: {fields['vat_amount']}")
+        if fields.get("net_amount"):
+            parts.append(f"Net amount: {fields['net_amount']}")
+        result = "\n".join(parts)
+        if len(result) < 20:
+            return ""
+        return result
+    except Exception as e:
+        log.warning("_extract_text_from_image failed for %s: %s", filename, e)
+        return ""
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def test_imap_connection(email_addr: str, app_password: str) -> dict:
@@ -286,8 +316,11 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                     continue
 
                 raw_text = ""
-                if filename.lower().endswith(".pdf"):
+                fname_lower = filename.lower()
+                if fname_lower.endswith(".pdf"):
                     raw_text = _extract_text_from_pdf(file_data)
+                elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
+                    raw_text = _extract_text_from_image(file_data, filename)
 
                 doc_id = await _save_email_document(tenant_id, uid, filename, file_data, raw_text)
 

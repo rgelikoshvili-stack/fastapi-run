@@ -278,7 +278,8 @@ async def confirm_action(request: Request, body: dict):
 
     Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
     """
-    require_permission(request, "chat:use")
+    # P0: approve/reject requires approval:write, not just chat:use
+    require_permission(request, "approval:write")
     tenant_id = getattr(request.state, "tenant_id", None) or "default"
     action = body.get("action", "")
     params = body.get("params") or {}
@@ -288,7 +289,7 @@ async def confirm_action(request: Request, body: dict):
         if not draft_id:
             raise HTTPException(400, "draft_id required")
         from app.api.services.approval_service import approve_draft_service
-        return approve_draft_service(int(draft_id), tenant_id=tenant_id)
+        return await approve_draft_service(int(draft_id), tenant_id=tenant_id)
 
     if action == "reject_draft":
         draft_id = params.get("draft_id")
@@ -296,7 +297,7 @@ async def confirm_action(request: Request, body: dict):
         if not draft_id:
             raise HTTPException(400, "draft_id required")
         from app.api.services.approval_service import reject_draft_service
-        return reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
+        return await reject_draft_service(int(draft_id), reason, tenant_id=tenant_id)
 
     raise HTTPException(400, f"Action '{action}' cannot be confirmed via chat. Use the dedicated module.")
 

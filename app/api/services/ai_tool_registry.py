@@ -39,6 +39,7 @@ TOOL_DESCRIPTIONS = {
     "get_posting_log":            "Look up ERP posting history for a journal draft: target system, status, errors, timestamps",
     "get_monthly_close_status":   "Run the monthly close checklist for a period: unposted drafts, reconciliation, trial balance, payroll, opening balances",
     "get_rsge_documents":         "List RS.ge-imported waybills and tax invoices; filter by seller_inn, buyer_inn, or status",
+    "get_document_chain":         "Cross-reference: show all documents linked to a party (INN/name) or document number — waybills, tax invoices, bank payments, journal drafts in one view",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -1180,6 +1181,51 @@ async def _get_monthly_close_status(params: dict, tenant_id: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Sprint 3C — Cross-reference tool
+# ─────────────────────────────────────────────────────────────
+
+async def _get_document_chain(params: dict, tenant_id: str) -> dict:
+    """Cross-reference: all documents linked to a party (INN/name) or document number.
+    params: query (party name or INN) OR doc_number (waybill or tax invoice number), limit
+    """
+    from app.api.services.cross_reference_service import (
+        get_cross_ref_by_party,
+        get_cross_ref_by_document,
+    )
+
+    doc_number = (params.get("doc_number") or params.get("document_number") or "").strip()
+    query = (params.get("query") or params.get("party") or params.get("inn") or "").strip()
+    limit = min(int(params.get("limit") or 20), 50)
+
+    if doc_number:
+        result = await get_cross_ref_by_document(tenant_id, doc_number)
+        if not result.get("found"):
+            return {
+                "approval_required": False,
+                "found": False,
+                "message": f"Document '{doc_number}' not found",
+            }
+        return {"approval_required": False, **result}
+
+    if query:
+        result = await get_cross_ref_by_party(tenant_id, query, limit=limit)
+        summary = result.get("summary", {})
+        return {
+            "approval_required": False,
+            **result,
+            "ai_summary": (
+                f"'{query}': "
+                f"{summary.get('waybill_count', 0)} waybill, "
+                f"{summary.get('tax_invoice_count', 0)} ფაქტურა, "
+                f"{summary.get('bank_txn_count', 0)} საბანკო ტრანზაქცია — "
+                f"გადახდის სტატუსი: {summary.get('payment_status', 'unknown')}"
+            ),
+        }
+
+    return {"error": "query (party name/INN) ან doc_number საჭიროა"}
+
+
+# ─────────────────────────────────────────────────────────────
 # Sprint 3A — RS.ge document list tool
 # ─────────────────────────────────────────────────────────────
 
@@ -1305,4 +1351,6 @@ _TOOL_MAP = {
     "get_monthly_close_status":     _get_monthly_close_status,
     # Sprint 3A
     "get_rsge_documents":           _get_rsge_documents,
+    # Sprint 3C
+    "get_document_chain":           _get_document_chain,
 }

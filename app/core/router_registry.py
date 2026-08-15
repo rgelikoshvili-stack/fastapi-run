@@ -236,3 +236,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_bank_statements import router as bank_statements_router
     app.include_router(bank_statements_router)
+
+    from app.api.routes_cross_reference import router as cross_reference_router
+    app.include_router(cross_reference_router)

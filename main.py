@@ -50,7 +50,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
@@ -102,14 +102,37 @@ app = FastAPI(
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+_react_build_dir = "static/react"
+_react_assets_dir = os.path.join(_react_build_dir, "static")
+if os.path.isdir(_react_assets_dir):
+    app.mount("/app/static", StaticFiles(directory=_react_assets_dir), name="react-static")
+
 
 # --- ROOT ---
 @app.get("/")
 def root():
+    return RedirectResponse(url="/app", status_code=307)
+
+
+@app.get("/legacy-approval")
+def legacy_approval():
     try:
         return FileResponse("static/approval.html")
     except Exception:
         return HTMLResponse("<h1>Bridge Hub v1.0.0</h1><p><a href='/docs'>API Docs</a></p>")
+
+
+@app.get("/app")
+@app.get("/app/{path:path}")
+def react_app(path: str = ""):
+    try:
+        if path:
+            asset_path = os.path.join(_react_build_dir, path)
+            if os.path.isfile(asset_path):
+                return FileResponse(asset_path)
+        return FileResponse(os.path.join(_react_build_dir, "index.html"))
+    except Exception:
+        return HTMLResponse("<h1>Bridge Hub UI is not built yet</h1>", status_code=503)
 
 
 @app.get("/hub-map")

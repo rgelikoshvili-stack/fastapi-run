@@ -42,6 +42,8 @@ TOOL_DESCRIPTIONS = {
     "get_document_chain":         "Cross-reference: show all documents linked to a party (INN/name) or document number — waybills, tax invoices, bank payments, journal drafts in one view",
     # Sprint 4
     "get_ledger_truth":           "Posted ledger health check: phantom posts, sync mismatches, failed postings, duplicate posts. Returns health_score 0-100.",
+    # Sprint 5
+    "get_cockpit_summary":        "Chief Accountant Cockpit: pending approvals, high-risk drafts, ledger health score, failed postings — one call overview with alert_level OK/WARNING/CRITICAL.",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -1332,6 +1334,18 @@ def _safe(row) -> dict:
     return d
 
 
+async def _get_cockpit_summary(params: dict, tenant_id: str) -> dict:
+    """Sprint 5 — Chief Accountant Cockpit AI tool."""
+    from app.api.services.cockpit_service import get_cockpit_brief, get_cockpit
+
+    full = str(params.get("full", "false")).lower() in ("true", "1", "yes")
+    if full:
+        result = await get_cockpit(tenant_id)
+    else:
+        result = await get_cockpit_brief(tenant_id)
+    return {"approval_required": False, **result}
+
+
 async def _get_ledger_truth(params: dict, tenant_id: str) -> dict:
     """Sprint 4 — Posted Ledger Truth AI tool."""
     from app.api.services.ledger_truth_service import run_ledger_truth, quick_ledger_health
@@ -1374,4 +1388,6 @@ _TOOL_MAP = {
     "get_document_chain":           _get_document_chain,
     # Sprint 4
     "get_ledger_truth":             _get_ledger_truth,
+    # Sprint 5
+    "get_cockpit_summary":          _get_cockpit_summary,
 }

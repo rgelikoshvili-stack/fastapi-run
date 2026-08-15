@@ -507,5 +507,5 @@ def test_get_ledger_truth_in_registry():
 
 def test_total_tool_count():
     from app.api.services.ai_tool_registry import _TOOL_MAP
-    # 13 original + 4 sprint 2 + 1 sprint 3A + 1 sprint 3C + 1 sprint 4
-    assert len(_TOOL_MAP) == 20
+    # 13 original + 4 sprint 2 + 1 sprint 3A + 1 sprint 3C + 1 sprint 4 + 1 sprint 5
+    assert len(_TOOL_MAP) == 21

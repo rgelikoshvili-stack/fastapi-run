@@ -242,3 +242,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_ledger_truth import router as ledger_truth_router
     app.include_router(ledger_truth_router)
+
+    from app.api.routes_cockpit import router as cockpit_router
+    app.include_router(cockpit_router)

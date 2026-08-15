@@ -161,7 +161,7 @@ jobs:
             --concurrency 100 \
             --timeout 300 \
             --update-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
-            --remove-env-vars "DATABASE_URL" \
+            --remove-env-vars "DATABASE_URL,JWT_SECRET,ANTHROPIC_API_KEY,OPENROUTER_API_KEY,VAULT_ENCRYPTION_KEY" \
             --update-secrets "DATABASE_URL=bridge-hub-database-url:latest,JWT_SECRET=bridge-hub-jwt-secret:latest,ANTHROPIC_API_KEY=bridge-hub-anthropic-api-key:latest,OPENROUTER_API_KEY=bridge-hub-openrouter-api-key:latest,VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest" \
             --quiet
 

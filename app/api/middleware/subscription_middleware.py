@@ -47,6 +47,7 @@ _ALWAYS_SAFE_EXACT: frozenset[str] = frozenset({
 _ALWAYS_SAFE_PREFIXES: tuple[str, ...] = (
     "/health",
     "/static",
+    "/app",
     "/docs",
     "/redoc",
     "/openapi.json",

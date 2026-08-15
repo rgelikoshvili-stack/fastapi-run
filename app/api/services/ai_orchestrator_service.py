@@ -11,6 +11,7 @@ Never executes mutations — only preview/read.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
@@ -40,10 +41,10 @@ from app.api.services.llm_service import chat_with_claude_structured
 # ─────────────────────────────────────────────────────────────
 _INTENT_TOOL_MAP: Dict[str, List[str]] = {
     "approval":      ["show_pending_tasks", "show_risks"],
-    "bank":          ["financial_summary"],
+    "bank":          ["financial_summary", "get_bank_transactions", "get_payment_status"],
     "reports":       ["financial_summary", "tax_summary"],
     "tax":           ["tax_summary"],
-    "invoices":      ["search_documents"],
+    "invoices":      ["search_documents", "get_payment_status"],
     "documents":     ["search_documents"],
     "waybills":      ["search_documents"],
     "tax_invoices":  ["search_documents"],
@@ -54,9 +55,16 @@ _INTENT_TOOL_MAP: Dict[str, List[str]] = {
 _DRAFT_TOOLS = ["explain_draft", "prepare_approval_preview"]
 
 
+_INVOICE_NUMBER_RE = re.compile(
+    r"\b([A-Z]{2,10}[-_/][A-Z0-9][A-Z0-9/_-]{2,})\b",
+    re.IGNORECASE,
+)
+
+
 def _select_tools(message: str, draft_id: Optional[int], intents: set) -> List[str]:
     """Pick relevant tool names based on intents + draft_id."""
     selected: List[str] = []
+    msg = message.lower()
 
     if draft_id:
         selected.extend(_DRAFT_TOOLS)
@@ -66,7 +74,33 @@ def _select_tools(message: str, draft_id: Optional[int], intents: set) -> List[s
             if t not in selected:
                 selected.append(t)
 
+    if any(k in msg for k in ("unreconciled", "შეუსაბამ", "ვერ დაემთხვ", "გადახდა ვერ", "ტრანზაქცია ვერ")):
+        if "get_bank_transactions" not in selected:
+            selected.append("get_bank_transactions")
+
+    if any(k in msg for k in ("payment", "paid", "გადახდ", "გადასარიცხ", "მოვიდა თანხა", "ინვოისზე")):
+        if "get_payment_status" not in selected:
+            selected.append("get_payment_status")
+        if "get_bank_transactions" not in selected:
+            selected.append("get_bank_transactions")
+
     return selected[:6]  # cap at 6 tools per turn
+
+
+def _extract_tool_params(message: str, draft_id: Optional[int]) -> dict:
+    """Extract lightweight tool params from a chat message."""
+    params = {"draft_id": draft_id} if draft_id else {}
+    msg = message.strip()
+    lower = msg.lower()
+
+    match = _INVOICE_NUMBER_RE.search(msg)
+    if match:
+        params["invoice_number"] = match.group(1).strip(" .,:;")
+
+    if any(k in lower for k in ("unreconciled", "შეუსაბამ", "ვერ დაემთხვ", "გადახდა ვერ", "ტრანზაქცია ვერ")):
+        params["unreconciled_only"] = True
+
+    return params
 
 
 async def _run_selected_tools(
@@ -104,6 +138,22 @@ def _format_tool_results(tool_results: Dict[str, Any]) -> str:
                 lines.append(f"  {k}: {v}")
         elif isinstance(preview, (str, int, float)):
             lines.append(f"  {preview}")
+
+        for key in (
+            "payment_status",
+            "expected_amount",
+            "paid_amount",
+            "count",
+            "unreconciled_in_results",
+            "filters_applied",
+        ):
+            if key in result:
+                lines.append(f"  {key}: {result[key]}")
+
+        for key in ("transactions", "matched_bank_transactions", "matched_journal_drafts"):
+            items = result.get(key)
+            if isinstance(items, list):
+                lines.append(f"  {key}: {items[:5]}")
 
         if result.get("approval_required"):
             confirm_url = result.get("confirm_url", "")
@@ -155,7 +205,7 @@ async def orchestrate(
 
     # 2. Tool selection + execution
     intents: set = set(db_ctx.get("intents", []))
-    tool_params = {"draft_id": draft_id} if draft_id else {}
+    tool_params = _extract_tool_params(message, draft_id)
     tool_names = _select_tools(message, draft_id, intents)
     tool_results = await _run_selected_tools(tool_names, tool_params, tenant_id)
     tool_block = _format_tool_results(tool_results)

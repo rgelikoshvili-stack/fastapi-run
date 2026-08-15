@@ -14,6 +14,7 @@ PUBLIC_PATH_PREFIXES = (
     "/auth/register",
     "/auth/refresh",
     "/static",
+    "/app",
 )
 
 PUBLIC_GET_PATHS = (

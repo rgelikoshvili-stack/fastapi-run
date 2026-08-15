@@ -12,6 +12,7 @@ from email.header import decode_header
 from typing import Optional
 
 from app.api.db import get_conn, _q
+from app.api.services.credential_vault_service import CredentialVaultService
 
 log = logging.getLogger(__name__)
 
@@ -56,33 +57,67 @@ async def _ensure_tables():
 # ── DB helpers (asyncpg) ──────────────────────────────────────────────────────
 
 async def get_tenant_email_credentials(tenant_id: str) -> Optional[dict]:
+    """Return {"email": ..., "app_password": ...} for the tenant.
+
+    Checks credential_status:
+      'active'           → decrypt from credential vault
+      'legacy_plaintext' → use app_password column directly (backwards compat)
+    """
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT email, app_password FROM tenant_email_credentials "
+                "SELECT email, app_password, credential_status "
+                "FROM tenant_email_credentials "
                 "WHERE tenant_id = %s AND active = TRUE"
             ), tenant_id)
-        return dict(row) if row else None
+            if not row:
+                return None
+            status = row["credential_status"] or "legacy_plaintext"
+            if status == "active":
+                vault = CredentialVaultService()
+                plaintext = await vault.get_for_connector(
+                    conn,
+                    tenant_id=tenant_id,
+                    provider="email",
+                    credential_type="imap_app_password",
+                    purpose="imap_login",
+                )
+                return {"email": row["email"], "app_password": plaintext}
+            # Legacy plaintext path (pre-vault rows)
+            return {"email": row["email"], "app_password": row["app_password"]}
     except Exception as e:
         log.warning("get_tenant_email_credentials: %s", e)
         return None
 
 
 async def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_password: str) -> bool:
+    """Save email credentials — app_password is encrypted in the credential vault."""
     try:
+        vault = CredentialVaultService()
         async with get_conn() as conn:
+            await vault.save_credential(
+                conn,
+                tenant_id=tenant_id,
+                provider="email",
+                credential_type="imap_app_password",
+                raw_value=app_password,
+                actor="user",
+            )
             await conn.execute(_q("""
-                INSERT INTO tenant_email_credentials (tenant_id, email, app_password, updated_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO tenant_email_credentials
+                    (tenant_id, email, app_password, credential_status, updated_at)
+                VALUES (%s, %s, '[stored-in-vault]', 'active', %s)
                 ON CONFLICT (tenant_id) DO UPDATE
-                    SET email = EXCLUDED.email,
-                        app_password = EXCLUDED.app_password,
-                        active = TRUE,
-                        updated_at = EXCLUDED.updated_at
-            """), tenant_id, email_addr, app_password, datetime.now(timezone.utc))
+                    SET email              = EXCLUDED.email,
+                        app_password       = '[stored-in-vault]',
+                        credential_status  = 'active',
+                        active             = TRUE,
+                        updated_at         = EXCLUDED.updated_at
+            """), tenant_id, email_addr, datetime.now(timezone.utc))
+        log.info("email creds saved to vault for tenant=%s", tenant_id)
         return True
     except Exception as e:
-        log.error("save_tenant_email_credentials: %s", e)
+        log.error("save_tenant_email_credentials vault error: %s", e)
         return False
 
 
@@ -185,6 +220,36 @@ def _extract_text_from_pdf(data: bytes) -> str:
         return ""
 
 
+def _extract_text_from_image(data: bytes, filename: str) -> str:
+    """Run Claude Vision OCR on PNG/JPG and return a text description for AI classifier."""
+    try:
+        from app.api.services.ocr_service import _extract_with_claude_vision
+        fields = _extract_with_claude_vision(data, filename)
+        if not fields:
+            return ""
+        parts = [f"Document type: invoice"]
+        if fields.get("seller"):
+            parts.append(f"Partner/Seller: {fields['seller']}")
+        if fields.get("invoice_number"):
+            parts.append(f"Invoice number: {fields['invoice_number']}")
+        if fields.get("date"):
+            parts.append(f"Date: {fields['date']}")
+        if fields.get("total_amount"):
+            currency = fields.get("currency") or "GEL"
+            parts.append(f"Total amount: {fields['total_amount']} {currency}")
+        if fields.get("vat_amount"):
+            parts.append(f"VAT amount: {fields['vat_amount']}")
+        if fields.get("net_amount"):
+            parts.append(f"Net amount: {fields['net_amount']}")
+        result = "\n".join(parts)
+        if len(result) < 20:
+            return ""
+        return result
+    except Exception as e:
+        log.warning("_extract_text_from_image failed for %s: %s", filename, e)
+        return ""
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def test_imap_connection(email_addr: str, app_password: str) -> dict:
@@ -251,8 +316,11 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                     continue
 
                 raw_text = ""
-                if filename.lower().endswith(".pdf"):
+                fname_lower = filename.lower()
+                if fname_lower.endswith(".pdf"):
                     raw_text = _extract_text_from_pdf(file_data)
+                elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
+                    raw_text = _extract_text_from_image(file_data, filename)
 
                 doc_id = await _save_email_document(tenant_id, uid, filename, file_data, raw_text)
 

@@ -31,6 +31,13 @@ TOOL_DESCRIPTIONS = {
     "get_rsge_document_status":   "Look up a waybill or tax invoice by number — returns redacted summary",
     "get_triangle_match_status":  "Get 3-way match status for waybill + tax invoice + commercial invoice",
     "get_accounting_risk_summary": "Risk summary: missing docs, duplicates, FX missing, period lock, VAT mismatch",
+    "get_bank_transactions":       "Search bank statement transactions: by partner, amount range, date range, or unreconciled only",
+    "get_payment_status":          "Check payment status for an invoice or waybill: paid, partial, unpaid, overpaid, with matched bank transactions",
+    # Sprint 2 — Cross-reference tools
+    "get_contracts":              "Search contracts by party name, type, or status; shows value, dates, payment terms, and overdue milestones",
+    "get_payroll_status":         "Check RS.ge payroll submission status for a period (YYYY-MM): draft/submitted/accepted/rejected",
+    "get_posting_log":            "Look up ERP posting history for a journal draft: target system, status, errors, timestamps",
+    "get_monthly_close_status":   "Run the monthly close checklist for a period: unposted drafts, reconciliation, trial balance, payroll, opening balances",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -690,6 +697,488 @@ async def _get_accounting_risk_summary(params: dict, tenant_id: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Bank transactions tools
+# ─────────────────────────────────────────────────────────────
+
+async def _get_bank_transactions(params: dict, tenant_id: str) -> dict:
+    """Search bank statement transactions.
+    params: partner, amount_min, amount_max, date_from, date_to, unreconciled_only, limit
+    """
+    partner = (params.get("partner") or "").strip()
+    amount_min = params.get("amount_min")
+    amount_max = params.get("amount_max")
+    date_from = params.get("date_from")
+    date_to = params.get("date_to")
+    unreconciled_only = bool(params.get("unreconciled_only", False))
+    limit = min(int(params.get("limit") or 50), 100)
+
+    conditions = ["bt.tenant_id = %s"]
+    args: list = [tenant_id]
+
+    if partner:
+        conditions.append("LOWER(COALESCE(bt.description,'') || ' ' || COALESCE(bt.partner,'')) LIKE %s")
+        args.append(f"%{partner.lower()}%")
+    if amount_min is not None:
+        conditions.append("ABS(bt.amount) >= %s")
+        args.append(float(amount_min))
+    if amount_max is not None:
+        conditions.append("ABS(bt.amount) <= %s")
+        args.append(float(amount_max))
+    if date_from:
+        conditions.append("bt.date >= %s")
+        args.append(str(date_from))
+    if date_to:
+        conditions.append("bt.date <= %s")
+        args.append(str(date_to))
+    if unreconciled_only:
+        conditions.append("""
+            NOT EXISTS (
+                SELECT 1 FROM bank_reconciliations br
+                WHERE br.bank_transaction_id::text = bt.id::text
+                  AND br.tenant_id = %s
+            )
+        """)
+        args.append(tenant_id)
+
+    where = " AND ".join(conditions)
+    args.append(limit)
+
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(f"""
+            SELECT bt.id, bt.date, bt.description, bt.partner,
+                   bt.amount, bt.currency, bt.balance, bt.operation_code,
+                   br.id IS NOT NULL AS is_reconciled,
+                   jd.id AS draft_id, jd.description AS draft_description
+            FROM bank_transactions bt
+            LEFT JOIN bank_reconciliations br
+                ON br.bank_transaction_id::text = bt.id::text
+               AND br.tenant_id = %s
+            LEFT JOIN journal_drafts jd
+                ON jd.bank_txn_id::text = bt.id::text
+               AND jd.tenant_id = %s
+            WHERE {where}
+            ORDER BY bt.date DESC
+            LIMIT %s
+        """), tenant_id, tenant_id, *args)
+
+    results = []
+    for r in rows:
+        results.append({
+            "id": str(r["id"]),
+            "date": str(r["date"]) if r["date"] else None,
+            "description": r["description"],
+            "partner": r["partner"],
+            "amount": float(r["amount"] or 0),
+            "currency": r["currency"] or "GEL",
+            "balance": float(r["balance"] or 0) if r["balance"] is not None else None,
+            "operation_code": r["operation_code"],
+            "is_reconciled": bool(r["is_reconciled"]),
+            "matched_draft_id": r["draft_id"],
+            "matched_draft_description": r["draft_description"],
+        })
+
+    unreconciled_count = sum(1 for r in results if not r["is_reconciled"])
+    return {
+        "count": len(results),
+        "unreconciled_in_results": unreconciled_count,
+        "transactions": results,
+        "filters_applied": {
+            "partner": partner or None,
+            "amount_min": amount_min,
+            "amount_max": amount_max,
+            "date_from": date_from,
+            "date_to": date_to,
+            "unreconciled_only": unreconciled_only,
+        },
+    }
+
+
+async def _get_payment_status(params: dict, tenant_id: str) -> dict:
+    """Check payment status for a specific invoice or waybill.
+    params: invoice_id OR waybill_number OR invoice_number, amount (optional for cross-check)
+    """
+    invoice_id = params.get("invoice_id")
+    invoice_number = (params.get("invoice_number") or "").strip()
+    waybill_number = (params.get("waybill_number") or "").strip()
+    expected_amount = params.get("amount")
+
+    if not any([invoice_id, invoice_number, waybill_number]):
+        return {"error": "invoice_id, invoice_number, ან waybill_number საჭიროა"}
+
+    async with get_conn() as conn:
+        # Find the invoice / waybill
+        doc = None
+        doc_type = None
+        doc_amount = None
+
+        if invoice_id or invoice_number:
+            cond = "id = %s" if invoice_id else "LOWER(invoice_number) = LOWER(%s)"
+            val = invoice_id if invoice_id else invoice_number
+            row = await conn.fetchrow(_q(f"""
+                SELECT id, invoice_number, partner AS partner_name,
+                       total AS total_amount, currency, status, due_date
+                FROM invoices WHERE tenant_id = %s AND {cond}
+            """), tenant_id, val)
+            if row:
+                doc = dict(row)
+                doc_type = "invoice"
+                doc_amount = float(row["total_amount"] or 0)
+
+        if not doc and waybill_number:
+            row = await conn.fetchrow(_q("""
+                SELECT id, waybill_number, seller_name, buyer_name,
+                       total_amount, status, waybill_date
+                FROM waybills WHERE tenant_id = %s AND LOWER(waybill_number) = LOWER(%s)
+            """), tenant_id, waybill_number)
+            if row:
+                doc = dict(row)
+                doc_type = "waybill"
+                doc_amount = float(row["total_amount"] or 0)
+
+        if not doc:
+            return {"found": False, "message": "დოკუმენტი ვერ მოიძებნა"}
+
+        # Find matched journal draft
+        draft_rows = await conn.fetch(_q("""
+            SELECT id, description, amount, status, date, reconciled, bank_txn_id
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND (
+                LOWER(description) LIKE LOWER(%s)
+                OR ABS(COALESCE(amount,0) - %s) < 1.0
+              )
+            ORDER BY ABS(COALESCE(amount,0) - %s)
+            LIMIT 5
+        """), tenant_id,
+             f"%{(doc.get('invoice_number') or doc.get('waybill_number') or '')}%",
+             doc_amount, doc_amount)
+
+        # Find bank transactions that match by amount
+        bank_rows = await conn.fetch(_q("""
+            SELECT bt.id, bt.date, bt.description, bt.amount, bt.currency,
+                   br.id IS NOT NULL AS is_reconciled
+            FROM bank_transactions bt
+            LEFT JOIN bank_reconciliations br
+                ON br.bank_transaction_id::text = bt.id::text AND br.tenant_id = %s
+            WHERE bt.tenant_id = %s
+              AND ABS(ABS(bt.amount) - %s) < 1.0
+            ORDER BY bt.date DESC
+            LIMIT 5
+        """), tenant_id, tenant_id, doc_amount)
+
+    paid_amount = sum(
+        float(r["amount"] or 0) for r in bank_rows if float(r["amount"] or 0) > 0
+    )
+
+    if doc_amount and paid_amount >= doc_amount * 0.99:
+        payment_status = "გადახდილია"
+    elif paid_amount > 0:
+        payment_status = "ნაწილობრივ გადახდილია"
+    elif paid_amount > doc_amount * 1.01:
+        payment_status = "ზედმეტად გადახდილია"
+    else:
+        payment_status = "გადასარიცხია"
+
+    for k, v in doc.items():
+        if hasattr(v, "isoformat"):
+            doc[k] = str(v)
+        elif hasattr(v, "__float__"):
+            try:
+                doc[k] = float(v)
+            except Exception:
+                pass
+
+    return {
+        "found": True,
+        "document_type": doc_type,
+        "document": doc,
+        "expected_amount": doc_amount,
+        "paid_amount": paid_amount,
+        "payment_status": payment_status,
+        "matched_bank_transactions": [
+            {
+                "id": str(r["id"]),
+                "date": str(r["date"]) if r["date"] else None,
+                "description": r["description"],
+                "amount": float(r["amount"] or 0),
+                "currency": r["currency"],
+                "is_reconciled": bool(r["is_reconciled"]),
+            }
+            for r in bank_rows
+        ],
+        "matched_journal_drafts": [
+            {
+                "id": r["id"],
+                "description": r["description"],
+                "amount": float(r["amount"] or 0),
+                "status": r["status"],
+                "date": str(r["date"]) if r["date"] else None,
+                "reconciled": bool(r["reconciled"]),
+            }
+            for r in draft_rows
+        ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Sprint 2 — Cross-reference tools
+# ─────────────────────────────────────────────────────────────
+
+async def _get_contracts(params: dict, tenant_id: str) -> dict:
+    """Search contracts by party name, type, or status.
+    params: party_name, contract_type, status, active_only, limit
+    """
+    party_name = (params.get("party_name") or params.get("partner") or "").strip()
+    contract_type = (params.get("contract_type") or "").strip()
+    status = (params.get("status") or "").strip()
+    active_only = bool(params.get("active_only", False))
+    limit = min(int(params.get("limit") or 20), 50)
+
+    conditions = ["c.tenant_id = %s"]
+    args: list = [tenant_id]
+
+    if party_name:
+        conditions.append("LOWER(COALESCE(c.party_name,'') || ' ' || COALESCE(c.title,'')) LIKE %s")
+        args.append(f"%{party_name.lower()}%")
+    if contract_type:
+        conditions.append("c.contract_type = %s")
+        args.append(contract_type)
+    if status:
+        conditions.append("c.status = %s")
+        args.append(status)
+    if active_only:
+        from datetime import date as _dt
+        conditions.append("(c.end_date IS NULL OR c.end_date >= %s)")
+        args.append(str(_dt.today()))
+        conditions.append("c.status NOT IN ('cancelled','expired','terminated')")
+
+    where = " AND ".join(conditions)
+    args.append(limit)
+
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(f"""
+            SELECT c.id, c.contract_number, c.title, c.party_name, c.party_tax_id,
+                   c.contract_type, c.status, c.value, c.currency,
+                   c.start_date, c.end_date, c.payment_terms, c.auto_renew,
+                   c.created_at,
+                   COUNT(cm.id) FILTER (WHERE cm.status = 'pending' AND cm.due_date < NOW()) AS overdue_milestones
+            FROM contracts c
+            LEFT JOIN contract_milestones cm
+                ON cm.contract_id = c.id AND cm.tenant_id = c.tenant_id
+            WHERE {where}
+            GROUP BY c.id
+            ORDER BY c.created_at DESC
+            LIMIT %s
+        """), *args)
+
+        total = await conn.fetchval(_q(
+            "SELECT COUNT(*) FROM contracts WHERE tenant_id = %s"
+        ), tenant_id) or 0
+
+    contracts = [_safe(r) for r in rows]
+    overdue_total = sum(int(c.get("overdue_milestones") or 0) for c in contracts)
+
+    return {
+        "approval_required": False,
+        "count": len(contracts),
+        "total_in_db": int(total),
+        "overdue_milestones_total": overdue_total,
+        "contracts": contracts,
+        "summary": (
+            f"{len(contracts)} კონტრაქტი"
+            + (f", {overdue_total} ვადაგადაცილებული milestone" if overdue_total else "")
+        ),
+    }
+
+
+async def _get_payroll_status(params: dict, tenant_id: str) -> dict:
+    """Check RS.ge payroll submission status for a period.
+    params: period (YYYY-MM, default current month), run_id
+    """
+    from datetime import date as _dt
+    period = (params.get("period") or "").strip()
+    if not period:
+        today = _dt.today()
+        period = f"{today.year}-{today.month:02d}"
+    run_id = params.get("run_id")
+
+    async with get_conn() as conn:
+        if run_id:
+            rows = await conn.fetch(_q("""
+                SELECT id, run_id, period, status, submission_ref,
+                       submitted_at, resolved_at, notes, created_at, updated_at
+                FROM payroll_submissions
+                WHERE tenant_id = %s AND run_id = %s
+                ORDER BY created_at DESC LIMIT 5
+            """), tenant_id, int(run_id))
+        else:
+            rows = await conn.fetch(_q("""
+                SELECT id, run_id, period, status, submission_ref,
+                       submitted_at, resolved_at, notes, created_at, updated_at
+                FROM payroll_submissions
+                WHERE tenant_id = %s AND period = %s
+                ORDER BY created_at DESC LIMIT 5
+            """), tenant_id, period)
+
+        # Also get last 3 periods for context
+        recent = await conn.fetch(_q("""
+            SELECT period, status, submission_ref, submitted_at
+            FROM payroll_submissions
+            WHERE tenant_id = %s
+            ORDER BY created_at DESC LIMIT 6
+        """), tenant_id)
+
+    submissions = [_safe(r) for r in rows]
+    recent_list = [_safe(r) for r in recent]
+
+    if not submissions:
+        return {
+            "approval_required": False,
+            "found": False,
+            "period": period,
+            "message": f"{period} პერიოდისთვის payroll submission ვერ მოიძებნა",
+            "recent_submissions": recent_list,
+        }
+
+    latest = submissions[0]
+    status = latest.get("status", "unknown")
+    status_ge = {
+        "draft":     "მომზადებულია",
+        "submitted": "გაგზავნილია RS.ge-ზე",
+        "accepted":  "მიღებულია RS.ge-ზე",
+        "rejected":  "უარყოფილია RS.ge-ზე",
+    }.get(status, status)
+
+    return {
+        "approval_required": False,
+        "found": True,
+        "period": period,
+        "latest_status": status,
+        "status_georgian": status_ge,
+        "submission_ref": latest.get("submission_ref"),
+        "submitted_at": latest.get("submitted_at"),
+        "resolved_at": latest.get("resolved_at"),
+        "notes": latest.get("notes"),
+        "all_submissions_for_period": submissions,
+        "recent_submissions": recent_list,
+        "summary": f"{period} payroll: {status_ge}",
+    }
+
+
+async def _get_posting_log(params: dict, tenant_id: str) -> dict:
+    """Look up ERP posting history for a journal draft.
+    params: draft_id (required), target_system, limit
+    """
+    draft_id = params.get("draft_id")
+    target_system = (params.get("target_system") or "").strip()
+    limit = min(int(params.get("limit") or 10), 50)
+
+    if not draft_id:
+        return {"error": "draft_id required"}
+
+    conditions = ["pl.tenant_id = %s", "pl.draft_id = %s"]
+    args: list = [tenant_id, int(draft_id)]
+
+    if target_system:
+        conditions.append("pl.target_system = %s")
+        args.append(target_system)
+
+    where = " AND ".join(conditions)
+    args.append(limit)
+
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(f"""
+            SELECT pl.id, pl.draft_id, pl.target_system, pl.status,
+                   pl.error_message, pl.mode, pl.actor, pl.connector,
+                   pl.created_at,
+                   jd.description AS draft_description,
+                   jd.amount AS draft_amount,
+                   jd.status AS draft_status
+            FROM posting_logs pl
+            LEFT JOIN journal_drafts jd
+                ON jd.id = pl.draft_id AND jd.tenant_id = pl.tenant_id
+            WHERE {where}
+            ORDER BY pl.id DESC
+            LIMIT %s
+        """), *args)
+
+    logs = []
+    for r in rows:
+        d = _safe(r)
+        status = d.get("status", "")
+        d["status_georgian"] = {
+            "success":  "წარმატებულია",
+            "failed":   "წარუმატებელია",
+            "pending":  "მუშავდება",
+            "dry_run":  "ტესტ-რეჟიმი",
+            "skipped":  "გამოტოვებულია",
+        }.get(status, status)
+        logs.append(d)
+
+    last_success = next((l for l in logs if l.get("status") == "success"), None)
+    last_fail = next((l for l in logs if l.get("status") == "failed"), None)
+
+    return {
+        "approval_required": False,
+        "draft_id": draft_id,
+        "count": len(logs),
+        "last_success": last_success,
+        "last_failure": last_fail,
+        "logs": logs,
+        "summary": (
+            f"draft #{draft_id}: {len(logs)} posting ჩანაწერი"
+            + (f" — ბოლო: {logs[0].get('status_georgian','')}" if logs else " — ისტორია ცარიელია")
+        ),
+    }
+
+
+async def _get_monthly_close_status(params: dict, tenant_id: str) -> dict:
+    """Run the monthly close checklist for a period.
+    params: month (YYYY-MM, default current month)
+    """
+    from datetime import date as _dt
+    month = (params.get("month") or params.get("period") or "").strip()
+    if not month:
+        today = _dt.today()
+        month = f"{today.year}-{today.month:02d}"
+
+    try:
+        from app.api.services.monthly_close_service import run_checklist
+        checklist = await run_checklist(tenant_id, month)
+    except Exception as e:
+        log.warning("monthly_close checklist failed: %s", e)
+        return {"error": str(e), "month": month}
+
+    ok_count = sum(1 for c in checklist if c.get("status") == "ok")
+    failed = [c for c in checklist if c.get("status") == "failed"]
+    warnings = [c for c in checklist if c.get("status") == "warning"]
+
+    overall = (
+        "დახურვა შესაძლებელია" if not failed else
+        "დახურვა შეუძლებელია" if len(failed) >= 2 else
+        "პრობლემები გამოვლინდა"
+    )
+
+    return {
+        "approval_required": False,
+        "month": month,
+        "overall_status": overall,
+        "ok_count": ok_count,
+        "failed_count": len(failed),
+        "warning_count": len(warnings),
+        "checklist": checklist,
+        "failed_items": [c["name"] for c in failed],
+        "warning_items": [c["name"] for c in warnings],
+        "summary": (
+            f"{month}: {overall} — "
+            f"{ok_count}/{len(checklist)} checklist item OK"
+            + (f", {len(failed)} წარუმატებელი" if failed else "")
+            + (f", {len(warnings)} გაფრთხილება" if warnings else "")
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
@@ -718,4 +1207,11 @@ _TOOL_MAP = {
     "get_rsge_document_status":   _get_rsge_document_status,
     "get_triangle_match_status":  _get_triangle_match_status,
     "get_accounting_risk_summary": _get_accounting_risk_summary,
+    "get_bank_transactions":        _get_bank_transactions,
+    "get_payment_status":           _get_payment_status,
+    # Sprint 2
+    "get_contracts":                _get_contracts,
+    "get_payroll_status":           _get_payroll_status,
+    "get_posting_log":              _get_posting_log,
+    "get_monthly_close_status":     _get_monthly_close_status,
 }

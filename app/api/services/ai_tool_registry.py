@@ -31,6 +31,8 @@ TOOL_DESCRIPTIONS = {
     "get_rsge_document_status":   "Look up a waybill or tax invoice by number — returns redacted summary",
     "get_triangle_match_status":  "Get 3-way match status for waybill + tax invoice + commercial invoice",
     "get_accounting_risk_summary": "Risk summary: missing docs, duplicates, FX missing, period lock, VAT mismatch",
+    "get_bank_transactions":       "Search bank statement transactions: by partner, amount range, date range, or unreconciled only",
+    "get_payment_status":          "Check payment status for an invoice or waybill: paid, partial, unpaid, overpaid, with matched bank transactions",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -690,6 +692,230 @@ async def _get_accounting_risk_summary(params: dict, tenant_id: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Bank transactions tools
+# ─────────────────────────────────────────────────────────────
+
+async def _get_bank_transactions(params: dict, tenant_id: str) -> dict:
+    """Search bank statement transactions.
+    params: partner, amount_min, amount_max, date_from, date_to, unreconciled_only, limit
+    """
+    partner = (params.get("partner") or "").strip()
+    amount_min = params.get("amount_min")
+    amount_max = params.get("amount_max")
+    date_from = params.get("date_from")
+    date_to = params.get("date_to")
+    unreconciled_only = bool(params.get("unreconciled_only", False))
+    limit = min(int(params.get("limit") or 50), 100)
+
+    conditions = ["bt.tenant_id = %s"]
+    args: list = [tenant_id]
+
+    if partner:
+        conditions.append("LOWER(COALESCE(bt.description,'') || ' ' || COALESCE(bt.partner,'')) LIKE %s")
+        args.append(f"%{partner.lower()}%")
+    if amount_min is not None:
+        conditions.append("ABS(bt.amount) >= %s")
+        args.append(float(amount_min))
+    if amount_max is not None:
+        conditions.append("ABS(bt.amount) <= %s")
+        args.append(float(amount_max))
+    if date_from:
+        conditions.append("bt.date >= %s")
+        args.append(str(date_from))
+    if date_to:
+        conditions.append("bt.date <= %s")
+        args.append(str(date_to))
+    if unreconciled_only:
+        conditions.append("""
+            NOT EXISTS (
+                SELECT 1 FROM bank_reconciliations br
+                WHERE br.bank_transaction_id::text = bt.id::text
+                  AND br.tenant_id = %s
+            )
+        """)
+        args.append(tenant_id)
+
+    where = " AND ".join(conditions)
+    args.append(limit)
+
+    async with get_conn() as conn:
+        rows = await conn.fetch(_q(f"""
+            SELECT bt.id, bt.date, bt.description, bt.partner,
+                   bt.amount, bt.currency, bt.balance, bt.operation_code,
+                   br.id IS NOT NULL AS is_reconciled,
+                   jd.id AS draft_id, jd.description AS draft_description
+            FROM bank_transactions bt
+            LEFT JOIN bank_reconciliations br
+                ON br.bank_transaction_id::text = bt.id::text
+               AND br.tenant_id = %s
+            LEFT JOIN journal_drafts jd
+                ON jd.bank_txn_id::text = bt.id::text
+               AND jd.tenant_id = %s
+            WHERE {where}
+            ORDER BY bt.date DESC
+            LIMIT %s
+        """), tenant_id, tenant_id, *args)
+
+    results = []
+    for r in rows:
+        results.append({
+            "id": str(r["id"]),
+            "date": str(r["date"]) if r["date"] else None,
+            "description": r["description"],
+            "partner": r["partner"],
+            "amount": float(r["amount"] or 0),
+            "currency": r["currency"] or "GEL",
+            "balance": float(r["balance"] or 0) if r["balance"] is not None else None,
+            "operation_code": r["operation_code"],
+            "is_reconciled": bool(r["is_reconciled"]),
+            "matched_draft_id": r["draft_id"],
+            "matched_draft_description": r["draft_description"],
+        })
+
+    unreconciled_count = sum(1 for r in results if not r["is_reconciled"])
+    return {
+        "count": len(results),
+        "unreconciled_in_results": unreconciled_count,
+        "transactions": results,
+        "filters_applied": {
+            "partner": partner or None,
+            "amount_min": amount_min,
+            "amount_max": amount_max,
+            "date_from": date_from,
+            "date_to": date_to,
+            "unreconciled_only": unreconciled_only,
+        },
+    }
+
+
+async def _get_payment_status(params: dict, tenant_id: str) -> dict:
+    """Check payment status for a specific invoice or waybill.
+    params: invoice_id OR waybill_number OR invoice_number, amount (optional for cross-check)
+    """
+    invoice_id = params.get("invoice_id")
+    invoice_number = (params.get("invoice_number") or "").strip()
+    waybill_number = (params.get("waybill_number") or "").strip()
+    expected_amount = params.get("amount")
+
+    if not any([invoice_id, invoice_number, waybill_number]):
+        return {"error": "invoice_id, invoice_number, ან waybill_number საჭიროა"}
+
+    async with get_conn() as conn:
+        # Find the invoice / waybill
+        doc = None
+        doc_type = None
+        doc_amount = None
+
+        if invoice_id or invoice_number:
+            cond = "id = %s" if invoice_id else "LOWER(invoice_number) = LOWER(%s)"
+            val = invoice_id if invoice_id else invoice_number
+            row = await conn.fetchrow(_q(f"""
+                SELECT id, invoice_number, partner AS partner_name,
+                       total AS total_amount, currency, status, due_date
+                FROM invoices WHERE tenant_id = %s AND {cond}
+            """), tenant_id, val)
+            if row:
+                doc = dict(row)
+                doc_type = "invoice"
+                doc_amount = float(row["total_amount"] or 0)
+
+        if not doc and waybill_number:
+            row = await conn.fetchrow(_q("""
+                SELECT id, waybill_number, seller_name, buyer_name,
+                       total_amount, status, waybill_date
+                FROM waybills WHERE tenant_id = %s AND LOWER(waybill_number) = LOWER(%s)
+            """), tenant_id, waybill_number)
+            if row:
+                doc = dict(row)
+                doc_type = "waybill"
+                doc_amount = float(row["total_amount"] or 0)
+
+        if not doc:
+            return {"found": False, "message": "დოკუმენტი ვერ მოიძებნა"}
+
+        # Find matched journal draft
+        draft_rows = await conn.fetch(_q("""
+            SELECT id, description, amount, status, date, reconciled, bank_txn_id
+            FROM journal_drafts
+            WHERE tenant_id = %s
+              AND (
+                LOWER(description) LIKE LOWER(%s)
+                OR ABS(COALESCE(amount,0) - %s) < 1.0
+              )
+            ORDER BY ABS(COALESCE(amount,0) - %s)
+            LIMIT 5
+        """), tenant_id,
+             f"%{(doc.get('invoice_number') or doc.get('waybill_number') or '')}%",
+             doc_amount, doc_amount)
+
+        # Find bank transactions that match by amount
+        bank_rows = await conn.fetch(_q("""
+            SELECT bt.id, bt.date, bt.description, bt.amount, bt.currency,
+                   br.id IS NOT NULL AS is_reconciled
+            FROM bank_transactions bt
+            LEFT JOIN bank_reconciliations br
+                ON br.bank_transaction_id::text = bt.id::text AND br.tenant_id = %s
+            WHERE bt.tenant_id = %s
+              AND ABS(ABS(bt.amount) - %s) < 1.0
+            ORDER BY bt.date DESC
+            LIMIT 5
+        """), tenant_id, tenant_id, doc_amount)
+
+    paid_amount = sum(
+        float(r["amount"] or 0) for r in bank_rows if float(r["amount"] or 0) > 0
+    )
+
+    if doc_amount and paid_amount >= doc_amount * 0.99:
+        payment_status = "გადახდილია"
+    elif paid_amount > 0:
+        payment_status = "ნაწილობრივ გადახდილია"
+    elif paid_amount > doc_amount * 1.01:
+        payment_status = "ზედმეტად გადახდილია"
+    else:
+        payment_status = "გადასარიცხია"
+
+    for k, v in doc.items():
+        if hasattr(v, "isoformat"):
+            doc[k] = str(v)
+        elif hasattr(v, "__float__"):
+            try:
+                doc[k] = float(v)
+            except Exception:
+                pass
+
+    return {
+        "found": True,
+        "document_type": doc_type,
+        "document": doc,
+        "expected_amount": doc_amount,
+        "paid_amount": paid_amount,
+        "payment_status": payment_status,
+        "matched_bank_transactions": [
+            {
+                "id": str(r["id"]),
+                "date": str(r["date"]) if r["date"] else None,
+                "description": r["description"],
+                "amount": float(r["amount"] or 0),
+                "currency": r["currency"],
+                "is_reconciled": bool(r["is_reconciled"]),
+            }
+            for r in bank_rows
+        ],
+        "matched_journal_drafts": [
+            {
+                "id": r["id"],
+                "description": r["description"],
+                "amount": float(r["amount"] or 0),
+                "status": r["status"],
+                "date": str(r["date"]) if r["date"] else None,
+                "reconciled": bool(r["reconciled"]),
+            }
+            for r in draft_rows
+        ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
@@ -718,4 +944,6 @@ _TOOL_MAP = {
     "get_rsge_document_status":   _get_rsge_document_status,
     "get_triangle_match_status":  _get_triangle_match_status,
     "get_accounting_risk_summary": _get_accounting_risk_summary,
+    "get_bank_transactions":        _get_bank_transactions,
+    "get_payment_status":           _get_payment_status,
 }

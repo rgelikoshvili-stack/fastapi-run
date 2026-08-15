@@ -230,3 +230,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_journal_entries import router as journal_entries_router
     app.include_router(journal_entries_router)
+
+    from app.api.routes_rsge_documents import router as rsge_documents_router
+    app.include_router(rsge_documents_router)

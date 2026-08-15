@@ -38,6 +38,7 @@ TOOL_DESCRIPTIONS = {
     "get_payroll_status":         "Check RS.ge payroll submission status for a period (YYYY-MM): draft/submitted/accepted/rejected",
     "get_posting_log":            "Look up ERP posting history for a journal draft: target system, status, errors, timestamps",
     "get_monthly_close_status":   "Run the monthly close checklist for a period: unposted drafts, reconciliation, trial balance, payroll, opening balances",
+    "get_rsge_documents":         "List RS.ge-imported waybills and tax invoices; filter by seller_inn, buyer_inn, or status",
 }
 
 TOOL_NAMES = list(TOOL_DESCRIPTIONS)
@@ -1179,6 +1180,94 @@ async def _get_monthly_close_status(params: dict, tenant_id: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Sprint 3A — RS.ge document list tool
+# ─────────────────────────────────────────────────────────────
+
+async def _get_rsge_documents(params: dict, tenant_id: str) -> dict:
+    """List RS.ge-imported waybills and tax invoices.
+    params: doc_type ('waybill'|'tax_invoice'|'both'), seller_inn, buyer_inn, status, limit
+    """
+    doc_type = (params.get("doc_type") or "both").strip().lower()
+    seller_inn = (params.get("seller_inn") or "").strip()
+    buyer_inn = (params.get("buyer_inn") or "").strip()
+    status = (params.get("status") or "").strip()
+    limit = min(int(params.get("limit") or 20), 50)
+
+    waybills: list[dict] = []
+    tax_invoices_: list[dict] = []
+
+    async with get_conn() as conn:
+        if doc_type in ("waybill", "both"):
+            wb_conds = ["w.tenant_id = %s", "w.source = 'rsge_import'"]
+            wb_args: list = [tenant_id]
+            if seller_inn:
+                wb_conds.append("w.seller_inn = %s"); wb_args.append(seller_inn)
+            if buyer_inn:
+                wb_conds.append("w.buyer_inn = %s"); wb_args.append(buyer_inn)
+            if status:
+                wb_conds.append("w.status = %s"); wb_args.append(status)
+            wb_args.append(limit)
+            try:
+                rows = await conn.fetch(_q(f"""
+                    SELECT w.id, w.waybill_number, w.waybill_date,
+                           w.seller_inn, w.seller_name, w.buyer_inn, w.buyer_name,
+                           w.total_amount, w.vat_amount, w.status, w.created_at,
+                           tm.match_status, tm.match_score
+                    FROM waybills w
+                    LEFT JOIN triangle_matches tm ON tm.waybill_id=w.id AND tm.tenant_id=w.tenant_id
+                    WHERE {' AND '.join(wb_conds)}
+                    ORDER BY w.created_at DESC LIMIT %s
+                """), *wb_args)
+                waybills = [_safe(r) for r in rows]
+            except Exception as e:
+                log.debug("get_rsge_documents waybills: %s", e)
+
+        if doc_type in ("tax_invoice", "both"):
+            ti_conds = ["ti.tenant_id = %s", "ti.source = 'rsge_import'"]
+            ti_args: list = [tenant_id]
+            if seller_inn:
+                ti_conds.append("ti.seller_inn = %s"); ti_args.append(seller_inn)
+            if buyer_inn:
+                ti_conds.append("ti.buyer_inn = %s"); ti_args.append(buyer_inn)
+            if status:
+                ti_conds.append("ti.status = %s"); ti_args.append(status)
+            ti_args.append(limit)
+            try:
+                rows = await conn.fetch(_q(f"""
+                    SELECT ti.id, ti.invoice_number, ti.invoice_series, ti.invoice_date,
+                           ti.seller_inn, ti.seller_name, ti.buyer_inn, ti.buyer_name,
+                           ti.total_amount, ti.vat_amount, ti.status,
+                           ti.related_waybill_number, ti.created_at,
+                           tm.match_status, tm.match_score
+                    FROM tax_invoices ti
+                    LEFT JOIN triangle_matches tm ON tm.tax_invoice_id=ti.id AND tm.tenant_id=ti.tenant_id
+                    WHERE {' AND '.join(ti_conds)}
+                    ORDER BY ti.created_at DESC LIMIT %s
+                """), *ti_args)
+                tax_invoices_ = [_safe(r) for r in rows]
+            except Exception as e:
+                log.debug("get_rsge_documents tax_invoices: %s", e)
+
+    total = len(waybills) + len(tax_invoices_)
+    matched = sum(
+        1 for d in (waybills + tax_invoices_)
+        if d.get("match_status") in ("full_match", "partial_match")
+    )
+
+    return {
+        "approval_required": False,
+        "total": total,
+        "waybills": waybills,
+        "tax_invoices": tax_invoices_,
+        "matched_count": matched,
+        "summary": (
+            f"RS.ge: {len(waybills)} ზედნადები, {len(tax_invoices_)} ფაქტურა"
+            + (f" ({matched} matched)" if matched else "")
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
@@ -1214,4 +1303,6 @@ _TOOL_MAP = {
     "get_payroll_status":           _get_payroll_status,
     "get_posting_log":              _get_posting_log,
     "get_monthly_close_status":     _get_monthly_close_status,
+    # Sprint 3A
+    "get_rsge_documents":           _get_rsge_documents,
 }

@@ -233,3 +233,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_rsge_documents import router as rsge_documents_router
     app.include_router(rsge_documents_router)
+
+    from app.api.routes_bank_statements import router as bank_statements_router
+    app.include_router(bank_statements_router)

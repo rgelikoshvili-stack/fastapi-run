@@ -211,6 +211,19 @@ def run_db_migrations():
         from app.startup.migrations_indexes import run_index_migrations
         run_index_migrations(cur)
 
+        # Sprint 3B — bank_transactions: partner, operation_code, transaction_ref columns
+        for _bt_col in [
+            "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS partner TEXT",
+            "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS operation_code TEXT",
+            "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS transaction_ref TEXT",
+        ]:
+            try:
+                cur.execute(_bt_col)
+                conn.commit()
+            except Exception as _e:
+                conn.rollback()
+                log.debug("bank_transactions column migration skipped: %s", _e)
+
         # Sprint 3A — source column for RS.ge import tracking
         for _src_col in [
             "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'",

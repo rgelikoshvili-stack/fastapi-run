@@ -72,6 +72,7 @@ def register_routers(app: FastAPI) -> None:
     from app.api import routes_email_invoice
     from app.api.routes_email_collector import router as routes_email_collector
     from app.api.routes_balance_credentials import router as routes_balance_credentials
+    from app.api.routes_rsge_credentials import router as routes_rsge_credentials
     from app.api import routes_bank_sync
     from app.api import routes_ai_chat
     from app.api.routes_claude_chat import router as routes_claude_chat
@@ -183,6 +184,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(routes_email_invoice.router)
     app.include_router(routes_email_collector)
     app.include_router(routes_balance_credentials)
+    app.include_router(routes_rsge_credentials)
     app.include_router(routes_bank_sync.router)
     app.include_router(routes_ai_chat.router)
     app.include_router(routes_ai_recommend)

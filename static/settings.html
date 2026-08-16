@@ -973,6 +973,12 @@ function boot() {
         const exp = p.exp ? new Date(p.exp * 1000).toLocaleString('ka-GE') : '—';
         decoded.textContent = `sub: ${p.sub||'—'} · tenant_id: ${p.tenant_id||'—'} · exp: ${exp}`;
       }
+      if (p.exp && p.exp < Math.floor(Date.now() / 1000)) {
+        const b = document.createElement('div');
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:10px 16px;z-index:9999;font-size:14px;';
+        b.innerHTML = '⚠ სესია ამოიწურა — <a href="/static/approval.html" style="color:#fff;font-weight:bold;text-decoration:underline">ხელახლა შეხვიდეთ</a>';
+        document.body.prepend(b);
+      }
     } catch {}
   }
 

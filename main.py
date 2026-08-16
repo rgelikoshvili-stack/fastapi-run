@@ -175,10 +175,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        msg = detail.get("message") or f"HTTP {exc.status_code}"
+        code = detail.get("error") or f"HTTP_{exc.status_code}"
+    else:
+        msg = str(detail) if detail else f"HTTP {exc.status_code}"
+        code = f"HTTP_{exc.status_code}"
     return GeorgianJSONResponse(
         status_code=exc.status_code,
-        content={"ok": False, "message": "HTTP error", "data": None,
-                 "error": {"code": f"HTTP_{exc.status_code}", "details": str(exc.detail)}},
+        content={"ok": False, "message": msg, "data": None,
+                 "error": {"code": code, "details": str(detail)}},
     )
 
 

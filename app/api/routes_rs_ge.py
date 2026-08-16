@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime as _dt
 from typing import Optional
 
 from fastapi import APIRouter, Request, Query
@@ -431,19 +432,30 @@ async def list_waybills(
             own_tin = await _get_own_tin(conn, tenant_id)
 
             # Build WHERE clause
-            conditions = ["w.tenant_id=$1", "w.source='rsge_import'"]
+            conditions = ["w.tenant_id=$1", "w.source IN ('rsge_import', 'rsge_soap')"]
             args: list = [tenant_id]
             idx = 2
+
+            def _parse_date(s: str):
+                try:
+                    return _dt.fromisoformat(s.replace("Z", ""))
+                except (ValueError, AttributeError):
+                    return None
+
             if date_from:
-                conditions.append(
-                    f"(w.waybill_date >= ${idx}::timestamptz OR w.begin_date >= ${idx}::timestamptz)"
-                )
-                args.append(date_from); idx += 1
+                df_obj = _parse_date(date_from)
+                if df_obj:
+                    conditions.append(
+                        f"(w.waybill_date >= ${idx} OR w.begin_date >= ${idx})"
+                    )
+                    args.append(df_obj); idx += 1
             if date_to:
-                conditions.append(
-                    f"(w.waybill_date <= ${idx}::timestamptz OR w.begin_date <= ${idx}::timestamptz)"
-                )
-                args.append(date_to); idx += 1
+                dt_obj = _parse_date(date_to)
+                if dt_obj:
+                    conditions.append(
+                        f"(w.waybill_date <= ${idx} OR w.begin_date <= ${idx})"
+                    )
+                    args.append(dt_obj); idx += 1
 
             where = " AND ".join(conditions)
             rows = await conn.fetch(
@@ -1065,9 +1077,14 @@ async def _upsert_waybills(conn, tenant_id: str, waybills: list[dict], own_tin: 
             elif wb.get("buyer_tin") == own_tin:
                 direction = "in"
 
-        # Parse begin_date
+        # Parse begin_date — asyncpg needs a Python datetime, not a string
         bd_raw = wb.get("begin_date") or wb.get("create_date") or ""
-        bd = bd_raw[:10] if bd_raw else None
+        bd = None
+        if bd_raw:
+            try:
+                bd = _dt.fromisoformat(bd_raw[:19])
+            except (ValueError, TypeError):
+                bd = None
 
         goods_json = json.dumps(wb.get("goods_list") or [], ensure_ascii=False)
 
@@ -1079,7 +1096,7 @@ async def _upsert_waybills(conn, tenant_id: str, waybills: list[dict], own_tin: 
                  line_items, source, updated_at,
                  seller_name, buyer_name, driver_name, driver_tin)
             VALUES (%s, %s, %s, %s, %s,
-                    %s::date, %s, %s, %s,
+                    %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s::jsonb, 'rsge_soap', NOW(),
                     %s, %s, %s, %s)

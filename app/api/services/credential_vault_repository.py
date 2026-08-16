@@ -10,6 +10,7 @@ Never performs encryption or decryption.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -47,7 +48,7 @@ class CredentialVaultRepository:
         updated_by: Optional[str] = None,
     ) -> dict:
         now = datetime.now(timezone.utc)
-        meta = metadata or {}
+        meta = json.dumps(metadata or {})
         row = await conn.fetchrow(
             """
             INSERT INTO credential_vault_credentials (

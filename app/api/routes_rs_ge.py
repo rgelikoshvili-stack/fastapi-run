@@ -86,19 +86,25 @@ _DDL_ITEM_MAP = """
 
 # Extra columns on existing waybills table — all idempotent IF NOT EXISTS
 _DDL_WAYBILL_EXTRAS = [
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS direction    TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS rsge_id      TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS rsge_status  TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS begin_date   TIMESTAMPTZ",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS seller_tin   TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS buyer_tin    TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS car_number   TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS direction     TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS rsge_id       TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS rsge_status   TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS begin_date    TIMESTAMPTZ",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS seller_tin    TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS buyer_tin     TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS car_number    TEXT",
     "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS start_address TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS end_address  TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS full_amount  NUMERIC(15,2)",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS comment      TEXT",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS draft_id     INTEGER",
-    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS draft_status TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS end_address   TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS full_amount   NUMERIC(15,2)",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS comment       TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS draft_id      INTEGER",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS draft_status  TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS seller_name   TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS buyer_name    TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS driver_name   TEXT",
+    "ALTER TABLE waybills ADD COLUMN IF NOT EXISTS driver_tin    TEXT",
+    # unique constraint for rsge_id upsert
+    "CREATE UNIQUE INDEX IF NOT EXISTS waybills_tenant_rsge_id ON waybills(tenant_id, rsge_id) WHERE rsge_id IS NOT NULL",
 ]
 
 
@@ -980,4 +986,269 @@ async def create_document_draft(doc_id: int, body: CreateDocDraftPayload, reques
         return ok_response("Draft created", {"draft_id": draft_id})
     except Exception as exc:
         log.error("create_document_draft error: %s", exc)
+        return error_response(str(exc)[:200], "DB_ERROR", str(exc))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Live RS.ge SOAP sync
+# ──────────────────────────────────────────────────────────────────────────────
+
+class SyncPayload(BaseModel):
+    date_from: Optional[str] = None  # ISO date "2024-01-01"
+    date_to: Optional[str] = None    # ISO date "2024-01-31"
+    mode: str = "v1"                 # "v1" (by update date) | "seller" | "buyer" | "both"
+
+
+async def _get_service_creds(conn, tenant_id: str):
+    """Return (su, sp) for SOAP service user, reading from credential vault."""
+    from app.api.services.credential_vault_service import CredentialVaultService
+    vault = CredentialVaultService()
+
+    # Try service_password first (dedicated service user)
+    try:
+        sp = await vault.get_for_connector(
+            conn,
+            tenant_id=tenant_id,
+            provider="rsge",
+            credential_type="service_password",
+            actor="sync",
+            purpose="waybill_sync",
+        )
+        # service_username is stored in vault metadata, but we also have it in the table
+        row = await conn.fetchrow(_q(
+            "SELECT service_username, username FROM tenant_rsge_credentials WHERE tenant_id=%s"
+        ), tenant_id)
+        if row and row["service_username"]:
+            return row["service_username"], sp
+        if row:
+            return row["username"], sp
+        return None, None
+    except RuntimeError as e:
+        if "CREDENTIAL_NOT_FOUND" not in str(e):
+            raise
+        # Fall back to portal credentials
+        pass
+
+    try:
+        sp = await vault.get_for_connector(
+            conn,
+            tenant_id=tenant_id,
+            provider="rsge",
+            credential_type="portal_password",
+            actor="sync",
+            purpose="waybill_sync",
+        )
+        row = await conn.fetchrow(_q(
+            "SELECT username FROM tenant_rsge_credentials WHERE tenant_id=%s"
+        ), tenant_id)
+        if row:
+            return row["username"], sp
+    except RuntimeError:
+        pass
+
+    return None, None
+
+
+async def _upsert_waybills(conn, tenant_id: str, waybills: list[dict], own_tin: str) -> int:
+    """Upsert waybills from RS.ge into local DB. Returns count inserted/updated."""
+    count = 0
+    for wb in waybills:
+        rsge_id = wb.get("rsge_id") or ""
+        if not rsge_id:
+            continue
+
+        # Determine direction from own_tin
+        direction = "unknown"
+        if own_tin:
+            if wb.get("seller_tin") == own_tin:
+                direction = "out"
+            elif wb.get("buyer_tin") == own_tin:
+                direction = "in"
+
+        # Parse begin_date
+        bd_raw = wb.get("begin_date") or wb.get("create_date") or ""
+        bd = bd_raw[:10] if bd_raw else None
+
+        goods_json = json.dumps(wb.get("goods_list") or [], ensure_ascii=False)
+
+        await conn.execute(_q("""
+            INSERT INTO waybills
+                (tenant_id, rsge_id, waybill_number, direction, rsge_status,
+                 begin_date, seller_tin, buyer_tin, car_number,
+                 start_address, end_address, full_amount, comment,
+                 line_items, source, updated_at,
+                 seller_name, buyer_name, driver_name, driver_tin)
+            VALUES (%s, %s, %s, %s, %s,
+                    %s::date, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s::jsonb, 'rsge_soap', NOW(),
+                    %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, rsge_id) DO UPDATE
+            SET waybill_number = EXCLUDED.waybill_number,
+                direction      = EXCLUDED.direction,
+                rsge_status    = EXCLUDED.rsge_status,
+                begin_date     = EXCLUDED.begin_date,
+                seller_tin     = EXCLUDED.seller_tin,
+                buyer_tin      = EXCLUDED.buyer_tin,
+                car_number     = EXCLUDED.car_number,
+                start_address  = EXCLUDED.start_address,
+                end_address    = EXCLUDED.end_address,
+                full_amount    = EXCLUDED.full_amount,
+                comment        = EXCLUDED.comment,
+                line_items     = EXCLUDED.line_items,
+                source         = EXCLUDED.source,
+                seller_name    = EXCLUDED.seller_name,
+                buyer_name     = EXCLUDED.buyer_name,
+                driver_name    = EXCLUDED.driver_name,
+                driver_tin     = EXCLUDED.driver_tin,
+                updated_at     = NOW()
+        """),
+            tenant_id, rsge_id, wb.get("waybill_number"), direction,
+            wb.get("status"), bd, wb.get("seller_tin"), wb.get("buyer_tin"),
+            wb.get("car_number"), wb.get("start_address"), wb.get("end_address"),
+            wb.get("full_amount"), wb.get("comment"), goods_json,
+            wb.get("seller_name"), wb.get("buyer_name"),
+            wb.get("driver_name"), wb.get("driver_tin"),
+        )
+        count += 1
+    return count
+
+
+@router.post("/sync")
+async def sync_waybills_from_rsge(body: SyncPayload, request: Request):
+    """Fetch waybills from RS.ge SOAP API and store them in the local DB.
+
+    Requires service user credentials (su/sp) saved via POST /rsge-credentials/save.
+    Service users are created in the RS.ge portal under: Settings → Service Users.
+
+    mode=v1   : get_waybills_v1 — both seller+buyer, by last-update date (max 3-day window)
+    mode=both : get_waybills (seller) + get_buyer_waybills (buyer) in one call
+    mode=seller: get_waybills only
+    mode=buyer : get_buyer_waybills only
+    """
+    require_permission(request, "settings:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    from datetime import datetime, timedelta
+    from app.api.services import rsge_waybill_soap as soap
+
+    try:
+        # Parse date range
+        date_to_dt = datetime.now()
+        if body.date_to:
+            date_to_dt = datetime.fromisoformat(body.date_to.replace("Z", ""))
+            if date_to_dt.hour == 0 and date_to_dt.minute == 0:
+                date_to_dt = date_to_dt.replace(hour=23, minute=59, second=59)
+
+        if body.date_from:
+            date_from_dt = datetime.fromisoformat(body.date_from.replace("Z", ""))
+        else:
+            date_from_dt = date_to_dt - timedelta(days=30)
+
+        async with get_conn() as conn:
+            await _ensure_schemas(conn)
+
+            su, sp = await _get_service_creds(conn, tenant_id)
+            if not su or not sp:
+                return error_response(
+                    "RS.ge სერვისის მომხმარებელი (su/sp) არ არის შენახული. "
+                    "შეინახეთ Settings → RS.ge-ში.",
+                    "NO_SERVICE_CREDENTIALS",
+                    "Save service_username + service_password via /rsge-credentials/save",
+                )
+
+            own_tin = await _get_own_tin(conn, tenant_id)
+
+            # Collect waybills; chunk v1 into 3-day windows
+            all_waybills: list[dict] = []
+            errors: list[str] = []
+
+            if body.mode == "v1":
+                # get_waybills_v1 has a 3-day max window
+                cursor = date_from_dt
+                while cursor < date_to_dt:
+                    window_end = min(cursor + timedelta(days=3), date_to_dt)
+                    try:
+                        chunk = soap.get_waybills_v1(su, sp, cursor, window_end)
+                        all_waybills.extend(chunk)
+                    except Exception as e:
+                        errors.append(f"{cursor.date()}–{window_end.date()}: {e}")
+                        log.warning("rsge sync v1 chunk error: %s", e)
+                    cursor = window_end
+
+            elif body.mode in ("seller", "both"):
+                try:
+                    seller_wbs = soap.get_waybills(su, sp, date_from_dt, date_to_dt)
+                    all_waybills.extend(seller_wbs)
+                except Exception as e:
+                    errors.append(f"seller: {e}")
+                    log.warning("rsge sync seller error: %s", e)
+
+            if body.mode in ("buyer", "both"):
+                try:
+                    buyer_wbs = soap.get_buyer_waybills(su, sp, date_from_dt, date_to_dt)
+                    # avoid duplicates by rsge_id
+                    seen = {w.get("rsge_id") for w in all_waybills}
+                    all_waybills.extend(w for w in buyer_wbs if w.get("rsge_id") not in seen)
+                except Exception as e:
+                    errors.append(f"buyer: {e}")
+                    log.warning("rsge sync buyer error: %s", e)
+
+            # Upsert into waybills table
+            count = await _upsert_waybills(conn, tenant_id, all_waybills, own_tin or "")
+
+        return ok_response(
+            f"სინქი დასრულდა: {count} ზედნადები შემოვიდა RS.ge-დან",
+            {
+                "synced": count,
+                "fetched": len(all_waybills),
+                "date_from": date_from_dt.isoformat(),
+                "date_to": date_to_dt.isoformat(),
+                "errors": errors,
+                "soap_endpoint": soap.WAYBILL_SOAP_URL,
+            },
+        )
+
+    except Exception as exc:
+        log.error("rsge sync error: %s", exc)
+        return error_response(str(exc)[:300], "SYNC_ERROR", str(exc))
+
+
+@router.get("/sync/status")
+async def sync_status(request: Request):
+    """Return last sync stats and credential readiness for rsge-sync.html."""
+    require_permission(request, "settings:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+
+    try:
+        async with get_conn() as conn:
+            await _ensure_schemas(conn)
+
+            creds_row = await conn.fetchrow(_q(
+                "SELECT username, service_username, credential_status "
+                "FROM tenant_rsge_credentials WHERE tenant_id=%s"
+            ), tenant_id)
+
+            waybill_count = await conn.fetchval(_q(
+                "SELECT COUNT(*) FROM waybills WHERE tenant_id=%s AND source='rsge_soap'"
+            ), tenant_id) or 0
+
+            latest = await conn.fetchrow(_q(
+                "SELECT MAX(updated_at) AS last_sync FROM waybills WHERE tenant_id=%s AND source='rsge_soap'"
+            ), tenant_id)
+
+        configured = bool(creds_row and creds_row["credential_status"] == "active")
+        has_service_user = bool(creds_row and creds_row.get("service_username"))
+
+        return ok_response("ok", {
+            "configured": configured,
+            "has_service_user": has_service_user,
+            "service_username": creds_row["service_username"] if creds_row else None,
+            "portal_username": creds_row["username"] if creds_row else None,
+            "synced_waybill_count": int(waybill_count),
+            "last_sync": latest["last_sync"].isoformat() if latest and latest["last_sync"] else None,
+            "soap_endpoint": "https://services.rs.ge/WayBillService/WayBillService.asmx",
+        })
+    except Exception as exc:
+        log.error("sync_status error: %s", exc)
         return error_response(str(exc)[:200], "DB_ERROR", str(exc))

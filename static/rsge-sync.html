@@ -286,9 +286,13 @@ td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-
         <input type="date" class="date-input" id="wbDateTo" onchange="loadWaybills()"/>
         <button class="btn btn-secondary" onclick="clearDates();loadWaybills()" style="margin-left:4px;font-size:11.5px">ყველა</button>
         <div style="flex:1"></div>
-        <button class="btn btn-primary" onclick="loadWaybills()" style="font-size:12px">
-          <svg style="width:12px;height:12px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-          RS.ge-დან ჩამ.
+        <button class="btn btn-secondary" onclick="loadWaybills()" style="font-size:12px">
+          <svg style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          ლოკ. DB
+        </button>
+        <button class="btn btn-primary" id="btnLiveSync" onclick="liveSync()" style="font-size:12px;margin-left:4px" title="RS.ge SOAP API-დან ზედნადებების სინქ.">
+          <svg style="width:12px;height:12px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          RS.ge სინქ.
         </button>
       </div>
 
@@ -1585,6 +1589,59 @@ async function deleteItemMap(id){
   document.getElementById('wbDateTo').value=`${y}-${m}-${String(now.getDate()).padStart(2,'0')}`;
 })();
 loadWaybills();
+
+// ── LIVE RS.ge SOAP SYNC ──────────────────────────────────────────────────────
+async function liveSync() {
+  const btn = document.getElementById('btnLiveSync');
+  const df = document.getElementById('wbDateFrom').value || '';
+  const dt = document.getElementById('wbDateTo').value   || '';
+  btn.disabled = true;
+  btn.textContent = '⏳ ...';
+  try {
+    const body = {mode: 'v1'};
+    if(df) body.date_from = df;
+    if(dt) body.date_to   = dt;
+    const r = await fetch('/rs-ge/sync', {
+      method:'POST',
+      headers:H(),
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if(j.ok) {
+      showToast(`✅ სინქ. დასრ. — ${j.data.synced} ζεδ.`);
+      await loadWaybills();
+    } else {
+      const msg = j.error?.details || j.message || 'შეცდომა';
+      if(msg.includes('NO_SERVICE_CREDENTIALS') || msg.includes('service_username')) {
+        showToast('⚠️ სერვისის მომხმ. არ არის — იხ. პარამ. ჩანართი', 'warn');
+        switchTab('settings');
+      } else {
+        showToast('❌ ' + j.message, 'error');
+      }
+    }
+  } catch(e) {
+    showToast('❌ კავშირის შეცდომა: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg style="width:12px;height:12px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> RS.ge სინქ.';
+  }
+}
+
+function showToast(msg, type='ok') {
+  let t = document.getElementById('_toast');
+  if(!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:500;z-index:9999;max-width:350px;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = type==='error'?'#c0392b':type==='warn'?'#d68910':'#27ae60';
+  t.style.color = '#fff';
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>{ t.style.opacity='0'; }, 4000);
+}
 </script>
 
 <script src="/static/js/sidebar.js"></script>

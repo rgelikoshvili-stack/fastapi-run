@@ -32,6 +32,7 @@ _ENSURE_SCHEMA = """
         taxpayer_inn         TEXT DEFAULT '',
         credential_vault_ref TEXT,
         credential_status    TEXT NOT NULL DEFAULT 'legacy_plaintext',
+        service_username     TEXT,
         updated_at           TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE tenant_rsge_credentials ALTER COLUMN password DROP NOT NULL;
@@ -39,6 +40,8 @@ _ENSURE_SCHEMA = """
         ADD COLUMN IF NOT EXISTS credential_vault_ref TEXT;
     ALTER TABLE tenant_rsge_credentials
         ADD COLUMN IF NOT EXISTS credential_status TEXT NOT NULL DEFAULT 'legacy_plaintext';
+    ALTER TABLE tenant_rsge_credentials
+        ADD COLUMN IF NOT EXISTS service_username TEXT;
     UPDATE tenant_rsge_credentials
         SET credential_status = 'rotation_required'
         WHERE password IS NOT NULL AND password NOT IN ('', '[stored-in-vault]')
@@ -50,6 +53,8 @@ class RsgeCredsPayload(BaseModel):
     username: str
     password: str
     taxpayer_inn: Optional[str] = ""
+    service_username: Optional[str] = None
+    service_password: Optional[str] = None
 
 
 async def _ensure_schema(conn) -> None:
@@ -173,24 +178,41 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
             )
             vault_ref = str(vault_record.get("id", ""))
 
+            # If service_password provided, save it separately in the vault
+            if body.service_password:
+                await vault.save_credential(
+                    conn,
+                    tenant_id=tenant_id,
+                    provider="rsge",
+                    credential_type="service_password",
+                    raw_value=body.service_password,
+                    metadata={"service_username": body.service_username or body.username},
+                    actor=getattr(request.state, "user_id", "api"),
+                )
+
             # Update metadata row — no plaintext password
             await conn.execute(_q("""
                 INSERT INTO tenant_rsge_credentials
-                    (tenant_id, username, password, taxpayer_inn, credential_vault_ref, credential_status)
-                VALUES (%s, %s, '[stored-in-vault]', %s, %s, 'active')
+                    (tenant_id, username, password, taxpayer_inn, credential_vault_ref,
+                     credential_status, service_username)
+                VALUES (%s, %s, '[stored-in-vault]', %s, %s, 'active', %s)
                 ON CONFLICT (tenant_id) DO UPDATE
                 SET username             = EXCLUDED.username,
                     password             = '[stored-in-vault]',
                     taxpayer_inn         = EXCLUDED.taxpayer_inn,
                     credential_vault_ref = EXCLUDED.credential_vault_ref,
                     credential_status    = 'active',
+                    service_username     = EXCLUDED.service_username,
                     updated_at           = NOW()
-            """), tenant_id, body.username, body.taxpayer_inn or "", vault_ref)
+            """), tenant_id, body.username, body.taxpayer_inn or "", vault_ref,
+                body.service_username or None)
 
         log.info("rsge_creds saved to vault for tenant=%s username=%s", tenant_id, body.username)
         return ok_response("ok", {
             "message": "RS.ge credentials saved (encrypted in vault)",
             "username": body.username,
+            "service_username": body.service_username,
+            "service_password_saved": bool(body.service_password),
             "credential_status": "active",
         })
 

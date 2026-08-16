@@ -42,6 +42,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "budget:write",
         "crm:read",
         "crm:write",
+        "documents:read",
+        "documents:write",
     },
     "accountant": {
         "reports:read",
@@ -72,6 +74,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "budget:write",
         "crm:read",
         "crm:write",
+        "documents:read",
+        "documents:write",
     },
     "reviewer": {
         "reports:read",
@@ -91,6 +95,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "assets:read",
         "budget:read",
         "crm:read",
+        "documents:read",
     },
     "viewer": {
         "reports:read",
@@ -108,6 +113,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "assets:read",
         "budget:read",
         "crm:read",
+        "documents:read",
     },
     "cfo": {
         "reports:read",
@@ -126,6 +132,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "budget:read",
         "budget:write",
         "crm:read",
+        "documents:read",
+        "documents:write",
     },
     "ai_supervisor": {
         "reports:read",

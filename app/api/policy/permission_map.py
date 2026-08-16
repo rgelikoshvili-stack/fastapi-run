@@ -210,6 +210,10 @@
     ("*",      "/balance-credentials","settings:write"),
     ("*",      "/rsge-credentials",   "settings:write"),
     ("*",      "/api-docs",           "settings:write"),
+    ("GET",    "/rs-ge",              "documents:read"),
+    ("POST",   "/rs-ge",              "documents:write"),
+    ("PATCH",  "/rs-ge",              "documents:write"),
+    ("DELETE", "/rs-ge",              "documents:write"),
 
     # ── Chat / Collaboration ──────────────────────────────────────────────────
     ("*",      "/chat",               "chat:use"),

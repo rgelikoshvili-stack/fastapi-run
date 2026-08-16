@@ -247,3 +247,6 @@ def register_routers(app: FastAPI) -> None:
 
     from app.api.routes_cockpit import router as cockpit_router
     app.include_router(cockpit_router)
+
+    from app.api.routes_rs_ge import router as rs_ge_router
+    app.include_router(rs_ge_router)

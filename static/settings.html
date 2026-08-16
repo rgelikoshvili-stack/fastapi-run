@@ -1119,10 +1119,11 @@ async function testRsGeConn() {
   msg.textContent = '🔌 ვამოწმებ...';
   const d = await api('/rsge-credentials/test', 'POST');
   if (d && d.ok) {
-    msg.textContent = '✅ ' + (d.message || 'წარმატებულია');
+    msg.textContent = '✅ ' + (d.message || d.data?.message || 'წარმატებულია');
     msg.style.color = 'var(--green)';
   } else {
-    msg.textContent = '❌ ' + (d?.error || 'credentials არ მოიძებნა');
+    const errText = d?.message || d?.error?.details || d?.error?.code || 'credentials არ მოიძებნა';
+    msg.textContent = '❌ ' + errText;
     msg.style.color = 'var(--red)';
   }
 }
@@ -1143,7 +1144,7 @@ async function saveRsGeCreds() {
     document.getElementById('rsge-status-chip').className = 'chip chip-approved';
     toast('RS.ge credentials შენახულია', 'ok');
   } else {
-    msg.textContent = '❌ ' + (d?.error || 'შეცდომა');
+    msg.textContent = '❌ ' + (d?.message || d?.error?.details || d?.error?.code || 'შეცდომა');
     msg.style.color = 'var(--red)';
   }
 }

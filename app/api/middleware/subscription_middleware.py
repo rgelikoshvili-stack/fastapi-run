@@ -107,6 +107,10 @@ _APPROVAL_MUTATION_PREFIXES: tuple[str, ...] = (
 _CREDENTIAL_WRITE_EXACT: frozenset[str] = frozenset({
     "/balance-credentials/save",
     "/balance-credentials/test",
+})
+
+# RS.ge credential config is tenant setup, not a billable action — read-safe
+_RSGE_CREDENTIAL_CONFIG_EXACT: frozenset[str] = frozenset({
     "/rsge-credentials/save",
     "/rsge-credentials/test",
 })
@@ -158,12 +162,16 @@ def _classify_path(path: str, method: str) -> str:
     if path.startswith("/approval/") and method not in ("GET", "HEAD", "OPTIONS"):
         return ActionCategory.APPROVAL_MUTATION
 
-    # Credential writes
+    # RS.ge credential config — read-safe (tenant setup, not billable)
+    if path in _RSGE_CREDENTIAL_CONFIG_EXACT:
+        return ActionCategory.READ_SAFE
+    if path.startswith("/rsge-credentials/"):
+        return ActionCategory.READ_SAFE
+
+    # Credential writes (Balance.ge only)
     if path in _CREDENTIAL_WRITE_EXACT:
         return ActionCategory.CREDENTIAL_WRITE
     if path.startswith("/balance-credentials/") and method not in ("GET", "HEAD"):
-        return ActionCategory.CREDENTIAL_WRITE
-    if path.startswith("/rsge-credentials/") and method not in ("GET", "HEAD"):
         return ActionCategory.CREDENTIAL_WRITE
 
     # Document upload

@@ -97,8 +97,6 @@ SENSITIVE_PATHS = [
     ("/approval/correct/1", "POST", ActionCategory.APPROVAL_MUTATION),
     ("/balance-credentials/save", "POST", ActionCategory.CREDENTIAL_WRITE),
     ("/balance-credentials/test", "POST", ActionCategory.CREDENTIAL_WRITE),
-    ("/rsge-credentials/save", "POST", ActionCategory.CREDENTIAL_WRITE),
-    ("/rsge-credentials/test", "POST", ActionCategory.CREDENTIAL_WRITE),
     ("/documents/upload", "POST", ActionCategory.DOCUMENT_UPLOAD),
     ("/erp/import", "POST", ActionCategory.ADMIN_MUTATION),
     ("/erp/sync", "POST", ActionCategory.ADMIN_MUTATION),

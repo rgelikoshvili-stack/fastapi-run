@@ -62,6 +62,62 @@ async def _ensure_schema(conn) -> None:
                 log.debug("rsge_creds schema stmt skipped (%s): %s", stmt[:60], _ddl_err)
 
 
+_ENSURE_VAULT_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS credential_vault_credentials (
+        id                  TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        tenant_id           TEXT        NOT NULL,
+        provider            TEXT        NOT NULL,
+        credential_type     TEXT        NOT NULL,
+        encrypted_value     TEXT        NOT NULL,
+        key_version         TEXT        NOT NULL,
+        masked_hint         TEXT,
+        status              TEXT        NOT NULL DEFAULT 'active',
+        active              BOOLEAN     NOT NULL DEFAULT TRUE,
+        company_id          TEXT,
+        api_base            TEXT,
+        metadata            JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        last_test_status    TEXT,
+        last_tested_at      TIMESTAMPTZ,
+        last_accessed_at    TIMESTAMPTZ,
+        rotated_at          TIMESTAMPTZ,
+        revoked_at          TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by          TEXT,
+        updated_by          TEXT,
+        CONSTRAINT uq_credential_vault_tenant_provider_type
+            UNIQUE (tenant_id, provider, credential_type)
+    )
+"""
+
+_ENSURE_VAULT_AUDIT_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS credential_vault_audit_events (
+        id              TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        tenant_id       TEXT        NOT NULL,
+        provider        TEXT        NOT NULL,
+        credential_type TEXT        NOT NULL,
+        action          TEXT        NOT NULL,
+        actor           TEXT,
+        purpose         TEXT,
+        result          TEXT        NOT NULL DEFAULT 'success',
+        key_version     TEXT,
+        request_id      TEXT,
+        metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+"""
+
+
+async def _ensure_vault_schema(conn) -> None:
+    for stmt in (_ENSURE_VAULT_SCHEMA, _ENSURE_VAULT_AUDIT_SCHEMA):
+        stmt = stmt.strip()
+        if stmt:
+            try:
+                await conn.execute(stmt)
+            except Exception as _ddl_err:
+                log.debug("vault schema stmt skipped: %s", _ddl_err)
+
+
 @router.get("/status")
 async def get_status(request: Request):
     require_permission(request, "settings:write")
@@ -103,6 +159,7 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
 
         async with get_conn() as conn:
             await _ensure_schema(conn)
+            await _ensure_vault_schema(conn)
 
             # Encrypt and store in credential_vault_credentials
             vault_record = await vault.save_credential(
@@ -139,8 +196,9 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
 
     except Exception as e:
         log.error("rsge save_creds error (vault write): %s", e)
+        brief = str(e)[:200]
         return error_response(
-            "Failed to save RS.ge credentials. Vault may not be configured.",
+            f"RS.ge credentials save failed: {brief}",
             "CREDENTIAL_VAULT_ERROR",
             str(e),
         )

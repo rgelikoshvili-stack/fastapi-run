@@ -92,6 +92,12 @@ const _BH_SIDEBAR_HTML = `
     <span class="lbl">Purchases &amp; Sales</span>
   </div>
 
+  <!-- ─── RS.ge ────────────────────────────────── -->
+  <div class="sec">RS.ge</div>
+  <div class="item" data-page="rs-sync" onclick="location.href='/static/rsge-sync.html'">
+    <svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+    <span class="lbl">RS.ge სინქ.</span>
+  </div>
   <!-- ─── გადასახადები ──────────────────────────── -->
   <div class="sec">გადასახადები</div>
   <div class="item" data-page="vat" onclick="location.href='/static/vat_declaration.html'">

@@ -1198,6 +1198,14 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
       <svg class="ic" viewBox="0 0 24 24"><path d="M12 4v12m-4-4l4 4 4-4"/><path d="M4 20h16"/></svg>
       <span class="lbl">Export</span>
     </div>
+    <div class="item" onclick="goPage('rsge-import',this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span class="lbl">RS.ge შემოტანა</span>
+    </div>
+    <div class="item" onclick="goPage('bank-import',this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span class="lbl">ბ/გ ამონაწერი</span>
+    </div>
 
     <!-- გამავალი -->
     <div class="sec">გამავალი</div>
@@ -1239,6 +1247,22 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
     <div class="item" onclick="location.href='/static/settings.html'">
       <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.2 4.2l4.3 4.3M15.5 15.5l4.3 4.3M1 12h6M17 12h6M4.2 19.8l4.3-4.3M15.5 8.5l4.3-4.3"/></svg>
       <span class="lbl">⚙ Settings</span>
+    </div>
+
+    <!-- ბუღ. ანალიტიკა -->
+    <div class="sec">ბუღ. ანალიტიკა</div>
+    <div class="item" onclick="goPage('cross-ref',this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <span class="lbl">Cross-Reference</span>
+    </div>
+    <div class="item" onclick="goPage('ledger-truth',this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span class="lbl">Ledger Truth</span>
+    </div>
+    <div class="item" onclick="goPage('cockpit',this)">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      <span class="lbl">ბუღ. Cockpit</span>
+      <span class="badge-ai">CFO</span>
     </div>
   </nav>
 
@@ -2334,11 +2358,18 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
         </div>
         <div class="set-item">
           <h4>RS.GE</h4>
-          <div class="form-grid c1">
+          <div class="form-grid c2">
+            <div class="field"><label>Username / Email</label><input class="inp" id="set-rs-user" type="text" placeholder="user@company.ge"/></div>
+            <div class="field"><label>Password</label><input class="inp" id="set-rs-pass" type="password" placeholder="••••••••"/></div>
             <div class="field"><label>API Key</label><input class="inp" id="set-rs-key" type="password" placeholder="RS.GE API Key"/></div>
-            <div class="field"><label>საიდენტიფიკაციო კოდი</label><input class="inp" id="set-rs-tin" type="text"/></div>
+            <div class="field"><label>საიდ. კოდი (TIN / INN)</label><input class="inp" id="set-rs-tin" type="text" placeholder="202192643"/></div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="testConnection('rs-ge')" style="margin-top:10px">Test Connection</button>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="testRsgeConnection()">Test Connection</button>
+            <button class="btn btn-primary btn-sm" onclick="saveRsgeCredentials()">შენახვა</button>
+            <span id="rsge-status-chip" class="status-pill" style="display:none"></span>
+          </div>
+          <div style="margin-top:8px"><a href="https://eservice.rs.ge" target="_blank" rel="noopener" style="font-family:var(--mono);font-size:11px;color:var(--accent);text-decoration:none;letter-spacing:.04em">↗ eservice.rs.ge</a></div>
         </div>
         <div class="set-item">
           <h4>Bank Direct Sync</h4>
@@ -2363,6 +2394,296 @@ textarea.inp{resize:vertical;min-height:72px;font-family:inherit}
             <div class="field"><label>App Password</label><input class="inp" type="password"/></div>
           </div>
           <button class="btn btn-ghost btn-sm" onclick="toast('📨 Test email გაიგზავნა','ok')" style="margin-top:10px">Test</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ RS.GE IMPORT ════════ -->
+    <div class="page" id="pg-rsge-import">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Operations · RS.ge</div>
+          <div class="p-title">RS.ge შემოტანა <em>· import</em></div>
+          <div class="p-sub">ზედნადებები და საგ. ანგ-ფაქტურები RS.ge-დან სისტემაში.</div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><div class="card-title">ზედნადების იმპორტი</div></div>
+          <div class="card-body">
+            <div class="upload-zone" id="wb-drop" onclick="document.getElementById('wb-file').click()">
+              <div class="uz-ic">↑</div>
+              <div class="uz-t">XML ფაილი ან ჩამოაგდე</div>
+              <div class="uz-s">RS.ge ზედნადები · XML / ZIP</div>
+            </div>
+            <input type="file" id="wb-file" style="display:none" accept=".xml,.zip" onchange="importWaybill(this.files[0])"/>
+            <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="document.getElementById('wb-file').click()">ფაილის არჩევა</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">საგ. ანგ-ფაქტურის იმპორტი</div></div>
+          <div class="card-body">
+            <div class="upload-zone" id="ti-drop" onclick="document.getElementById('ti-file').click()">
+              <div class="uz-ic">↑</div>
+              <div class="uz-t">XML ფაილი ან ჩამოაგდე</div>
+              <div class="uz-s">RS.ge ანგ-ფაქტურა · XML / ZIP</div>
+            </div>
+            <input type="file" id="ti-file" style="display:none" accept=".xml,.zip" onchange="importTaxInvoice(this.files[0])"/>
+            <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="document.getElementById('ti-file').click()">ფაილის არჩევა</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <div class="card-title">იმპორტის შედეგი</div>
+          <button class="btn btn-ghost btn-sm" onclick="clearRsgeResult()">გასუფთავება</button>
+        </div>
+        <div class="card-body" id="rsge-import-result">
+          <div class="empty"><div class="empty-ic">ↀ</div><div class="empty-txt">ატვირთეთ ფაილი იმპორტისთვის</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ BANK STATEMENT IMPORT ════════ -->
+    <div class="page" id="pg-bank-import">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Operations · Bank</div>
+          <div class="p-title">ბ/გ ამონაწერი <em>· import</em></div>
+          <div class="p-sub">TBC / BOG CSV ან XLSX ამონაწერის სისტემაში ჩატვირთვა.</div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><div class="card-title">ამონაწერის ატვირთვა</div></div>
+          <div class="card-body">
+            <div class="form-grid c2" style="margin-bottom:14px">
+              <div class="field">
+                <label>ბანკი</label>
+                <select class="inp" id="bs-bank" style="font-family:var(--mono);font-size:12.5px">
+                  <option value="tbc">TBC Bank</option>
+                  <option value="bog">Bank of Georgia</option>
+                  <option value="other">სხვა</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>ვალუტა</label>
+                <select class="inp" id="bs-currency" style="font-family:var(--mono);font-size:12.5px">
+                  <option value="GEL">GEL ₾</option>
+                  <option value="USD">USD $</option>
+                  <option value="EUR">EUR €</option>
+                </select>
+              </div>
+            </div>
+            <div class="upload-zone" id="bs-drop" onclick="document.getElementById('bs-file').click()">
+              <div class="uz-ic">↑</div>
+              <div class="uz-t">CSV / XLSX ჩამოაგდე ან დააჭირე</div>
+              <div class="uz-s">TBC / BOG ამონაწერი · max 10MB</div>
+            </div>
+            <input type="file" id="bs-file" style="display:none" accept=".csv,.xlsx,.xls" onchange="importBankStatement(this.files[0])"/>
+            <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="document.getElementById('bs-file').click()">ფაილის არჩევა</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">იმპორტის სტატუსი</div></div>
+          <div class="card-body" id="bs-import-result">
+            <div class="empty"><div class="empty-ic">Δ</div><div class="empty-txt">ამონაწერი ჯერ არ ატვირთულა</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ CROSS-REFERENCE ════════ -->
+    <div class="page" id="pg-cross-ref">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Analytics · Cross-Reference</div>
+          <div class="p-title">Cross-Reference <em>· viewer</em></div>
+          <div class="p-sub">კომპანიის, პარტნიორის ან დოკუმენტის ჯვარული შემოწმება.</div>
+        </div>
+        <div class="p-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadCrossRef()">↻ განახლება</button>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-head"><div class="card-title">პარტნიორის ძებნა</div></div>
+          <div class="card-body">
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <input class="inp" id="cr-party-q" placeholder="სახელი, TIN ან IBAN…" style="flex:1" onkeydown="if(event.key==='Enter')searchCrossRefParty()"/>
+              <select class="inp" id="cr-party-type" style="width:120px;font-family:var(--mono);font-size:12px">
+                <option value="">ყველა</option>
+                <option value="supplier">მომწოდებელი</option>
+                <option value="customer">კლიენტი</option>
+                <option value="employee">თანამშრომელი</option>
+              </select>
+              <button class="btn btn-primary btn-sm" onclick="searchCrossRefParty()">ძებნა</button>
+            </div>
+            <div id="cr-party-result">
+              <div class="empty"><div class="empty-ic">⌕</div><div class="empty-txt">შეიყვანეთ საძიებო სტრიქონი</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">დოკუმენტის ძებნა</div></div>
+          <div class="card-body">
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <input class="inp" id="cr-doc-q" placeholder="ნომერი ან ID…" style="flex:1" onkeydown="if(event.key==='Enter')searchCrossRefDoc()"/>
+              <select class="inp" id="cr-doc-type" style="width:120px;font-family:var(--mono);font-size:12px">
+                <option value="">ყველა</option>
+                <option value="waybill">ზედნადები</option>
+                <option value="tax_invoice">ანგ-ფაქტურა</option>
+                <option value="bank_statement">ბ/გ ამონ.</option>
+              </select>
+              <button class="btn btn-primary btn-sm" onclick="searchCrossRefDoc()">ძებნა</button>
+            </div>
+            <div id="cr-doc-result">
+              <div class="empty"><div class="empty-ic">⌕</div><div class="empty-txt">შეიყვანეთ საძიებო სტრიქონი</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ LEDGER TRUTH ════════ -->
+    <div class="page" id="pg-ledger-truth">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Analytics · Posted Ledger</div>
+          <div class="p-title">Ledger Truth <em>· health</em></div>
+          <div class="p-sub">გატარებული ჩანაწერების სიზუსტე და შეუსაბამობების აღმოჩენა.</div>
+        </div>
+        <div class="p-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadLedgerTruth()">↻ განახლება</button>
+          <button class="btn btn-primary btn-sm" onclick="runFullLedgerReport()">სრული რეპორტი</button>
+        </div>
+      </div>
+
+      <!-- KPI row -->
+      <div class="grid-4" style="margin-bottom:16px">
+        <div class="kpi kpi-green">
+          <div class="kpi-label">Health Score</div>
+          <div class="kpi-val" id="lt-score">—</div>
+          <div class="kpi-delta" id="lt-label">checking…</div>
+        </div>
+        <div class="kpi kpi-red">
+          <div class="kpi-label">Phantom Posts</div>
+          <div class="kpi-val" id="lt-phantom">—</div>
+          <div class="kpi-delta">draft=posted, log=missing</div>
+        </div>
+        <div class="kpi kpi-amber">
+          <div class="kpi-label">Sync Mismatches</div>
+          <div class="kpi-val" id="lt-mismatch">—</div>
+          <div class="kpi-delta">draft vs log status</div>
+        </div>
+        <div class="kpi kpi-blue">
+          <div class="kpi-label">Failed Unretried</div>
+          <div class="kpi-val" id="lt-failed">—</div>
+          <div class="kpi-delta">posting_logs failed</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><div class="card-title">სრული Health Report</div></div>
+          <div class="card-body" id="lt-report-body">
+            <div class="empty"><div class="empty-ic">ℒ</div><div class="empty-txt">დააჭირეთ "სრული რეპორტი" ღილაკს</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">Failed Postings</div></div>
+          <div class="card-body" id="lt-failed-body">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ CHIEF ACCOUNTANT COCKPIT ════════ -->
+    <div class="page" id="pg-cockpit">
+      <div class="page-head">
+        <div>
+          <div class="p-eye">Analytics · Chief Accountant</div>
+          <div class="p-title">ბუღ. Cockpit <em>· overview</em></div>
+          <div class="p-sub">მთავარი ბუღალტრის dashboard — რისკები, Pending, Ledger Health, Reconciliation.</div>
+        </div>
+        <div class="p-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadCockpit()">↻ განახლება</button>
+        </div>
+      </div>
+
+      <!-- Alert banner -->
+      <div id="cockpit-alert-banner" style="display:none;margin-bottom:16px;padding:12px 18px;border-radius:10px;border-left:4px solid;display:flex;align-items:center;gap:12px">
+        <span id="cockpit-alert-text" style="font-size:13.5px;font-weight:500"></span>
+      </div>
+
+      <!-- KPI row -->
+      <div class="grid-4" style="margin-bottom:16px">
+        <div class="kpi kpi-green">
+          <div class="kpi-label">Alert Level</div>
+          <div class="kpi-val" id="ck-alert" style="font-size:18px">—</div>
+          <div class="kpi-delta" id="ck-alert-sub">loading…</div>
+        </div>
+        <div class="kpi kpi-amber">
+          <div class="kpi-label">Pending Approvals</div>
+          <div class="kpi-val" id="ck-pending">—</div>
+          <div class="kpi-delta">journal_drafts</div>
+        </div>
+        <div class="kpi kpi-red">
+          <div class="kpi-label">High-Risk Drafts</div>
+          <div class="kpi-val" id="ck-risk">—</div>
+          <div class="kpi-delta">low confidence / high amt</div>
+        </div>
+        <div class="kpi kpi-blue">
+          <div class="kpi-label">Ledger Health</div>
+          <div class="kpi-val" id="ck-health">—</div>
+          <div class="kpi-delta" id="ck-health-sub">score / 100</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Risks -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">რისკები</div>
+            <span class="chip chip-pending" id="ck-risk-count" style="display:none">0</span>
+          </div>
+          <div class="card-body" id="ck-risks-body">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+        <!-- Pending queue -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Pending Queue</div>
+            <button class="btn btn-ghost btn-sm" onclick="goPage('pending',null)">ნახვა →</button>
+          </div>
+          <div class="card-body" id="ck-pending-body">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:16px">
+        <!-- Recent postings -->
+        <div class="card">
+          <div class="card-head"><div class="card-title">ბოლო გატარებები</div></div>
+          <div class="card-body" id="ck-postings-body">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
+        </div>
+        <!-- Bank reconciliation -->
+        <div class="card">
+          <div class="card-head"><div class="card-title">Bank Reconciliation</div></div>
+          <div class="card-body" id="ck-recon-body">
+            <div class="loading-row"><span class="spinner"></span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -2816,15 +3137,19 @@ function goPage(name, btn) {
     bank:'Bank Sync', inbox:'Email', ocr:'OCR', export:'Export',
     crm:'CRM', contracts:'Contracts', collab:'Collaboration',
     'decision-engine':'Decision Engine', recommend:'Recommendations', learning:'Learning', insights:'Insights',
-    currency:'Currency', auditlog:'Audit Log', health:'Health', settings:'Settings'
+    currency:'Currency', auditlog:'Audit Log', health:'Health', settings:'Settings',
+    'rsge-import':'RS.ge შემოტანა', 'bank-import':'ბ/გ ამონაწერი',
+    'cross-ref':'Cross-Reference', 'ledger-truth':'Ledger Truth', cockpit:'ბუღ. Cockpit'
   };
   const section = {
     pending:'ფინანსები',approved:'ფინანსები',rejected:'ფინანსები',invoices:'ფინანსები',expenses:'ფინანსები',
     budget:'ფინანსები',reports:'ფინანსები',payroll:'ფინანსები',
     bank:'ოპერაციები',inbox:'ოპერაციები',ocr:'ოპერაციები',export:'ოპერაციები',
+    'rsge-import':'ოპერაციები','bank-import':'ოპერაციები',
     crm:'ბიზნესი',contracts:'ბიზნესი',collab:'ბიზნესი',
     'decision-engine':'ინტელექტი',recommend:'ინტელექტი',learning:'ინტელექტი',insights:'ინტელექტი',
-    currency:'სისტემა',auditlog:'სისტემა',health:'სისტემა',settings:'სისტემა'
+    currency:'სისტემა',auditlog:'სისტემა',health:'სისტემა',settings:'სისტემა',
+    'cross-ref':'ბუღ. ანალიტიკა','ledger-truth':'ბუღ. ანალიტიკა',cockpit:'ბუღ. ანალიტიკა'
   };
   const t = titles[name] || name;
   const s = section[name];
@@ -2857,7 +3182,9 @@ function loadPage() {
     insights: loadInsights,
     currency: loadCurrencyRates,
     auditlog: loadAuditLog,
-    health: loadHealth
+    health: loadHealth,
+    'ledger-truth': loadLedgerTruth,
+    cockpit: loadCockpit
   };
   if (map[curPage]) map[curPage]();
 }
@@ -6300,6 +6627,410 @@ async function exportPayrollRsXml() {
 async function generatePayrollDrafts() {
   if (typeof window.payrollGenerateDrafts === 'function') return window.payrollGenerateDrafts();
   toast('✓ Draft-ების გენერაცია — backend endpoint ჯერ არ დანერგილი', 'info');
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ RS.GE SETTINGS ═════════
+   ═════════════════════════════════════════════════════════════ */
+async function testRsgeConnection() {
+  const chip = document.getElementById('rsge-status-chip');
+  chip.style.display = 'inline-block';
+  chip.className = 'status-pill sp-demo';
+  chip.textContent = 'CHECKING…';
+  try {
+    const r = await fetch(BASE + '/credential-vault/rsge/test', { headers: authHeaders() });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      chip.className = 'status-pill sp-live';
+      chip.textContent = 'CONNECTED';
+      toast('RS.ge — კავშირი წარმატებულია', 'ok');
+    } else {
+      chip.className = 'status-pill sp-demo';
+      chip.textContent = 'FAILED';
+      toast('RS.ge კავშირი ვერ მოხდა: ' + (d.message || 'error'), 'err');
+    }
+  } catch {
+    chip.className = 'status-pill sp-demo';
+    chip.textContent = 'ERROR';
+    toast('კავშირის შეცდომა', 'err');
+  }
+}
+
+async function saveRsgeCredentials() {
+  const user = document.getElementById('set-rs-user')?.value.trim();
+  const pass = document.getElementById('set-rs-pass')?.value;
+  const key  = document.getElementById('set-rs-key')?.value.trim();
+  const tin  = document.getElementById('set-rs-tin')?.value.trim();
+  if (!tin) { toast('საიდ. კოდი სავალდებულოა', 'err'); return; }
+  try {
+    const r = await fetch(BASE + '/credential-vault/rsge', {
+      method: 'POST',
+      headers: authHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ username: user, password: pass, api_key: key, taxpayer_tin: tin })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) toast('RS.ge კრედენციალები შენახულია', 'ok');
+    else toast(d.message || 'შენახვა ვერ მოხდა', 'err');
+  } catch { toast('კავშირის შეცდომა', 'err'); }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ RS.GE IMPORT ═════════
+   ═════════════════════════════════════════════════════════════ */
+async function _rsgeImport(endpoint, file) {
+  if (!file) return;
+  const out = document.getElementById('rsge-import-result');
+  out.innerHTML = '<div class="loading-row"><span class="spinner"></span><span style="font-size:12.5px;color:var(--ink-dim)">მიმდინარეობს იმპორტი…</span></div>';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch(BASE + endpoint, { method: 'POST', headers: authHeaders(), body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      const info = d.data || {};
+      out.innerHTML = `
+        <div style="padding:12px 0">
+          <div class="chip chip-approved" style="margin-bottom:10px">✓ იმპორტი წარმატებული</div>
+          <table class="tbl" style="font-size:12px;margin-top:6px"><tbody>
+            ${Object.entries(info).map(([k,v]) => `<tr><td style="color:var(--ink-dim);padding:5px 8px">${esc(k)}</td><td style="font-family:var(--mono);font-weight:600;padding:5px 8px">${esc(String(v))}</td></tr>`).join('')}
+          </tbody></table>
+        </div>`;
+      toast('იმპორტი წარმატებულია', 'ok');
+    } else {
+      out.innerHTML = `<div class="rec-item warning"><div class="rec-title">⚠ ${esc(d.message || 'იმპორტი ვერ მოხდა')}</div><div class="rec-msg">${esc(d.error?.details || '')}</div></div>`;
+      toast(d.message || 'იმპორტი ვერ მოხდა', 'err');
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>`;
+    toast('კავშირის შეცდომა', 'err');
+  }
+}
+
+function importWaybill(file)    { _rsgeImport('/rsge-documents/import-waybill', file); }
+function importTaxInvoice(file) { _rsgeImport('/rsge-documents/import-tax-invoice', file); }
+function clearRsgeResult() {
+  document.getElementById('rsge-import-result').innerHTML =
+    '<div class="empty"><div class="empty-ic">ↀ</div><div class="empty-txt">ატვირთეთ ფაილი იმპორტისთვის</div></div>';
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ BANK STATEMENT IMPORT ═════════
+   ═════════════════════════════════════════════════════════════ */
+async function importBankStatement(file) {
+  if (!file) return;
+  const out = document.getElementById('bs-import-result');
+  const bank = document.getElementById('bs-bank')?.value || 'tbc';
+  const currency = document.getElementById('bs-currency')?.value || 'GEL';
+  out.innerHTML = '<div class="loading-row"><span class="spinner"></span><span style="font-size:12.5px;color:var(--ink-dim)">მიმდინარეობს იმპორტი…</span></div>';
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('bank', bank);
+  fd.append('currency', currency);
+  try {
+    const r = await fetch(BASE + '/bank-statements/import', { method: 'POST', headers: authHeaders(), body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      const info = d.data || {};
+      const rows = info.imported || info.rows_imported || info.count || '—';
+      out.innerHTML = `
+        <div style="padding:10px 0">
+          <div class="chip chip-approved" style="margin-bottom:10px">✓ ატვირთვა დასრულდა</div>
+          <div class="kpi-row-pills" style="margin-top:10px">
+            <div class="kpi-pill a-green"><b>${esc(String(rows))}</b> ჩანაწერი</div>
+            <div class="kpi-pill a-blue"><b>${esc(bank.toUpperCase())}</b> ბანკი</div>
+            <div class="kpi-pill"><b>${esc(currency)}</b></div>
+          </div>
+          ${info.errors?.length ? `<div class="rec-item warning" style="margin-top:10px"><div class="rec-title">⚠ ${info.errors.length} შეცდომა</div><div class="rec-msg">${info.errors.map(e=>esc(String(e))).join('<br>')}</div></div>` : ''}
+        </div>`;
+      toast('ამონაწერი ატვირთულია', 'ok');
+    } else {
+      out.innerHTML = `<div class="rec-item warning"><div class="rec-title">⚠ ${esc(d.message || 'ატვირთვა ვერ მოხდა')}</div></div>`;
+      toast(d.message || 'ატვირთვა ვერ მოხდა', 'err');
+    }
+  } catch {
+    out.innerHTML = `<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>`;
+    toast('კავშირის შეცდომა', 'err');
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ CROSS-REFERENCE ═════════
+   ═════════════════════════════════════════════════════════════ */
+function loadCrossRef() { /* no auto-load — user initiates search */ }
+
+async function searchCrossRefParty() {
+  const q    = document.getElementById('cr-party-q')?.value.trim();
+  const type = document.getElementById('cr-party-type')?.value;
+  const out  = document.getElementById('cr-party-result');
+  if (!q) { toast('შეიყვანეთ საძიებო სტრიქონი', 'warn'); return; }
+  out.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  try {
+    const params = new URLSearchParams({ q });
+    if (type) params.set('party_type', type);
+    const r = await fetch(BASE + '/cross-reference/party?' + params, { headers: authHeaders() });
+    const d = await r.json().catch(() => ({}));
+    const items = d.data?.items || d.data || [];
+    if (!items.length) {
+      out.innerHTML = '<div class="empty"><div class="empty-txt">შედეგი ვერ მოიძებნა</div></div>';
+      return;
+    }
+    out.innerHTML = `<div style="overflow-x:auto"><table class="tbl"><thead><tr>
+      <th>სახელი</th><th>TIN</th><th>ტიპი</th><th>დოკ.</th><th>ჯამი</th>
+    </tr></thead><tbody>
+      ${items.map(p => `<tr>
+        <td>${esc(p.name||p.partner||'—')}</td>
+        <td class="mono">${esc(p.tin||p.taxpayer_tin||'—')}</td>
+        <td>${esc(p.party_type||p.type||'—')}</td>
+        <td class="mono">${esc(String(p.doc_count||0))}</td>
+        <td class="mono text-green">${fmtMoney?.(p.total_amount||0)||(''+p.total_amount)}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  } catch {
+    out.innerHTML = '<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>';
+  }
+}
+
+async function searchCrossRefDoc() {
+  const q    = document.getElementById('cr-doc-q')?.value.trim();
+  const type = document.getElementById('cr-doc-type')?.value;
+  const out  = document.getElementById('cr-doc-result');
+  if (!q) { toast('შეიყვანეთ საძიებო სტრიქონი', 'warn'); return; }
+  out.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+  try {
+    const params = new URLSearchParams({ q });
+    if (type) params.set('doc_type', type);
+    const r = await fetch(BASE + '/cross-reference/document?' + params, { headers: authHeaders() });
+    const d = await r.json().catch(() => ({}));
+    const items = d.data?.items || d.data || [];
+    if (!items.length) {
+      out.innerHTML = '<div class="empty"><div class="empty-txt">შედეგი ვერ მოიძებნა</div></div>';
+      return;
+    }
+    out.innerHTML = `<div style="overflow-x:auto"><table class="tbl"><thead><tr>
+      <th>ნომ.</th><th>ტიპი</th><th>პარტნიორი</th><th>თარიღი</th><th>თანხა</th><th>სტ.</th>
+    </tr></thead><tbody>
+      ${items.map(p => `<tr>
+        <td class="mono">${esc(p.number||p.doc_number||p.id||'—')}</td>
+        <td>${esc(p.doc_type||p.type||'—')}</td>
+        <td>${esc(p.partner||p.name||'—')}</td>
+        <td class="mono">${fmtDate?.(p.date)||esc(p.date||'—')}</td>
+        <td class="mono">${fmtMoney?.(p.amount||0)||(''+p.amount)}</td>
+        <td>${fmtStatus?.(p.status)||esc(p.status||'—')}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  } catch {
+    out.innerHTML = '<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>';
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ LEDGER TRUTH ═════════
+   ═════════════════════════════════════════════════════════════ */
+async function loadLedgerTruth() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('lt-score', '…'); set('lt-label', ''); set('lt-phantom', '…'); set('lt-mismatch', '…'); set('lt-failed', '…');
+
+  const failedBody = document.getElementById('lt-failed-body');
+  if (failedBody) failedBody.innerHTML = '<div class="loading-row"><span class="spinner"></span></div>';
+
+  try {
+    const [healthR, failedR] = await Promise.all([
+      fetch(BASE + '/ledger-truth/health', { headers: authHeaders() }),
+      fetch(BASE + '/ledger-truth/failed-postings?limit=20', { headers: authHeaders() })
+    ]);
+    const health = (await healthR.json().catch(()=>({}))).data || {};
+    const failed = (await failedR.json().catch(()=>({}))).data || {};
+
+    const score = health.health_score ?? 100;
+    const label = health.health_label || (score >= 90 ? 'HEALTHY' : score >= 70 ? 'WARNING' : 'CRITICAL');
+    set('lt-score', score);
+    set('lt-label', label);
+    set('lt-phantom', health.phantom_posts ?? 0);
+    set('lt-mismatch', health.sync_mismatches ?? 0);
+    set('lt-failed', health.failed_unretried ?? 0);
+
+    const scoreEl = document.getElementById('lt-score');
+    if (scoreEl) scoreEl.style.color = score >= 90 ? 'var(--green)' : score >= 70 ? 'var(--amber)' : 'var(--red)';
+
+    const items = failed.items || failed || [];
+    if (failedBody) {
+      if (!items.length) {
+        failedBody.innerHTML = '<div class="empty"><div class="empty-ic">✓</div><div class="empty-txt">Failed postings არ არის</div></div>';
+      } else {
+        failedBody.innerHTML = `<div style="overflow-x:auto"><table class="tbl"><thead><tr>
+          <th>Draft ID</th><th>სისტემა</th><th>შეცდომა</th><th>თარიღი</th>
+        </tr></thead><tbody>
+          ${items.map(p => `<tr>
+            <td class="mono">${esc(String(p.draft_id||'—'))}</td>
+            <td><span class="chip chip-draft">${esc(p.target_system||'—')}</span></td>
+            <td style="color:var(--red);font-size:12px">${esc(p.error_message||'—')}</td>
+            <td class="mono" style="font-size:11px">${fmtDate?.(p.created_at)||esc(p.created_at||'—')}</td>
+          </tr>`).join('')}
+        </tbody></table></div>`;
+      }
+    }
+  } catch {
+    set('lt-score', 'ERR'); set('lt-label', 'კავშირის შეცდომა');
+    if (failedBody) failedBody.innerHTML = '<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>';
+  }
+}
+
+async function runFullLedgerReport() {
+  const out = document.getElementById('lt-report-body');
+  if (out) out.innerHTML = '<div class="loading-row"><span class="spinner"></span><span style="font-size:12.5px;color:var(--ink-dim)">სრული რეპორტი მიმდინარეობს…</span></div>';
+  try {
+    const r = await fetch(BASE + '/ledger-truth/report', { headers: authHeaders() });
+    const d = await r.json().catch(() => ({}));
+    const rep = d.data || {};
+    const checks = rep.checks || {};
+    const score  = rep.health_score ?? '—';
+    const label  = rep.health_label || '—';
+
+    const _checkHtml = (key, items, fields) => {
+      if (!items?.length) return `<div class="health-row" style="padding:8px 18px"><span class="health-name" style="color:var(--ink-dim)">${key}</span><span class="chip chip-approved">0 — clean</span></div>`;
+      return `
+        <div class="health-row" style="padding:8px 18px;cursor:pointer" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'block':'none'">
+          <span class="health-name">${esc(key)}</span>
+          <span class="chip chip-rejected">${items.length}</span>
+        </div>
+        <div style="display:none;padding:8px 18px 14px;overflow-x:auto">
+          <table class="tbl" style="font-size:11.5px"><thead><tr>${fields.map(f=>`<th>${esc(f)}</th>`).join('')}</tr></thead>
+          <tbody>${items.slice(0,20).map(row=>`<tr>${fields.map(f=>`<td>${esc(String(row[f]??'—'))}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </div>`;
+    };
+
+    if (out) out.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 18px 14px;border-bottom:1px solid var(--line-soft)">
+        <span style="font-size:22px;font-weight:700;font-family:var(--mono);color:${score>=90?'var(--green)':score>=70?'var(--amber)':'var(--red)'}">${score}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--ink-dim);letter-spacing:.08em;text-transform:uppercase">${esc(label)}</span>
+      </div>
+      ${_checkHtml('PHANTOM_POST',        checks.phantom_posts,        ['draft_id','draft_status','log_id'])}
+      ${_checkHtml('SYNC_MISMATCH',       checks.sync_mismatches,      ['draft_id','draft_status','log_status'])}
+      ${_checkHtml('FAILED_UNRETRIED',    checks.failed_unretried,     ['draft_id','target_system','error_message'])}
+      ${_checkHtml('DUPLICATE_POST',      checks.duplicate_posts,      ['draft_id','post_count'])}
+      ${_checkHtml('HIGH_AMOUNT_UNPOSTED',checks.high_amount_unposted, ['draft_id','amount','status'])}
+    `;
+    toast(`Ledger Health: ${score} — ${label}`, score >= 90 ? 'ok' : 'warn');
+  } catch {
+    if (out) out.innerHTML = '<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>';
+    toast('Ledger report ვერ ჩაიტვირთა', 'err');
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   ═════════ CHIEF ACCOUNTANT COCKPIT ═════════
+   ═════════════════════════════════════════════════════════════ */
+async function loadCockpit() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('ck-alert','…'); set('ck-alert-sub',''); set('ck-pending','…'); set('ck-risk','…'); set('ck-health','…');
+
+  const spinner = '<div class="loading-row"><span class="spinner"></span></div>';
+  ['ck-risks-body','ck-pending-body','ck-postings-body','ck-recon-body'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = spinner;
+  });
+
+  try {
+    const r = await fetch(BASE + '/cockpit', { headers: authHeaders() });
+    const d = await r.json().catch(() => ({}));
+    const c = d.data || {};
+
+    const alertLvl = c.alert_level || 'OK';
+    const alertColors = { CRITICAL:'var(--red)', WARNING:'var(--amber)', OK:'var(--green)' };
+    const alertBg    = { CRITICAL:'var(--red-soft)', WARNING:'var(--amber-soft)', OK:'var(--green-soft)' };
+
+    set('ck-alert', alertLvl);
+    const alertEl = document.getElementById('ck-alert');
+    if (alertEl) alertEl.style.color = alertColors[alertLvl] || 'var(--green)';
+
+    set('ck-alert-sub', (c.alerts || []).join(' · ') || 'ყველაფერი კარგადაა');
+    set('ck-pending', c.pending?.total ?? 0);
+    set('ck-risk',    c.risks?.count   ?? 0);
+    const hs = c.ledger_health?.health_score ?? 100;
+    set('ck-health', hs);
+    set('ck-health-sub', c.ledger_health?.health_label || (hs >= 90 ? 'HEALTHY' : hs >= 70 ? 'WARNING' : 'CRITICAL'));
+
+    const riskCountEl = document.getElementById('ck-risk-count');
+    const riskCount = c.risks?.count || 0;
+    if (riskCountEl) { riskCountEl.textContent = riskCount; riskCountEl.style.display = riskCount ? 'inline' : 'none'; }
+
+    const alertBanner = document.getElementById('cockpit-alert-banner');
+    if (alertBanner && alertLvl !== 'OK') {
+      alertBanner.style.display = 'flex';
+      alertBanner.style.background = alertBg[alertLvl];
+      alertBanner.style.borderLeftColor = alertColors[alertLvl];
+      const txt = document.getElementById('cockpit-alert-text');
+      if (txt) { txt.textContent = (c.alerts || []).join(' · '); txt.style.color = alertColors[alertLvl]; }
+    } else if (alertBanner) alertBanner.style.display = 'none';
+
+    const risksBody = document.getElementById('ck-risks-body');
+    if (risksBody) {
+      const risks = c.risks?.items || [];
+      risksBody.innerHTML = risks.length
+        ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ID</th><th>აღწერა</th><th>თანხა</th><th>მიზეზი</th></tr></thead><tbody>
+            ${risks.map(r => `<tr>
+              <td class="mono">${esc(String(r.id||'—'))}</td>
+              <td>${esc(r.description||'—')}</td>
+              <td class="mono text-amber">${fmtMoney?.(r.amount)||r.amount}</td>
+              <td><span class="chip chip-pending">${esc(r.risk_reason||'—')}</span></td>
+            </tr>`).join('')}
+           </tbody></table></div>`
+        : '<div class="empty"><div class="empty-ic">✓</div><div class="empty-txt">რისკები არ აღმოჩენილა</div></div>';
+    }
+
+    const pendingBody = document.getElementById('ck-pending-body');
+    if (pendingBody) {
+      const pItems = c.pending?.items || [];
+      pendingBody.innerHTML = pItems.length
+        ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ID</th><th>აღწერა</th><th>სტ.</th><th>თანხა</th></tr></thead><tbody>
+            ${pItems.map(p => `<tr>
+              <td class="mono">${esc(String(p.id||'—'))}</td>
+              <td>${esc(p.description||'—')}</td>
+              <td>${fmtStatus?.(p.status)||esc(p.status||'—')}</td>
+              <td class="mono">${fmtMoney?.(p.amount)||p.amount}</td>
+            </tr>`).join('')}
+           </tbody></table></div>`
+        : '<div class="empty"><div class="empty-ic">✓</div><div class="empty-txt">Pending queue ცარიელია</div></div>';
+    }
+
+    const postingsBody = document.getElementById('ck-postings-body');
+    if (postingsBody) {
+      const postings = c.recent_actions?.postings || [];
+      postingsBody.innerHTML = postings.length
+        ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Draft</th><th>სისტემა</th><th>სტ.</th><th>თარიღი</th></tr></thead><tbody>
+            ${postings.map(p => `<tr>
+              <td class="mono">${esc(String(p.draft_id||'—'))}</td>
+              <td><span class="chip chip-draft">${esc(p.target_system||'—')}</span></td>
+              <td>${p.status==='success'?'<span class="chip chip-approved">success</span>':'<span class="chip chip-rejected">'+esc(p.status||'—')+'</span>'}</td>
+              <td class="mono" style="font-size:11px">${fmtDate?.(p.created_at)||esc(p.created_at||'—')}</td>
+            </tr>`).join('')}
+           </tbody></table></div>`
+        : '<div class="empty"><div class="empty-txt">გატარებები არ არის</div></div>';
+    }
+
+    const reconBody = document.getElementById('ck-recon-body');
+    if (reconBody) {
+      const recon = c.bank_reconciliation || {};
+      reconBody.innerHTML = `
+        <div class="kpi-row-pills" style="margin-top:6px">
+          <div class="kpi-pill a-blue"><b>${esc(String(recon.total_bank_transactions||0))}</b> ბ/გ ტრანზ.</div>
+          <div class="kpi-pill ${(recon.unreconciled_estimate||0)>0?'a-amber':'a-green'}"><b>${esc(String(recon.unreconciled_estimate||0))}</b> შეუსაბამო</div>
+        </div>
+        <div style="margin-top:10px;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-dim)">
+          ${(recon.unreconciled_estimate||0)===0 ? 'ყველა ტრანზაქცია დამუშავებულია ✓' : 'საჭიროა გადამოწმება — გახსენით Bank Sync'}
+        </div>`;
+    }
+
+    if (c.alerts?.length) toast(`Cockpit: ${alertLvl} — ${c.alerts[0]}`, alertLvl === 'CRITICAL' ? 'err' : 'warn');
+
+  } catch {
+    ['ck-risks-body','ck-pending-body','ck-postings-body','ck-recon-body'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<div class="rec-item critical"><div class="rec-title">✕ კავშირის შეცდომა</div></div>';
+    });
+    toast('Cockpit ვერ ჩაიტვირთა', 'err');
+  }
 }
 
 /* ═════════════════════════════════════════════════════════════

@@ -41,6 +41,10 @@ def test_mode() -> bool:
     return _flag("RSGE_TEST_MODE", False)
 
 
+# Alias for backward compatibility
+is_test_mode = test_mode
+
+
 # ── Action-specific gates ─────────────────────────────────────────────────────
 
 _ACTION_FLAGS: dict[str, str] = {

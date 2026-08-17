@@ -131,7 +131,7 @@ async def get_status(request: Request):
         async with get_conn() as conn:
             await _ensure_schema(conn)
             row = await conn.fetchrow(_q(
-                "SELECT username, taxpayer_inn, credential_status FROM tenant_rsge_credentials "
+                "SELECT username, taxpayer_inn, credential_status, service_username FROM tenant_rsge_credentials "
                 "WHERE tenant_id = %s"
             ), tenant_id)
         if row:
@@ -140,6 +140,7 @@ async def get_status(request: Request):
                 "username": row["username"],
                 "taxpayer_inn": row["taxpayer_inn"],
                 "credential_status": row["credential_status"],
+                "service_username": row["service_username"],
             })
         return ok_response("ok", {"configured": False})
     except Exception as e:
@@ -251,3 +252,39 @@ async def test_connection(request: Request):
         return error_response("No credentials saved — please save first", "NOT_CONFIGURED", "")
     except Exception:
         return error_response("Credentials not found", "NOT_CONFIGURED", "")
+
+
+class ServiceCredsPayload(BaseModel):
+    service_username: str
+    service_password: str
+
+
+@router.post("/save-service")
+async def save_service_creds(body: ServiceCredsPayload, request: Request):
+    """Save RS.ge SOAP service user credentials (su/sp) for waybill sync."""
+    require_permission(request, "settings:write")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    if not body.service_username or not body.service_password:
+        return error_response("service_username და service_password აუცილებელია", "VALIDATION_ERROR", "")
+    try:
+        vault = CredentialVaultService()
+        async with get_conn() as conn:
+            await _ensure_schema(conn)
+            await _ensure_vault_schema(conn)
+            await vault.save_credential(
+                conn,
+                tenant_id=tenant_id,
+                provider="rsge",
+                credential_type="service_password",
+                raw_value=body.service_password,
+                metadata={"service_username": body.service_username},
+                actor=getattr(request.state, "user_id", "api"),
+            )
+            await conn.execute(_q(
+                "UPDATE tenant_rsge_credentials SET service_username=%s, updated_at=NOW() WHERE tenant_id=%s"
+            ), body.service_username, tenant_id)
+        log.info("rsge service_creds saved for tenant=%s su=%s", tenant_id, body.service_username)
+        return ok_response("სერვისის მომხმარებელი შენახულია", {"service_username": body.service_username})
+    except Exception as e:
+        log.error("rsge save_service_creds error: %s", e)
+        return error_response(f"შენახვა ვერ მოხდა: {str(e)[:200]}", "CREDENTIAL_VAULT_ERROR", str(e))

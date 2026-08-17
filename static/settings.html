@@ -600,6 +600,32 @@ td.num{font-family:var(--mono);text-align:right;font-size:12.5px}
         </div>
       </div>
 
+      <div class="s-card" style="margin-top:12px">
+        <div class="s-head">
+          <div>
+            <div class="s-title">RS.ge — SOAP სერვისის მომხმარებელი</div>
+            <div class="s-sub">ზედნადებების სინქ.-ისთვის · RS.ge პორტალი → პარამეტრები → სერვისის მომხმარებლები</div>
+          </div>
+          <span id="rsge-su-chip" class="chip chip-draft">Loading…</span>
+        </div>
+        <div class="s-body">
+          <div class="form-row">
+            <div class="form-col">
+              <label class="lbl">სერვისის მომხმ. (su)</label>
+              <input class="inp" id="rsgeSuUsername" type="text" placeholder="service username" autocomplete="off"/>
+            </div>
+            <div class="form-col">
+              <label class="lbl">სერვისის პაროლი (sp)</label>
+              <input class="inp" id="rsgeSuPassword" type="password" placeholder="service password" autocomplete="new-password"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button class="btn btn-primary btn-sm" onclick="saveRsGeServiceCreds()">💾 შენახვა</button>
+          </div>
+          <div id="rsge-su-msg" style="margin-top:12px;font-size:13px;min-height:18px"></div>
+        </div>
+      </div>
+
       <div class="s-card">
         <div class="s-head">
           <div class="s-title">RS.ge — ხელმისაწვდომი ოპერაციები</div>
@@ -1114,6 +1140,17 @@ async function loadRsGeStatus() {
     chip.className = 'chip chip-approved';
     if (d.username) document.getElementById('rsgeUsername').value = d.username;
     if (d.taxpayer_inn) document.getElementById('rsgeTaxpayerInn').value = d.taxpayer_inn;
+    const suChip = document.getElementById('rsge-su-chip');
+    if (suChip) {
+      if (d.service_username) {
+        suChip.textContent = `✓ ${d.service_username}`;
+        suChip.className = 'chip chip-approved';
+        document.getElementById('rsgeSuUsername').value = d.service_username;
+      } else {
+        suChip.textContent = 'არ არის დაყენებული';
+        suChip.className = 'chip chip-draft';
+      }
+    }
   } else {
     chip.textContent = 'არ არის დაყენებული';
     chip.className = 'chip chip-draft';
@@ -1151,6 +1188,28 @@ async function saveRsGeCreds() {
     toast('RS.ge credentials შენახულია', 'ok');
   } else {
     msg.textContent = '❌ ' + (d?.message || d?.error?.details || d?.error?.code || 'შეცდომა');
+    msg.style.color = 'var(--red)';
+
+  }
+}
+
+async function saveRsGeServiceCreds() {
+  const su = document.getElementById('rsgeSuUsername').value.trim();
+  const sp = document.getElementById('rsgeSuPassword').value.trim();
+  const msg = document.getElementById('rsge-su-msg');
+  if (!su) { msg.textContent = '⚠ სერვისის მომხმარებელი აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  if (!sp) { msg.textContent = '⚠ სერვისის პაროლი აუცილებელია'; msg.style.color = 'var(--amber)'; return; }
+  const d = await api('/rsge-credentials/save-service', 'POST', { service_username: su, service_password: sp });
+  if (d && d.ok) {
+    msg.textContent = '✅ სერვისის მომხმარებელი შენახულია!';
+    msg.style.color = 'var(--green)';
+    document.getElementById('rsgeSuPassword').value = '';
+    const chip = document.getElementById('rsge-su-chip');
+    chip.textContent = `✓ ${su}`;
+    chip.className = 'chip chip-approved';
+    toast('RS.ge Service User შენახულია', 'ok');
+  } else {
+    msg.textContent = '❌ ' + (d?.message || d?.error?.details || 'შეცდომა');
     msg.style.color = 'var(--red)';
   }
 }

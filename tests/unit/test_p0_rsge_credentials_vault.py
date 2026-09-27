@@ -151,7 +151,8 @@ def test_get_status_does_not_return_password():
     class _FakeRow:
         def __getitem__(self, k):
             return {"username": "user@rs.ge", "taxpayer_inn": "123",
-                    "credential_status": "active"}[k]
+                    "credential_status": "active",
+                    "service_username": "service@rs.ge"}[k]
 
     conn.fetchrow = AsyncMock(return_value=_FakeRow())
 
@@ -166,6 +167,7 @@ def test_get_status_does_not_return_password():
     data = result.get("data", {})
     assert "password" not in data
     assert data.get("username") == "user@rs.ge"
+    assert data.get("service_username") == "service@rs.ge"
     assert data.get("credential_status") == "active"
 
 

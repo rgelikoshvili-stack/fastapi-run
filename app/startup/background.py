@@ -113,12 +113,10 @@ async def email_poller_loop():
         import asyncio as _asyncio
         tenants = await get_all_active_tenants()
         total_processed = 0
-        loop = _asyncio.get_running_loop()
         for tid in tenants:
             try:
-                # run_in_executor prevents blocking IMAP calls from stalling the event loop
                 result = await _asyncio.wait_for(
-                    loop.run_in_executor(None, lambda t=tid: _asyncio.run(collect_tenant_inbox(t))),
+                    collect_tenant_inbox(tid),
                     timeout=20.0,
                 )
                 processed = result.get("processed", 0)

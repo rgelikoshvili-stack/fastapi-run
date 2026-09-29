@@ -122,15 +122,35 @@ async def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_pas
         return False
 
 
-async def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
+async def _get_email_document(tenant_id: str, message_uid: str, filename: str) -> Optional[dict]:
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT 1 FROM email_documents WHERE tenant_id=%s AND message_uid=%s AND filename=%s"
+                "SELECT id, status, draft_id FROM email_documents "
+                "WHERE tenant_id=%s AND message_uid=%s AND filename=%s"
             ), tenant_id, message_uid, filename)
-        return row is not None
+        return dict(row) if row else None
     except Exception:
-        return False
+        return None
+
+
+async def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
+    """Return true only for completed documents; incomplete rows remain retryable."""
+    row = await _get_email_document(tenant_id, message_uid, filename)
+    return bool(row and row.get("status") == "processed")
+
+
+async def _existing_email_draft(tenant_id: str, doc_id: int) -> Optional[int]:
+    """Find a draft saved by AI before a timeout interrupted document completion."""
+    try:
+        async with get_conn() as conn:
+            return await conn.fetchval(_q(
+                "SELECT id FROM journal_drafts WHERE tenant_id=%s "
+                "AND engine_metadata->>'source_doc_id'=%s ORDER BY id DESC LIMIT 1"
+            ), tenant_id, str(doc_id))
+    except Exception as e:
+        log.warning("_existing_email_draft lookup failed for doc %s: %s", doc_id, e)
+        return None
 
 
 async def _save_email_document(
@@ -156,6 +176,14 @@ async def _update_doc_draft(doc_id: int, draft_id: int, status: str = "processed
             ), draft_id, status, doc_id)
     except Exception as e:
         log.warning("_update_doc_draft: %s", e)
+
+
+async def _reset_doc_pending(doc_id: int, raw_bytes: bytes, raw_text: str) -> None:
+    """Refresh attachment content and make an incomplete document retryable."""
+    async with get_conn() as conn:
+        await conn.execute(_q(
+            "UPDATE email_documents SET status='pending', raw_bytes=%s, raw_text=%s WHERE id=%s"
+        ), raw_bytes, raw_text, doc_id)
 
 
 async def get_all_active_tenants() -> list:
@@ -338,9 +366,19 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                     filename = att["filename"]
                     file_data = att["data"]
 
-                    if await _already_processed(tenant_id, uid, filename):
+                    existing = await _get_email_document(tenant_id, uid, filename)
+                    if existing and existing.get("status") == "processed":
                         log.info("skip duplicate: %s / %s", tenant_id, filename)
                         continue
+
+                    doc_id = existing["id"] if existing else None
+                    if doc_id is not None:
+                        # AI may have committed its draft just before the poll timed out.
+                        draft_id = existing.get("draft_id") or await _existing_email_draft(tenant_id, doc_id)
+                        if draft_id:
+                            await _update_doc_draft(doc_id, draft_id)
+                            processed.append({"filename": filename, "draft_id": draft_id})
+                            continue
 
                     raw_text = ""
                     fname_lower = filename.lower()
@@ -349,9 +387,13 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
                     elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
                         raw_text = _extract_text_from_image(file_data, filename)
 
-                    doc_id = await _save_email_document(
-                        tenant_id, uid, filename, file_data, raw_text
-                    )
+                    if doc_id is None:
+                        doc_id = await _save_email_document(
+                            tenant_id, uid, filename, file_data, raw_text
+                        )
+                    else:
+                        # Pending/processing/failed rows are resumable, not duplicates.
+                        await _reset_doc_pending(doc_id, file_data, raw_text)
 
                     ai_result = await ai_process_document(
                         tenant_id=tenant_id,

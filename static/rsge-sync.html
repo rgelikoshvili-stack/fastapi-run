@@ -361,6 +361,25 @@ td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-
           </div>
         </div>
 
+        <!-- SOAP credentials status card -->
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+          <div style="padding:14px 18px 10px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13.5px;font-weight:600;color:var(--ink)">RS.ge SOAP სერვისის მომხმ. (su/sp)</div>
+              <div style="font-size:12px;color:var(--ink-dim);margin-top:3px">Bridge Hub Settings → RS.ge-ში შენახული SOAP credentials</div>
+            </div>
+            <button class="btn btn-secondary" onclick="loadSoapCreds()" style="font-size:11.5px">↺</button>
+          </div>
+          <div id="soapCredsStatus" style="padding:12px 18px;font-size:12.5px;color:var(--ink-dim)">...</div>
+          <div style="padding:0 18px 14px;display:flex;flex-wrap:wrap;gap:8px">
+            <div role="alert" style="flex-basis:100%;padding:9px 11px;border-radius:7px;background:var(--amber-bg);color:var(--amber);font-size:11.5px;line-height:1.45">
+              ⚠️ ეს მოქმედება იწყებს RS.ge-ის ზედნადებების სინქრონიზაციას: შესაძლოა დაუკავშირდეს RS.ge-ს და მიღებული ჩანაწერები შეინახოს.
+            </div>
+            <button class="btn btn-secondary" onclick="runWaybillSync()" style="font-size:11.5px" id="btnRsgeSync">RS.ge ზედნადებების სინქრონიზაცია</button>
+            <div id="rsgeSyncResult" style="font-size:11.5px;color:var(--ink-dim);align-self:center;word-break:break-all"></div>
+          </div>
+        </div>
+
         <!-- Partner map card -->
         <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
           <div style="padding:14px 18px 10px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between">
@@ -1489,7 +1508,49 @@ async function createInvDraft(idx,lid){
 }
 
 // ── SETTINGS TAB ─────────────────────────────────────────────────────────────
+async function loadSoapCreds(){
+  const el=document.getElementById('soapCredsStatus');
+  if(!el)return;
+  try{
+    const r=await fetch(BASE+'/rsge-credentials/status',{headers:H()});
+    const d=await r.json();
+    if(d.ok&&d.data?.configured){
+      const su=d.data.service_username||'(დაყ. არ არ.)';
+      const spOk=d.data.credential_status==='active';
+      el.innerHTML=`<span style="color:var(--ink)">su:</span> <b style="font-family:var(--mono)">${_esc(su)}</b> &nbsp;|&nbsp; sp: ${spOk?'<span style="color:var(--green)">✓ vault-ში</span>':'<span style="color:var(--amber)">? შ.ა.</span>'}`;
+    } else {
+      el.innerHTML='<span style="color:var(--amber)">⚠️ credentials დაყ. არ არ. — Settings → RS.ge</span>';
+    }
+  }catch(e){el.textContent='შ.: '+e.message;}
+}
+
+async function runWaybillSync(){
+  const btn=document.getElementById('btnRsgeSync');
+  const res=document.getElementById('rsgeSyncResult');
+  btn.disabled=true;btn.textContent='სინქრონიზაცია...';res.textContent='';
+  try{
+    const now=new Date();
+    const d2=now.toISOString().slice(0,10);
+    const d1=new Date(now-3*86400000).toISOString().slice(0,10);
+    const r=await fetch(BASE+'/rs-ge/sync',{method:'POST',headers:H(),body:JSON.stringify({mode:'v1',date_from:d1,date_to:d2})});
+    const j=await r.json();
+    if(j.ok){
+      const errs=j.data.errors||[];
+      if(errs.length){
+        res.innerHTML=`<span style="color:var(--red)">❌ ${_esc(errs[0])}</span>`;
+      } else {
+        res.innerHTML=`<span style="color:var(--green)">✓ OK — ${j.data.synced} ζεδ. (${j.data.date_from?.slice(0,10)}→${j.data.date_to?.slice(0,10)})</span>`;
+      }
+      await loadWaybills();
+    } else {
+      res.innerHTML=`<span style="color:var(--red)">❌ ${_esc(j.message)}</span>`;
+    }
+  }catch(e){res.innerHTML=`<span style="color:var(--red)">❌ ${_esc(e.message)}</span>`;}
+  finally{btn.disabled=false;btn.textContent='RS.ge ზედნადებების სინქრონიზაცია';}
+}
+
 async function loadSettingsTab(){
+  loadSoapCreds();
   // Load own TIN
   try{
     const r=await fetch(BASE+'/rs-ge/own-tin',{headers:H()});
@@ -1608,7 +1669,17 @@ async function liveSync() {
     });
     const j = await r.json();
     if(j.ok) {
-      showToast(`✅ სინქ. დასრ. — ${j.data.synced} ζεδ.`);
+      const errs = j.data.errors || [];
+      const synced = j.data.synced || 0;
+      if(errs.length) {
+        // Show first error so we can diagnose SOAP auth failures
+        showToast(`⚠️ სინქ.: ${synced} ζεδ. / ${errs.length} შეცდ. — ${errs[0]}`, 'warn');
+        console.error('SOAP sync errors:', errs);
+      } else if(synced === 0) {
+        showToast(`ℹ️ RS.ge-მ 0 ζεδ. დააბრ. (${j.data.date_from?.slice(0,10)} → ${j.data.date_to?.slice(0,10)})`, 'warn');
+      } else {
+        showToast(`✅ სინქ. დასრ. — ${synced} ζεδ.`);
+      }
       await loadWaybills();
     } else {
       const msg = j.error?.details || j.message || 'შეცდომა';

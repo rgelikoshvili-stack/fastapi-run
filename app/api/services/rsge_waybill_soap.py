@@ -84,6 +84,12 @@ def _call(method: str, params: dict) -> ET.Element:
 
     # Walk into the first child (the Response element) and find the result
     for child in body_el:
+        # Detect SOAP faults before trying to parse as waybill list
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        if tag == "Fault":
+            fault_str = child.findtext("faultstring") or child.findtext("faultcode") or "SOAP Fault"
+            detail = child.findtext("detail") or ""
+            raise RuntimeError(f"RS.ge SOAP fault: {fault_str}{' — ' + detail if detail else ''}")
         # Try {method}Result first
         result = child.find(f"{{{_NS}}}{method}Result")
         if result is not None:

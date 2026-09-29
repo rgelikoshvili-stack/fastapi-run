@@ -371,9 +371,12 @@ td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-
             <button class="btn btn-secondary" onclick="loadSoapCreds()" style="font-size:11.5px">↺</button>
           </div>
           <div id="soapCredsStatus" style="padding:12px 18px;font-size:12.5px;color:var(--ink-dim)">...</div>
-          <div style="padding:0 18px 14px;display:flex;gap:8px">
-            <button class="btn btn-secondary" onclick="testSoapPing()" style="font-size:11.5px" id="btnSoapTest">SOAP პინგი</button>
-            <div id="soapPingResult" style="font-size:11.5px;color:var(--ink-dim);align-self:center;word-break:break-all"></div>
+          <div style="padding:0 18px 14px;display:flex;flex-wrap:wrap;gap:8px">
+            <div role="alert" style="flex-basis:100%;padding:9px 11px;border-radius:7px;background:var(--amber-bg);color:var(--amber);font-size:11.5px;line-height:1.45">
+              ⚠️ ეს მოქმედება იწყებს RS.ge-ის ზედნადებების სინქრონიზაციას: შესაძლოა დაუკავშირდეს RS.ge-ს და მიღებული ჩანაწერები შეინახოს.
+            </div>
+            <button class="btn btn-secondary" onclick="runWaybillSync()" style="font-size:11.5px" id="btnRsgeSync">RS.ge ზედნადებების სინქრონიზაცია</button>
+            <div id="rsgeSyncResult" style="font-size:11.5px;color:var(--ink-dim);align-self:center;word-break:break-all"></div>
           </div>
         </div>
 
@@ -1521,10 +1524,10 @@ async function loadSoapCreds(){
   }catch(e){el.textContent='შ.: '+e.message;}
 }
 
-async function testSoapPing(){
-  const btn=document.getElementById('btnSoapTest');
-  const res=document.getElementById('soapPingResult');
-  btn.disabled=true;btn.textContent='⏳...';res.textContent='';
+async function runWaybillSync(){
+  const btn=document.getElementById('btnRsgeSync');
+  const res=document.getElementById('rsgeSyncResult');
+  btn.disabled=true;btn.textContent='სინქრონიზაცია...';res.textContent='';
   try{
     const now=new Date();
     const d2=now.toISOString().slice(0,10);
@@ -1543,7 +1546,7 @@ async function testSoapPing(){
       res.innerHTML=`<span style="color:var(--red)">❌ ${_esc(j.message)}</span>`;
     }
   }catch(e){res.innerHTML=`<span style="color:var(--red)">❌ ${_esc(e.message)}</span>`;}
-  finally{btn.disabled=false;btn.textContent='SOAP პინგი';}
+  finally{btn.disabled=false;btn.textContent='RS.ge ზედნადებების სინქრონიზაცია';}
 }
 
 async function loadSettingsTab(){

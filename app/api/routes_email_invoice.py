@@ -28,8 +28,6 @@ router = APIRouter(prefix="/email-invoice", tags=["email-invoice"])
 
 IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
 IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
-IMAP_USER = os.getenv("SMTP_USER", "")
-IMAP_PASS = os.getenv("SMTP_PASS", "")
 
 
 class ProcessByIdRequest(BaseModel):
@@ -152,10 +150,8 @@ async def preview_attachment(message_id: str, filename: str, request: Request):
                     headers={"Content-Disposition": f"{disp}; filename*=UTF-8''{encoded_name}"}
                 )
         return Response(content=f"Attachment '{filename}' not found in message".encode(), status_code=404)
-    except Exception as e:
-        import traceback
-        msg = f"Error: {e}\n{traceback.format_exc()}"
-        return Response(content=msg.encode("utf-8"), status_code=500,
+    except Exception:
+        return Response(content=b"Email attachment preview failed", status_code=500,
                         media_type="text/plain; charset=utf-8")
 
 

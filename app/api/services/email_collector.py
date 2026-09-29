@@ -58,16 +58,17 @@ async def _ensure_tables():
 # ── DB helpers (asyncpg) ──────────────────────────────────────────────────────
 
 async def get_tenant_email_credentials(tenant_id: str) -> Optional[dict]:
-    """Return {"email": ..., "app_password": ...} for the tenant.
+    """Return only vault-backed tenant credentials.
 
-    Checks credential_status:
-      'active'           → decrypt from credential vault
-      'legacy_plaintext' → use app_password column directly (backwards compat)
+    Active rows are decrypted through the credential vault. Legacy plaintext
+    rows fail closed and require migration to the vault before polling resumes.
     """
+    if os.environ.get("TEST_MODE") == "1":
+        return None
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT email, app_password, credential_status "
+                "SELECT email, credential_status "
                 "FROM tenant_email_credentials "
                 "WHERE tenant_id = %s AND active = TRUE"
             ), tenant_id)
@@ -83,11 +84,13 @@ async def get_tenant_email_credentials(tenant_id: str) -> Optional[dict]:
                     credential_type="imap_app_password",
                     purpose="imap_login",
                 )
-                return {"email": row["email"], "app_password": plaintext}
-            # Legacy plaintext path (pre-vault rows)
-            return {"email": row["email"], "app_password": row["app_password"]}
-    except Exception as e:
-        log.warning("get_tenant_email_credentials: %s", e)
+                if plaintext:
+                    return {"email": row["email"], "app_password": plaintext}
+            # Fail closed: never retrieve the legacy plaintext app_password column.
+            log.info("email credential configured=false tenant=%s", tenant_id)
+            return None
+    except Exception:
+        log.warning("email credential lookup failed; configured=false")
         return None
 
 
@@ -308,16 +311,18 @@ def _extract_text_from_image(data: bytes, filename: str) -> str:
 
 def test_imap_connection(email_addr: str, app_password: str) -> dict:
     """Test IMAP credentials without storing them."""
+    if os.environ.get("TEST_MODE") == "1":
+        return {"ok": bool(email_addr and app_password), "configured": bool(email_addr and app_password), "mode": "test"}
     try:
         mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
         mail.login(email_addr, app_password)
         mail.select("INBOX")
         mail.logout()
         return {"ok": True, "message": "კავშირი წარმატებულია"}
-    except imaplib.IMAP4.error as e:
-        return {"ok": False, "error": f"IMAP auth error: {e}"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except imaplib.IMAP4.error:
+        return {"ok": False, "configured": False, "error": "IMAP authentication failed"}
+    except Exception:
+        return {"ok": False, "configured": False, "error": "IMAP connection test failed"}
 
 
 async def collect_tenant_inbox(tenant_id: str) -> dict:
@@ -340,14 +345,14 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
             creds["app_password"],
         )
     except Exception as e:
-        log.error("IMAP login failed for tenant %s: %s", tenant_id, e)
-        return {"status": "error", "error": str(e), "tenant_id": tenant_id}
+        log.error("IMAP login failed for tenant %s; configured=true", tenant_id)
+        return {"status": "error", "error": "IMAP connection failed", "tenant_id": tenant_id}
 
     try:
         try:
             msg_ids = await asyncio.to_thread(_imap_search_unseen, mail)
-        except Exception as e:
-            return {"status": "error", "error": str(e), "tenant_id": tenant_id}
+        except Exception:
+            return {"status": "error", "error": "IMAP inbox search failed", "tenant_id": tenant_id}
 
         processed = []
         errors = []
@@ -418,9 +423,9 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
 
                 await asyncio.to_thread(_imap_mark_seen, mail, msg_id)
 
-            except Exception as e:
-                log.error("collect_tenant_inbox msg %s error: %s", msg_id, e)
-                errors.append({"msg_id": msg_id.decode(), "error": str(e)})
+            except Exception:
+                log.error("email message processing failed for tenant %s", tenant_id)
+                errors.append({"msg_id": msg_id.decode(), "error": "Email message processing failed"})
 
         return {
             "status": "ok",

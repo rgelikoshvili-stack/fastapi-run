@@ -37,7 +37,8 @@ def test_save_email_creds_calls_vault_save():
 
     with patch("app.api.services.email_collector.CredentialVaultService",
                return_value=mock_vault), \
-         patch("app.api.services.email_collector.get_conn", _fake_get_conn):
+         patch("app.api.services.email_collector.get_conn", _fake_get_conn), \
+         patch.dict("os.environ", {"TEST_MODE": "0"}):
         result = run_sync(save_tenant_email_credentials("tenant1", "test@gmail.com", "secret123"))
 
     assert result is True
@@ -70,7 +71,8 @@ def test_save_email_creds_stores_marker_not_plaintext():
 
     with patch("app.api.services.email_collector.CredentialVaultService",
                return_value=mock_vault), \
-         patch("app.api.services.email_collector.get_conn", _fake_get_conn):
+         patch("app.api.services.email_collector.get_conn", _fake_get_conn), \
+         patch.dict("os.environ", {"TEST_MODE": "0"}):
         run_sync(save_tenant_email_credentials("tenant1", "test@gmail.com", "secret123"))
 
     assert executed_sqls, "no SQL executed"
@@ -138,7 +140,8 @@ def test_get_email_creds_decrypts_vault_row():
 
     with patch("app.api.services.email_collector.CredentialVaultService",
                return_value=mock_vault), \
-         patch("app.api.services.email_collector.get_conn", _fake_get_conn):
+         patch("app.api.services.email_collector.get_conn", _fake_get_conn), \
+         patch.dict("os.environ", {"TEST_MODE": "0"}):
         result = run_sync(get_tenant_email_credentials("tenant1"))
 
     assert result is not None
@@ -150,13 +153,13 @@ def test_get_email_creds_decrypts_vault_row():
     assert call_kwargs["credential_type"] == "imap_app_password"
 
 
-def test_get_email_creds_legacy_plaintext_fallback():
-    """Legacy rows (credential_status='legacy_plaintext') must return app_password directly."""
+def test_get_email_creds_legacy_plaintext_fails_closed():
+    """Legacy plaintext rows are rejected instead of returned to the caller."""
     from app.api.services.email_collector import get_tenant_email_credentials
 
     db_row = _FakeRecord({
         "email": "legacy@gmail.com",
-        "app_password": "old_plaintext_pass",
+        "app_password": "fake-legacy-placeholder",
         "credential_status": "legacy_plaintext",
     })
 
@@ -175,8 +178,7 @@ def test_get_email_creds_legacy_plaintext_fallback():
          patch("app.api.services.email_collector.get_conn", _fake_get_conn):
         result = run_sync(get_tenant_email_credentials("tenant1"))
 
-    assert result is not None
-    assert result["app_password"] == "old_plaintext_pass"
+    assert result is None
     mock_vault.get_for_connector.assert_not_awaited()
 
 
@@ -191,7 +193,8 @@ def test_get_email_creds_returns_none_when_not_configured():
     async def _fake_get_conn():
         yield mock_conn
 
-    with patch("app.api.services.email_collector.get_conn", _fake_get_conn):
+    with patch("app.api.services.email_collector.get_conn", _fake_get_conn), \
+         patch.dict("os.environ", {"TEST_MODE": "0"}):
         result = run_sync(get_tenant_email_credentials("tenant1"))
 
     assert result is None
@@ -225,7 +228,7 @@ def test_email_invoice_service_decrypts_vault_row_via_crypto_provider():
     """_get_tenant_imap_creds must decrypt vault rows using SecretCryptoProvider."""
     from app.api.services.email_invoice_service import _get_tenant_imap_creds
 
-    fake_row = ("invoice@gmail.com", "[stored-in-vault]", "active", "enc_blob", "v1")
+    fake_row = ("invoice@gmail.com", "active", "enc_blob", "v1")
 
     mock_cursor = MagicMock()
     mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
@@ -250,11 +253,11 @@ def test_email_invoice_service_decrypts_vault_row_via_crypto_provider():
     mock_crypto.decrypt_secret.assert_called_once_with("enc_blob", "v1")
 
 
-def test_email_invoice_service_legacy_plaintext_still_works():
+def test_email_invoice_service_legacy_plaintext_fails_closed():
     """Legacy rows (app_password not stored-in-vault) are returned as-is."""
-    from app.api.services.email_invoice_service import _get_tenant_imap_creds
+    from app.api.services import email_invoice_service as service
 
-    fake_row = ("legacy@gmail.com", "plainpass", "legacy_plaintext", None, None)
+    fake_row = ("legacy@gmail.com", "legacy_plaintext", None, None)
 
     mock_cursor = MagicMock()
     mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
@@ -266,8 +269,10 @@ def test_email_invoice_service_legacy_plaintext_still_works():
     mock_pconn.close = MagicMock()
 
     with patch("psycopg2.connect", return_value=mock_pconn), \
-         patch("os.environ.get", return_value="postgresql://fake"):
-        email, pw = _get_tenant_imap_creds("tenant1")
+         patch("os.environ.get", return_value="postgresql://fake"), \
+         patch.object(service, "_get_imap_password", return_value=None), \
+         patch.object(service, "IMAP_USER", ""):
+        email, pw = service._get_tenant_imap_creds("tenant1")
 
-    assert email == "legacy@gmail.com"
-    assert pw == "plainpass"
+    assert email == ""
+    assert pw is None

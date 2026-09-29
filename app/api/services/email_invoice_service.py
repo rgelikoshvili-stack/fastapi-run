@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 import asyncio as _asyncio
 from app.api.services.ocr_service import extract_invoice_fields, create_draft_from_invoice_async as _create_draft_async
+from app.config.secrets import get_email_secret
 
 def _create_draft(fields, tenant_id, source_type, force=False):
     """Sync wrapper for async draft creation — safe in sync (thread-pool) route handlers."""
@@ -23,7 +24,8 @@ log = logging.getLogger(__name__)
 IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
 IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
 IMAP_USER = os.getenv("SMTP_USER", "")
-IMAP_PASS = os.getenv("SMTP_PASS", "")
+def _get_imap_password():
+    return get_email_secret("IMAP_PASS")
 
 
 def _imap_connect(imap_user: str, imap_pass: str, folder: str = "INBOX"):
@@ -46,15 +48,15 @@ def _imap_uid_fetch(mail, uid: str):
         status, data = mail.uid("FETCH", uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
         if status == "OK" and data and data[0] and isinstance(data[0], tuple) and data[0][1]:
             return data[0][1]
-    except Exception as e:
-        log.warning("UID fetch failed: %s", e)
+    except Exception:
+        log.warning("IMAP UID fetch failed")
     # Fallback: sequence number fetch
     try:
         status2, data2 = mail.fetch(uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
         if status2 == "OK" and data2 and data2[0] and isinstance(data2[0], tuple) and data2[0][1]:
             return data2[0][1]
-    except Exception as e:
-        log.warning("sequence fetch failed: %s", e)
+    except Exception:
+        log.warning("IMAP sequence fetch failed")
     return None
 
 ALLOWED = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx")
@@ -63,9 +65,11 @@ ALLOWED = (".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".doc", ".docx")
 def _get_tenant_imap_creds(tenant_id: str = None):
     """Return (user, password) — tenant DB creds first, fallback to env vars.
 
-    Supports both vault-encrypted rows (credential_status='active') and
-    legacy plaintext rows (credential_status='legacy_plaintext').
+    Only active vault-backed tenant rows are accepted; legacy plaintext rows
+    fail closed. The global fallback is loaded through the approved secret loader.
     """
+    if os.environ.get("TEST_MODE") == "1":
+        return os.environ.get("TEST_IMAP_USER", ""), _get_imap_password()
     if tenant_id:
         try:
             import psycopg2, os as _os
@@ -74,7 +78,7 @@ def _get_tenant_imap_creds(tenant_id: str = None):
                 _conn = psycopg2.connect(_url)
                 with _conn.cursor() as _cur:
                     _cur.execute(
-                        "SELECT tec.email, tec.app_password, tec.credential_status, "
+                        "SELECT tec.email, tec.credential_status, "
                         "       vc.encrypted_value, vc.key_version "
                         "FROM tenant_email_credentials tec "
                         "LEFT JOIN credential_vault_credentials vc "
@@ -88,17 +92,14 @@ def _get_tenant_imap_creds(tenant_id: str = None):
                     row = _cur.fetchone()
                 _conn.close()
                 if row:
-                    email_addr, app_pw, status, enc_val, key_ver = row
+                    email_addr, status, enc_val, key_ver = row
                     if status == "active" and enc_val and key_ver:
                         from app.api.services.secret_crypto_provider import SecretCryptoProvider
                         plaintext = SecretCryptoProvider().decrypt_secret(enc_val, key_ver)
                         return email_addr, plaintext
-                    # Legacy plaintext fallback
-                    if app_pw and app_pw != "[stored-in-vault]":
-                        return email_addr, app_pw
-        except Exception as e:
-            log.warning("tenant creds failed: %s", e)
-    return IMAP_USER, IMAP_PASS
+        except Exception:
+            log.warning("tenant IMAP credential lookup failed; configured=false")
+    return IMAP_USER, _get_imap_password()
 
 
 def _extract_body(msg) -> str:
@@ -130,6 +131,8 @@ def fetch_all_emails(limit: int = 20, folder: str = "INBOX", tenant_id: str = No
     Gmail-იდან ყველა email წაიკითხავს (subject ფილტრი გამორთულია).
     attachment-ების სია მომხმარებელს აჩვენებს — draft არ იქმნება.
     """
+    if os.environ.get("TEST_MODE") == "1":
+        return _demo_response()
     imap_user, imap_pass = _get_tenant_imap_creds(tenant_id)
     if not imap_user or not imap_pass:
         return _demo_response()
@@ -173,8 +176,9 @@ def fetch_all_emails(limit: int = 20, folder: str = "INBOX", tenant_id: str = No
             "emails": emails,
         }
 
-    except Exception as e:
-        return {"ok": False, "error": str(e), "mode": "live"}
+    except Exception:
+        log.warning("IMAP inbox fetch failed; configured=true")
+        return {"ok": False, "error": "IMAP inbox fetch failed", "mode": "live"}
     finally:
         try:
             if mail:
@@ -198,6 +202,8 @@ def process_email_by_id(
     მომხმარებლის დადასტურების შემდეგ კონკრეტული email-ის დამუშავება.
     message_id — fetch_all_emails-დან მოსული id.
     """
+    if os.environ.get("TEST_MODE") == "1":
+        return {"ok": False, "error": "IMAP processing disabled in TEST_MODE", "mode": "test"}
     imap_user, imap_pass = _get_tenant_imap_creds(tenant_id)
     if not imap_user or not imap_pass:
         return {"ok": False, "error": "IMAP not configured — Settings → Email-ში შეიყვანეთ Gmail credentials"}
@@ -268,8 +274,8 @@ def process_email_by_id(
                     "draft_id": draft_id,
                     "draft": draft,
                 })
-            except Exception as e:
-                errors.append({"filename": att["filename"], "error": str(e)})
+            except Exception:
+                errors.append({"filename": att["filename"], "error": "Email attachment processing failed"})
 
         # Collect all draft IDs for easy frontend access
         draft_ids = [
@@ -290,9 +296,8 @@ def process_email_by_id(
             "failed": errors,
         }
 
-    except Exception as e:
-        import traceback
-        return {"ok": False, "error": str(e), "traceback": traceback.format_exc()[-800:]}
+    except Exception:
+        return {"ok": False, "error": "IMAP message processing failed"}
     finally:
         try:
             if mail:
@@ -307,6 +312,8 @@ def process_email_invoices(
     folder: str = "INBOX",
 ) -> dict:
     """ყველა email-ის batch დამუშავება."""
+    if os.environ.get("TEST_MODE") == "1":
+        return {"ok": False, "error": "IMAP processing disabled in TEST_MODE", "mode": "test"}
     imap_user, imap_pass = _get_tenant_imap_creds(tenant_id)
     if not imap_user or not imap_pass:
         return {"ok": False, "error": "IMAP not configured"}
@@ -349,8 +356,8 @@ def process_email_invoices(
                         })
                     else:
                         errors.append({"filename": att["filename"], "error": "თანხა ვერ ამოიღო"})
-                except Exception as e:
-                    errors.append({"filename": att.get("filename", "?"), "error": str(e)})
+                except Exception:
+                    errors.append({"filename": att.get("filename", "?"), "error": "Email attachment processing failed"})
 
         mail.logout()
         return {
@@ -361,8 +368,9 @@ def process_email_invoices(
             "drafts": processed,
             "failed": errors,
         }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        log.warning("IMAP batch processing failed; configured=true")
+        return {"ok": False, "error": "IMAP batch processing failed"}
 
 
 def _decode_filename(raw: str) -> str:
@@ -477,10 +485,11 @@ def _attach_file_to_draft(draft_id: int, filename: str, data: bytes, tenant_id: 
 
 
 def get_email_status() -> dict:
-    configured = bool(IMAP_USER and IMAP_PASS)
+    configured = bool(IMAP_USER and _get_imap_password())
     return {
         "ok": True,
         "configured": configured,
+        "status": "configured" if configured else "degraded",
         "mode": "live" if configured else "demo",
         "imap_host": IMAP_HOST,
         "imap_port": IMAP_PORT,

@@ -31,8 +31,8 @@ def test_deploy_workflow_has_compile_step_and_strong_test_secret():
     deploy_step = next(step for step in deploy_steps if step["name"] == "Deploy to Cloud Run")
     assert "--update-env-vars" in deploy_step["run"]
     assert "--set-env-vars" not in deploy_step["run"]
-    assert "--set-secrets" in deploy_step["run"]
-    assert "--update-secrets" not in deploy_step["run"]
+    assert "--update-secrets" in deploy_step["run"]
+    assert "--set-secrets" not in deploy_step["run"]
     assert "COMMIT_SHA=${COMMIT_SHA}" in deploy_step["run"]
     assert "BUILD_TIME=${BUILD_TIME}" in deploy_step["run"]
     assert "ENVIRONMENT=${ENVIRONMENT}" in deploy_step["run"]

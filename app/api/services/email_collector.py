@@ -3,6 +3,7 @@ Bridge Hub — Per-tenant Email IMAP Collector (STEP 1.4)
 Each tenant has its own Gmail credentials stored in DB.
 Polls inbox, extracts PDFs, triggers AI processing.
 """
+import asyncio
 import email as emaillib
 import imaplib
 import logging
@@ -121,15 +122,35 @@ async def save_tenant_email_credentials(tenant_id: str, email_addr: str, app_pas
         return False
 
 
-async def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
+async def _get_email_document(tenant_id: str, message_uid: str, filename: str) -> Optional[dict]:
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT 1 FROM email_documents WHERE tenant_id=%s AND message_uid=%s AND filename=%s"
+                "SELECT id, status, draft_id FROM email_documents "
+                "WHERE tenant_id=%s AND message_uid=%s AND filename=%s"
             ), tenant_id, message_uid, filename)
-        return row is not None
+        return dict(row) if row else None
     except Exception:
-        return False
+        return None
+
+
+async def _already_processed(tenant_id: str, message_uid: str, filename: str) -> bool:
+    """Return true only for completed documents; incomplete rows remain retryable."""
+    row = await _get_email_document(tenant_id, message_uid, filename)
+    return bool(row and row.get("status") == "processed")
+
+
+async def _existing_email_draft(tenant_id: str, doc_id: int) -> Optional[int]:
+    """Find a draft saved by AI before a timeout interrupted document completion."""
+    try:
+        async with get_conn() as conn:
+            return await conn.fetchval(_q(
+                "SELECT id FROM journal_drafts WHERE tenant_id=%s "
+                "AND engine_metadata->>'source_doc_id'=%s ORDER BY id DESC LIMIT 1"
+            ), tenant_id, str(doc_id))
+    except Exception as e:
+        log.warning("_existing_email_draft lookup failed for doc %s: %s", doc_id, e)
+        return None
 
 
 async def _save_email_document(
@@ -157,6 +178,14 @@ async def _update_doc_draft(doc_id: int, draft_id: int, status: str = "processed
         log.warning("_update_doc_draft: %s", e)
 
 
+async def _reset_doc_pending(doc_id: int, raw_bytes: bytes, raw_text: str) -> None:
+    """Refresh attachment content and make an incomplete document retryable."""
+    async with get_conn() as conn:
+        await conn.execute(_q(
+            "UPDATE email_documents SET status='pending', raw_bytes=%s, raw_text=%s WHERE id=%s"
+        ), raw_bytes, raw_text, doc_id)
+
+
 async def get_all_active_tenants() -> list:
     """Return list of tenant_ids that have active email credentials."""
     try:
@@ -171,6 +200,31 @@ async def get_all_active_tenants() -> list:
 
 
 # ── IMAP helpers (sync — no async IMAP library) ───────────────────────────────
+
+def _imap_connect(email_addr: str, app_password: str):
+    """Open and authenticate one IMAP session in a worker thread."""
+    mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=8)
+    mail.login(email_addr, app_password)
+    mail.select("INBOX")
+    return mail
+
+
+def _imap_search_unseen(mail) -> list[bytes]:
+    _, data = mail.search(None, "UNSEEN")
+    return data[0].split() if data and data[0] else []
+
+
+def _imap_fetch_raw(mail, msg_id: bytes) -> bytes:
+    _, msg_data = mail.fetch(msg_id, "(RFC822)")
+    return msg_data[0][1]
+
+
+def _imap_mark_seen(mail, msg_id: bytes) -> None:
+    mail.store(msg_id, "+FLAGS", "\\Seen")
+
+
+def _imap_logout(mail) -> None:
+    mail.logout()
 
 def _decode_header_str(value: str) -> str:
     parts = decode_header(value or "")
@@ -278,83 +332,106 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
     if not creds:
         return {"status": "no_credentials", "tenant_id": tenant_id}
 
+    mail = None
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=8)
-        mail.login(creds["email"], creds["app_password"])
-        mail.select("INBOX")
+        mail = await asyncio.to_thread(
+            _imap_connect,
+            creds["email"],
+            creds["app_password"],
+        )
     except Exception as e:
         log.error("IMAP login failed for tenant %s: %s", tenant_id, e)
         return {"status": "error", "error": str(e), "tenant_id": tenant_id}
 
     try:
-        _, data = mail.search(None, "UNSEEN")
-        msg_ids = data[0].split() if data[0] else []
-    except Exception as e:
-        mail.logout()
-        return {"status": "error", "error": str(e), "tenant_id": tenant_id}
-
-    processed = []
-    errors = []
-
-    for msg_id in msg_ids:
         try:
-            uid = msg_id.decode()
-            _, msg_data = mail.fetch(msg_id, "(RFC822)")
-            raw = msg_data[0][1]
-            msg = emaillib.message_from_bytes(raw)
+            msg_ids = await asyncio.to_thread(_imap_search_unseen, mail)
+        except Exception as e:
+            return {"status": "error", "error": str(e), "tenant_id": tenant_id}
 
-            attachments = _extract_pdf_attachments(msg)
-            if not attachments:
-                continue
+        processed = []
+        errors = []
 
-            for att in attachments:
-                filename = att["filename"]
-                file_data = att["data"]
+        for msg_id in msg_ids:
+            try:
+                uid = msg_id.decode()
+                raw = await asyncio.to_thread(_imap_fetch_raw, mail, msg_id)
+                msg = emaillib.message_from_bytes(raw)
 
-                if await _already_processed(tenant_id, uid, filename):
-                    log.info("skip duplicate: %s / %s", tenant_id, filename)
+                attachments = _extract_pdf_attachments(msg)
+                if not attachments:
                     continue
 
-                raw_text = ""
-                fname_lower = filename.lower()
-                if fname_lower.endswith(".pdf"):
-                    raw_text = _extract_text_from_pdf(file_data)
-                elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
-                    raw_text = _extract_text_from_image(file_data, filename)
+                for att in attachments:
+                    filename = att["filename"]
+                    file_data = att["data"]
 
-                doc_id = await _save_email_document(tenant_id, uid, filename, file_data, raw_text)
+                    existing = await _get_email_document(tenant_id, uid, filename)
+                    if existing and existing.get("status") == "processed":
+                        log.info("skip duplicate: %s / %s", tenant_id, filename)
+                        continue
 
-                ai_result = await ai_process_document(
-                    tenant_id=tenant_id,
-                    doc_id=doc_id,
-                    doc_text=raw_text or None,
-                )
+                    doc_id = existing["id"] if existing else None
+                    if doc_id is not None:
+                        # AI may have committed its draft just before the poll timed out.
+                        draft_id = existing.get("draft_id") or await _existing_email_draft(tenant_id, doc_id)
+                        if draft_id:
+                            await _update_doc_draft(doc_id, draft_id)
+                            processed.append({"filename": filename, "draft_id": draft_id})
+                            continue
 
-                if ai_result.get("ok"):
-                    await _update_doc_draft(doc_id, ai_result["draft_id"])
-                    processed.append({
-                        "filename": filename,
-                        "draft_id": ai_result["draft_id"],
-                        "model": ai_result.get("model"),
-                        "confidence": ai_result.get("confidence"),
-                    })
-                else:
-                    await _update_doc_draft(doc_id, 0, "ai_failed")
-                    errors.append({"filename": filename, "error": ai_result.get("error")})
+                    raw_text = ""
+                    fname_lower = filename.lower()
+                    if fname_lower.endswith(".pdf"):
+                        raw_text = _extract_text_from_pdf(file_data)
+                    elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
+                        raw_text = _extract_text_from_image(file_data, filename)
 
-            mail.store(msg_id, "+FLAGS", "\\Seen")
+                    if doc_id is None:
+                        doc_id = await _save_email_document(
+                            tenant_id, uid, filename, file_data, raw_text
+                        )
+                    else:
+                        # Pending/processing/failed rows are resumable, not duplicates.
+                        await _reset_doc_pending(doc_id, file_data, raw_text)
 
+                    ai_result = await ai_process_document(
+                        tenant_id=tenant_id,
+                        doc_id=doc_id,
+                        doc_text=raw_text or None,
+                    )
+
+                    if ai_result.get("ok"):
+                        await _update_doc_draft(doc_id, ai_result["draft_id"])
+                        processed.append({
+                            "filename": filename,
+                            "draft_id": ai_result["draft_id"],
+                            "model": ai_result.get("model"),
+                            "confidence": ai_result.get("confidence"),
+                        })
+                    else:
+                        await _update_doc_draft(doc_id, 0, "ai_failed")
+                        errors.append({
+                            "filename": filename,
+                            "error": ai_result.get("error"),
+                        })
+
+                await asyncio.to_thread(_imap_mark_seen, mail, msg_id)
+
+            except Exception as e:
+                log.error("collect_tenant_inbox msg %s error: %s", msg_id, e)
+                errors.append({"msg_id": msg_id.decode(), "error": str(e)})
+
+        return {
+            "status": "ok",
+            "tenant_id": tenant_id,
+            "processed": len(processed),
+            "errors": len(errors),
+            "drafts": processed,
+            "error_details": errors,
+        }
+    finally:
+        try:
+            await asyncio.to_thread(_imap_logout, mail)
         except Exception as e:
-            log.error("collect_tenant_inbox msg %s error: %s", msg_id, e)
-            errors.append({"msg_id": msg_id.decode(), "error": str(e)})
-
-    mail.logout()
-
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "processed": len(processed),
-        "errors": len(errors),
-        "drafts": processed,
-        "error_details": errors,
-    }
+            log.warning("IMAP logout failed for tenant %s: %s", tenant_id, e)

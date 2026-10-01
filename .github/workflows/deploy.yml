@@ -175,6 +175,7 @@ jobs:
             --cpu 2 \
             --concurrency 100 \
             --timeout 300 \
+            --remove-env-vars "SMTP_PASS,IMAP_PASS" \
             --update-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
             --update-secrets "DATABASE_URL=bridge-hub-database-url:latest,JWT_SECRET=bridge-hub-jwt-secret:latest,ANTHROPIC_API_KEY=bridge-hub-anthropic-api-key:latest,OPENROUTER_API_KEY=bridge-hub-openrouter-api-key:latest,VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest,SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION},IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" \
             --quiet

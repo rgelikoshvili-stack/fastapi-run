@@ -17,16 +17,18 @@ Non-secret runtime configuration may remain in environment variables: `SMTP_HOST
 
 ## Cloud Run mapping
 
-Use additive `gcloud run deploy --update-secrets`, not `--set-secrets`, for the email additions:
+Use additive `gcloud run deploy --update-secrets`, not `--set-secrets`, for the email additions. The deploy workflow reads version numbers from the GitHub Actions repository variables `SMTP_PASS_SECRET_VERSION` and `IMAP_PASS_SECRET_VERSION` and rejects missing or non-numeric values before deployment:
 
 ```text
-SMTP_PASS=bridge-hub-smtp-password:latest
-IMAP_PASS=bridge-hub-imap-password:latest
+SMTP_PASS=bridge-hub-smtp-password:${{ vars.SMTP_PASS_SECRET_VERSION }}
+IMAP_PASS=bridge-hub-imap-password:${{ vars.IMAP_PASS_SECRET_VERSION }}
 ```
+
+Set both variables to approved, enabled numeric Secret Manager version IDs before merging or deploying. Do not use `:latest` in production unless explicitly approved. Keep the prior known-good version enabled; rollback pins the corresponding variable to that previous version and deploys a reviewed revision.
 
 Retain the current non-secret `--update-env-vars` deployment-metadata behavior. Keep existing database/JWT/AI/vault mappings intact. `--set-secrets` clears existing secret mappings before replacing them; `--update-secrets` avoids removing mappings not named in the update, as specified by the [official gcloud reference](https://docs.cloud.google.com/sdk/gcloud/reference/run/deploy).
 
-The deployment service account must have Secret Manager Secret Accessor permission only on the required secrets. Cloud Run should consume version `latest` only after a controlled rotation/version-approval step. Do not put secret payloads into GitHub Actions variables, `--set-env-vars`, `.env.example`, logs, docs, or command output.
+The Cloud Run runtime service account must have Secret Manager Secret Accessor permission only on the required secrets. The GitHub version variables contain version identifiers only, never secret payloads. Do not put secret payloads into GitHub Actions variables, `--set-env-vars`, `.env.example`, logs, docs, or command output.
 
 ## Runtime behavior and compatibility
 
@@ -44,6 +46,7 @@ Before merging/deploying this PR, an authorized operator must, in a separate con
 3. Grant the Cloud Run runtime service account least-privilege access to those secrets.
 4. Migrate/re-enter any legacy tenant credentials through the existing encrypted vault UI/API and verify only non-secret configured status.
 5. Confirm the workflow's additive mapping is valid and that required existing Secret Manager mappings remain present.
+6. Set `SMTP_PASS_SECRET_VERSION` and `IMAP_PASS_SECRET_VERSION` to the approved version numbers and confirm both are enabled before merge/deploy.
 
 This PR does not perform those operations or change production configuration. The repository's `main` deployment workflow runs on push to `main`; merging a future approved PR will therefore initiate its normal automated Cloud Run deployment. No manual deployment is part of this task.
 

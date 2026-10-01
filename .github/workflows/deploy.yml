@@ -92,6 +92,9 @@ jobs:
   deploy:
     needs: [test, frontend-build]
     runs-on: ubuntu-latest
+    env:
+      SMTP_PASS_SECRET_VERSION: ${{ vars.SMTP_PASS_SECRET_VERSION }}
+      IMAP_PASS_SECRET_VERSION: ${{ vars.IMAP_PASS_SECRET_VERSION }}
     permissions:
       contents: read
       id-token: write
@@ -114,6 +117,18 @@ jobs:
             exit 1
           fi
           echo "Secrets present"
+
+      - name: Validate email Secret Manager versions
+        shell: bash
+        run: |
+          if [[ ! "$SMTP_PASS_SECRET_VERSION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Set the repository variable SMTP_PASS_SECRET_VERSION to an approved numeric version before deploy."
+            exit 1
+          fi
+          if [[ ! "$IMAP_PASS_SECRET_VERSION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Set the repository variable IMAP_PASS_SECRET_VERSION to an approved numeric version before deploy."
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -161,7 +176,7 @@ jobs:
             --concurrency 100 \
             --timeout 300 \
             --update-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
-            --update-secrets "DATABASE_URL=bridge-hub-database-url:latest,JWT_SECRET=bridge-hub-jwt-secret:latest,ANTHROPIC_API_KEY=bridge-hub-anthropic-api-key:latest,OPENROUTER_API_KEY=bridge-hub-openrouter-api-key:latest,VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest,SMTP_PASS=bridge-hub-smtp-password:latest,IMAP_PASS=bridge-hub-imap-password:latest" \
+            --update-secrets "DATABASE_URL=bridge-hub-database-url:latest,JWT_SECRET=bridge-hub-jwt-secret:latest,ANTHROPIC_API_KEY=bridge-hub-anthropic-api-key:latest,OPENROUTER_API_KEY=bridge-hub-openrouter-api-key:latest,VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest,SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION},IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" \
             --quiet
 
       - name: Smoke test - health check

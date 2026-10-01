@@ -111,10 +111,18 @@ def test_cloud_run_secret_mapping_docs_use_names_not_secret_payloads():
     plan = (ROOT / "docs/p1_email_secret_manager_plan.md").read_text(encoding="utf-8")
 
     assert "--update-secrets" in workflow
-    assert "SMTP_PASS=bridge-hub-smtp-password:latest" in workflow
-    assert "IMAP_PASS=bridge-hub-imap-password:latest" in workflow
-    assert "bridge-hub-smtp-password:latest" in plan
-    assert "bridge-hub-imap-password:latest" in plan
+    assert "SMTP_PASS_SECRET_VERSION: ${{ vars.SMTP_PASS_SECRET_VERSION }}" in workflow
+    assert "IMAP_PASS_SECRET_VERSION: ${{ vars.IMAP_PASS_SECRET_VERSION }}" in workflow
+    assert "SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION}" in workflow
+    assert "IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" in workflow
+    assert not re.search(r"(?:SMTP_PASS|IMAP_PASS)=bridge-hub-(?:smtp|imap)-password:latest", workflow)
+    assert "SMTP_PASS=bridge-hub-smtp-password:${{ vars.SMTP_PASS_SECRET_VERSION }}" in plan
+    assert "IMAP_PASS=bridge-hub-imap-password:${{ vars.IMAP_PASS_SECRET_VERSION }}" in plan
+    assert "before merging or deploying" in plan
+    assert "Do not use `:latest` in production unless explicitly approved" in plan
+    assert "rollback pins" in plan
+    assert "Set the repository variable SMTP_PASS_SECRET_VERSION" in workflow
+    assert "Set the repository variable IMAP_PASS_SECRET_VERSION" in workflow
     assert not re.search(r"(?i)(?:SMTP_PASS|IMAP_PASS)=\$\{\{\s*secrets\.[A-Z0-9_]+\}\}", workflow)
 
 
@@ -128,8 +136,9 @@ def test_deploy_workflow_uses_secret_refs_not_plaintext_email_passwords():
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
     assert "--set-secrets" not in workflow
     assert "--update-secrets" in workflow
-    assert not re.search(r"SMTP_PASS=(?!bridge-hub-smtp-password:latest)[^,\\\"]+", workflow)
-    assert not re.search(r"IMAP_PASS=(?!bridge-hub-imap-password:latest)[^,\\\"]+", workflow)
+    assert "SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION}" in workflow
+    assert "IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" in workflow
+    assert not re.search(r"(?:SMTP_PASS|IMAP_PASS)=bridge-hub-(?:smtp|imap)-password:latest", workflow)
     assert "--update-env-vars" in workflow
 
 

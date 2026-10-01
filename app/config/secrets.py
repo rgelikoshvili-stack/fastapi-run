@@ -83,6 +83,19 @@ def require_secret(name: str) -> str:
     return value
 
 
+def get_email_secret(name: str) -> Optional[str]:
+    """Load an email secret; TEST_MODE only accepts explicit fake placeholders."""
+    if name not in {"SMTP_PASS", "IMAP_PASS"}:
+        raise ValueError("unsupported email secret name")
+    if os.environ.get("TEST_MODE") == "1":
+        value = os.environ.get(f"TEST_{name}")
+        if value and value.lower().startswith(("test-", "fake-", "placeholder-")):
+            return value
+        return None
+    value = get_secret(name)
+    return value if value and value.strip() else None
+
+
 def warm_up_secrets():
     """Pre-load critical secrets at startup to fail fast."""
     critical = ["DATABASE_URL", "JWT_SECRET"]

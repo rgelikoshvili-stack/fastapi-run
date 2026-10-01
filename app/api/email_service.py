@@ -1,18 +1,30 @@
-import smtplib, os
+import logging
+import os
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
+from app.config.secrets import get_email_secret
+
+log = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "noreply@bridgehub.ge")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "https://fastapi-run-226875230147.us-central1.run.app")
 
 def send_email(to: str, subject: str, body_html: str, body_text: str = "") -> dict:
-    if not SMTP_USER or not SMTP_PASS:
-        return {"sent": False, "reason": "SMTP not configured"}
+    smtp_pass = get_email_secret("SMTP_PASS")
+    if os.environ.get("TEST_MODE") == "1":
+        return {
+            "sent": False,
+            "configured": bool(SMTP_USER and smtp_pass),
+            "status": "degraded",
+            "reason": "SMTP delivery disabled in TEST_MODE",
+        }
+    if not SMTP_USER or not smtp_pass:
+        return {"sent": False, "configured": False, "status": "degraded", "reason": "SMTP not configured"}
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -23,11 +35,12 @@ def send_email(to: str, subject: str, body_html: str, body_text: str = "") -> di
         msg.attach(MIMEText(body_html, "html"))
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
+            server.login(SMTP_USER, smtp_pass)
             server.sendmail(FROM_EMAIL, to, msg.as_string())
-        return {"sent": True}
-    except Exception as e:
-        return {"sent": False, "reason": str(e)}
+        return {"sent": True, "configured": True}
+    except Exception:
+        log.warning("SMTP delivery failed; configured=true")
+        return {"sent": False, "configured": True, "status": "degraded", "reason": "SMTP delivery failed"}
 
 def notify_draft_approved(to: str, draft: dict) -> dict:
     subject = f"[Bridge Hub] Journal Draft #{draft.get('id')} Approved"

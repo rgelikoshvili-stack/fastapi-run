@@ -81,6 +81,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .tab:not(.active):hover{background:var(--card-hover);color:var(--ink)}
 /* FILTER BAR */
 .filter-bar{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.sync-safety-warning{flex-basis:100%;margin:0;padding:9px 12px;border:1px solid #d97706;border-radius:6px;background:#fff7ed;color:#7c2d12;font-size:12px;font-weight:600;}
 .filter-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);white-space:nowrap;}
 .date-input{padding:6px 10px;background:var(--paper-soft);border:1px solid var(--line-strong);border-radius:7px;font-family:var(--mono);font-size:12px;color:var(--ink);outline:none;transition:.12s;}
 .date-input:focus{border-color:var(--accent);background:var(--card)}
@@ -290,10 +291,11 @@ td.date-cell{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-
           <svg style="width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           ლოკ. DB
         </button>
-        <button class="btn btn-primary" id="btnLiveSync" onclick="liveSync()" style="font-size:12px;margin-left:4px" title="RS.ge SOAP API-დან ზედნადებების სინქ.">
+        <button class="btn btn-primary" id="btnLiveSync" onclick="liveSync()" style="font-size:12px;margin-left:4px" title="Sync waybills from the RS.ge SOAP API">
           <svg style="width:12px;height:12px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-          RS.ge სინქ.
+          Sync RS.ge waybills
         </button>
+        <p class="sync-safety-warning" role="alert">This action may contact RS.ge and save local sync records.</p>
       </div>
 
       <!-- Stats -->
@@ -1653,6 +1655,11 @@ loadWaybills();
 
 // ── LIVE RS.ge SOAP SYNC ──────────────────────────────────────────────────────
 async function liveSync() {
+  const confirmed = window.confirm(
+    'This action may contact RS.ge and save local sync records. Continue with sync?'
+  );
+  if (!confirmed) return;
+
   const btn = document.getElementById('btnLiveSync');
   const df = document.getElementById('wbDateFrom').value || '';
   const dt = document.getElementById('wbDateTo').value   || '';

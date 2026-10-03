@@ -33,6 +33,7 @@ Test names (24):
 
 import ast
 import pathlib
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -367,7 +368,7 @@ def test_fixture_balance_sheet_uses_as_of_date():
     as_of = "2026-04-30"
     sql, params = _build_balance_sheet_posted_ledger_query(FIXTURE_TENANT, as_of)
     assert "$3" in sql, "as_of date must be bound as $3"
-    assert as_of in params
+    assert date.fromisoformat(as_of) in params
 
 
 # ---------------------------------------------------------------------------

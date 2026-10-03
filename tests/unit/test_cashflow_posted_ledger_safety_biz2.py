@@ -1,5 +1,6 @@
 """Safety contract tests for BIZ-2 posted-ledger cashflow/CFO reporting."""
 import asyncio
+from datetime import date
 from contextlib import asynccontextmanager
 
 from app.api.services import cashflow_classification_service as classification
@@ -96,7 +97,7 @@ def test_cashflow_query_binds_tenant_and_date_to_without_date_from():
     assert "jeh.tenant_id = $1" in sql
     assert "jeh.entry_date <= $3" in sql
     assert "journal_drafts" not in sql
-    assert params == ["tenant-a", list(statements.STANDARD_NET_STATUSES), "2026-09-30"]
+    assert params == ["tenant-a", list(statements.STANDARD_NET_STATUSES), date(2026, 9, 30)]
 
 
 def test_cashflow_query_binds_both_date_bounds_and_tenant():
@@ -104,7 +105,7 @@ def test_cashflow_query_binds_both_date_bounds_and_tenant():
     assert "jeh.tenant_id = $1" in sql
     assert "jeh.entry_date >= $3" in sql
     assert "jeh.entry_date <= $4" in sql
-    assert params[-2:] == ["2026-09-01", "2026-09-30"]
+    assert params[-2:] == [date(2026, 9, 1), date(2026, 9, 30)]
 
 
 def test_cashflow_query_rejects_missing_tenant():
@@ -127,7 +128,7 @@ def test_cashflow_uses_posted_ledger_and_does_not_fallback_to_drafts(monkeypatch
     assert "journal_entry_headers" in query and "journal_entry_lines" in query
     assert "journal_drafts" not in query
     assert "jeh.tenant_id = $1" in query and params[0] == "tenant-a"
-    assert "jeh.entry_date <= $3" in query and params[-1] == "2026-09-30"
+    assert "jeh.entry_date <= $3" in query and params[-1] == date(2026, 9, 30)
     assert response["ok"] is True
     assert response["data"]["operating"]["inflows"] == 50
 
@@ -173,7 +174,7 @@ def test_posted_trial_balance_query_is_tenant_and_as_of_scoped(monkeypatch):
     assert "jeh.tenant_id = $1" in query
     assert "jeh.entry_date <= $3" in query
     assert "journal_drafts" not in query
-    assert params[0] == "tenant-a" and params[-1] == "2026-09-30"
+    assert params[0] == "tenant-a" and params[-1] == date(2026, 9, 30)
     assert balance == {"1120": 200}
 
 

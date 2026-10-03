@@ -32,6 +32,13 @@ def _require_tenant_id(tenant_id: str) -> None:
         raise ValueError("tenant_id is required and must not be empty")
 
 
+def _pg_date(value):
+    """Normalize API ISO date strings to the ``datetime.date`` expected by asyncpg."""
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    return value
+
+
 def _assert_no_silent_fallback(sql: str) -> None:
     """Raise ValueError if the posted-ledger SQL references journal_drafts."""
     if "journal_drafts" in sql:
@@ -52,10 +59,10 @@ def _build_pnl_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code,
@@ -87,7 +94,7 @@ def _build_balance_sheet_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     as_of_filter = ""
     if as_of:
-        params.append(as_of)
+        params.append(_pg_date(as_of))
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code,
@@ -117,10 +124,10 @@ def _build_cashflow_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.id AS line_id,
@@ -151,7 +158,7 @@ def _build_posted_trial_balance_as_of_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     as_of_filter = ""
     if as_of:
-        params.append(as_of)
+        params.append(_pg_date(as_of))
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code, SUM(jel.debit) AS total_debit,

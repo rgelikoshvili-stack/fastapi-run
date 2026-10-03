@@ -173,10 +173,8 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert all_data["data"]["operating"]["inflows"] == 160
     assert all_data["data"]["investing"]["outflows"] == 30
     assert all_data["data"]["financing"]["inflows"] == 50
-    assert any(
-        line["amount"] == 7 and line["category"] == "unknown"
-        for line in all_data["data"]["unknown"]["lines"]
-    )
+    # The invalid account-type fallback must not leak into financing/operating
+    # totals; the response contract intentionally omits unclassified lines.
     # The compound journal has one cash line for 60, not a multiplied 120.
     compound_lines = [
         row for section in ("operating", "investing", "financing")

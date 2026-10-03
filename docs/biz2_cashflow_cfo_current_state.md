@@ -4,6 +4,22 @@
 **Task:** BIZ-2 — Cashflow Classification + CFO Dashboard Completion  
 **Decision:** BIZ2_CURRENT_STATE_AUDIT_READY
 
+> Historical snapshot: this audit records the state before BIZ-2 implementation. The
+> current implementation and its safety corrections are described below and in the
+> service docs; do not treat the original “not implemented” findings as current.
+
+## Current safety status (2026-10-03)
+
+- Official cashflow reads `journal_entry_headers` + `journal_entry_lines` only and
+  returns `POSTED_LEDGER_UNAVAILABLE` on query failure; it does not fall back to
+  `journal_drafts`.
+- Cash movements are anchored to cash-account lines and counted once. Ambiguous
+  compound entries remain unclassified rather than being guessed or multiplied.
+- Explicit `cashflow_category` metadata takes precedence. The account-code map is a
+  legacy fallback guarded by `account_type` when present.
+- CFO cash position comes from posted-ledger balances through the requested `as_of`
+  date. If that read fails, cash fields are null and marked unavailable.
+
 ---
 
 ## 1. Does Bridge Hub already generate cashflow?

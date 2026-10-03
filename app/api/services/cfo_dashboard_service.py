@@ -80,7 +80,7 @@ def _strip_forbidden(d: dict) -> dict:
 # ── Pure aggregation function ─────────────────────────────────────────────────
 
 def build_cfo_dashboard_from_data(
-    trial_balance: dict[str, float],
+    trial_balance: dict[str, float] | None,
     pnl: dict[str, Any],
     cashflow: dict[str, Any] | None = None,
     ar_aging: dict[str, Any] | None = None,
@@ -113,12 +113,13 @@ def build_cfo_dashboard_from_data(
     Returns:
         CFO dashboard dict with all sections.
     """
+    cash_balance_available = trial_balance is not None
     tb = trial_balance or {}
 
     # ── Cash position ─────────────────────────────────────────────────────────
-    cash_1110 = round(float(tb.get("1110", 0.0)), 2)
-    bank_1120 = round(float(tb.get("1120", 0.0)), 2)
-    total_liquid = round(cash_1110 + bank_1120, 2)
+    cash_1110 = round(float(tb.get("1110", 0.0)), 2) if cash_balance_available else None
+    bank_1120 = round(float(tb.get("1120", 0.0)), 2) if cash_balance_available else None
+    total_liquid = round(cash_1110 + bank_1120, 2) if cash_balance_available else None
 
     cf_operating  = 0.0
     cf_investing  = 0.0
@@ -131,6 +132,9 @@ def build_cfo_dashboard_from_data(
         cf_net_change = round(float(cashflow.get("net_change_in_cash") or 0), 2)
 
     cash_position = {
+        "available":       cash_balance_available,
+        "source":          "posted_ledger" if cash_balance_available else "unavailable",
+        "as_of":           as_of,
         "cash_1110":       cash_1110,
         "bank_1120":       bank_1120,
         "total_liquid":    total_liquid,
@@ -319,16 +323,18 @@ async def build_cfo_dashboard(
     """
     from app.api.db import get_conn, _q
     from app.api.services.financial_statements_service import (
-        _get_trial_balance,
+        _get_posted_trial_balance_as_of,
         build_profit_and_loss,
         build_cashflow_statement,
     )
+    effective_as_of = as_of or date_to
 
     try:
-        tb = await _get_trial_balance(tenant_id, date_from, date_to)
+        # Cash position is a point-in-time posted-ledger balance, not draft activity.
+        tb = await _get_posted_trial_balance_as_of(tenant_id, effective_as_of)
     except Exception as e:
         log.warning("CFO dashboard: trial balance unavailable: %s", e)
-        tb = {}
+        tb = None
 
     pnl_resp = await build_profit_and_loss(tenant_id, date_from, date_to)
     pnl_data = (pnl_resp.get("data") or {}) if pnl_resp.get("ok") else {}
@@ -417,10 +423,10 @@ async def build_cfo_dashboard(
         log.warning("CFO dashboard: fixed asset depreciation unavailable: %s", e)
 
     # Period lock status
-    period_lock_status: dict[str, Any] = {"locked": False, "period": as_of or ""}
+    period_lock_status: dict[str, Any] = {"locked": False, "period": effective_as_of or ""}
     try:
         async with get_conn() as conn:
-            period_key = (as_of or "")[:7]  # YYYY-MM
+            period_key = (effective_as_of or "")[:7]  # YYYY-MM
             locked = await conn.fetchval(
                 _q("""
                     SELECT COUNT(*) > 0 FROM period_locks
@@ -440,6 +446,6 @@ async def build_cfo_dashboard(
         draft_counts=draft_counts,
         fixed_asset_data=fixed_asset_data,
         period_lock=period_lock_status,
-        as_of=as_of,
+        as_of=effective_as_of,
     )
     return result

@@ -245,8 +245,12 @@ def test_cashflow_posted_ledger_query_shape():
     sql, params = _build_cashflow_posted_ledger_query("tenant-a", "2026-04-01", "2026-04-30")
     assert isinstance(sql, str)
     assert "cashflow_category" in sql
-    assert "LIKE '1%'" in sql or "account_code" in sql
-    assert "SUM" in sql
+    assert "account_type" in sql
+    assert "jel.debit" in sql and "jel.credit" in sql
+    assert "jeh.id AS header_id" in sql
+    assert "jeh.tenant_id = $1" in sql
+    assert "jeh.entry_date >= $3" in sql and "jeh.entry_date <= $4" in sql
+    assert "journal_drafts" not in sql
 
 
 # ---------------------------------------------------------------------------

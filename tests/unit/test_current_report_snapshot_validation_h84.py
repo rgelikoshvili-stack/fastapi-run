@@ -37,6 +37,27 @@ def test_helper_uses_dedicated_dsn_name_and_never_reads_production_url():
     assert "print(dsn" not in source.lower()
 
 
+def test_helper_uses_and_cleans_a_temporary_synthetic_schema():
+    source = Path("scripts/validate_h84_report_snapshots.py").read_text(encoding="utf-8")
+    assert "CREATE SCHEMA" in source
+    assert "DROP SCHEMA IF EXISTS" in source
+    assert "uuid4().hex" in source
+    assert "other tenant only" in source
+    assert "must not be official" in source
+
+
+def test_disposable_postgres_workflow_is_test_only_and_runs_helper():
+    workflow = Path(".github/workflows/pr84-postgres-snapshot.yml").read_text(encoding="utf-8")
+    assert "image: postgres:16" in workflow
+    assert "POSTGRES_DB: bridge_hub_h84_test" in workflow
+    assert "POSTGRES_PASSWORD: h84_test_only_password" in workflow
+    assert "DATABASE_URL: \"\"" in workflow
+    assert "H84_REPORT_TEST_DATABASE_URL:" in workflow
+    assert "python scripts/validate_h84_report_snapshots.py" in workflow
+    assert "secrets." not in workflow
+    assert "deploy.yml" not in workflow
+
+
 def test_snapshot_builders_use_tenant_scoped_posted_ledger_queries():
     from app.api.services import financial_statements_service as reports
 

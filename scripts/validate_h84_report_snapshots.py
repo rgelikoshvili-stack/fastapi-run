@@ -63,7 +63,7 @@ async def _seed(conn) -> None:
         (TENANT_ALPHA, "posted", "2026-09-05", [
             ("1120", "asset", "operating", 118, 0, "synthetic customer receipt"),
             ("6110", "income", None, 0, 100, "synthetic sale"),
-            ("2200", "liability", None, 0, 18, "synthetic output VAT"),
+            ("3310", "liability", None, 0, 18, "synthetic output VAT"),
         ]),
         (TENANT_ALPHA, "posted", "2026-09-08", [
             ("7210", "expense", None, 100, 0, "synthetic operating expense"),

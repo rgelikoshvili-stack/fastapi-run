@@ -229,6 +229,11 @@ def main() -> int:
     except ModuleNotFoundError as exc:
         print(f"H84 snapshot validation failed: missing module {exc.name}", file=sys.stderr)
         return 1
+    except RuntimeError as exc:
+        # RuntimeErrors here are helper-owned, fixed validation messages; never
+        # echo arbitrary database exceptions or connection strings.
+        print(f"H84 snapshot validation failed: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:
         # Exception text is restricted to avoid accidentally echoing DSNs.
         print(f"H84 snapshot validation failed: {type(exc).__name__}", file=sys.stderr)

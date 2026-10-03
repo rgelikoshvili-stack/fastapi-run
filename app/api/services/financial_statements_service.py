@@ -69,9 +69,18 @@ def _build_pnl_posted_ledger_query(
                jel.account_type,
                SUM(jel.debit)  AS total_debit,
                SUM(jel.credit) AS total_credit,
-               MAX(jeh.source_draft_id)    AS source_draft_id,
-               MAX(jeh.posting_log_id)     AS posting_log_id,
-               MAX(jeh.evidence_bundle_id) AS evidence_bundle_id
+               CASE WHEN COUNT(*) = COUNT(jeh.source_draft_id)
+                          AND COUNT(DISTINCT jeh.source_draft_id) = 1
+                    THEN (ARRAY_AGG(jeh.source_draft_id))[1]
+                    ELSE NULL END AS source_draft_id,
+               CASE WHEN COUNT(*) = COUNT(jeh.posting_log_id)
+                          AND COUNT(DISTINCT jeh.posting_log_id) = 1
+                    THEN (ARRAY_AGG(jeh.posting_log_id))[1]
+                    ELSE NULL END AS posting_log_id,
+               CASE WHEN COUNT(*) = COUNT(jeh.evidence_bundle_id)
+                          AND COUNT(DISTINCT jeh.evidence_bundle_id) = 1
+                    THEN (ARRAY_AGG(jeh.evidence_bundle_id))[1]
+                    ELSE NULL END AS evidence_bundle_id
         FROM journal_entry_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
         WHERE jeh.tenant_id = $1
@@ -440,13 +449,22 @@ async def _build_balance_sheet_from_posted_ledger(
         "liabilities": {"current": [], "non_current": []},
         "equity":      {"equity":  []},
     }
+    type_to_group = {
+        "asset": "assets", "assets": "assets",
+        "liability": "liabilities", "liabilities": "liabilities",
+        "equity": "equity",
+    }
     for row in rows:
         code = row["account_code"]
         acct_type = row.get("account_type", "")
         total_dr = float(row["total_debit"] or 0)
         total_cr = float(row["total_credit"] or 0)
         bs_meta = _BALANCE_SHEET.get(code)
-        group = acct_type if acct_type in sections else "assets"
+        normalized_type = str(acct_type or "").strip().lower()
+        group = type_to_group.get(
+            normalized_type,
+            bs_meta[0] if bs_meta else "assets",
+        )
         sub = bs_meta[1] if bs_meta else ("current" if group != "equity" else "equity")
         if group not in sections or sub not in sections.get(group, {}):
             continue

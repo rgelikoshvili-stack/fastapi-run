@@ -1,0 +1,69 @@
+name: PR 84 Disposable PostgreSQL Report Snapshot
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/validate_h84_report_snapshots.py"
+      - "app/api/services/financial_statements_service.py"
+      - "tests/unit/test_current_report_snapshot_validation_h84.py"
+      - "tests/integration/test_pr127_cashflow_postgres.py"
+      - "docs/current_report_snapshot_validation_h84.md"
+      - ".github/workflows/pr84-postgres-snapshot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bridge_hub_h84_test
+          POSTGRES_USER: h84_test_user
+          POSTGRES_PASSWORD: h84_test_only_password
+        ports:
+          - 55434:5432
+        options: >-
+          --health-cmd "pg_isready -U h84_test_user -d bridge_hub_h84_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JWT_SECRET: test-secret-ci-only-not-for-production
+      TEST_MODE: "1"
+      DATABASE_URL: ""
+      POSTED_LEDGER_REPORTS_ENABLED: "1"
+      H84_REPORT_TEST_DATABASE_URL: postgresql://h84_test_user:h84_test_only_password@127.0.0.1:55434/bridge_hub_h84_test
+      PR127_TEST_DATABASE_URL: postgresql://h84_test_user:h84_test_only_password@127.0.0.1:55434/bridge_hub_h84_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run H84 snapshot contract tests
+        run: >-
+          python -m pytest
+          tests/unit/test_current_report_snapshot_validation_h84.py
+          tests/unit/test_local_report_snapshot_capture_h53.py
+          tests/unit/test_local_report_snapshot_comparison_h53.py
+          -q --tb=short
+      - name: Capture current reports through application services
+        run: python scripts/validate_h84_report_snapshots.py
+      - name: Run PR #127 disposable PostgreSQL report test
+        run: python -m pytest tests/integration/test_pr127_cashflow_postgres.py -v --tb=short
+      - name: Run related report/cashflow/CFO unit tests
+        run: >-
+          python -m pytest
+          tests/unit/test_cashflow_classification_biz2.py
+          tests/unit/test_cashflow_posted_ledger_safety_biz2.py
+          tests/unit/test_cfo_dashboard_metrics_biz2.py
+          tests/unit/test_report_service_posted_ledger_query_mock_contract.py
+          -q --tb=short

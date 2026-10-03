@@ -51,7 +51,10 @@ async def posted_ledger_db(monkeypatch):
                     id UUID PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
                     status TEXT NOT NULL,
-                    entry_date DATE NOT NULL
+                    entry_date DATE NOT NULL,
+                    source_draft_id UUID,
+                    posting_log_id UUID,
+                    evidence_bundle_id UUID
                 );
                 CREATE TABLE journal_entry_lines (
                     id UUID PRIMARY KEY,
@@ -184,6 +187,18 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert len(compound_lines) == 1
     assert compound_lines[0]["amount"] == 60
     assert "journal_drafts" not in all_data["data"]
+
+    # P&L uses the same posted headers; PostgreSQL does not implement MAX(UUID).
+    # Audit lineage remains null unless every line in an aggregate shares one ID.
+    pnl = await statements.build_profit_and_loss("tenant-a")
+    assert pnl["ok"] is True
+    assert pnl["data"]["source"] == "posted_ledger"
+    assert pnl["data"]["revenue"]["total"] == 167
+    assert all(line["source_draft_id"] is None for line in pnl["data"]["revenue"]["lines"])
+
+    balance_sheet = await statements.build_balance_sheet("tenant-a", "2026-09-30")
+    assert balance_sheet["ok"] is True
+    assert balance_sheet["data"]["source"] == "posted_ledger"
 
     tenant_b_data = await statements.build_cashflow_statement("tenant-b")
     assert tenant_b_data["data"]["financing"]["inflows"] == 9000

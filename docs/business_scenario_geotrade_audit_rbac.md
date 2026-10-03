@@ -94,7 +94,15 @@ BIZ-1 does not touch any of these files.
 
 ## Tenant Isolation
 
-Every query must include `WHERE tenant_id = $N`. GeoTrade test data uses `tenant_id = "geotrade_test"`. Cross-tenant queries raise HTTP 403 or return empty result, never cross-contaminate data.
+Every production query must include `WHERE tenant_id = $N`. GeoTrade scenario fixtures use `tenant_id = "geotrade_test"`.
+
+**Coverage limitation:** these scenario checks use fixtures and mocks; they do not prove database-backed tenant isolation. The cross-tenant scenario assertions verify tenant identifiers and expected denial behavior only. Database-backed isolation coverage belongs in dedicated integration tests.
+
+## Approval, Posting, and Duplicate-Prevention Coverage
+
+The scenario models approval before posting and asserts the expected `requires_approval` / `no_auto_post` flags. It does not execute a complete evidence → draft → approval → posted-ledger transaction against a database, and it does not prove the production posting writer's behavior.
+
+The RS.ge resync fixture declares the expected no-duplicate outcome. This is fixture-level documentation/assertion only; it does not test persisted idempotency or duplicate prevention against a database. No live RS.ge calls are made by these tests.
 
 ---
 

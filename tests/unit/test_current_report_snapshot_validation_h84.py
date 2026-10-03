@@ -80,6 +80,18 @@ def test_snapshot_builders_use_tenant_scoped_posted_ledger_queries():
         assert set(params[1]) == {"posted", "correction"}
 
 
+def test_pnl_lineage_aggregation_is_postgres_uuid_safe_and_conservative():
+    from app.api.services.financial_statements_service import _build_pnl_posted_ledger_query
+
+    sql, _ = _build_pnl_posted_ledger_query(h84.TENANT_ALPHA, None, None)
+    normalized = " ".join(sql.lower().split())
+    assert "max(jeh.source_draft_id)" not in normalized
+    assert "array_agg(jeh.source_draft_id)" in normalized
+    assert "count(distinct jeh.source_draft_id) = 1" in normalized
+    assert "array_agg(jeh.posting_log_id)" in normalized
+    assert "array_agg(jeh.evidence_bundle_id)" in normalized
+
+
 def test_document_labels_snapshots_and_expired_h53_approval():
     text = DOC.read_text(encoding="utf-8")
     for snapshot in ("Trial balance", "P&L", "Balance Sheet", "Cashflow"):

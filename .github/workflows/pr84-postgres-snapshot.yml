@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/validate_h84_report_snapshots.py"
+      - "app/api/services/financial_statements_service.py"
       - "tests/unit/test_current_report_snapshot_validation_h84.py"
       - "tests/integration/test_pr127_cashflow_postgres.py"
       - "docs/current_report_snapshot_validation_h84.md"

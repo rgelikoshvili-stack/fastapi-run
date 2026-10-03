@@ -69,9 +69,18 @@ def _build_pnl_posted_ledger_query(
                jel.account_type,
                SUM(jel.debit)  AS total_debit,
                SUM(jel.credit) AS total_credit,
-               MAX(jeh.source_draft_id)    AS source_draft_id,
-               MAX(jeh.posting_log_id)     AS posting_log_id,
-               MAX(jeh.evidence_bundle_id) AS evidence_bundle_id
+               CASE WHEN COUNT(*) = COUNT(jeh.source_draft_id)
+                          AND COUNT(DISTINCT jeh.source_draft_id) = 1
+                    THEN (ARRAY_AGG(jeh.source_draft_id))[1]
+                    ELSE NULL END AS source_draft_id,
+               CASE WHEN COUNT(*) = COUNT(jeh.posting_log_id)
+                          AND COUNT(DISTINCT jeh.posting_log_id) = 1
+                    THEN (ARRAY_AGG(jeh.posting_log_id))[1]
+                    ELSE NULL END AS posting_log_id,
+               CASE WHEN COUNT(*) = COUNT(jeh.evidence_bundle_id)
+                          AND COUNT(DISTINCT jeh.evidence_bundle_id) = 1
+                    THEN (ARRAY_AGG(jeh.evidence_bundle_id))[1]
+                    ELSE NULL END AS evidence_bundle_id
         FROM journal_entry_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
         WHERE jeh.tenant_id = $1

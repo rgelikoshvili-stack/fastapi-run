@@ -37,7 +37,7 @@ import logging
 from datetime import datetime as _dt
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel
 
 from app.api.authz import require_permission
@@ -1009,6 +1009,7 @@ class SyncPayload(BaseModel):
     date_from: Optional[str] = None  # ISO date "2024-01-01"
     date_to: Optional[str] = None    # ISO date "2024-01-31"
     mode: str = "v1"                 # "v1" (by update date) | "seller" | "buyer" | "both"
+    operator_confirmed: bool = False
 
 
 async def _get_service_creds(conn, tenant_id: str):
@@ -1144,6 +1145,11 @@ async def sync_waybills_from_rsge(body: SyncPayload, request: Request):
     mode=buyer : get_buyer_waybills only
     """
     require_permission(request, "settings:write")
+    from app.api.services.rsge_config import require_action
+    try:
+        require_action("waybill", rbac_allowed=True, approval_recorded=body.operator_confirmed)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="RS.ge sync is blocked by safety gates") from exc
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     from datetime import datetime, timedelta

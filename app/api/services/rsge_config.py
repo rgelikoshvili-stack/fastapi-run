@@ -11,7 +11,10 @@ import os
 # ── Environment flag helpers ──────────────────────────────────────────────────
 
 def _flag(name: str, default: bool = False) -> bool:
-    return os.getenv(name, str(default).lower()).strip().lower() == "true"
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -54,6 +57,10 @@ _ACTION_FLAGS: dict[str, str] = {
     "correct":        "RSGE_ALLOW_CORRECT",
     "activate":       "RSGE_ALLOW_ACTIVATE",
     "waybill_action": "RSGE_ALLOW_WAYBILL_ACTIONS",
+    "waybill": "RSGE_ALLOW_WAYBILL_ACTIONS",
+    "waybill_confirm": "RSGE_ALLOW_WAYBILL_ACTIONS",
+    "waybill_cancel": "RSGE_ALLOW_WAYBILL_ACTIONS",
+    "waybill_correct": "RSGE_ALLOW_WAYBILL_ACTIONS",
 }
 
 
@@ -76,7 +83,25 @@ def allow_action(action_type: str) -> bool:
     if not live_actions_enabled():
         return False
 
-    env_flag = _ACTION_FLAGS.get(action_type.lower())
+    env_flag = _ACTION_FLAGS.get((action_type or "").strip().lower())
     if env_flag is None:
         return False
-    return _flag(env_flag, False)
+    if not _flag(env_flag, False):
+        return False
+    return not is_production() or _flag("RSGE_FINAL_APPROVAL_RECORDED", False)
+
+
+def is_production() -> bool:
+    environment = os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or os.getenv("ENV") or "development"
+    return environment.strip().lower() == "production"
+
+
+def require_action(
+    action_type: str,
+    *,
+    rbac_allowed: bool = False,
+    approval_recorded: bool = False,
+) -> None:
+    """Fail closed unless environment, RBAC, and operator approval gates pass."""
+    if not rbac_allowed or not approval_recorded or not allow_action(action_type):
+        raise PermissionError("RSGE_ACTION_BLOCKED")

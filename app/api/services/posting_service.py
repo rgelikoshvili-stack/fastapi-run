@@ -66,6 +66,8 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
         try:
             from app.api.services.currency_service import get_rate_async
             rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date")))
+            if not rate.is_finite() or rate <= 0:
+                raise ValueError("FX_RATE_MISSING: exchange rate must be positive and finite")
             amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
             payload["amount_gel"]    = float(amount_gel)
             payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
@@ -628,7 +630,12 @@ async def _write_ledger_entries(
         except (ValueError, AttributeError):
             pass
 
-    exchange_rate = Decimal(str(payload.get("exchange_rate", 1) or 1))
+    try:
+        exchange_rate = Decimal(str(payload.get("exchange_rate", 1)))
+    except Exception as exc:
+        raise ValueError("FX_RATE_INVALID: ledger exchange rate is invalid") from exc
+    if not exchange_rate.is_finite() or exchange_rate <= 0:
+        raise ValueError("FX_RATE_INVALID: ledger exchange rate must be positive and finite")
     currency = (draft.get("currency") or "GEL").upper()
 
     header_id = await conn.fetchval(_q("""

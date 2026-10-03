@@ -38,6 +38,22 @@ def test_sync_requires_explicit_confirmation_before_post():
     assert "Continue with sync?" in function
 
 
+def test_settings_sync_also_confirms_before_post_and_records_operator_confirmation():
+    source = _ui_source()
+    start = source.index("async function runWaybillSync()")
+    end = source.index("\nasync function loadSettingsTab", start)
+    function = source[start:end]
+
+    confirm_at = function.index("window.confirm(")
+    cancel_guard_at = function.index("if(!confirmed)return;")
+    post_at = function.index("fetch(BASE+'/rs-ge/sync'")
+    assert confirm_at < cancel_guard_at < post_at
+    assert "operator_confirmed:true" in function
+    button = source.index('id="btnRsgeSync"')
+    warning = source.index("This action may contact RS.ge and save local sync records.", button)
+    assert warning > button
+
+
 def test_side_effect_button_is_labeled_sync_not_ping():
     source = _ui_source()
     button_start = source.index('id="btnLiveSync"')

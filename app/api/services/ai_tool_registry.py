@@ -627,13 +627,21 @@ async def _get_accounting_risk_summary(params: dict, tenant_id: str) -> dict:
         # 3. FX rate missing
         try:
             fx_cnt = await conn.fetchval(_q("""
-                SELECT COUNT(*) FROM currency_rates
-                WHERE updated_at >= NOW() - INTERVAL '7 days'
-            """))
-            if (fx_cnt or 0) == 0:
-                risks.append({"type": "FX_RATE_MISSING", "count": 1,
+                SELECT COUNT(*) FROM journal_drafts jd
+                WHERE jd.tenant_id = %s
+                  AND COALESCE(UPPER(jd.currency), 'GEL') <> 'GEL'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM exchange_rates cr
+                    WHERE (UPPER(cr.from_code) = UPPER(jd.currency)
+                           OR UPPER(cr.currency) = UPPER(jd.currency))
+                      AND (cr.to_code = 'GEL' OR cr.to_code IS NULL)
+                      AND DATE(cr.fetched_at) <= jd.date
+                  )
+            """), tenant_id)
+            if (fx_cnt or 0) > 0:
+                risks.append({"type": "FX_RATE_MISSING", "count": int(fx_cnt or 0),
                                "severity": "MEDIUM",
-                               "message": "currency_rates ცარიელია — არა-GEL posting დაბლოკილია"})
+                               "message": "არა-GEL drafts require an available exchange_rates rate"})
         except Exception as e:
             log.debug("risk fx_rate: %s", e)
 

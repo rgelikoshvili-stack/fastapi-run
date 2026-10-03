@@ -33,6 +33,7 @@ def test_helper_uses_dedicated_dsn_name_and_never_reads_production_url():
     assert 'H84_REPORT_TEST_DATABASE_URL' in source
     assert 'os.environ.get("DATABASE_URL"' not in source
     assert "get_secret" not in source
+    assert "REPOSITORY_ROOT" in source and "sys.path.insert" in source
     assert "127.0.0.1" in source and "55434" in source and "bridge_hub_h84_test" in source
     assert "print(dsn" not in source.lower()
 

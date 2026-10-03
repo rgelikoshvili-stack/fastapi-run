@@ -10,8 +10,13 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
+
+REPOSITORY_ROOT = str(Path(__file__).resolve().parents[1])
+if REPOSITORY_ROOT not in sys.path:
+    sys.path.insert(0, REPOSITORY_ROOT)
 
 
 EXPECTED_DATABASE = "bridge_hub_h84_test"
@@ -221,6 +226,9 @@ def main() -> int:
         return 2
     try:
         result = asyncio.run(run(dsn))
+    except ModuleNotFoundError as exc:
+        print(f"H84 snapshot validation failed: missing module {exc.name}", file=sys.stderr)
+        return 1
     except Exception as exc:
         # Exception text is restricted to avoid accidentally echoing DSNs.
         print(f"H84 snapshot validation failed: {type(exc).__name__}", file=sys.stderr)

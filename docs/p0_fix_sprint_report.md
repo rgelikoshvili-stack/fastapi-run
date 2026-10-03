@@ -188,8 +188,8 @@ Checked app/, tests/, docs/ for:
 |------|----------|-------|
 | Migration 012 not yet run in prod | MEDIUM | `012_rsge_credentials_vault_migration.sql` is a draft. Requires production approval, maintenance window, and backup verification before running. |
 | Existing plaintext RS.ge passwords in prod DB | MEDIUM | Marked `rotation_required` after migration 012 runs. Until then, existing credentials still use plaintext column. No new saves will be plaintext. |
-| FX rate table may be empty for some tenants | MEDIUM | Non-GEL postings will fail with `FX_RATE_MISSING` until `currency_rates` is populated. Operators must populate before posting non-GEL entries. This is the correct behavior (fail safe). |
-| RS.ge live integration still read-only | LOW | All RS.ge action flags default to False. Live integration remains disabled until explicitly enabled per-tenant. |
+| FX rate table may be empty for some tenants | MEDIUM | Non-GEL postings fail closed with `FX_RATE_MISSING` until a valid `exchange_rates` row exists for the draft date. |
+| RS.ge SOAP sync has external and local side effects | HIGH | `/rs-ge/sync` now requires `settings:write`, environment action gates, production final approval, and explicit operator confirmation. Both UI entry points warn and confirm before sending the request. |
 | AI trust boundary (rate limiting) | LOW | AI chat endpoint currently has no per-tenant rate limit. Add in next sprint. |
 
 ---
@@ -201,3 +201,13 @@ Checked app/, tests/, docs/ for:
 3. **AI rate limiting** — add per-tenant request cap on `/api/claude-chat`
 4. **RS.ge live pilot** — after migration 012 is confirmed and at least one tenant re-saves credentials, enable `RSGE_ENABLED=true` + `RSGE_READ_ONLY=true` for read-only waybill sync
 5. **Credential rotation UX** — UI flow for `rotation_required` tenants to re-save via the vault path
+
+---
+
+## L. PR #129 Conflict Resolution Follow-up
+
+- Current `main` already contains the overlapping P0 foundation implementations; the rebase keeps those newer implementations and retains PR #129's focused regression tests.
+- Migration `012_rsge_credentials_vault_metadata.sql` was dropped because current `main` already owns migration 012 (`012_rsge_credentials_vault_migration.sql`).
+- RS.ge SOAP sync is wired to `rsge_config.require_action()` and is denied unless the operator is authorized, confirms the action, and all environment gates pass.
+- FX risk queries now use the existing `exchange_rates` schema and are scoped to the requesting tenant's drafts and draft dates.
+- No production migration, live RS.ge request, environment update, or deployment was performed.

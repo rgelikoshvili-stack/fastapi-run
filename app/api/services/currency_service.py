@@ -13,6 +13,20 @@ from app.api.db import get_db, get_conn, _q
 
 log = logging.getLogger(__name__)
 
+
+class CurrencyRateNotFound(ValueError):
+    """Raised when no usable exchange rate is available for a currency."""
+
+
+def _validated_rate(currency: str, value) -> Decimal:
+    try:
+        rate = Decimal(str(value))
+    except Exception as exc:
+        raise CurrencyRateNotFound(f"FX_RATE_INVALID: invalid GEL rate for {currency}") from exc
+    if not rate.is_finite() or rate <= 0:
+        raise CurrencyRateNotFound(f"FX_RATE_INVALID: non-positive GEL rate for {currency}")
+    return rate
+
 _DEFAULT_RATES: dict[str, float] = {
     "USD": 2.72, "EUR": 2.95, "GBP": 3.45,
     "RUB": 0.030, "TRY": 0.082, "CHF": 3.10,
@@ -82,7 +96,7 @@ def _rate_to_gel(currency: str, for_date: Optional[str] = None) -> Decimal:
             conn.close()
 
         if row:
-            return Decimal(str(row[0]))
+            return _validated_rate(currency, row[0])
     except Exception as e:
         log.warning("currency_service._rate_to_gel db error: %s", e)
 
@@ -93,9 +107,9 @@ def _rate_to_gel(currency: str, for_date: Optional[str] = None) -> Decimal:
             "Journal FX amounts may be inaccurate until NBG sync runs.",
             currency, fallback,
         )
-        return Decimal(str(fallback))
+        return _validated_rate(currency, fallback)
     log.error("currency_service: no rate found for %s in DB or fallback table", currency)
-    return Decimal("0")
+    raise CurrencyRateNotFound(f"FX_RATE_MISSING: no GEL rate for {currency}")
 
 
 async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> Decimal:
@@ -120,7 +134,7 @@ async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> D
                     ORDER BY COALESCE(fetched_at, updated_at) DESC LIMIT 1
                 """), currency, currency)
         if row:
-            return Decimal(str(row["rate"]))
+            return _validated_rate(currency, row["rate"])
     except Exception as e:
         log.warning("currency_service._rate_to_gel_async db error: %s", e)
     fallback = _DEFAULT_RATES.get(currency)
@@ -129,9 +143,9 @@ async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> D
             "currency_service: no DB rate for %s — using hardcoded fallback %.4f.",
             currency, fallback,
         )
-        return Decimal(str(fallback))
+        return _validated_rate(currency, fallback)
     log.error("currency_service: no rate found for %s in DB or fallback table", currency)
-    return Decimal("0")
+    raise CurrencyRateNotFound(f"FX_RATE_MISSING: no GEL rate for {currency}")
 
 
 async def get_rate_async(from_code: str, to_code: str, for_date: Optional[str] = None) -> Decimal:

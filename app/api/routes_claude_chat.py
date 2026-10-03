@@ -474,13 +474,21 @@ async def _fetch_db_context(message: str, tenant_id: str) -> str:
             # ── P0-5: FX rate availability ────────────────────────────────────
             try:
                 fx_row = await conn.fetchrow(_q("""
-                    SELECT COUNT(*) AS cnt FROM currency_rates
-                    WHERE updated_at >= NOW() - INTERVAL '7 days'
-                """))
+                    SELECT COUNT(*) AS cnt FROM journal_drafts jd
+                    WHERE jd.tenant_id = %s
+                      AND COALESCE(UPPER(jd.currency), 'GEL') <> 'GEL'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM exchange_rates cr
+                        WHERE (UPPER(cr.from_code) = UPPER(jd.currency)
+                               OR UPPER(cr.currency) = UPPER(jd.currency))
+                          AND (cr.to_code = 'GEL' OR cr.to_code IS NULL)
+                          AND DATE(cr.fetched_at) <= jd.date
+                      )
+                """), tenant_id)
                 if int((fx_row or {}).get("cnt") or 0) == 0:
                     parts.append(
-                        "⚠️ FX RATE WARNING: currency_rates ცხრილი ცარიელია ან მოძველებულია (>7 დღე). "
-                        "არა-GEL გატარებები ვერ დაიპოსტება სანამ FX კურსი არ განახლდება."
+                        "⚠️ FX RATE WARNING: tenant-ის არა-GEL draft-ებს შესაბამისი exchange_rates კურსი არ აქვთ. "
+                        "Posting fail-closed-ია კურსის დაფიქსირებამდე."
                     )
             except Exception as _fx_ctx_err:
                 log.debug("fx rate context fetch skipped: %s", _fx_ctx_err)

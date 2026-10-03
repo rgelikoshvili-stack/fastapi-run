@@ -218,12 +218,12 @@ async def save_creds(body: RsgeCredsPayload, request: Request):
         })
 
     except Exception as e:
-        log.error("rsge save_creds error (vault write): %s", e)
-        brief = str(e)[:200]
+        # Exception messages from crypto/DB layers must never echo submitted credentials.
+        log.error("rsge save_creds failed tenant=%s error_type=%s", tenant_id, type(e).__name__)
         return error_response(
-            f"RS.ge credentials save failed: {brief}",
+            "RS.ge credentials save failed",
             "CREDENTIAL_VAULT_ERROR",
-            str(e),
+            type(e).__name__,
         )
 
 

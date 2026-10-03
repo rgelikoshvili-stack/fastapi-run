@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document records the cleanup of the disposable local Docker container and volume created in H53 for the local report snapshot capture dry-run. All cleanup was performed immediately after evidence was captured.
+This document is a historical record of cleanup for the H53 local Docker dry-run in May 2026. It is not current approval or an instruction to recreate that H53 environment. H53 approval expired on May 25, 2026. Current report-service validation is described separately in `current_report_snapshot_validation_h84.md` and requires its own explicitly disposable local test database.
 
 ---
 
@@ -81,6 +81,6 @@ Results:
 
 ## 8. Final Cleanup Decision
 
-**Cleanup Decision: `CLEANUP_COMPLETE`**
+**Historical H53 Cleanup Decision: `CLEANUP_COMPLETE` (May 2026 only)**
 
 Container `bridge-hub-h53-postgres` and volume `bridge-hub-h53-pgdata` have been stopped, removed, and verified absent. No local DB remains. Evidence documents and test files are retained. No production systems were affected.

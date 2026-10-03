@@ -50,6 +50,7 @@ async def auth_middleware(request: Request, call_next):
     request.state.authenticated = False
     request.state.user_id = None
     request.state.role = None
+    request.state.auth_tenant_id = None
     # NOTE: tenant_id intentionally NOT reset here.
     # tenant_middleware (outermost, runs first) sets it from X-Tenant-ID header.
     # We only override it if JWT carries a tenant_id (JWT takes priority).
@@ -60,6 +61,7 @@ async def auth_middleware(request: Request, call_next):
             request.state.authenticated = True
             request.state.user_id = payload.get("sub")
             request.state.role = payload.get("role")
+            request.state.auth_tenant_id = payload.get("tenant_id")
             if payload.get("tenant_id"):
                 request.state.tenant_id = payload.get("tenant_id")
         else:

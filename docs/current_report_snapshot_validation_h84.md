@@ -36,7 +36,7 @@ Do not substitute a production, Cloud SQL, shared, or non-local database. The he
 - Posted-ledger source: current service query builders filter headers to `posted`/`correction` and use `journal_entry_headers` + `journal_entry_lines`.
 - Draft distinction: `journal_drafts` contains a deliberately conspicuous 888,888 GEL synthetic amount, but it is not a source for these official reports.
 - P&L classification uses structured `account_type`; Balance Sheet uses the service's posted-ledger implementation; cashflow uses the PR #127 cash-line classification path.
-- The only runtime change is a necessary P&L SQL compatibility fix: PostgreSQL does not support `MAX(UUID)`. Source-draft, posting-log, and evidence IDs are now returned only when all rows in an aggregate share one non-null ID; mixed/partial lineage returns `NULL`. Debit/credit aggregation is unchanged.
+- Runtime changes are narrowly limited to two issues exposed by this disposable DB run: PostgreSQL does not support `MAX(UUID)` in the P&L query, so audit IDs are returned only when all aggregate rows share one non-null ID; and Balance Sheet now maps singular `asset`/`liability` account types to their report sections (with account metadata only as fallback). P&L debit/credit totals are unchanged.
 - No posted-ledger writer, migration, deploy workflow, production environment, or production feature flag is changed.
 
 ## Validation

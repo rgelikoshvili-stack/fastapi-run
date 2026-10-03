@@ -196,6 +196,10 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert pnl["data"]["revenue"]["total"] == 167
     assert all(line["source_draft_id"] is None for line in pnl["data"]["revenue"]["lines"])
 
+    balance_sheet = await statements.build_balance_sheet("tenant-a", "2026-09-30")
+    assert balance_sheet["ok"] is True
+    assert balance_sheet["data"]["source"] == "posted_ledger"
+
     tenant_b_data = await statements.build_cashflow_statement("tenant-b")
     assert tenant_b_data["data"]["financing"]["inflows"] == 9000
     assert tenant_b_data["data"]["operating"]["inflows"] == 0

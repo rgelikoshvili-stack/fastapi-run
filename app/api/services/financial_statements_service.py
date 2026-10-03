@@ -449,13 +449,22 @@ async def _build_balance_sheet_from_posted_ledger(
         "liabilities": {"current": [], "non_current": []},
         "equity":      {"equity":  []},
     }
+    type_to_group = {
+        "asset": "assets", "assets": "assets",
+        "liability": "liabilities", "liabilities": "liabilities",
+        "equity": "equity",
+    }
     for row in rows:
         code = row["account_code"]
         acct_type = row.get("account_type", "")
         total_dr = float(row["total_debit"] or 0)
         total_cr = float(row["total_credit"] or 0)
         bs_meta = _BALANCE_SHEET.get(code)
-        group = acct_type if acct_type in sections else "assets"
+        normalized_type = str(acct_type or "").strip().lower()
+        group = type_to_group.get(
+            normalized_type,
+            bs_meta[0] if bs_meta else "assets",
+        )
         sub = bs_meta[1] if bs_meta else ("current" if group != "equity" else "equity")
         if group not in sections or sub not in sections.get(group, {}):
             continue

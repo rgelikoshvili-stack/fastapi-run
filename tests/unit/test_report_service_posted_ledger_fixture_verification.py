@@ -33,6 +33,7 @@ Test names (24):
 
 import ast
 import pathlib
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -367,7 +368,7 @@ def test_fixture_balance_sheet_uses_as_of_date():
     as_of = "2026-04-30"
     sql, params = _build_balance_sheet_posted_ledger_query(FIXTURE_TENANT, as_of)
     assert "$3" in sql, "as_of date must be bound as $3"
-    assert as_of in params
+    assert date.fromisoformat(as_of) in params
 
 
 # ---------------------------------------------------------------------------
@@ -409,15 +410,18 @@ def test_fixture_trial_balance_requires_period():
 
 
 # ---------------------------------------------------------------------------
-# 16. Cashflow uses cash/bank account lines (account_code LIKE '1%')
+# 16. Cashflow reads posted ledger lines and anchors actual cash accounts in the service.
 # ---------------------------------------------------------------------------
 
 
 def test_fixture_cashflow_uses_cash_bank_lines():
     sql, _ = _build_cashflow_posted_ledger_query(FIXTURE_TENANT, None, None)
     assert "account_code" in sql
-    assert "1%" in sql
-    # Fixture account 1120 starts with '1', so it contributes to cashflow
+    assert "cashflow_category" in sql
+    assert "account_type" in sql
+    assert "header_id" in sql
+    assert "journal_drafts" not in sql
+    # Fixture account 1120 is the cash anchor; other lines provide classification context.
     cashflow = _cashflow_summary(FIXTURE_TENANT)
     assert len(cashflow) >= 1
 

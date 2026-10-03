@@ -32,6 +32,13 @@ def _require_tenant_id(tenant_id: str) -> None:
         raise ValueError("tenant_id is required and must not be empty")
 
 
+def _pg_date(value):
+    """Normalize API ISO date strings to the ``datetime.date`` expected by asyncpg."""
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    return value
+
+
 def _assert_no_silent_fallback(sql: str) -> None:
     """Raise ValueError if the posted-ledger SQL references journal_drafts."""
     if "journal_drafts" in sql:
@@ -52,10 +59,10 @@ def _build_pnl_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code,
@@ -87,7 +94,7 @@ def _build_balance_sheet_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     as_of_filter = ""
     if as_of:
-        params.append(as_of)
+        params.append(_pg_date(as_of))
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code,
@@ -117,26 +124,72 @@ def _build_cashflow_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
-        SELECT jel.cashflow_category,
-               SUM(jel.debit)  AS total_debit,
+        SELECT jel.id AS line_id,
+               jel.account_code,
+               jel.account_type,
+               jel.cashflow_category,
+               jel.debit,
+               jel.credit,
+               jel.description,
+               jeh.id AS header_id
+        FROM journal_entry_lines jel
+        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        WHERE jeh.tenant_id = $1
+          AND jeh.status = ANY($2)
+          {date_filter}
+        ORDER BY jeh.id, jel.id
+    """
+    _assert_no_silent_fallback(sql)
+    return sql, params
+
+
+def _build_posted_trial_balance_as_of_query(
+    tenant_id: str,
+    as_of: Optional[str],
+) -> tuple[str, list]:
+    """Return posted-ledger balances through an optional inclusive as-of date."""
+    _require_tenant_id(tenant_id)
+    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
+    as_of_filter = ""
+    if as_of:
+        params.append(_pg_date(as_of))
+        as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
+    sql = f"""
+        SELECT jel.account_code, SUM(jel.debit) AS total_debit,
                SUM(jel.credit) AS total_credit
         FROM journal_entry_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
-          AND jel.account_code LIKE '1%'
-          {date_filter}
-        GROUP BY jel.cashflow_category
-        ORDER BY jel.cashflow_category
+          {as_of_filter}
+        GROUP BY jel.account_code
+        ORDER BY jel.account_code
     """
     _assert_no_silent_fallback(sql)
     return sql, params
+
+
+async def _get_posted_trial_balance_as_of(
+    tenant_id: str,
+    as_of: Optional[str],
+) -> dict[str, float]:
+    """Read a tenant's posted-ledger ending balances through ``as_of``; never use drafts."""
+    sql, params = _build_posted_trial_balance_as_of_query(tenant_id, as_of)
+    async with get_conn() as conn:
+        rows = await conn.fetch(sql, *params)
+    return {
+        str(row["account_code"]): round(
+            float(row["total_debit"] or 0) - float(row["total_credit"] or 0), 2
+        )
+        for row in rows
+        if row.get("account_code")
+    }
 
 # ── Account classification map ─────────────────────────────────────────────
 # Each account: net = debit - credit for assets/expenses; credit - debit for liabilities/equity/revenue
@@ -438,112 +491,22 @@ async def build_cashflow_statement(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> dict:
-    """IAS 7 — Statement of Cash Flows (direct method from posted journal lines).
-
-    Reads all posted journal entry lines, identifies lines touching cash/bank
-    accounts (1110, 1120), classifies each pair into operating/investing/financing,
-    and sums up the totals.  Falls back gracefully when no DB is available.
-    """
-    from app.api.services.cashflow_classification_service import build_cashflow_direct
+    """IAS 7 cashflow from posted journal lines; unavailable data fails closed."""
+    from app.api.services.cashflow_classification_service import build_cashflow_from_posted_ledger_rows
     _require_tenant_id(tenant_id)
-
-    params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
-    date_filter = ""
-    if date_from:
-        params.append(date_from)
-        date_filter += f" AND jeh.entry_date >= ${len(params)}"
-    if date_to:
-        params.append(date_to)
-        date_filter += f" AND jeh.entry_date <= ${len(params)}"
-
-    # Fetch all journal entry lines from posted headers in the period
-    sql = f"""
-        SELECT
-            jel.account_code,
-            jel.debit,
-            jel.credit,
-            jel.description,
-            jel.account_type,
-            jeh.id AS header_id
-        FROM journal_entry_lines jel
-        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
-        WHERE jeh.tenant_id = $1
-          AND jeh.status = ANY($2)
-          {date_filter}
-        ORDER BY jeh.id, jel.id
-    """
-
-    # Fall back to journal_drafts table when new schema unavailable
-    fallback_sql = _q(f"""
-        SELECT
-            COALESCE(entry->>'dr', '')  AS dr_account,
-            COALESCE(entry->>'cr', '')  AS cr_account,
-            CAST(COALESCE(entry->>'amount', '0') AS NUMERIC) AS amount,
-            COALESCE(entry->>'description', '') AS description
-        FROM journal_drafts jd
-        CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
-        WHERE jd.tenant_id = %s
-          AND jd.status = 'posted'
-        ORDER BY jd.id
-    """)
-
-    pairs: list[dict] = []
+    sql, params = _build_cashflow_posted_ledger_query(tenant_id, date_from, date_to)
     try:
         async with get_conn() as conn:
             rows = await conn.fetch(sql, *params)
-
-        # Group lines by header_id to form DR/CR pairs
-        from collections import defaultdict
-        by_header: dict = defaultdict(list)
-        for row in rows:
-            by_header[row["header_id"]].append(row)
-
-        for header_lines in by_header.values():
-            debits  = [r for r in header_lines if float(r["debit"]  or 0) > 0]
-            credits = [r for r in header_lines if float(r["credit"] or 0) > 0]
-            # Emit each DR/CR combination as a potential cash movement pair
-            for d in debits:
-                for c in credits:
-                    pairs.append({
-                        "dr": d["account_code"],
-                        "cr": c["account_code"],
-                        "amount": float(d["debit"] or 0),
-                        "description": d["description"] or "",
-                    })
-
     except Exception as e:
-        log.warning("journal_entry_lines unavailable (%s), trying journal_drafts", e)
-        try:
-            async with get_conn() as conn:
-                fallback_params: list = [tenant_id]
-                if date_from:
-                    fallback_sql_with_date = fallback_sql.replace(
-                        "jd.status = 'posted'",
-                        f"jd.status = 'posted' AND jd.date >= %s"
-                    )
-                    fallback_params.append(date_from)
-                    if date_to:
-                        fallback_sql_with_date = fallback_sql_with_date.replace(
-                            f"jd.date >= %s",
-                            f"jd.date >= %s AND jd.date <= %s"
-                        )
-                        fallback_params.append(date_to)
-                else:
-                    fallback_sql_with_date = fallback_sql
+        log.error("Posted-ledger cashflow unavailable: %s", e)
+        return error_response(
+            "Posted-ledger cashflow unavailable",
+            "POSTED_LEDGER_UNAVAILABLE",
+            "Official cashflow requires journal_entry_headers and journal_entry_lines.",
+        )
 
-                rows = await conn.fetch(fallback_sql_with_date, *fallback_params)
-                for row in rows:
-                    pairs.append({
-                        "dr": row["dr_account"],
-                        "cr": row["cr_account"],
-                        "amount": float(row["amount"] or 0),
-                        "description": row["description"] or "",
-                    })
-        except Exception as e2:
-            log.error("Cashflow DB unavailable: %s", e2)
-            return error_response("Cashflow statement unavailable", "DB_ERROR", str(e2))
-
-    result = build_cashflow_direct(pairs)
+    result = build_cashflow_from_posted_ledger_rows([dict(row) for row in rows])
     return ok_response("Cashflow statement built", {
         "period": {"from": date_from, "to": date_to},
         "method": "direct",

@@ -22,9 +22,9 @@ Entry points:
 
 | Metric | Source | Account |
 |---|---|---|
-| cash_1110 | Trial balance | 1110 |
-| bank_1120 | Trial balance | 1120 |
-| total_liquid | 1110 + 1120 | — |
+| cash_1110 | Posted-ledger balance through `as_of` | 1110 |
+| bank_1120 | Posted-ledger balance through `as_of` | 1120 |
+| total_liquid | 1110 + 1120 from posted ledger through `as_of`; null if unavailable | — |
 | net_cashflow | Cashflow service | net_change_in_cash |
 | operating_cf | Cashflow service | operating.net |
 | investing_cf | Cashflow service | investing.net |

@@ -1,0 +1,61 @@
+name: PR 127 Disposable PostgreSQL Reporting Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/services/cashflow_classification_service.py"
+      - "app/api/services/cfo_dashboard_service.py"
+      - "app/api/services/financial_statements_service.py"
+      - "tests/integration/test_pr127_cashflow_postgres.py"
+      - ".github/workflows/pr127-postgres-integration.yml"
+      - "requirements.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-reporting-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bridgehub_pr127_disposable_test
+          POSTGRES_USER: pr127_test_user
+          POSTGRES_PASSWORD: pr127_test_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pr127_test_user -d bridgehub_pr127_disposable_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JWT_SECRET: test-secret-ci-32-bytes-minimum-key
+      TEST_MODE: "1"
+      DATABASE_URL: ""
+      PR127_TEST_DATABASE_URL: postgresql://pr127_test_user:pr127_test_only_password@127.0.0.1:5432/bridgehub_pr127_disposable_test
+      POSTED_LEDGER_REPORTS_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+      - name: Run PR #127 disposable PostgreSQL integration test
+        run: python -m pytest tests/integration/test_pr127_cashflow_postgres.py -v --tb=short
+      - name: Run targeted cashflow/CFO unit tests
+        run: >-
+          python -m pytest
+          tests/unit/test_cashflow_classification_biz2.py
+          tests/unit/test_cfo_dashboard_metrics_biz2.py
+          tests/unit/test_cashflow_posted_ledger_safety_biz2.py
+          tests/unit/test_report_service_posted_ledger_feature_flag.py
+          tests/unit/test_report_service_posted_ledger_fixture_verification.py
+          tests/unit/test_report_service_posted_ledger_query_mock_contract.py
+          -q --tb=short

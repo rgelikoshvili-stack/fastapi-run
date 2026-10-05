@@ -509,16 +509,15 @@ def test_live_verification_must_confirm_production_flag_off(monkeypatch):
             "env_vars": {
                 "DATABASE_URL": "set",
                 "JWT_SECRET": "set",
-                "BALANCE_API_KEY": "missing",
                 # POSTED_LEDGER_REPORTS_ENABLED intentionally absent — flag is OFF
             },
-            "connectors": {"balance": "demo_mode"},
+            "connectors": {"balance": "tenant_scoped"},
         },
     }
     env_vars = mock_health["data"]["env_vars"]
     assert "POSTED_LEDGER_REPORTS_ENABLED" not in env_vars, \
         "Production /health must not expose POSTED_LEDGER_REPORTS_ENABLED as set"
-    assert mock_health["data"]["connectors"]["balance"] == "demo_mode"
+    assert mock_health["data"]["connectors"]["balance"] == "tenant_scoped"
 
 
 # ---------------------------------------------------------------------------

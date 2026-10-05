@@ -56,6 +56,73 @@ def test_health_missing_keys_surfaced_as_warnings(monkeypatch):
     assert any("ANTHROPIC_API_KEY" in w for w in data["warnings"])
 
 
+def test_health_missing_global_balance_key_is_tenant_scoped_not_demo(monkeypatch):
+    monkeypatch.delenv("BALANCE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+
+    from app.api.routes_health import health_check
+    data = asyncio.run(health_check())["data"]
+
+    assert data["connectors"]["balance"] == "tenant_scoped"
+    assert "demo" not in data["connectors"]["balance"]
+    assert "BALANCE_API_KEY" not in data["env_vars"]
+    assert not any("BALANCE_API_KEY" in warning for warning in data["warnings"])
+
+
+def test_health_global_balance_key_does_not_imply_live_or_configured(monkeypatch):
+    monkeypatch.setenv("BALANCE_API_KEY", "synthetic-global-key-must-be-ignored")
+    monkeypatch.delenv("TEST_MODE", raising=False)
+
+    from app.api.routes_health import health_check
+    data = asyncio.run(health_check())["data"]
+
+    assert data["connectors"]["balance"] == "tenant_scoped"
+    assert data["connectors"]["balance"] not in {"live", "configured"}
+
+
+def test_health_explicit_test_mode_reports_explicit_demo(monkeypatch):
+    monkeypatch.delenv("BALANCE_API_KEY", raising=False)
+    monkeypatch.setenv("TEST_MODE", "1")
+
+    from app.api.routes_health import health_check
+    data = asyncio.run(health_check())["data"]
+
+    assert data["connectors"]["balance"] == "explicit_demo"
+
+
+def test_missing_legacy_balance_key_does_not_degrade_health(monkeypatch):
+    monkeypatch.delenv("BALANCE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    for key in ("DATABASE_URL", "JWT_SECRET", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.setenv(key, "synthetic-configured-value")
+
+    from app.api.routes_health import health_check
+    data = asyncio.run(health_check())["data"]
+
+    assert data["status"] == "ok"
+    assert data["connectors"]["balance"] == "tenant_scoped"
+
+
+def test_health_never_exposes_balance_secret_material(monkeypatch):
+    secret = "synthetic-balance-secret-that-must-not-escape"
+    monkeypatch.setenv("BALANCE_API_KEY", secret)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+
+    from app.api.routes_health import health_check
+    result = asyncio.run(health_check())
+
+    assert secret not in str(result)
+    assert "BALANCE_API_KEY" not in str(result)
+
+
+def test_health_balance_status_is_metadata_only():
+    src = inspect.getsource(
+        __import__("app.api.routes_health", fromlist=["health_check"]).health_check
+    )
+    for forbidden in ("BalanceConnector", "get_balance_credentials", "requests."):
+        assert forbidden not in src
+
+
 def test_health_no_db_calls():
     """Fast /health must not call DB — keep it sub-50ms."""
     src = inspect.getsource(__import__("app.api.routes_health", fromlist=["health_check"]).health_check)

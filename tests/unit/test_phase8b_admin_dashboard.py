@@ -70,6 +70,26 @@ class TestGetSystemHealth:
         assert "apex" in result["connectors"]
 
     @pytest.mark.asyncio
+    async def test_balance_status_is_tenant_scoped_without_global_key(self, monkeypatch):
+        monkeypatch.delenv("BALANCE_API_KEY", raising=False)
+        monkeypatch.delenv("TEST_MODE", raising=False)
+        from app.api.services.admin_dashboard_service import get_system_health
+        with patch("app.api.services.admin_dashboard_service.get_conn",
+                   return_value=_ctx(fetchval_side=[1])):
+            result = await get_system_health()
+        assert result["connectors"]["balance"] == "tenant_scoped"
+
+    @pytest.mark.asyncio
+    async def test_balance_status_requires_explicit_test_mode_for_demo(self, monkeypatch):
+        monkeypatch.setenv("BALANCE_API_KEY", "synthetic-global-key-must-be-ignored")
+        monkeypatch.setenv("TEST_MODE", "1")
+        from app.api.services.admin_dashboard_service import get_system_health
+        with patch("app.api.services.admin_dashboard_service.get_conn",
+                   return_value=_ctx(fetchval_side=[1])):
+            result = await get_system_health()
+        assert result["connectors"]["balance"] == "explicit_demo"
+
+    @pytest.mark.asyncio
     async def test_redis_configured_field(self):
         from app.api.services.admin_dashboard_service import get_system_health
         with patch("app.api.services.admin_dashboard_service.get_conn",

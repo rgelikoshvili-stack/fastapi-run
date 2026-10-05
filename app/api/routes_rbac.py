@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.authz import ROLE_PERMISSIONS, has_role_permission, require_permission
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
+from app.api.observability import structured_log
 
 log = logging.getLogger(__name__)
 
@@ -61,20 +62,48 @@ async def list_users(request: Request, x_api_key: Optional[str] = Header(None)):
 async def create_user(data: UserCreate, request: Request, x_api_key: Optional[str] = Header(None)):
     require_permission(request, "tenants:manage")
     if not x_api_key:
-        return error_response("Auth required", "AUTH_ERROR", "")
+        return http_error(401, "Unauthorized", "AUTH_ERROR")
     caller = await get_user_by_key(x_api_key)
-    if not caller or not has_role_permission(caller.get("role", "viewer"), "tenants:manage"):
-        return error_response("Admin only", "FORBIDDEN", "")
+    if not caller:
+        return http_error(401, "Unauthorized", "AUTH_ERROR")
+    if not has_role_permission(caller.get("role", "viewer"), "tenants:manage"):
+        return http_error(403, "Forbidden", "FORBIDDEN")
+    target_tenant_id = str(data.tenant_id) if data.tenant_id is not None else ""
+    authenticated_tenant_id = getattr(request.state, "auth_tenant_id", None)
+    api_key_tenant_id = caller.get("tenant_id")
+    if (
+        not target_tenant_id
+        or authenticated_tenant_id is None
+        or api_key_tenant_id is None
+        or target_tenant_id != str(authenticated_tenant_id)
+        or target_tenant_id != str(api_key_tenant_id)
+    ):
+        structured_log(
+            log,
+            logging.WARNING,
+            "tenant_membership_admin_create_denied",
+            result="denied",
+            reason="tenant_scope_mismatch",
+        )
+        return http_error(
+            403,
+            "Membership creation is not authorized for this tenant",
+            "TENANT_MEMBERSHIP_FORBIDDEN",
+        )
     if data.role not in ROLE_PERMISSIONS:
         return error_response("Invalid role", "VALIDATION_ERROR", f"Use: {list(ROLE_PERMISSIONS.keys())}")
     try:
         api_key = secrets.token_hex(16)
         async with get_conn() as conn:
             new_id = await conn.fetchval(_q(
-                "INSERT INTO users (name, email, role, tenant_id, api_key) VALUES (%s,%s,%s,%s,%s) RETURNING id"),
+                "INSERT INTO users (name, email, role, tenant_id, api_key) "
+                "VALUES (%s,%s,%s,%s,%s) "
+                "ON CONFLICT (email, tenant_id) DO NOTHING RETURNING id"),
                 data.name, data.email, data.role, data.tenant_id, api_key)
     except Exception as e:
         return error_response("Create failed", "CREATE_ERROR", str(e))
+    if new_id is None:
+        return http_error(409, "User already exists in this tenant", "MEMBERSHIP_EXISTS")
     return ok_response("User created", {"id": new_id, "email": data.email, "role": data.role, "api_key": api_key})
 
 

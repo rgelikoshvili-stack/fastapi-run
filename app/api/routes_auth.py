@@ -17,6 +17,7 @@ from app.api.security import limiter
 from app.api.db import get_conn, _q
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
+from app.api.observability import structured_log
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger(__name__)
@@ -217,19 +218,19 @@ async def auth_login(request: Request, data: LoginRequest):
 @router.post("/register")
 @limiter.limit("5/minute")
 async def auth_register(data: RegisterRequest, request: Request):
-    """Simple register (existing tenant). For new company signup use /auth/signup."""
-    try:
-        await create_users_table()
-        user = await create_user(data.email, data.password, data.tenant_id, "accountant")
-        if not user:
-            return error_response("User exists", "USER_EXISTS", "ეს email უკვე რეგისტრირებულია")
-        return ok_response("Registered", {
-            "email": user["email"],
-            "role": user["role"],
-            "tenant_id": user["tenant_id"],
-        })
-    except Exception as e:
-        return error_response("Register failed", "REGISTER_ERROR", str(e))
+    """Deny public tenant joins; this endpoint has no verified grant mechanism."""
+    structured_log(
+        log,
+        logging.WARNING,
+        "public_tenant_registration_denied",
+        result="denied",
+        reason="explicit_tenant_grant_required",
+    )
+    return http_error(
+        403,
+        "Registration is not available for an existing tenant",
+        "TENANT_MEMBERSHIP_FORBIDDEN",
+    )
 
 
 @router.post("/signup")

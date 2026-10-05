@@ -44,13 +44,15 @@ async def get_system_overview(request: Request):
 async def get_bank_files_history(request: Request, limit: int = 50, offset: int = 0):
     require_permission(request, "dashboard:admin")
     _validate_pagination(limit, offset)
-    return await get_bank_files_history_service(limit, offset)
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return await get_bank_files_history_service(limit, offset, tenant_id)
 
 
 @router.get("/bank-files/{file_id}")
 async def get_bank_file_detail(request: Request, file_id: int = Path(..., description="Processed bank file ID")):
     require_permission(request, "dashboard:admin")
-    return await get_bank_file_detail_service(file_id)
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return await get_bank_file_detail_service(file_id, tenant_id)
 
 
 @router.get("/bank-files/{file_id}/drafts")

@@ -1,0 +1,55 @@
+name: NEXT-02 OCR and Bank Tenant Isolation PostgreSQL
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/routes_ocr.py"
+      - "app/api/routes_system.py"
+      - "app/api/routes_export.py"
+      - "app/api/services/system_service.py"
+      - "app/api/workflows/bank_processing_workflow.py"
+      - "tests/integration/test_next02_ocr_bank_tenant_isolation_postgres.py"
+      - ".github/workflows/next02-tenant-isolation-postgres.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-isolation-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bridge_hub_next02_test
+          POSTGRES_USER: next02_test_user
+          POSTGRES_PASSWORD: next02_synthetic_test_password_only
+        ports:
+          - 55437:5432
+        options: >-
+          --health-cmd "pg_isready -U next02_test_user -d bridge_hub_next02_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_MODE: "1"
+      JWT_SECRET: next02-test-only-secret-not-for-production-000000
+      NEXT02_TEST_DATABASE_URL: postgresql://next02_test_user:next02_synthetic_test_password_only@127.0.0.1:55437/bridge_hub_next02_test
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run focused OCR, bank, tenant/RBAC, and PostgreSQL tests
+        run: >-
+          python -m pytest
+          tests/integration/test_next02_ocr_bank_tenant_isolation_postgres.py
+          tests/integration/test_rbac.py
+          tests/unit/test_auth_tenant_contract.py
+          -q --tb=short

@@ -12,10 +12,11 @@ router = APIRouter(prefix="/export", tags=["export"])
 @router.get("/documents/csv")
 async def export_documents_csv(request: Request):
     require_permission(request, "export:any")
+    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
-        rows = [dict(r) for r in await conn.fetch(
-            "SELECT id, filename, state, created_at FROM pipeline_runs ORDER BY created_at DESC"
-        )]
+        rows = [dict(r) for r in await conn.fetch(_q(
+            "SELECT id, filename, state, created_at FROM pipeline_runs WHERE tenant_id = %s ORDER BY created_at DESC"
+        ), tenant_id)]
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["id","filename","state","created_at"])
     writer.writeheader()
@@ -71,8 +72,12 @@ async def export_full_report_json(request: Request):
     require_permission(request, "export:any")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
-        total_docs = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs") or 0
-        status_rows = await conn.fetch("SELECT state, COUNT(*) as count FROM pipeline_runs GROUP BY state")
+        total_docs = await conn.fetchval(_q(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE tenant_id = %s"
+        ), tenant_id) or 0
+        status_rows = await conn.fetch(_q(
+            "SELECT state, COUNT(*) as count FROM pipeline_runs WHERE tenant_id = %s GROUP BY state"
+        ), tenant_id)
         status_breakdown = {r["state"]: r["count"] for r in status_rows}
         inflow = float(await conn.fetchval(_q(
             "SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) FROM bank_transactions WHERE tenant_id=%s"

@@ -444,13 +444,13 @@ class TestSourceAuditFindings:
     def test_api_key_column_exists_in_service(self, creds_svc_src):
         assert "api_key" in creds_svc_src
 
-    def test_get_balance_credentials_select_does_not_fetch_encrypted_column(self, creds_svc_src):
-        # The primary get_balance_credentials SELECT must read api_key directly,
-        # not encrypted_value — confirming plaintext credential path is still active.
-        assert "SELECT api_key, company_id, api_base" in creds_svc_src
+    def test_get_balance_credentials_uses_tenant_scoped_vault(self, creds_svc_src):
+        assert "FROM credential_vault_credentials" in creds_svc_src
+        assert "WHERE tenant_id = %s AND provider = %s AND credential_type = %s" in creds_svc_src
+        assert "SELECT api_key, company_id, api_base" not in creds_svc_src
 
-    def test_no_key_version_column_yet(self, creds_svc_src):
-        assert "key_version" not in creds_svc_src
+    def test_vault_key_version_is_used_for_decryption(self, creds_svc_src):
+        assert "key_version" in creds_svc_src
 
     def test_masked_hint_column_exists(self, creds_svc_src):
         assert "masked_hint" in creds_svc_src
@@ -458,9 +458,9 @@ class TestSourceAuditFindings:
     def test_connector_has_demo_mode_logic(self, connector_src):
         assert "demo" in connector_src.lower()
 
-    def test_connector_does_not_yet_use_credential_vault(self, connector_src):
-        assert "CredentialVaultService" not in connector_src
-        assert "ConnectorCredentialProvider" not in connector_src
+    def test_connector_uses_vault_only_sync_provider_and_no_global_fallback(self, connector_src):
+        assert "get_balance_credentials_sync" in connector_src
+        assert "BALANCE_API_KEY" not in connector_src
 
 
 # ---------------------------------------------------------------------------

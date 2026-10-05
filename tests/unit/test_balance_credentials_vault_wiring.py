@@ -2,12 +2,13 @@
 
 Verifies that:
 - get_balance_credentials() reads from the vault when a record exists.
-- get_balance_credentials() falls back to plaintext api_key for legacy rows.
-- get_balance_credentials() falls back to the BALANCE_API_KEY env var.
+- get_balance_credentials() never reads legacy plaintext or shared env keys.
+- legacy plaintext presence is reported as rotation-required metadata.
 - save_balance_credentials() saves to vault and nulls out plaintext api_key.
 - No raw api_key is ever returned from the status/save API routes.
 """
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -35,6 +36,7 @@ def _make_conn(row=None):
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value=row)
     conn.execute = AsyncMock(return_value=None)
+    conn.transaction = MagicMock(return_value=_FakeTransaction())
     return conn
 
 
@@ -47,6 +49,14 @@ class _FakeConnCtx:
 
     async def __aexit__(self, *_):
         pass
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -89,10 +99,11 @@ async def test_get_vault_returns_company_id_from_meta_row(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_get_falls_back_to_plaintext_when_vault_not_found(monkeypatch):
+async def test_get_does_not_read_legacy_plaintext_when_vault_not_found(monkeypatch):
     svc = MagicMock()
     svc.get_for_connector = AsyncMock(side_effect=RuntimeError("CREDENTIAL_NOT_FOUND"))
-    db_row = {"api_key": "legacy-key", "company_id": "CMP2", "api_base": "https://api.balance.ge"}
+    db_row = {"legacy_present": True, "credential_status": "legacy_plaintext",
+              "company_id": "CMP2", "api_base": "https://api.balance.ge"}
     conn = _make_conn(db_row)
 
     with patch("app.api.services.balance_credentials_service.get_conn", return_value=_FakeConnCtx(conn)), \
@@ -100,15 +111,18 @@ async def test_get_falls_back_to_plaintext_when_vault_not_found(monkeypatch):
         from app.api.services import balance_credentials_service as bcs
         result = await bcs.get_balance_credentials("t2")
 
-    assert result["api_key"] == "legacy-key"
-    assert result["source"] == "db_legacy"
+    assert result["api_key"] == ""
+    assert result["source"] == "none"
+    assert result["credential_status"] == "rotation_required"
+    assert "SELECT api_key" not in conn.fetchrow.call_args.args[0]
 
 
 @pytest.mark.asyncio
 async def test_get_falls_back_when_vault_disabled(monkeypatch):
     svc = MagicMock()
     svc.get_for_connector = AsyncMock(side_effect=RuntimeError("CREDENTIAL_DISABLED"))
-    db_row = {"api_key": "still-active-key", "company_id": "", "api_base": "https://api.balance.ge"}
+    db_row = {"legacy_present": True, "credential_status": "legacy_plaintext",
+              "company_id": "", "api_base": "https://api.balance.ge"}
     conn = _make_conn(db_row)
 
     with patch("app.api.services.balance_credentials_service.get_conn", return_value=_FakeConnCtx(conn)), \
@@ -116,7 +130,8 @@ async def test_get_falls_back_when_vault_disabled(monkeypatch):
         from app.api.services import balance_credentials_service as bcs
         result = await bcs.get_balance_credentials("t3")
 
-    assert result["source"] == "db_legacy"
+    assert result["api_key"] == ""
+    assert result["credential_status"] == "rotation_required"
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +139,8 @@ async def test_get_falls_back_when_vault_disabled(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_get_falls_back_to_env_var(monkeypatch):
-    monkeypatch.setenv("BALANCE_API_KEY", "env-key")
+async def test_get_does_not_fall_back_to_shared_env_key(monkeypatch):
+    monkeypatch.setenv("BALANCE_API_KEY", "synthetic-shared-test-key")
     svc = MagicMock()
     svc.get_for_connector = AsyncMock(side_effect=RuntimeError("CREDENTIAL_NOT_FOUND"))
     conn = _make_conn(None)  # no DB row
@@ -135,8 +150,25 @@ async def test_get_falls_back_to_env_var(monkeypatch):
         from app.api.services import balance_credentials_service as bcs
         result = await bcs.get_balance_credentials("t4")
 
-    assert result["api_key"] == "env-key"
-    assert result["source"] == "env"
+    assert result["api_key"] == ""
+    assert result["source"] == "none"
+    assert result["credential_status"] == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_vault_read_failure_does_not_downgrade_to_legacy_or_env(monkeypatch):
+    monkeypatch.setenv("BALANCE_API_KEY", "synthetic-shared-test-key")
+    svc = MagicMock()
+    svc.get_for_connector = AsyncMock(side_effect=RuntimeError("CREDENTIAL_DECRYPT_FAILED"))
+    conn = _make_conn({"api_key": "synthetic-legacy-key"})
+
+    with patch("app.api.services.balance_credentials_service.get_conn", return_value=_FakeConnCtx(conn)), \
+         patch("app.api.services.credential_vault_service.CredentialVaultService", return_value=svc):
+        from app.api.services import balance_credentials_service as bcs
+        with pytest.raises(RuntimeError, match="BALANCE_CREDENTIAL_UNAVAILABLE"):
+            await bcs.get_balance_credentials("tenant-A")
+
+    conn.fetchrow.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -187,11 +219,10 @@ async def test_save_nulls_plaintext_api_key_on_vault_success(monkeypatch):
         from app.api.services import balance_credentials_service as bcs
         await bcs.save_balance_credentials("t7", "my-secret-key")
 
-    # The DB execute call must NOT contain the raw api_key — it must be None
     execute_call_args = conn.execute.call_args
     params = execute_call_args[0][1:]  # positional args after SQL
-    # params[0] = tenant_id, params[1] = api_key value, ...
-    assert params[1] is None, "api_key should be NULL when saved via vault"
+    assert "VALUES ($1, NULL" in execute_call_args.args[0]
+    assert "my-secret-key" not in str(params)
 
 
 @pytest.mark.asyncio
@@ -206,13 +237,12 @@ async def test_save_sets_credential_status_vault(monkeypatch):
 
     execute_call_args = conn.execute.call_args
     params = execute_call_args[0][1:]
-    # params: tenant_id, api_key, company_id, api_base, masked_hint, credential_status, now
-    credential_status = params[5]
-    assert credential_status == "vault"
+    assert "credential_status = 'vault'" in execute_call_args.args[0]
+    assert "my-secret-key" not in str(params)
 
 
 @pytest.mark.asyncio
-async def test_save_falls_back_to_plaintext_on_vault_failure(monkeypatch):
+async def test_save_fails_closed_on_vault_failure_without_db_write(monkeypatch):
     svc = MagicMock()
     svc.save_credential = AsyncMock(side_effect=Exception("vault unavailable"))
     conn = _make_conn()
@@ -220,15 +250,27 @@ async def test_save_falls_back_to_plaintext_on_vault_failure(monkeypatch):
     with patch("app.api.services.balance_credentials_service.get_conn", return_value=_FakeConnCtx(conn)), \
          patch("app.api.services.credential_vault_service.CredentialVaultService", return_value=svc):
         from app.api.services import balance_credentials_service as bcs
-        ok = await bcs.save_balance_credentials("t9", "key-fallback")
+        with pytest.raises(RuntimeError, match="BALANCE_CREDENTIAL_SAVE_FAILED"):
+            await bcs.save_balance_credentials("t9", "synthetic-save-failure-key")
 
-    # Should still write to DB (legacy path)
-    conn.execute.assert_awaited()
-    # In legacy path, api_key is stored (not NULL)
-    execute_call_args = conn.execute.call_args
-    params = execute_call_args[0][1:]
-    assert params[1] == "key-fallback"
-    assert params[5] == "legacy_plaintext"
+    conn.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_vault_failure_log_does_not_contain_submitted_key(monkeypatch, caplog):
+    submitted_key = "synthetic-secret-that-must-not-be-logged"
+    svc = MagicMock()
+    svc.save_credential = AsyncMock(side_effect=Exception("synthetic vault failure"))
+    conn = _make_conn()
+
+    with patch("app.api.services.balance_credentials_service.get_conn", return_value=_FakeConnCtx(conn)), \
+         patch("app.api.services.credential_vault_service.CredentialVaultService", return_value=svc):
+        from app.api.services import balance_credentials_service as bcs
+        with pytest.raises(RuntimeError):
+            await bcs.save_balance_credentials("tenant-failure", submitted_key)
+
+    assert submitted_key not in caplog.text
+    conn.execute.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -268,3 +310,61 @@ async def test_get_vault_status_returns_masked_hint(monkeypatch):
     assert result.get("configured") is True
     # masked_hint may or may not pass through sanitize — raw key must never appear
     assert "real-api-key" not in str(result)
+
+
+def test_balance_connector_ignores_global_key_when_tenant_key_missing(monkeypatch):
+    monkeypatch.setenv("BALANCE_API_KEY", "synthetic-shared-test-key")
+    with patch(
+        "app.api.services.balance_credentials_service.get_balance_credentials_sync",
+        return_value={"api_key": "", "source": "none", "credential_status": "not_configured"},
+    ):
+        from app.api.connectors.balance_connector import BalanceConnector
+        connector = BalanceConnector(tenant_id="tenant-A")
+
+    assert connector.api_key == ""
+    assert connector.mode == "demo"
+
+
+def test_balance_connector_vault_error_is_unavailable_not_demo_or_global(monkeypatch):
+    monkeypatch.setenv("BALANCE_API_KEY", "synthetic-shared-test-key")
+    with patch(
+        "app.api.services.balance_credentials_service.get_balance_credentials_sync",
+        side_effect=RuntimeError("synthetic lookup failure"),
+    ), patch("app.api.connectors.balance_connector.requests.post") as live_post:
+        from app.api.connectors.balance_connector import BalanceConnector
+        connector = BalanceConnector(tenant_id="tenant-A")
+        result = connector.post({"account_dr": "1000", "account_cr": "2000", "amount": 1})
+
+    assert connector.mode == "unavailable"
+    assert connector.status()["connected"] is False
+    assert result["success"] is False
+    live_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_save_route_returns_safe_503_when_vault_fails():
+    from app.api import routes_balance_credentials as route
+    body = route.BalanceCredsPayload(api_key="synthetic_api_key_not_for_response")
+    request = SimpleNamespace(state=SimpleNamespace(tenant_id="tenant-A", user_id="user-A"))
+
+    with patch.object(route, "require_permission"), \
+         patch.object(route, "save_balance_credentials", new_callable=AsyncMock,
+                      side_effect=RuntimeError("BALANCE_CREDENTIAL_SAVE_FAILED")):
+        response = await route.save_creds(body, request)
+
+    assert response.status_code == 503
+    assert b"synthetic_api_key_not_for_response" not in response.body
+
+
+@pytest.mark.asyncio
+async def test_save_route_success_response_never_contains_key():
+    from app.api import routes_balance_credentials as route
+    secret = "synthetic_key_must_not_escape_response"
+    body = route.BalanceCredsPayload(api_key=secret)
+    request = SimpleNamespace(state=SimpleNamespace(tenant_id="tenant-A", user_id="user-A"))
+
+    with patch.object(route, "require_permission"), \
+         patch.object(route, "save_balance_credentials", new_callable=AsyncMock, return_value=True):
+        response = await route.save_creds(body, request)
+
+    assert secret not in str(response)

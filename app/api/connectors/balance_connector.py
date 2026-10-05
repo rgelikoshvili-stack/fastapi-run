@@ -1,26 +1,29 @@
-"""app/api/connectors/balance_connector.py"""
-import os, logging, requests
+"""Balance.ge connector with tenant-scoped vault credentials."""
+import logging
+import requests
 from datetime import datetime, timezone
+
 from app.api.connectors.base_connector import BaseConnector
 
 logger = logging.getLogger(__name__)
 
+
 class BalanceConnector(BaseConnector):
     def __init__(self, tenant_id="default", company_id=None):
         self.tenant_id = tenant_id
-        # Per-tenant credentials take priority over global env vars
         try:
-            from app.api.services.balance_credentials_service import get_balance_credentials
-            creds = get_balance_credentials(tenant_id)
-            self.api_key   = creds.get("api_key", "")
+            from app.api.services.balance_credentials_service import get_balance_credentials_sync
+            creds = get_balance_credentials_sync(tenant_id)
+            self.api_key = creds.get("api_key", "")
             self.company_id = company_id or creds.get("company_id", "")
-            self.api_base  = creds.get("api_base", "https://api.balance.ge")
-        except Exception as e:
-            import logging; logging.getLogger(__name__).warning("balance creds load failed, using env: %s", e)
-            self.api_key   = os.environ.get("BALANCE_API_KEY", "")
-            self.company_id = company_id or os.environ.get("BALANCE_COMPANY_ID", "")
-            self.api_base  = os.environ.get("BALANCE_API_BASE", "https://api.balance.ge")
-        self.mode = "live" if self.api_key else "demo"
+            self.api_base = creds.get("api_base", "https://api.balance.ge")
+            rotation_required = creds.get("credential_status") == "rotation_required"
+        except Exception:
+            self.api_key = ""
+            self.company_id = company_id or ""
+            self.api_base = "https://api.balance.ge"
+            rotation_required = True
+        self.mode = "live" if self.api_key else ("unavailable" if rotation_required else "demo")
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.api_key}",
@@ -28,18 +31,23 @@ class BalanceConnector(BaseConnector):
                 "X-Tenant-ID": self.tenant_id}
 
     def status(self):
+        if self.mode == "unavailable":
+            return {"connected": False, "mode": "unavailable",
+                    "message": "Tenant credential unavailable"}
         if self.mode == "demo":
             return {"connected": True, "mode": "demo",
-                    "message": "DEMO — BALANCE_API_KEY არ არის"}
+                    "message": "DEMO — tenant credential is not configured"}
         try:
             r = requests.get(f"{self.api_base}/health",
                              headers=self._headers(), timeout=10)
             return {"connected": r.status_code == 200, "mode": "live",
-                    "message": "OK" if r.status_code == 200 else r.text[:100]}
-        except Exception as e:
-            return {"connected": False, "mode": "live", "message": str(e)}
+                    "message": "OK" if r.status_code == 200 else f"HTTP {r.status_code}"}
+        except Exception as exc:
+            return {"connected": False, "mode": "live", "message": type(exc).__name__}
 
     def validate_config(self):
+        if self.mode == "unavailable":
+            return False
         return True if self.mode == "demo" else self.status().get("connected", False)
 
     def preview(self, draft):
@@ -57,6 +65,8 @@ class BalanceConnector(BaseConnector):
         return h
 
     def post(self, draft):
+        if self.mode == "unavailable":
+            return self._build_error("Tenant credential unavailable")
         if self.mode == "demo":
             fid = f"DEMO-{datetime.now().strftime('%H%M%S')}"
             logger.info("[Balance] DEMO post: %s", fid)
@@ -77,19 +87,20 @@ class BalanceConnector(BaseConnector):
             logger.debug("[Balance] POST %s headers=%s payload=%s",
                          url, self._safe_headers_log(), payload)
             r = requests.post(url, headers=self._headers(), json=payload, timeout=15)
-            logger.debug("[Balance] response status=%s body=%s",
-                         r.status_code, r.text[:500])
+            logger.debug("[Balance] response status=%s", r.status_code)
             if r.status_code in (200, 201):
                 erp_id = str(r.json().get("id", "unknown"))
                 logger.info("[Balance] posted OK erp_id=%s tenant=%s", erp_id, self.tenant_id)
                 return self._build_success(erp_id)
-            logger.warning("[Balance] post failed HTTP %s: %s", r.status_code, r.text[:200])
-            return self._build_error(f"HTTP {r.status_code}", r.text[:200])
-        except Exception as e:
-            logger.error("[Balance] post exception tenant=%s: %s", self.tenant_id, e)
-            return self._build_error(str(e))
+            logger.warning("[Balance] post failed HTTP %s", r.status_code)
+            return self._build_error(f"HTTP {r.status_code}")
+        except Exception as exc:
+            logger.error("[Balance] post exception tenant=%s type=%s", self.tenant_id, type(exc).__name__)
+            return self._build_error("Balance.ge request failed")
 
     def history(self, tenant_id, limit=50):
+        if self.mode == "unavailable":
+            return []
         if self.mode == "demo":
             return [{"erp_id": "DEMO-001", "date": "2026-04-01",
                      "amount": 1000, "description": "DEMO", "status": "posted"}]
@@ -102,5 +113,5 @@ class BalanceConnector(BaseConnector):
                      "description": i.get("description", ""),
                      "status": "posted"} for i in r.json().get("items", [])]
         except Exception as e:
-            logger.warning("balance_connector fetch_journal failed: %s", e)
+            logger.warning("balance_connector fetch_journal failed: %s", type(e).__name__)
             return []

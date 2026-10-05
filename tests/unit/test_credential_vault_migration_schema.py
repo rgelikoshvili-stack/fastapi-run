@@ -362,15 +362,14 @@ class TestSourceGrounding:
     def test_service_references_api_key(self, svc):
         assert "api_key" in svc
 
-    def test_service_get_balance_credentials_reads_plaintext_api_key(self, svc):
-        # The primary get_balance_credentials() SELECT must still read api_key
-        # (plaintext baseline unchanged). The vault path is in get_vault_status().
-        assert "SELECT api_key" in svc or "api_key" in svc
+    def test_service_does_not_select_legacy_plaintext_value(self, svc):
+        assert "SELECT api_key" not in svc
+        assert "api_key IS NOT NULL" in svc
 
-    def test_service_get_balance_credentials_does_not_select_encrypted(self, svc):
-        # The plaintext SELECT query in get_balance_credentials must not SELECT
-        # encrypted_value — that column is unused in the primary credential path.
-        assert "SELECT api_key, company_id, api_base" in svc
+    def test_service_get_balance_credentials_uses_vault_and_decryption(self, svc):
+        assert "get_for_connector" in svc
+        assert "FROM credential_vault_credentials" in svc
+        assert "decrypt_secret" in svc or "get_for_connector" in svc
 
 
 # ---------------------------------------------------------------------------

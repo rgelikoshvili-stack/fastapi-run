@@ -31,10 +31,10 @@ async def get_system_health() -> dict[str, Any]:
     except Exception as exc:
         db_message = str(exc)[:80]
 
-    # Connector demo/live status (no network calls — just check env vars)
+    # Connector service-level status (no network calls or tenant secret reads).
     import os
     connectors = {
-        "balance": "live" if os.environ.get("BALANCE_API_KEY") else "demo",
+        "balance": "explicit_demo" if os.environ.get("TEST_MODE") == "1" else "tenant_scoped",
         "1c":      "live" if os.environ.get("ONEC_ENDPOINT")   else "demo",
         "oris":    "live" if os.environ.get("ORIS_ENDPOINT")   else "demo",
         "fina":    "live" if os.environ.get("FINA_ENDPOINT")   else "demo",

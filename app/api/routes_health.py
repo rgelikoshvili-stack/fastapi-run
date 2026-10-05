@@ -13,7 +13,7 @@ _START_TIME = time.time()
 
 _REQUIRED_ENV = [
     "DATABASE_URL", "JWT_SECRET", "ANTHROPIC_API_KEY",
-    "BALANCE_API_KEY", "OPENROUTER_API_KEY",
+    "OPENROUTER_API_KEY",
 ]
 
 
@@ -42,7 +42,10 @@ async def health_check():
         "env_vars": env,
         "warnings": [f"{k} not configured" for k in missing],
         "connectors": {
-            "balance":    "configured" if os.environ.get("BALANCE_API_KEY")    else "demo_mode",
+            # Balance.ge credentials are tenant-scoped and cannot be summarized
+            # by a process-wide secret check. Keep this probe metadata-only:
+            # never query the vault, enumerate tenants, or call the connector.
+            "balance":    "explicit_demo" if os.environ.get("TEST_MODE") == "1" else "tenant_scoped",
             "anthropic":  "configured" if os.environ.get("ANTHROPIC_API_KEY")  else "missing",
             "openrouter": "configured" if os.environ.get("OPENROUTER_API_KEY") else "missing",
         },

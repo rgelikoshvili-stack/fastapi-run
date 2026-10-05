@@ -241,6 +241,7 @@ async def test_failed_membership_insert_leaves_no_partial_rows(disposable_member
         )
         await conn.execute(
             "CREATE TRIGGER reject_next01_membership BEFORE INSERT ON users "
+            "FOR EACH ROW "
             "WHEN (NEW.email = 'rollback@example.test') "
             "EXECUTE FUNCTION reject_next01_membership()"
         )

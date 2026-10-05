@@ -97,7 +97,17 @@ async def tenant_history_db(monkeypatch):
                     source_type TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+                CREATE TABLE bank_transactions (
+                    id BIGSERIAL PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    amount NUMERIC(18, 2) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
                 """
+            )
+            await conn.execute(
+                "INSERT INTO bank_transactions (tenant_id, amount) VALUES "
+                "('tenant-A', 5.00), ('tenant-B', 500.00)"
             )
 
             for tenant_id, docs in (
@@ -194,6 +204,7 @@ async def test_ocr_exports_do_not_bypass_history_tenant_scope(tenant_history_db)
     assert report["tenant_id"] == "tenant-A"
     assert report["summary"]["total_documents"] == 3
     assert report["summary"]["status_breakdown"] == {"DONE": 2, "PENDING": 1}
+    assert report["summary"]["total_inflow_gel"] == 5.0
 
 
 @pytest.mark.asyncio

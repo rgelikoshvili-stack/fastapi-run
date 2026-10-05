@@ -209,11 +209,16 @@ class TestGetStatus:
         assert result["status"] == "not_configured"
 
     @pytest.mark.asyncio
-    async def test_status_returns_safe_on_db_error(self, svc, conn):
+    async def test_status_returns_unavailable_safely_on_db_error(self, svc, conn):
         svc._repo.get_active_credential = AsyncMock(side_effect=Exception("DB down"))
         result = await svc.get_status(conn, TENANT, PROVIDER, CTYPE)
         assert result["configured"] is False
+        assert result["status"] == "unavailable"
+        assert result["credential_status"] == "unavailable"
+        assert result["mode"] == "unavailable"
+        assert result["error"] == "CREDENTIAL_STATUS_UNAVAILABLE"
         assert TEST_SECRET not in str(result)
+        assert "DB down" not in str(result)
 
 
 # ---------------------------------------------------------------------------

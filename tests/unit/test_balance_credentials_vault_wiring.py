@@ -289,6 +289,9 @@ async def test_get_credentials_status_no_raw_key(monkeypatch):
         status = await bcs.get_credentials_status("t10")
 
     # sanitize_credential_response should strip api_key
+    assert status["configured"] is True
+    assert status["source"] == "vault"
+    assert status["credential_status"] == "active"
     assert "api_key" not in status
     assert "super-secret" not in str(status)
 

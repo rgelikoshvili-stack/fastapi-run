@@ -1,5 +1,6 @@
 """Tenant-scoped Balance.ge credential persistence and retrieval."""
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -11,6 +12,19 @@ from app.api.services.credential_response_sanitizer import sanitize_credential_r
 log = logging.getLogger(__name__)
 
 _DEFAULT_API_BASE = "https://api.balance.ge"
+
+
+def _credential_status_mode(configured: bool, credential_status: str) -> str:
+    """Keep missing, unavailable, and explicit test/demo states distinct."""
+    if configured:
+        return "live"
+    if credential_status == "unavailable":
+        return "unavailable"
+    if credential_status in {"rotation_required", "invalid_reference", "disabled", "revoked"}:
+        return "unavailable"
+    if credential_status == "not_configured" and os.environ.get("TEST_MODE") == "1":
+        return "demo"
+    return "not_configured"
 
 
 async def ensure_table():
@@ -225,15 +239,29 @@ async def save_balance_credentials(
 
 async def get_credentials_status(tenant_id: str) -> dict:
     """Return masked status; this function never includes a raw credential."""
-    creds = await get_balance_credentials(tenant_id)
-    raw = {
-        "configured": bool(creds.get("api_key")),
-        "source": creds.get("source", "none"),
-        "company_id": creds.get("company_id", ""),
-        "api_base": creds.get("api_base", ""),
-        "mode": "live" if creds.get("api_key") else "demo",
-        "credential_status": creds.get("credential_status", "not_configured"),
-    }
+    try:
+        creds = await get_balance_credentials(tenant_id)
+        credential_status = creds.get("credential_status", "not_configured")
+        raw = {
+            "configured": bool(creds.get("api_key")),
+            "source": creds.get("source", "none"),
+            "company_id": creds.get("company_id", ""),
+            "api_base": creds.get("api_base", ""),
+            "mode": _credential_status_mode(bool(creds.get("api_key")), credential_status),
+            "credential_status": credential_status,
+        }
+    except Exception as exc:
+        # A status read must not turn infrastructure failures into a credential
+        # fallback or expose provider/exception details to the caller.
+        log.warning("Balance.ge credential status unavailable tenant=%s type=%s", tenant_id, type(exc).__name__)
+        raw = {
+            "configured": False,
+            "source": "none",
+            "company_id": "",
+            "api_base": _DEFAULT_API_BASE,
+            "mode": "unavailable",
+            "credential_status": "unavailable",
+        }
     return sanitize_credential_response(raw)
 
 
@@ -244,26 +272,42 @@ async def get_vault_status(tenant_id: str) -> dict:
         async with get_conn() as conn:
             svc = CredentialVaultService()
             status = await svc.get_status(conn, tenant_id, "balance", "api_key")
+            # CredentialVaultService reports lookup failures with a safe error
+            # code. Do not follow that with legacy lookup or call it missing.
+            if status.get("error") or status.get("status") == "unavailable":
+                status = {
+                    "configured": False,
+                    "status": "unavailable",
+                    "credential_status": "unavailable",
+                }
             if not status.get("configured"):
-                legacy = await conn.fetchrow(_q(
-                    "SELECT credential_status, "
-                    "(api_key IS NOT NULL AND api_key <> '') AS legacy_present "
-                    "FROM tenant_balance_credentials WHERE tenant_id = %s AND active = TRUE"
-                ), tenant_id)
-                if legacy and (
-                    legacy.get("legacy_present")
-                    or legacy.get("credential_status") in {"legacy_plaintext", "rotation_required"}
-                ):
-                    status.update({
-                        "configured": False,
-                        "status": "rotation_required",
-                        "legacy_credential_present": True,
-                    })
+                if status.get("status") != "unavailable":
+                    legacy = await conn.fetchrow(_q(
+                        "SELECT credential_status, "
+                        "(api_key IS NOT NULL AND api_key <> '') AS legacy_present "
+                        "FROM tenant_balance_credentials WHERE tenant_id = %s AND active = TRUE"
+                    ), tenant_id)
+                    if legacy and (
+                        legacy.get("legacy_present")
+                        or legacy.get("credential_status") in {"legacy_plaintext", "rotation_required"}
+                    ):
+                        status.update({
+                            "configured": False,
+                            "status": "rotation_required",
+                            "credential_status": "rotation_required",
+                            "legacy_credential_present": True,
+                        })
     except Exception as exc:
         log.warning("Balance.ge vault status unavailable tenant=%s type=%s", tenant_id, type(exc).__name__)
-        status = {"configured": False, "status": "not_configured"}
+        status = {
+            "configured": False,
+            "status": "unavailable",
+            "credential_status": "unavailable",
+        }
 
     safe = sanitize_credential_response(status)
     safe.setdefault("provider", "balance")
-    safe.setdefault("mode", "live" if safe.get("configured") else "demo")
+    credential_status = safe.get("credential_status") or safe.get("status") or "not_configured"
+    safe["credential_status"] = credential_status
+    safe["mode"] = _credential_status_mode(bool(safe.get("configured")), credential_status)
     return safe

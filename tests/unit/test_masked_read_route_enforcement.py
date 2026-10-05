@@ -89,7 +89,7 @@ class TestGetCredentialsStatusSafe:
             result = await get_credentials_status(TENANT)
         assert result["configured"] is False
         assert result["credential_status"] == "rotation_required"
-        assert result["mode"] == "demo"
+        assert result["mode"] == "unavailable"
         assert "api_key" not in result
         vault_read.assert_awaited_once()
 
@@ -197,19 +197,89 @@ class TestGetVaultStatusSanitizer:
     async def test_vault_status_safe_fallback_on_error(self):
         from app.api.services.balance_credentials_service import get_vault_status
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
-            mock_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("unavailable"))
+            mock_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("provider payload sentinel"))
             mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
             result = await get_vault_status(TENANT)
         assert result["configured"] is False
+        assert result["status"] == "unavailable"
+        assert result["credential_status"] == "unavailable"
+        assert result["mode"] == "unavailable"
+        assert "provider payload sentinel" not in str(result)
         _assert_no_forbidden(result, "get_vault_status error fallback")
 
     @pytest.mark.asyncio
-    async def test_vault_status_demo_mode_when_not_configured(self):
+    async def test_vault_status_error_code_is_not_mapped_to_missing_or_demo(self, monkeypatch):
         from app.api.services.balance_credentials_service import get_vault_status
+        from app.api.services.credential_vault_service import CredentialVaultService
+        monkeypatch.setenv("TEST_MODE", "1")
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
-            mock_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("vault empty"))
+            mock_conn = AsyncMock()
+            mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await get_vault_status(TENANT)
+            with patch.object(CredentialVaultService, "get_status", new_callable=AsyncMock) as mock_status:
+                mock_status.return_value = {
+                    "configured": False,
+                    "status": "not_configured",
+                    "error": "CREDENTIAL_STATUS_UNAVAILABLE",
+                }
+                result = await get_vault_status(TENANT)
+        mock_conn.fetchrow.assert_not_awaited()
+        assert result["configured"] is False
+        assert result["status"] == "unavailable"
+        assert result["credential_status"] == "unavailable"
+        assert result["mode"] == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_vault_lookup_exception_is_sanitized_as_unavailable(self):
+        from app.api.services.balance_credentials_service import get_vault_status
+        from app.api.services.credential_vault_service import CredentialVaultService
+        with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
+            mock_conn = AsyncMock()
+            mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            with patch.object(
+                CredentialVaultService,
+                "get_status",
+                new_callable=AsyncMock,
+                side_effect=Exception("synthetic vault payload"),
+            ):
+                result = await get_vault_status(TENANT)
+        assert result["configured"] is False
+        assert result["credential_status"] == "unavailable"
+        assert result["mode"] == "unavailable"
+        assert "synthetic vault payload" not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_vault_status_missing_credential_is_not_configured_outside_test_mode(self, monkeypatch):
+        from app.api.services.balance_credentials_service import get_vault_status
+        from app.api.services.credential_vault_service import CredentialVaultService
+        monkeypatch.delenv("TEST_MODE", raising=False)
+        with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
+            mock_conn = AsyncMock()
+            mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_conn.fetchrow = AsyncMock(return_value=None)
+            with patch.object(CredentialVaultService, "get_status", new_callable=AsyncMock) as mock_status:
+                mock_status.return_value = {"configured": False, "status": "not_configured"}
+                result = await get_vault_status(TENANT)
+        assert result["configured"] is False
+        assert result["status"] == "not_configured"
+        assert result["credential_status"] == "not_configured"
+        assert result["mode"] == "not_configured"
+
+    @pytest.mark.asyncio
+    async def test_vault_status_demo_requires_explicit_test_mode(self, monkeypatch):
+        from app.api.services.balance_credentials_service import get_vault_status
+        from app.api.services.credential_vault_service import CredentialVaultService
+        monkeypatch.setenv("TEST_MODE", "1")
+        with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
+            mock_conn = AsyncMock()
+            mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_conn.fetchrow = AsyncMock(return_value=None)
+            with patch.object(CredentialVaultService, "get_status", new_callable=AsyncMock) as mock_status:
+                mock_status.return_value = {"configured": False, "status": "not_configured"}
+                result = await get_vault_status(TENANT)
         assert result.get("mode") == "demo"
 
     @pytest.mark.asyncio
@@ -229,6 +299,8 @@ class TestGetVaultStatusSanitizer:
                 result = await get_vault_status(TENANT)
         assert result.get("masked_hint") == "****5678"
         assert result.get("configured") is True
+        assert result.get("credential_status") == "active"
+        assert result.get("mode") == "live"
 
     @pytest.mark.asyncio
     async def test_vault_status_result_passes_assertion(self):
@@ -334,13 +406,15 @@ class TestSanitizerOnRoutePayloads:
 class TestBalanceGeDemoModeSafe:
 
     @pytest.mark.asyncio
-    async def test_vault_status_returns_demo_when_not_configured(self):
+    async def test_vault_status_returns_unavailable_on_db_error(self):
         from app.api.services.balance_credentials_service import get_vault_status
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
             mock_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("vault empty"))
             mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
             result = await get_vault_status(TENANT)
-        assert result.get("mode") == "demo"
+        assert result["configured"] is False
+        assert result["credential_status"] == "unavailable"
+        assert result.get("mode") == "unavailable"
 
     def test_no_balance_api_key_in_test_env(self):
         key = os.environ.get("BALANCE_API_KEY", "")

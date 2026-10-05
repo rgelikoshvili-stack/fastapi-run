@@ -223,7 +223,9 @@ class CredentialVaultService:
             )
             return {
                 "configured": False,
-                "status": "not_configured",
+                "status": "unavailable",
+                "credential_status": "unavailable",
+                "mode": "unavailable",
                 "provider": provider,
                 "credential_type": credential_type,
                 "error": "CREDENTIAL_STATUS_UNAVAILABLE",

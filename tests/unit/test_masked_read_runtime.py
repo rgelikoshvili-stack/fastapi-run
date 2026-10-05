@@ -212,7 +212,7 @@ class TestGetVaultStatusSafe:
         assert "SHOULD_BE_FILTERED" not in str(result)
 
     @pytest.mark.asyncio
-    async def test_vault_status_mode_is_demo_when_not_configured(self):
+    async def test_vault_status_mode_is_unavailable_on_lookup_error(self):
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_conn_ctx:
             mock_conn_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("unavailable"))
             mock_conn_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -220,7 +220,9 @@ class TestGetVaultStatusSafe:
             from app.api.services.balance_credentials_service import get_vault_status
             result = await get_vault_status(TENANT)
 
-        assert result.get("mode") == "demo"
+        assert result["configured"] is False
+        assert result["credential_status"] == "unavailable"
+        assert result.get("mode") == "unavailable"
 
 
 # ---------------------------------------------------------------------------

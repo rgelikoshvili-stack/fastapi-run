@@ -78,3 +78,34 @@ def test_journal_post_fails_before_database_or_http_when_vault_missing():
     assert response.status_code == 503
     get_conn.assert_not_called()
     client.assert_not_called()
+
+
+def test_public_credential_status_returns_unavailable_on_db_context_error():
+    from app.api.routes_balance_credentials import get_status
+
+    with patch("app.api.routes_balance_credentials.require_permission"), \
+         patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
+        mock_ctx.return_value.__aenter__ = AsyncMock(side_effect=Exception("synthetic-db-error-payload"))
+        mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+        response = asyncio.run(get_status(_request("tenant-a")))
+
+    assert response["data"]["configured"] is False
+    assert response["data"]["status"] == "unavailable"
+    assert response["data"]["credential_status"] == "unavailable"
+    assert response["data"]["mode"] == "unavailable"
+    assert "synthetic-db-error-payload" not in str(response)
+    assert "api_key" not in str(response)
+    assert "password" not in str(response)
+    assert "token" not in str(response)
+
+
+def test_public_credential_status_uses_authenticated_tenant_scope():
+    from app.api.routes_balance_credentials import get_status
+
+    result = {"configured": False, "status": "not_configured", "mode": "not_configured"}
+    with patch("app.api.routes_balance_credentials.require_permission"), \
+         patch("app.api.routes_balance_credentials.get_vault_status", new=AsyncMock(return_value=result)) as lookup:
+        response = asyncio.run(get_status(_request("tenant-a")))
+
+    lookup.assert_awaited_once_with("tenant-a")
+    assert response["data"]["status"] == "not_configured"

@@ -1,12 +1,13 @@
 from app.api.db import get_conn, _q
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 
 
 async def get_system_summary_service(tenant_id: str = "default"):
     try:
         async with get_conn() as conn:
             bank_files_processed = await conn.fetchval(
-                "SELECT COUNT(*) FROM processed_bank_files") or 0
+                _q("SELECT COUNT(*) FROM processed_bank_files WHERE tenant_id = %s"), tenant_id
+            ) or 0
 
             transactions_total = await conn.fetchval(_q(
                 "SELECT COUNT(*) FROM journal_drafts WHERE tenant_id = %s"
@@ -27,8 +28,8 @@ async def get_system_summary_service(tenant_id: str = "default"):
                     COALESCE(SUM(failed_count), 0) AS failed_sum,
                     COALESCE(SUM(inserted_count), 0) AS inserted_sum,
                     COALESCE(SUM(skipped_duplicates), 0) AS skipped_sum
-                FROM processed_bank_files
-            """) or {})
+                FROM processed_bank_files WHERE tenant_id = $1
+            """, tenant_id) or {})
     except Exception as e:
         return error_response("System summary failed", "SYSTEM_SUMMARY_ERROR", str(e))
 
@@ -74,8 +75,8 @@ async def get_system_overview_service(tenant_id: str = "default"):
                     COALESCE(SUM(failed_count), 0) AS failed_sum,
                     COALESCE(SUM(inserted_count), 0) AS inserted_sum,
                     COALESCE(SUM(skipped_duplicates), 0) AS duplicates_skipped
-                FROM processed_bank_files
-            """) or {})
+                FROM processed_bank_files WHERE tenant_id = $1
+            """, tenant_id) or {})
 
             status_breakdown = [dict(r) for r in await conn.fetch(_q("""
                 SELECT status, COUNT(*) AS count FROM journal_drafts
@@ -92,8 +93,9 @@ async def get_system_overview_service(tenant_id: str = "default"):
                        drafted_count, review_count, failed_count,
                        inserted_count, skipped_duplicates, created_at
                 FROM processed_bank_files
+                WHERE tenant_id = $1
                 ORDER BY created_at DESC, id DESC LIMIT 5
-            """)]
+            """, tenant_id)]
 
             latest_drafts = [dict(r) for r in await conn.fetch(_q("""
                 SELECT id, date, description, amount, account_code,
@@ -115,18 +117,21 @@ async def get_system_overview_service(tenant_id: str = "default"):
     })
 
 
-async def get_bank_files_history_service(limit: int, offset: int):
+async def get_bank_files_history_service(limit: int, offset: int, tenant_id: str):
     try:
         async with get_conn() as conn:
-            total = await conn.fetchval("SELECT COUNT(*) FROM processed_bank_files") or 0
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM processed_bank_files WHERE tenant_id = $1", tenant_id
+            ) or 0
             items = [dict(r) for r in await conn.fetch("""
                 SELECT id, filename, file_hash, source_type, total_rows,
                        drafted_count, review_count, failed_count,
                        inserted_count, skipped_duplicates, created_at
                 FROM processed_bank_files
+                WHERE tenant_id = $3
                 ORDER BY created_at DESC, id DESC
                 LIMIT $1 OFFSET $2
-            """, limit, offset)]
+            """, limit, offset, tenant_id)]
     except Exception as e:
         return error_response("Bank files history failed", "BANK_FILES_HISTORY_ERROR", str(e))
 
@@ -135,38 +140,32 @@ async def get_bank_files_history_service(limit: int, offset: int):
     })
 
 
-async def get_bank_file_detail_service(file_id: int):
+async def get_bank_file_detail_service(file_id: int, tenant_id: str):
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow("""
                 SELECT id, filename, file_hash, source_type, total_rows,
                        drafted_count, review_count, failed_count,
                        inserted_count, skipped_duplicates, created_at
-                FROM processed_bank_files WHERE id = $1
-            """, file_id)
+                FROM processed_bank_files WHERE id = $1 AND tenant_id = $2
+            """, file_id, tenant_id)
             if not row:
-                return error_response(
-                    "Bank file not found", "BANK_FILE_NOT_FOUND",
-                    f"processed_bank_files id={file_id} does not exist",
-                )
+                return http_error(404, "Bank file not found", "BANK_FILE_NOT_FOUND")
     except Exception as e:
         return error_response("Bank file detail failed", "BANK_FILE_DETAIL_ERROR", str(e))
 
     return ok_response("Bank file detail", dict(row))
 
 
-async def get_bank_file_drafts_service(file_id: int, limit: int, offset: int, tenant_id: str = "default"):
+async def get_bank_file_drafts_service(file_id: int, limit: int, offset: int, tenant_id: str):
     try:
         async with get_conn() as conn:
             bank_file = await conn.fetchrow(
-                "SELECT id, filename, source_type, created_at FROM processed_bank_files WHERE id = $1",
-                file_id,
+                "SELECT id, filename, source_type, created_at FROM processed_bank_files WHERE id = $1 AND tenant_id = $2",
+                file_id, tenant_id,
             )
             if not bank_file:
-                return error_response(
-                    "Bank file not found", "BANK_FILE_NOT_FOUND",
-                    f"processed_bank_files id={file_id} does not exist",
-                )
+                return http_error(404, "Bank file not found", "BANK_FILE_NOT_FOUND")
 
             total = await conn.fetchval(_q("""
                 SELECT COUNT(*) FROM journal_drafts WHERE bank_file_id = %s AND tenant_id = %s

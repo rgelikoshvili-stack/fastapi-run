@@ -174,8 +174,8 @@ async def process_bank_file_workflow(filename: str, content: bytes, tenant_id: s
                 UPDATE processed_bank_files
                 SET drafted_count=%s, review_count=%s, failed_count=%s,
                     inserted_count=%s, skipped_duplicates=%s
-                WHERE id=%s
-            """), len(drafted), len(review), len(failed), inserted_count, skipped_duplicates, bank_file_id)
+                WHERE id=%s AND tenant_id=%s
+            """), len(drafted), len(review), len(failed), inserted_count, skipped_duplicates, bank_file_id, tenant_id)
 
         log_event("bank_file_uploaded", {
             "tenant_id": tenant_id, "filename": filename, "file_hash": file_hash,

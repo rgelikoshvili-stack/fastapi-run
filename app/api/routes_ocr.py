@@ -79,10 +79,13 @@ async def ocr_history(
         items = [dict(r) for r in await conn.fetch("""
             SELECT run_id, filename, state, created_at
             FROM pipeline_runs
+            WHERE tenant_id = $3
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
-        """, limit, offset)]
-        total = await conn.fetchval("SELECT COUNT(*) FROM pipeline_runs") or 0
+        """, limit, offset, tenant_id)]
+        total = await conn.fetchval(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE tenant_id = $1", tenant_id
+        ) or 0
 
     return {
         "ok": True,

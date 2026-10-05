@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
-from app.api.response_utils import ok_response, error_response
+from app.api.response_utils import ok_response, error_response, http_error
 from app.api.services.balance_credentials_service import (
     get_vault_status,
     save_balance_credentials,
@@ -38,16 +38,19 @@ async def save_creds(body: BalanceCredsPayload, request: Request):
     if not body.api_key:
         return error_response("api_key required", "ERROR", "")
     actor = getattr(request.state, "user_id", None)
-    ok = await save_balance_credentials(
-        tenant_id=tenant_id,
-        api_key=body.api_key,
-        company_id=body.company_id or "",
-        api_base=body.api_base or "https://api.balance.ge",
-        actor=actor,
-    )
+    try:
+        ok = await save_balance_credentials(
+            tenant_id=tenant_id,
+            api_key=body.api_key,
+            company_id=body.company_id or "",
+            api_base=body.api_base or "https://api.balance.ge",
+            actor=actor,
+        )
+    except RuntimeError:
+        return http_error(503, "Credential vault unavailable", "CREDENTIAL_SAVE_FAILED")
     if ok:
         return ok_response("ok", {"message": "Balance.ge credentials saved"})
-    return error_response("DB save failed", "ERROR", "")
+    return http_error(503, "Credential save failed", "CREDENTIAL_SAVE_FAILED")
 
 
 @router.post("/test")

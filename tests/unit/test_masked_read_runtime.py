@@ -132,6 +132,7 @@ class TestGetVaultStatusSafe:
 
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_conn_ctx:
             mock_conn = AsyncMock()
+            mock_conn.fetchrow = AsyncMock(return_value=None)
             mock_conn_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_conn_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -158,6 +159,7 @@ class TestGetVaultStatusSafe:
 
         with patch("app.api.services.balance_credentials_service.get_conn") as mock_conn_ctx:
             mock_conn = AsyncMock()
+            mock_conn.fetchrow = AsyncMock(return_value=None)
             mock_conn_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_conn_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 

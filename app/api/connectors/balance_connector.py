@@ -1,5 +1,6 @@
 """Balance.ge connector with tenant-scoped vault credentials."""
 import logging
+import os
 import requests
 from datetime import datetime, timezone
 
@@ -9,8 +10,22 @@ logger = logging.getLogger(__name__)
 
 
 class BalanceConnector(BaseConnector):
-    def __init__(self, tenant_id="default", company_id=None):
+    def __init__(self, tenant_id="default", company_id=None, mode=None):
         self.tenant_id = tenant_id
+        if mode == "demo":
+            self.api_key = ""
+            self.company_id = company_id or ""
+            self.api_base = "https://api.balance.ge"
+            self.mode = "demo"
+            return
+
+        if mode not in (None, "live", "real"):
+            self.api_key = ""
+            self.company_id = company_id or ""
+            self.api_base = "https://api.balance.ge"
+            self.mode = "unavailable"
+            return
+
         try:
             from app.api.services.balance_credentials_service import get_balance_credentials_sync
             creds = get_balance_credentials_sync(tenant_id)
@@ -22,8 +37,21 @@ class BalanceConnector(BaseConnector):
             self.api_key = ""
             self.company_id = company_id or ""
             self.api_base = "https://api.balance.ge"
-            rotation_required = True
-        self.mode = "live" if self.api_key else ("unavailable" if rotation_required else "demo")
+            self.mode = "unavailable"
+            return
+
+        if self.api_key:
+            self.mode = "live"
+        else:
+            # A test flag may explicitly select simulation, but absence of a key
+            # alone never does. Invalid/disabled/legacy vault states stay closed.
+            test_demo_enabled = os.environ.get("TEST_MODE") == "1"
+            credential_state = creds.get("credential_status")
+            self.mode = (
+                "demo"
+                if test_demo_enabled and credential_state == "not_configured"
+                else "unavailable"
+            )
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.api_key}",
@@ -35,8 +63,8 @@ class BalanceConnector(BaseConnector):
             return {"connected": False, "mode": "unavailable",
                     "message": "Tenant credential unavailable"}
         if self.mode == "demo":
-            return {"connected": True, "mode": "demo",
-                    "message": "DEMO — tenant credential is not configured"}
+            return {"connected": False, "mode": "demo", "simulated": True,
+                    "message": "Simulated only; external connector is not active"}
         try:
             r = requests.get(f"{self.api_base}/health",
                              headers=self._headers(), timeout=10)
@@ -46,9 +74,9 @@ class BalanceConnector(BaseConnector):
             return {"connected": False, "mode": "live", "message": type(exc).__name__}
 
     def validate_config(self):
-        if self.mode == "unavailable":
+        if self.mode in {"unavailable", "demo"}:
             return False
-        return True if self.mode == "demo" else self.status().get("connected", False)
+        return self.status().get("connected", False)
 
     def preview(self, draft):
         errors = []
@@ -68,9 +96,14 @@ class BalanceConnector(BaseConnector):
         if self.mode == "unavailable":
             return self._build_error("Tenant credential unavailable")
         if self.mode == "demo":
-            fid = f"DEMO-{datetime.now().strftime('%H%M%S')}"
-            logger.info("[Balance] DEMO post: %s", fid)
-            return self._build_success(fid)
+            logger.info("[Balance] simulated post; no external posting performed")
+            return {
+                "success": False,
+                "erp_id": None,
+                "error": "SIMULATED_NOT_POSTED",
+                "mode": "demo",
+                "simulated": True,
+            }
         try:
             payload = {
                 "company_id": self.company_id,
@@ -102,8 +135,7 @@ class BalanceConnector(BaseConnector):
         if self.mode == "unavailable":
             return []
         if self.mode == "demo":
-            return [{"erp_id": "DEMO-001", "date": "2026-04-01",
-                     "amount": 1000, "description": "DEMO", "status": "posted"}]
+            return []
         try:
             r = requests.get(f"{self.api_base}/api/v1/journal",
                              headers=self._headers(),

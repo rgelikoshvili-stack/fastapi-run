@@ -99,6 +99,28 @@ async def test_apply_posting_logs_mode_live_on_connector_not_ready():
 
 
 @pytest.mark.asyncio
+async def test_apply_posting_preserves_demo_mode_in_config_missing_audit_log():
+    conn = _make_apply_conn()
+    readiness_demo = {
+        "ok": False,
+        "message": "Simulated only; external connector is not active",
+        "status": {"connected": False, "mode": "demo", "simulated": True},
+    }
+
+    with patch("app.api.services.posting_service.get_conn", return_value=_FakeConnCtx(conn)), \
+         patch("app.api.services.posting_service._get_connector_readiness", return_value=readiness_demo):
+        from app.api.services.posting_service import apply_posting_service
+        result = await apply_posting_service(10, "balance", "t1", actor="user-demo")
+
+    params = list(conn.fetchval.call_args[0][1:])
+    assert result["ok"] is False
+    assert result["error"]["code"] == "CONNECTOR_NOT_READY"
+    assert "demo" in params
+    assert "live" not in params
+    assert conn.execute.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_apply_posting_logs_mode_live_on_success():
     """Successful posting INSERT must include mode='live', actor, connector."""
     conn = _make_apply_conn()

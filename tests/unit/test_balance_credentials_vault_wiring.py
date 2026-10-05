@@ -312,17 +312,68 @@ async def test_get_vault_status_returns_masked_hint(monkeypatch):
     assert "real-api-key" not in str(result)
 
 
-def test_balance_connector_ignores_global_key_when_tenant_key_missing(monkeypatch):
+def test_balance_connector_fails_closed_when_tenant_key_missing(monkeypatch):
     monkeypatch.setenv("BALANCE_API_KEY", "synthetic-shared-test-key")
+    monkeypatch.delenv("TEST_MODE", raising=False)
     with patch(
         "app.api.services.balance_credentials_service.get_balance_credentials_sync",
         return_value={"api_key": "", "source": "none", "credential_status": "not_configured"},
+    ), patch("app.api.connectors.balance_connector.requests.post") as live_post:
+        from app.api.connectors.balance_connector import BalanceConnector
+        connector = BalanceConnector(tenant_id="tenant-A")
+        result = connector.post({"account_dr": "1000", "account_cr": "2000", "amount": 1})
+
+    assert connector.api_key == ""
+    assert connector.mode == "unavailable"
+    assert connector.status()["connected"] is False
+    assert result["success"] is False
+    assert result["erp_id"] is None
+    live_post.assert_not_called()
+
+
+def test_balance_connector_demo_requires_explicit_test_flag_or_mode(monkeypatch):
+    monkeypatch.setenv("TEST_MODE", "1")
+    with patch(
+        "app.api.services.balance_credentials_service.get_balance_credentials_sync",
+        return_value={"api_key": "", "source": "none", "credential_status": "not_configured"},
+    ), patch("app.api.connectors.balance_connector.requests.post") as live_post:
+        from app.api.connectors.balance_connector import BalanceConnector
+        test_flag_connector = BalanceConnector(tenant_id="tenant-A")
+        monkeypatch.delenv("TEST_MODE", raising=False)
+        explicit_mode_connector = BalanceConnector(tenant_id="tenant-A", mode="demo")
+        demo_result = explicit_mode_connector.post({"account_dr": "1000", "account_cr": "2000", "amount": 1})
+
+    assert test_flag_connector.mode == "demo"
+    assert explicit_mode_connector.mode == "demo"
+    assert explicit_mode_connector.status() == {
+        "connected": False,
+        "mode": "demo",
+        "simulated": True,
+        "message": "Simulated only; external connector is not active",
+    }
+    assert demo_result == {
+        "success": False,
+        "erp_id": None,
+        "error": "SIMULATED_NOT_POSTED",
+        "mode": "demo",
+        "simulated": True,
+    }
+    assert explicit_mode_connector.validate_config() is False
+    live_post.assert_not_called()
+
+
+@pytest.mark.parametrize("credential_state", ["disabled", "revoked", "rotation_required", "active"])
+def test_balance_connector_invalid_or_legacy_credential_state_never_enters_demo(monkeypatch, credential_state):
+    monkeypatch.setenv("TEST_MODE", "1")
+    with patch(
+        "app.api.services.balance_credentials_service.get_balance_credentials_sync",
+        return_value={"api_key": "", "source": "none", "credential_status": credential_state},
     ):
         from app.api.connectors.balance_connector import BalanceConnector
         connector = BalanceConnector(tenant_id="tenant-A")
 
+    assert connector.mode == "unavailable"
     assert connector.api_key == ""
-    assert connector.mode == "demo"
 
 
 def test_balance_connector_vault_error_is_unavailable_not_demo_or_global(monkeypatch):

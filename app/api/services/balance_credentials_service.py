@@ -41,12 +41,17 @@ async def _legacy_status(conn, tenant_id: str) -> dict:
         row.get("legacy_present")
         or row.get("credential_status") in {"legacy_plaintext", "rotation_required"}
     ))
+    metadata_status = row.get("credential_status") if row else None
     return {
         "api_key": "",
         "company_id": (row.get("company_id") if row else "") or "",
         "api_base": (row.get("api_base") if row else _DEFAULT_API_BASE) or _DEFAULT_API_BASE,
         "source": "none",
-        "credential_status": "rotation_required" if legacy_present else "not_configured",
+        "credential_status": (
+            "rotation_required" if legacy_present else
+            "invalid_reference" if metadata_status in {"vault", "active"} else
+            "not_configured"
+        ),
     }
 
 
@@ -147,12 +152,17 @@ def get_balance_credentials_sync(tenant_id: str) -> dict:
                 metadata.get("legacy_present")
                 or metadata.get("credential_status") in {"legacy_plaintext", "rotation_required"}
             ))
+            metadata_status = metadata.get("credential_status") if metadata else None
             return {
                 "api_key": "",
                 "company_id": (metadata.get("company_id") if metadata else "") or "",
                 "api_base": (metadata.get("api_base") if metadata else _DEFAULT_API_BASE) or _DEFAULT_API_BASE,
                 "source": "none",
-                "credential_status": "rotation_required" if legacy_present else (status or "not_configured"),
+                "credential_status": (
+                    "rotation_required" if legacy_present else
+                    "invalid_reference" if not vault_row and metadata_status in {"vault", "active"} else
+                    (status or "not_configured")
+                ),
             }
     except Exception as exc:
         if conn is not None:

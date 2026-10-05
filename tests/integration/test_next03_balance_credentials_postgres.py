@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import asyncpg
+import json
 import psycopg2
 import pytest
 
@@ -93,6 +94,41 @@ async def credential_db(monkeypatch):
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 );
+                CREATE TABLE journal_drafts (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    date DATE,
+                    description TEXT,
+                    partner TEXT,
+                    amount NUMERIC,
+                    status TEXT,
+                    currency TEXT,
+                    lines_json JSONB NOT NULL DEFAULT '[]'::jsonb
+                );
+                CREATE TABLE period_locks (
+                    tenant_id TEXT NOT NULL,
+                    period_year INTEGER NOT NULL,
+                    period_month INTEGER NOT NULL,
+                    unlocked_at TIMESTAMPTZ
+                );
+                CREATE TABLE posting_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    draft_id BIGINT NOT NULL,
+                    target_system TEXT NOT NULL,
+                    payload_json JSONB,
+                    response_json JSONB,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    entry_hash TEXT,
+                    source_draft_id BIGINT,
+                    mode TEXT,
+                    actor TEXT,
+                    connector TEXT,
+                    idempotency_key TEXT
+                );
+                CREATE UNIQUE INDEX posting_logs_entry_hash_unique
+                    ON posting_logs (entry_hash) WHERE entry_hash IS NOT NULL;
             """)
 
         @asynccontextmanager
@@ -202,3 +238,95 @@ async def test_legacy_raw_row_is_never_returned_and_is_rotation_required(credent
     assert status["configured"] is False
     assert status["status"] == "rotation_required"
     assert "synthetic_legacy_only_key" not in str(status)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("test_mode, expected_mode", [("0", "unavailable"), ("1", "demo")])
+async def test_missing_balance_credential_never_creates_successful_posting_state(
+    credential_db, monkeypatch, test_mode, expected_mode
+):
+    """The production posting workflow stops at connector readiness when the vault is empty."""
+    monkeypatch.setenv("TEST_MODE", test_mode)
+    async with credential_db.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO journal_drafts
+                (id, tenant_id, status, amount, currency, lines_json)
+            VALUES
+                (9001, 'tenant-empty', 'approved', 25.00, 'GEL',
+                 '[{"account_code":"1000","debit":25,"credit":0},'
+                 '{"account_code":"3000","debit":0,"credit":25}]'::jsonb)
+        """)
+
+    from unittest.mock import AsyncMock, patch
+    from app.api.services import posting_service
+
+    with patch.object(posting_service, "get_conn", credentials.get_conn), \
+         patch.object(posting_service, "_is_connector_disabled", new_callable=AsyncMock, return_value=False), \
+         patch.object(posting_service, "log_event"), \
+         patch.object(posting_service, "structured_log"), \
+         patch("app.api.connectors.balance_connector.requests.post") as live_post, \
+         patch("app.api.connectors.balance_connector.requests.get") as live_get:
+        result = await posting_service.apply_posting_service(9001, "balance", "tenant-empty")
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "CONNECTOR_NOT_READY"
+    live_post.assert_not_called()
+    live_get.assert_not_called()
+    async with credential_db.acquire() as conn:
+        draft_status = await conn.fetchval(
+            "SELECT status FROM journal_drafts WHERE id = 9001 AND tenant_id = 'tenant-empty'"
+        )
+        rows = await conn.fetch(
+            "SELECT status, response_json FROM posting_logs WHERE draft_id = 9001"
+        )
+        vault_rows = await conn.fetchval(
+            "SELECT count(*) FROM credential_vault_credentials WHERE tenant_id = 'tenant-empty'"
+        )
+        metadata_rows = await conn.fetchval(
+            "SELECT count(*) FROM tenant_balance_credentials WHERE tenant_id = 'tenant-empty'"
+        )
+
+    assert draft_status == "approved"
+    assert len(rows) == 1
+    assert rows[0]["status"] == "config_missing"
+    response = rows[0]["response_json"]
+    if isinstance(response, str):
+        response = json.loads(response)
+    assert response["status"].get("mode") == expected_mode
+    assert "erp_id" not in response and "external_id" not in response
+    assert vault_rows == 0
+    assert metadata_rows == 0
+
+
+@pytest.mark.asyncio
+async def test_missing_vault_reference_is_invalid_even_when_test_demo_is_enabled(credential_db, monkeypatch):
+    monkeypatch.setenv("TEST_MODE", "1")
+    async with credential_db.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO tenant_balance_credentials
+                (tenant_id, company_id, credential_status)
+            VALUES ('tenant-stale-ref', 'COMP-STALE', 'vault')
+        """)
+
+    async_result = await credentials.get_balance_credentials("tenant-stale-ref")
+    sync_result = credentials.get_balance_credentials_sync("tenant-stale-ref")
+
+    from app.api.connectors.balance_connector import BalanceConnector
+    from unittest.mock import patch
+    with patch("app.api.connectors.balance_connector.requests.post") as live_post:
+        connector = BalanceConnector(tenant_id="tenant-stale-ref")
+        result = connector.post({"account_dr": "1000", "account_cr": "2000", "amount": 1})
+
+    assert async_result["api_key"] == sync_result["api_key"] == ""
+    assert async_result["credential_status"] == sync_result["credential_status"] == "invalid_reference"
+    assert connector.mode == "unavailable"
+    assert result["success"] is False
+    assert result["erp_id"] is None
+    live_post.assert_not_called()
+    async with credential_db.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT count(*) FROM tenant_balance_credentials WHERE tenant_id = 'tenant-stale-ref'"
+        ) == 1
+        assert await conn.fetchval(
+            "SELECT count(*) FROM credential_vault_credentials WHERE tenant_id = 'tenant-stale-ref'"
+        ) == 0

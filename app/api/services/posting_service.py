@@ -995,6 +995,10 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
 
             readiness = _get_connector_readiness(target_normalized, tenant_id)
             if target_normalized != "mock" and not readiness["ok"]:
+                readiness_status = readiness.get("status") or {}
+                attempt_mode = readiness_status.get("mode")
+                if attempt_mode not in {"live", "demo", "unavailable"}:
+                    attempt_mode = "live"
                 log_id = await conn.fetchval(
                     _q("""
                         INSERT INTO posting_logs
@@ -1011,7 +1015,7 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                     "config_missing",
                     readiness.get("message", "connector not ready"),
                     None, draft_id,
-                    "live", actor, target_normalized, idempotency_key,
+                    attempt_mode, actor, target_normalized, idempotency_key,
                 )
                 await tr.commit()
                 log_event(

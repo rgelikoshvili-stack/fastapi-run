@@ -225,15 +225,28 @@ async def save_balance_credentials(
 
 async def get_credentials_status(tenant_id: str) -> dict:
     """Return masked status; this function never includes a raw credential."""
-    creds = await get_balance_credentials(tenant_id)
-    raw = {
-        "configured": bool(creds.get("api_key")),
-        "source": creds.get("source", "none"),
-        "company_id": creds.get("company_id", ""),
-        "api_base": creds.get("api_base", ""),
-        "mode": "live" if creds.get("api_key") else "demo",
-        "credential_status": creds.get("credential_status", "not_configured"),
-    }
+    try:
+        creds = await get_balance_credentials(tenant_id)
+        raw = {
+            "configured": bool(creds.get("api_key")),
+            "source": creds.get("source", "none"),
+            "company_id": creds.get("company_id", ""),
+            "api_base": creds.get("api_base", ""),
+            "mode": "live" if creds.get("api_key") else "demo",
+            "credential_status": creds.get("credential_status", "not_configured"),
+        }
+    except Exception as exc:
+        # A status read must not turn infrastructure failures into a credential
+        # fallback or expose provider/exception details to the caller.
+        log.warning("Balance.ge credential status unavailable tenant=%s type=%s", tenant_id, type(exc).__name__)
+        raw = {
+            "configured": False,
+            "source": "none",
+            "company_id": "",
+            "api_base": _DEFAULT_API_BASE,
+            "mode": "unavailable",
+            "credential_status": "unavailable",
+        }
     return sanitize_credential_response(raw)
 
 

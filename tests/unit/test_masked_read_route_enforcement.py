@@ -71,20 +71,27 @@ class TestGetCredentialsStatusSafe:
         assert result["configured"] is False
 
     @pytest.mark.asyncio
-    async def test_status_configured_is_true_when_key_set(self):
+    async def test_legacy_plaintext_is_unconfigured_and_requires_rotation(self):
         from app.api.services.balance_credentials_service import get_credentials_status
-        with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx:
+        from app.api.services.credential_vault_service import CredentialVaultService
+        with patch("app.api.services.balance_credentials_service.get_conn") as mock_ctx, \
+             patch.object(CredentialVaultService, "get_for_connector", new_callable=AsyncMock) as vault_read:
             mock_conn = AsyncMock()
             mock_conn.fetchrow = AsyncMock(return_value={
-                "api_key": "live-key-12345678",
+                "legacy_present": True,
+                "credential_status": "legacy_plaintext",
                 "company_id": "COMP",
                 "api_base": "https://api.balance.ge",
             })
             mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            vault_read.side_effect = RuntimeError("CREDENTIAL_NOT_FOUND")
             result = await get_credentials_status(TENANT)
-        assert result["configured"] is True
+        assert result["configured"] is False
+        assert result["credential_status"] == "rotation_required"
+        assert result["mode"] == "demo"
         assert "api_key" not in result
+        vault_read.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_status_safe_on_db_error_no_env_key(self):
@@ -100,6 +107,9 @@ class TestGetCredentialsStatusSafe:
                     os.environ["BALANCE_API_KEY"] = original
         assert "api_key" not in result
         assert result["configured"] is False
+        assert result["mode"] == "unavailable"
+        assert result["credential_status"] == "unavailable"
+        assert "DB error" not in str(result)
 
     @pytest.mark.asyncio
     async def test_status_result_passes_sanitizer_assertion(self):

@@ -118,12 +118,15 @@ def rls_db():
                             "VALUES ('tenant-b', 'synthetic-ocr-b', 'b.pdf', 'gs://synthetic/b.pdf') RETURNING id")
                 doc_b = cur.fetchone()[0]
         app_pool = pool.ThreadedConnectionPool(4, 4, dsn)
+        initialized_connections = []
         for _ in range(4):
             pooled_conn = app_pool.getconn()
             with pooled_conn:
                 with pooled_conn.cursor() as cur:
                     cur.execute(f'SET search_path TO "{schema}"')
                     cur.execute(f'SET ROLE "{role}"')
+            initialized_connections.append(pooled_conn)
+        for pooled_conn in initialized_connections:
             app_pool.putconn(pooled_conn)
         yield {"pool": app_pool, "schema": schema, "role": role, "doc_a": doc_a, "doc_b": doc_b}
     finally:

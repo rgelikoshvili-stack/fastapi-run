@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from app.api.db import get_db, get_conn, _q
+from app.api.db import get_db, get_conn, _q, require_current_tenant_id
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.observability import structured_log
@@ -735,6 +735,7 @@ async def get_audit_service(limit: int, offset: int, tenant_id: str):
 def autopilot_approve_service(
     tenant_id: str, confidence_threshold: float = AUTOPILOT_MIN_CONFIDENCE
 ):
+    require_current_tenant_id(tenant_id)
     structured_log(
         log,
         logging.INFO,

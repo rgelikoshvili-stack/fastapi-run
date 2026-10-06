@@ -101,9 +101,11 @@ class TestGetUsage:
     @pytest.mark.asyncio
     async def test_returns_draft_and_user_count(self):
         from app.api.services.saas_service import get_usage
+        from app.api.db import tenant_db_context
         with patch("app.api.services.saas_service.get_conn",
                    return_value=_ctx(fetchval_side=[42, 3])):
-            result = await get_usage("t1", "2026-01")
+            async with tenant_db_context("t1"):
+                result = await get_usage("t1", "2026-01")
         assert result["draft_count"] == 42
         assert result["user_count"]  == 3
         assert result["month"] == "2026-01"
@@ -154,27 +156,33 @@ class TestGetOnboardingStatus:
     @pytest.mark.asyncio
     async def test_empty_tenant_zero_percent(self):
         from app.api.services.saas_service import get_onboarding_status
+        from app.api.db import tenant_db_context
         with patch("app.api.services.saas_service.get_conn",
                    return_value=_ctx(fetchval_side=[None, 0, 0, 0])):
-            result = await get_onboarding_status("t1")
+            async with tenant_db_context("t1"):
+                result = await get_onboarding_status("t1")
         assert result["pct"] == 0
         assert result["onboarded"] is False
 
     @pytest.mark.asyncio
     async def test_partial_completion(self):
         from app.api.services.saas_service import get_onboarding_status
+        from app.api.db import tenant_db_context
         with patch("app.api.services.saas_service.get_conn",
                    return_value=_ctx(fetchval_side=["123456789", 1, 1, 1])):
-            result = await get_onboarding_status("t1")
+            async with tenant_db_context("t1"):
+                result = await get_onboarding_status("t1")
         assert result["completed"] >= 3
         assert result["total"] == 5
 
     @pytest.mark.asyncio
     async def test_steps_have_required_fields(self):
         from app.api.services.saas_service import get_onboarding_status
+        from app.api.db import tenant_db_context
         with patch("app.api.services.saas_service.get_conn",
                    return_value=_ctx(fetchval_side=[None, 0, 0, 0])):
-            result = await get_onboarding_status("t1")
+            async with tenant_db_context("t1"):
+                result = await get_onboarding_status("t1")
         for step in result["steps"]:
             assert "id" in step
             assert "name" in step

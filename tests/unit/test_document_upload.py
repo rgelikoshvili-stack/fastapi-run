@@ -58,14 +58,19 @@ def test_mark_doc_status_silent_on_db_error():
 
 def test_background_sets_failed_on_parse_error():
     from app.api.routes_documents import _process_document_background
+    from app.api.db import tenant_db_context
+
+    async def run_scoped():
+        async with tenant_db_context("tenant_a"):
+            await _process_document_background(
+                1, "tenant_a", b"bytes", "application/pdf", "doc.pdf"
+            )
 
     with patch("app.api.services.document_processing_service.parse_document",
                side_effect=Exception("OCR crash")), \
          patch("app.api.services.document_processing_service._mark_doc_status",
                new_callable=AsyncMock) as mock_mark:
-        asyncio.run(
-            _process_document_background(1, "tenant_a", b"bytes", "application/pdf", "doc.pdf")
-        )
+        asyncio.run(run_scoped())
 
     statuses = [c[0][1] for c in mock_mark.call_args_list]
     assert "failed" in statuses

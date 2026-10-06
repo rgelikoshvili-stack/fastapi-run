@@ -68,6 +68,31 @@ def test_authenticated_context_rejects_empty_tenant():
     with pytest.raises(ValueError, match="tenant_id"):
         with db.authenticated_tenant_context(""):
             pass
+    with pytest.raises(ValueError, match="tenant_id"):
+        with db.authenticated_tenant_context("default"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_background_tenant_context_rejects_empty_default_and_nested_mismatch():
+    for tenant_id in ("", "default", " DEFAULT "):
+        with pytest.raises(ValueError, match="tenant_id"):
+            async with db.tenant_db_context(tenant_id):
+                pass
+
+    async with db.tenant_db_context("tenant-a"):
+        with pytest.raises(ValueError, match="cannot change"):
+            async with db.tenant_db_context("tenant-b"):
+                pass
+        assert db.require_current_tenant_id() == "tenant-a"
+    assert db._current_tenant_id.get() is None
+
+
+@pytest.mark.asyncio
+async def test_run_in_tenant_executor_copies_and_resets_context():
+    result = await db.run_in_tenant_executor("tenant-a", db.require_current_tenant_id)
+    assert result == "tenant-a"
+    assert db._current_tenant_id.get() is None
 
 
 def test_explicit_db_tenant_cannot_create_or_override_authenticated_context():
@@ -127,3 +152,49 @@ async def test_auth_middleware_missing_tenant_claim_leaves_db_scope_empty(monkey
         assert await auth_module.auth_middleware(request, call_next) == "response"
     finally:
         db.reset_authenticated_tenant_context(outer_token)
+
+
+@pytest.mark.asyncio
+async def test_auth_middleware_rejects_default_signed_tenant(monkeypatch):
+    monkeypatch.setattr(
+        auth_module,
+        "verify_token",
+        lambda token, expected_type: {
+            "sub": "user-1", "role": "admin", "tenant_id": "default"
+        },
+    )
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/private/resource"),
+        method="GET",
+        headers={"Authorization": "Bearer signed-token"},
+        query_params={},
+        state=SimpleNamespace(tenant_id="tenant-from-header"),
+    )
+    called = False
+
+    async def call_next(_request):
+        nonlocal called
+        called = True
+
+    response = await auth_module.auth_middleware(request, call_next)
+    assert not called
+    assert db._current_tenant_id.get() is None
+
+
+@pytest.mark.asyncio
+async def test_internal_worker_callback_reaches_dual_auth_handler_unscoped():
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/worker/result"),
+        method="POST",
+        headers={},
+        query_params={},
+        state=SimpleNamespace(),
+    )
+
+    async def call_next(_request):
+        assert db._current_tenant_id.get() is None
+        return "handler-must-verify-hmac-and-job-token"
+
+    assert await auth_module.auth_middleware(request, call_next) == (
+        "handler-must-verify-hmac-and-job-token"
+    )

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context
 from app.api.services.saas_service import PLANS, get_tenant_plan, get_usage
 
 
@@ -65,9 +65,6 @@ async def get_tenant_summary() -> dict[str, Any]:
             FROM tenants
             ORDER BY created_at DESC
         """)
-        total_drafts = await conn.fetchval(
-            "SELECT COUNT(*) FROM journal_drafts"
-        )
         plan_counts_rows = await conn.fetch("""
             SELECT plan, COUNT(*) AS cnt
             FROM tenants
@@ -78,10 +75,26 @@ async def get_tenant_summary() -> dict[str, Any]:
     today_month = date.today().strftime("%Y-%m")
 
     tenant_list = []
+    total_drafts = 0
     for t in tenants:
-        usage = await get_usage(t["tenant_id"], today_month)
+        tenant_id = t["tenant_id"]
+        # The tenants table is control-plane metadata; protected usage is read
+        # separately under each server-enumerated tenant's RLS context.
+        try:
+            async with tenant_db_context(tenant_id):
+                usage = await get_usage(tenant_id, today_month)
+                async with get_conn() as conn:
+                    tenant_drafts = await conn.fetchval(
+                        _q("SELECT COUNT(*) FROM journal_drafts WHERE tenant_id = $1"),
+                        tenant_id,
+                    )
+        except ValueError:
+            # Invalid control-plane identifiers fail closed; do not substitute
+            # a global or default tenant context.
+            continue
+        total_drafts += int(tenant_drafts or 0)
         tenant_list.append({
-            "tenant_id":    t["tenant_id"],
+            "tenant_id":    tenant_id,
             "name":         t["name"],
             "plan":         t["plan"],
             "is_active":    t["is_active"],
@@ -93,7 +106,7 @@ async def get_tenant_summary() -> dict[str, Any]:
 
     return {
         "total_tenants": len(tenant_list),
-        "total_drafts":  int(total_drafts or 0),
+        "total_drafts":  total_drafts,
         "plan_counts":   plan_counts,
         "tenants":       tenant_list,
     }
@@ -109,8 +122,14 @@ async def get_tenant_detail(tenant_id: str) -> dict[str, Any]:
         if not tenant:
             raise ValueError("TENANT_NOT_FOUND")
 
-        draft_stats = await conn.fetchrow(
-            _q("""
+    # Resolve identity from control-plane metadata above, then enter an
+    # isolated tenant context before touching tenant-owned records.
+    resolved_tenant_id = tenant["tenant_id"]
+    async with tenant_db_context(resolved_tenant_id):
+        async with get_conn() as conn:
+
+            draft_stats = await conn.fetchrow(
+                _q("""
                 SELECT
                     COUNT(*)                                        AS total,
                     COUNT(*) FILTER (WHERE status = 'posted')      AS posted,
@@ -118,17 +137,18 @@ async def get_tenant_detail(tenant_id: str) -> dict[str, Any]:
                     COUNT(*) FILTER (WHERE status = 'rejected')    AS rejected,
                     COALESCE(SUM(amount) FILTER (WHERE status='posted'), 0) AS posted_amount
                 FROM journal_drafts WHERE tenant_id = $1
-            """),
-            tenant_id,
-        )
-        posting_log_count = await conn.fetchval(
-            _q("SELECT COUNT(*) FROM posting_log WHERE tenant_id = $1"),
-            tenant_id,
-        )
+                """),
+                resolved_tenant_id,
+            )
+            posting_log_count = await conn.fetchval(
+                _q("SELECT COUNT(*) FROM posting_log WHERE tenant_id = $1"),
+                resolved_tenant_id,
+            )
 
     plan  = (tenant["plan"] or "FREE").upper()
     today = date.today().strftime("%Y-%m")
-    usage = await get_usage(tenant_id, today)
+    async with tenant_db_context(resolved_tenant_id):
+        usage = await get_usage(resolved_tenant_id, today)
 
     return {
         "tenant":       dict(tenant),

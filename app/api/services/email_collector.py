@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from email.header import decode_header
 from typing import Optional
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 from app.api.services.credential_vault_service import CredentialVaultService
 
 log = logging.getLogger(__name__)
@@ -332,6 +332,8 @@ async def collect_tenant_inbox(tenant_id: str) -> dict:
     Returns a summary dict.
     """
     from app.api.services.ai_processor import ai_process_document
+
+    require_current_tenant_id(tenant_id)
 
     creds = await get_tenant_email_credentials(tenant_id)
     if not creds:

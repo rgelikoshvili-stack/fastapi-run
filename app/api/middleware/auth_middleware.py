@@ -1,4 +1,5 @@
 from fastapi import Request
+from app.api.response_utils import http_error
 from app.api.services.auth_service import verify_token
 from app.api.observability import structured_log
 import logging
@@ -21,6 +22,10 @@ PUBLIC_GET_PATHS = (
     "/version",
 )
 
+# This callback is not public: it is authenticated in-handler by both the
+# worker HMAC and a Bridge Hub-signed job token. It cannot use a user JWT.
+INTERNAL_JOB_CALLBACK_PATHS = {("POST", "/worker/result")}
+
 _DOWNLOAD_PREFIXES = (
     "/api/documents/download/",
     "/api/reports/export/",
@@ -31,6 +36,12 @@ _DOWNLOAD_PREFIXES = (
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     method = request.method
+
+    if (method, path) in INTERNAL_JOB_CALLBACK_PATHS:
+        request.state.authenticated = False
+        from app.api.db import authenticated_tenant_context
+        with authenticated_tenant_context(None):
+            return await call_next(request)
 
     if method == "GET" and path in PUBLIC_GET_PATHS:
         request.state.authenticated = False
@@ -67,11 +78,18 @@ async def auth_middleware(request: Request, call_next):
             request.state.role = payload.get("role")
             tenant_claim = payload.get("tenant_id")
             request.state.auth_tenant_id = tenant_claim
-            if isinstance(tenant_claim, str) and tenant_claim and tenant_claim == tenant_claim.strip():
+            if (
+                isinstance(tenant_claim, str)
+                and tenant_claim
+                and tenant_claim == tenant_claim.strip()
+                and tenant_claim.casefold() != "default"
+            ):
                 request.state.tenant_id = tenant_claim
                 from app.api.db import authenticated_tenant_context
                 with authenticated_tenant_context(tenant_claim):
                     return await call_next(request)
+            if tenant_claim is not None:
+                return http_error(403, "Invalid authenticated tenant context", "FORBIDDEN")
             # Invalid or absent signed tenant claims never inherit the raw
             # tenant header as DB context. Tenant-scoped routes reject the
             # missing claim; global routes continue without tenant RLS scope.

@@ -13,6 +13,11 @@ async def rbac_middleware(request: Request, call_next):
     path = request.url.path
     method = request.method
 
+    # The exact worker callback has no user JWT. Its handler authenticates
+    # both the worker HMAC and a Bridge Hub-signed job token before DB access.
+    if method == "POST" and path == "/worker/result":
+        return await call_next(request)
+
     public_prefixes = (
         "/auth/",
         "/docs",

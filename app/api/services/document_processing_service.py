@@ -14,7 +14,7 @@ import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 from app.api.services.document_parser import parse_document
 from app.api.services.document_extractor import extract_document, ExtractedDocument
 from app.api.services.party_resolver import resolve_party, OurRole
@@ -156,6 +156,7 @@ async def _apply_completeness(tenant_id: str, source_doc_id: int, extracted: Ext
     run check_document_set, detect provider_type, and UPDATE the matching journal_draft.
     Non-fatal — any failure is logged and swallowed.
     """
+    require_current_tenant_id(tenant_id)
     try:
         current = {
             "doc_type": extracted.document_type,
@@ -429,6 +430,7 @@ async def _process_document_background(
     Background task: OCR → AI extract → party resolve → classify → draft.
     Runs after upload_document returns. Updates processed_documents.status on finish.
     """
+    require_current_tenant_id(tenant_id)
     try:
         llm_service = None
         try:

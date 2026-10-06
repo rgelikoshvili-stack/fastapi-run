@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 from app.api.services.tenant_config_service import get_tenant_setting, set_tenant_setting
 
 # ---------------------------------------------------------------------------
@@ -104,6 +104,7 @@ async def get_tenant_plan(tenant_id: str) -> str:
 
 async def get_usage(tenant_id: str, month: str | None = None) -> dict[str, Any]:
     """Return current month's resource usage for a tenant."""
+    tenant_id = require_current_tenant_id(tenant_id)
     if not month:
         month = date.today().strftime("%Y-%m")
     month_start = f"{month}-01"
@@ -163,6 +164,7 @@ async def check_quota(tenant_id: str, resource: str) -> dict[str, Any]:
 
 async def get_onboarding_status(tenant_id: str) -> dict[str, Any]:
     """Return onboarding checklist with completion status per step."""
+    tenant_id = require_current_tenant_id(tenant_id)
     async with get_conn() as conn:
         has_inn = await conn.fetchval(
             _q("SELECT value_json FROM tenant_settings WHERE tenant_id=$1 AND key='company.inn'"),

@@ -1,5 +1,7 @@
 import json
+from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 
 from app.api import db
@@ -40,6 +42,37 @@ def test_worker_callback_token_is_server_signed_and_binds_job(monkeypatch):
     assert worker_client.authorize_callback_payload({k: v for k, v in payload.items() if k != "job_id"}) is None
     assert worker_client.authorize_callback_payload({**payload, "job_type": "pdf_split"}) is None
     assert worker_client.authorize_callback_payload({"tenant_id": "tenant-b", "doc_id": 17}) is None
+
+
+def test_worker_callback_token_rejects_expired_and_wrong_audience(monkeypatch):
+    secret = "test-secret-key-long-enough-for-hs256"
+    monkeypatch.setattr(auth_service, "_get_secret_key", lambda: secret)
+    now = datetime.now(timezone.utc)
+    claims = {
+        "type": "worker_job",
+        "purpose": "ocr_callback",
+        "audience": "bridge-hub-ocr-callback",
+        "job_id": "job-a",
+        "tenant_id": "tenant-a",
+        "doc_id": 17,
+        "job_type": "ocr",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=5)).timestamp()),
+    }
+    with db.authenticated_tenant_context("tenant-a"):
+        expired = jwt.encode(
+            {**claims, "exp": int((now - timedelta(minutes=1)).timestamp())},
+            secret,
+            algorithm=auth_service.ALGORITHM,
+        )
+        wrong_audience = jwt.encode(
+            {**claims, "audience": "other-service"},
+            secret,
+            algorithm=auth_service.ALGORITHM,
+        )
+
+    assert worker_client.verify_callback_token(expired) is None
+    assert worker_client.verify_callback_token(wrong_audience) is None
 
 
 @pytest.mark.asyncio

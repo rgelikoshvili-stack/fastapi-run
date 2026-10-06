@@ -1,17 +1,22 @@
 """NEXT-04A RLS proofs against an explicitly disposable PostgreSQL 16 DB."""
 
+import asyncio
 import os
+import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 
 import psycopg2
+from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from psycopg2.errors import InsufficientPrivilege
 import pytest
 
 from app.api import db
 from app.api.services import worker_client
+from app.api.services import ocr_callback_receipts
 from app.startup.background import run_autopilot_tenant_work, run_email_tenant_work
 from app.startup.migrations_indexes import run_index_migrations
 
@@ -97,17 +102,30 @@ def rls_db():
                 # Reapplying the forward migration must remain deterministic.
                 cur.execute(migration.read_text(encoding="utf-8"))
                 cur.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
+
+                migration = Path("app/storage/migrations/014_ocr_callback_receipts.sql")
+                cur.execute(migration.read_text(encoding="utf-8"))
                 cur.execute(f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "{schema}" TO "{role}"')
                 cur.execute(f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "{schema}" TO "{role}"')
-
-        app_pool = pool.ThreadedConnectionPool(1, 1, dsn)
-        pooled_conn = app_pool.getconn()
-        with pooled_conn:
-            with pooled_conn.cursor() as cur:
-                cur.execute(f'SET search_path TO "{schema}"')
-                cur.execute(f'SET ROLE "{role}"')
-        app_pool.putconn(pooled_conn)
-        yield {"pool": app_pool, "schema": schema, "role": role}
+                cur.execute(
+                    "ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'processing'"
+                )
+                cur.execute("ALTER TABLE processed_documents ADD COLUMN IF NOT EXISTS gcs_path TEXT")
+                cur.execute("INSERT INTO processed_documents (tenant_id, file_hash, file_name, gcs_path) "
+                            "VALUES ('tenant-a', 'synthetic-ocr-a', 'a.pdf', 'gs://synthetic/a.pdf') RETURNING id")
+                doc_a = cur.fetchone()[0]
+                cur.execute("INSERT INTO processed_documents (tenant_id, file_hash, file_name, gcs_path) "
+                            "VALUES ('tenant-b', 'synthetic-ocr-b', 'b.pdf', 'gs://synthetic/b.pdf') RETURNING id")
+                doc_b = cur.fetchone()[0]
+        app_pool = pool.ThreadedConnectionPool(4, 4, dsn)
+        for _ in range(4):
+            pooled_conn = app_pool.getconn()
+            with pooled_conn:
+                with pooled_conn.cursor() as cur:
+                    cur.execute(f'SET search_path TO "{schema}"')
+                    cur.execute(f'SET ROLE "{role}"')
+            app_pool.putconn(pooled_conn)
+        yield {"pool": app_pool, "schema": schema, "role": role, "doc_a": doc_a, "doc_b": doc_b}
     finally:
         if app_pool is not None:
             app_pool.closeall()
@@ -154,6 +172,46 @@ def _read_draft_tenants():
 
 def _bind_runtime_pool(monkeypatch, rls_db):
     monkeypatch.setattr(db, "_get_sync_pool", lambda: rls_db["pool"])
+
+
+class _AsyncPsycopgAdapter:
+    """Async-shaped adapter; every statement still executes on disposable PostgreSQL."""
+    def __init__(self, conn):
+        self.conn = conn
+
+    @staticmethod
+    def _sql(statement):
+        return re.sub(r"\$\d+", "%s", statement)
+
+    def _fetchrow(self, statement, args):
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(self._sql(statement), args)
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    async def fetchrow(self, statement, *args):
+        return await asyncio.to_thread(self._fetchrow, statement, args)
+
+    def _execute(self, statement, args):
+        with self.conn.cursor() as cur:
+            cur.execute(self._sql(statement), args)
+            return f"{cur.statusmessage} {cur.rowcount}"
+
+    async def execute(self, statement, *args):
+        return await asyncio.to_thread(self._execute, statement, args)
+
+
+@asynccontextmanager
+async def _async_db_context():
+    conn = db.get_db()
+    try:
+        yield _AsyncPsycopgAdapter(conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def test_rls_allows_tenant_to_read_own_row(rls_db):
@@ -443,6 +501,128 @@ async def test_ocr_callback_body_hint_cannot_establish_arbitrary_tenant_context(
     assert claims["tenant_id"] == "tenant-a"
     async with db.tenant_db_context(claims["tenant_id"]):
         assert _read_counterparty_tenants() == ["tenant-a"]
+
+
+def _receipt_counts():
+    conn = db.get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM ocr_callback_receipts")
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_ocr_callback_receipts_are_durable_tenant_scoped_and_idempotent(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+    monkeypatch.setattr(ocr_callback_receipts, "get_conn", _async_db_context)
+
+    async def accept(job_id, doc_id, raw_text="synthetic OCR result"):
+        async with db.tenant_db_context("tenant-a"):
+            return await ocr_callback_receipts.accept_callback_result(
+                tenant_id="tenant-a", job_id=job_id, doc_id=doc_id,
+                job_type="ocr", status="ok", raw_text=raw_text,
+                method="synthetic_worker",
+            )
+
+    async def register(job_id, doc_id):
+        async with db.tenant_db_context("tenant-a"):
+            return await ocr_callback_receipts.register_dispatch(
+                tenant_id="tenant-a", doc_id=doc_id, job_id=job_id
+            )
+
+    assert _receipt_counts() == 0  # missing context fails closed
+    with pytest.raises(ValueError, match="tenant DB context"):
+        await ocr_callback_receipts.accept_callback_result(
+            tenant_id="tenant-a", job_id="no-context", doc_id=rls_db["doc_a"],
+            job_type="ocr", status="ok", raw_text="x", method="test",
+        )
+
+    assert (await register("job-first", rls_db["doc_a"]))["send"] is True
+    assert await accept("job-first", rls_db["doc_a"]) == "accepted"
+    assert await accept("job-first", rls_db["doc_a"]) == "duplicate"
+    assert await accept("job-first", rls_db["doc_a"], "conflicting text") == "conflict"
+    assert _receipt_counts() == 0  # no-context visibility never widens to global rows
+
+    def inspect_accepted_state():
+        with db.tenant_db_context("tenant-a"):
+            conn = db.get_db("tenant-a")
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT raw_text FROM processed_documents WHERE id=%s AND tenant_id=%s",
+                        (rls_db["doc_a"], "tenant-a"),
+                    )
+                    raw_text = cur.fetchone()[0]
+                    cur.execute(
+                        "SELECT duplicate_attempts, conflict_attempts FROM ocr_callback_receipts "
+                        "WHERE tenant_id=%s AND job_id=%s",
+                        ("tenant-a", "job-first"),
+                    )
+                    counters = cur.fetchone()
+                    return raw_text, counters
+            finally:
+                conn.close()
+
+    raw_text, counters = inspect_accepted_state()
+    assert raw_text == "synthetic OCR result"
+    assert counters == (1, 1)
+
+    async with db.tenant_db_context("tenant-a"):
+        await ocr_callback_receipts.complete_callback("tenant-a", "job-first")
+    # Simulate a callback retry after a process restart/new DB checkout.
+    assert await accept("job-first", rls_db["doc_a"]) == "duplicate"
+
+    assert (await register("job-concurrent", rls_db["doc_a"]))["send"] is True
+    outcomes = await asyncio.gather(
+        accept("job-concurrent", rls_db["doc_a"]),
+        accept("job-concurrent", rls_db["doc_a"]),
+    )
+    assert sorted(outcomes) == ["accepted", "duplicate"]
+
+    # A tenant-A dispatcher cannot create a receipt for tenant B's document;
+    # an unregistered callback hint also cannot update it.
+    assert await register("cross-tenant", rls_db["doc_b"]) is None
+    assert await accept("cross-tenant", rls_db["doc_b"]) == "conflict"
+
+    def inspect_receipt_absence():
+        with db.tenant_db_context("tenant-a"):
+            conn = db.get_db("tenant-a")
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT count(*) FROM ocr_callback_receipts "
+                        "WHERE tenant_id=%s AND job_id=%s",
+                        ("tenant-a", "cross-tenant"),
+                    )
+                    return cur.fetchone()[0]
+            finally:
+                conn.close()
+
+    assert inspect_receipt_absence() == 0  # failed document update rolled receipt back
+
+
+def test_ocr_callback_receipts_have_forced_fail_closed_rls(rls_db):
+    conn = _acquire(rls_db)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT c.relrowsecurity, c.relforcerowsecurity, p.cmd, p.qual, p.with_check "
+                    "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                    "JOIN pg_policies p ON p.schemaname=n.nspname AND p.tablename=c.relname "
+                    "WHERE n.nspname=%s AND c.relname='ocr_callback_receipts'",
+                    (rls_db["schema"],),
+                )
+                row = cur.fetchone()
+                assert row[0:3] == (True, True, "ALL")
+                assert "app.current_tenant_id" in row[3]
+                assert "app.current_tenant_id" in row[4]
+    finally:
+        _release(rls_db, conn)
 
 
 @pytest.mark.asyncio

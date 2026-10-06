@@ -424,7 +424,8 @@ async def _also_queue_for_pipeline(tenant_id: str, file_bytes: bytes, mime_type:
 # ── Main background pipeline ───────────────────────────────────────────────────
 
 async def _process_document_background(
-    doc_id: int, tenant_id: str, file_bytes: bytes, mime_type: str, filename: str
+    doc_id: int, tenant_id: str, file_bytes: bytes, mime_type: str, filename: str,
+    ocr_result: dict | None = None,
 ):
     """
     Background task: OCR → AI extract → party resolve → classify → draft.
@@ -439,8 +440,20 @@ async def _process_document_background(
         except Exception as e:
             log.warning("unexpected error: %s", e)
 
-        parsed = await parse_document(file_bytes, mime_type, llm_service)
+        parsed = ocr_result or await parse_document(file_bytes, mime_type, llm_service)
         extracted = await extract_document(parsed.get("text", ""), llm_service)
+
+        # A worker callback may be retried after a process restart. If the
+        # previous accepted result already produced a draft, do not produce a
+        # second accounting draft for the same source document.
+        async with get_conn() as conn:
+            existing_source_draft = await conn.fetchrow(_q(
+                "SELECT id FROM journal_drafts WHERE tenant_id=%s AND source_document_id=%s "
+                "AND status!='rejected' ORDER BY id DESC LIMIT 1"
+            ), tenant_id, doc_id)
+        if existing_source_draft:
+            await _mark_doc_status(doc_id, "completed", tenant_id)
+            return True
 
         async with get_conn() as conn:
             await conn.execute(_q(
@@ -455,7 +468,7 @@ async def _process_document_background(
                 ), tenant_id, extracted.document_series, extracted.document_number)
             if dup:
                 await _mark_doc_status(doc_id, "duplicate", tenant_id)
-                return
+                return True
 
         party = await resolve_party(extracted, tenant_id)
 
@@ -486,7 +499,7 @@ async def _process_document_background(
                     json.dumps(extracted.dict()), doc_id, json.dumps([]),
                 )
             await _mark_doc_status(doc_id, "completed", tenant_id)
-            return
+            return True
 
         category, cat_confidence = await classify_operation_async(extracted, llm_service)
         is_vat_payer = await _get_tenant_vat(tenant_id)
@@ -533,7 +546,9 @@ async def _process_document_background(
         await _mark_doc_status(doc_id, "completed", tenant_id)
         log.info("action=bg_processing_done tenant=%s doc_id=%s role=%s conf=%.2f",
                  tenant_id, doc_id, party.our_role.value, confidence)
+        return True
 
     except Exception as e:
         log.error("action=bg_processing_failed doc_id=%s error=%s", doc_id, e)
         await _mark_doc_status(doc_id, "failed", tenant_id)
+        return False

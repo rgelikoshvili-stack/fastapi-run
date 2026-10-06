@@ -1,11 +1,11 @@
-"""app/startup/migrations_indexes.py — Indexes, FX columns, constraints, data migrations."""
+"""app/startup/migrations_indexes.py — Idempotent indexes and schema constraints."""
 import logging
 
 log = logging.getLogger(__name__)
 
 
 def run_index_migrations(cur):
-    """Create indexes, add FX/currency columns, apply constraints, run data migrations."""
+    """Create indexes and schema constraints; never repair tenant business data."""
     conn = cur.connection
 
     # ── Performance indexes (core tables) ────────────────────────────────────
@@ -59,59 +59,11 @@ def run_index_migrations(cur):
         except Exception:
             conn.rollback()
 
-    # ── Tenant normalization: replace company_inn with actual tenant_id ────────
-    for tbl in ("journal_drafts", "processed_documents", "learning_patterns",
-                "audit_log", "bank_transactions", "chart_of_accounts"):
-        try:
-            cur.execute(f"""
-                UPDATE {tbl} d SET tenant_id = t.tenant_id
-                FROM tenants t
-                WHERE d.tenant_id = t.company_inn
-                  AND d.tenant_id != t.tenant_id
-                  AND t.company_inn IS NOT NULL AND t.company_inn != ''
-            """)
-        except Exception:
-            conn.rollback()
-
-    # ── Auto-classify drafts with missing accounts ────────────────────────────
-    try:
-        from app.knowledge.journal_builder import classify_transaction as _cls
-        cur.execute("""
-            SELECT id, description, tenant_id FROM journal_drafts
-            WHERE (debit_account IS NULL OR credit_account IS NULL
-                   OR debit_account = '????' OR credit_account = '????')
-              AND description IS NOT NULL
-            LIMIT 500
-        """)
-        rows = cur.fetchall()
-        for row_id, desc, t_id in rows:
-            try:
-                res = _cls(desc or "", t_id or "default")
-                acc = res.get("account", "")
-                if not acc:
-                    continue
-                a = int(acc) if acc.isdigit() else 0
-                if 1000 <= a <= 1999:
-                    dr, cr = acc, "3110"
-                elif 2000 <= a <= 2999:
-                    dr, cr = acc, "3110"
-                elif 3000 <= a <= 3999:
-                    dr, cr = "1210", acc
-                elif 5000 <= a <= 5999:
-                    dr, cr = acc, "3110"
-                elif 7000 <= a <= 7999:
-                    dr, cr = acc, "1210"
-                else:
-                    dr, cr = acc, "3110"
-                cur.execute(
-                    "UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s WHERE id=%s",
-                    (dr, cr, acc, row_id),
-                )
-            except Exception as e:
-                log.warning("unexpected error: %s", e)
-        log.info("action=auto_classify_drafts count=%d", len(rows))
-    except Exception as e:
-        log.warning("auto_classify_drafts skipped: %s", e)
+    # Historical tenant-ID normalization and journal-draft classification were
+    # deliberately removed from startup.  The former can change a row's tenant
+    # and requires an independently verified mapping plus a controlled migration
+    # role; the latter mutates accounting drafts based on inference.  Neither is
+    # safe as implicit, unscoped application-startup work under fail-closed RLS.
 
     # ── Tenant isolation: add tenant_id to global tables ─────────────────────
     for tbl_col in [

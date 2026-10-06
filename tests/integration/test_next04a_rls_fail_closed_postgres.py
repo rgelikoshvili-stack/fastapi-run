@@ -607,6 +607,53 @@ async def test_ocr_callback_receipts_are_durable_tenant_scoped_and_idempotent(
 
     assert inspect_receipt_absence() == 0  # failed document update rolled receipt back
 
+    # Force a failure after the receipt row is locked/updated: the transaction
+    # must roll that provisional receipt update back rather than leave a
+    # partially accepted callback behind.
+    with db.tenant_db_context_sync("tenant-a"):
+        conn = db.get_db("tenant-a")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO processed_documents "
+                    "(tenant_id, file_hash, file_name, gcs_path, status) "
+                    "VALUES ('tenant-a', 'synthetic-ocr-rollback', 'rollback.pdf', "
+                    "'gs://synthetic/rollback.pdf', 'processing') RETURNING id"
+                )
+                rollback_doc = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            conn.close()
+    assert (await register("job-rollback", rollback_doc))["send"] is True
+    with db.tenant_db_context_sync("tenant-a"):
+        conn = db.get_db("tenant-a")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM processed_documents WHERE id=%s AND tenant_id='tenant-a'",
+                    (rollback_doc,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    with pytest.raises(LookupError):
+        await accept("job-rollback", rollback_doc)
+
+    def inspect_rollback_receipt():
+        with db.tenant_db_context_sync("tenant-a"):
+            conn = db.get_db("tenant-a")
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT state, result_sha256 FROM ocr_callback_receipts "
+                        "WHERE tenant_id='tenant-a' AND job_id='job-rollback'"
+                    )
+                    return cur.fetchone()
+            finally:
+                conn.close()
+
+    assert inspect_rollback_receipt() == ("dispatched", None)
+
 
 def test_ocr_callback_receipts_have_forced_fail_closed_rls(rls_db):
     conn = _acquire(rls_db)

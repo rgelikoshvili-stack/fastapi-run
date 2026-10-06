@@ -29,6 +29,7 @@ WORKER_URL   = os.environ.get("HETZNER_WORKER_URL", "").rstrip("/")
 WORKER_TOKEN = os.environ.get("HETZNER_WORKER_TOKEN", "")
 
 _TIMEOUT = 10.0  # seconds — fire-and-forget; worker calls back async
+_OCR_CALLBACK_AUDIENCE = "bridge-hub-ocr-callback"
 
 
 def _sign_payload(body: bytes) -> str:
@@ -53,6 +54,7 @@ def create_callback_token(
     return jwt.encode({
         "type": "worker_job",
         "purpose": "ocr_callback",
+        "audience": _OCR_CALLBACK_AUDIENCE,
         "job_id": job_id or uuid4().hex,
         "tenant_id": trusted_tenant_id,
         "doc_id": int(doc_id),
@@ -77,7 +79,11 @@ def verify_callback_token(token: str) -> Optional[dict]:
         claims["doc_id"] = int(claims["doc_id"])
     except (KeyError, TypeError, ValueError):
         return None
-    if not claims.get("job_id") or not claims.get("job_type"):
+    if (
+        not claims.get("job_id")
+        or not claims.get("job_type")
+        or claims.get("audience") != _OCR_CALLBACK_AUDIENCE
+    ):
         return None
     return claims
 
@@ -93,7 +99,11 @@ def authorize_callback_payload(data: dict) -> Optional[dict]:
         callback_doc_id = int(data.get("doc_id"))
     except (TypeError, ValueError):
         return None
-    if callback_doc_id != claims["doc_id"] or data.get("job_type") != claims["job_type"]:
+    if (
+        callback_doc_id != claims["doc_id"]
+        or data.get("job_type") != claims["job_type"]
+        or data.get("job_id") != claims["job_id"]
+    ):
         return None
     tenant_hint = data.get("tenant_id")
     if tenant_hint is not None and tenant_hint != claims["tenant_id"]:
@@ -122,9 +132,10 @@ async def dispatch_job(
         return {"dispatched": False, "reason": "HETZNER_WORKER_URL not configured"}
 
     job_id = uuid4().hex
+    callback_document_id = callback_doc_id if callback_doc_id is not None else doc_id
     callback_token = create_callback_token(
         tenant_id=tenant_id,
-        doc_id=callback_doc_id or doc_id,
+        doc_id=callback_document_id,
         job_type=job_type,
         job_id=job_id,
     )
@@ -134,7 +145,7 @@ async def dispatch_job(
         "tenant_id": tenant_id,
         "gcs_path": gcs_path,
         "doc_id": doc_id,
-        "callback_doc_id": callback_doc_id or doc_id,
+        "callback_doc_id": callback_document_id,
         "job_id": job_id,
         "callback_token": callback_token,
         "issued_at": int(time.time()),
@@ -154,7 +165,9 @@ async def dispatch_job(
             )
         if resp.status_code == 202:
             log.info("action=worker_job_dispatched type=%s doc=%s tenant=%s", job_type, doc_id, tenant_id)
-            return {"dispatched": True, "job_id": resp.json().get("job_id")}
+            # The Bridge Hub-generated ID is the signed callback identity. A
+            # worker response must not replace that authoritative identifier.
+            return {"dispatched": True, "job_id": job_id}
         # Worker error bodies may echo the short-lived signed callback token.
         log.warning("action=worker_dispatch_failed status=%d", resp.status_code)
         return {"dispatched": False, "reason": f"worker HTTP {resp.status_code}"}

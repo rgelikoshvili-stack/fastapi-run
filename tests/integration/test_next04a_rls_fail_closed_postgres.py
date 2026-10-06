@@ -424,10 +424,19 @@ async def test_ocr_callback_body_hint_cannot_establish_arbitrary_tenant_context(
         "tenant_id": "tenant-b",
         "doc_id": 17,
         "job_type": "ocr",
+        "job_id": "job-a",
     }
     assert worker_client.authorize_callback_payload(forged) is None
     assert db._current_tenant_id.get() is None
     assert _read_counterparty_tenants() == []
+
+    assert worker_client.authorize_callback_payload(
+        {**forged, "tenant_id": "tenant-a", "job_id": "job-b"}
+    ) is None
+    assert worker_client.authorize_callback_payload(
+        {key: value for key, value in forged.items() if key != "job_id"}
+    ) is None
+    assert db._current_tenant_id.get() is None
 
     valid = {**forged, "tenant_id": "tenant-a"}
     claims = worker_client.authorize_callback_payload(valid)

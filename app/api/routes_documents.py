@@ -67,12 +67,17 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     # ── 1. Dedup by file hash ──────────────────────────────────────────────
     async with get_conn() as conn:
         existing_file = await conn.fetchrow(_q(
-            "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
+            "SELECT id, status, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
             "FROM processed_documents WHERE tenant_id = %s AND file_hash = %s"
         ), tenant_id, file_hash)
 
     if existing_file and existing_file["has_content"]:
         doc_id_existing = existing_file["id"]
+        if existing_file.get("status") == "processing":
+            return ok_response("Document is already processing", {
+                "status": "processing",
+                "doc_id": doc_id_existing,
+            })
         async with get_conn() as conn:
             existing_draft = await conn.fetchrow(_q(
                 "SELECT id, status FROM journal_drafts "

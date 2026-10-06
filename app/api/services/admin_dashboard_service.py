@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.api.db import get_conn, _q, tenant_db_context
+from app.api.db import get_conn, _q, authenticated_tenant_context, tenant_db_context
 from app.api.services.saas_service import PLANS, get_tenant_plan, get_usage
 
 
@@ -59,6 +59,14 @@ async def get_system_health() -> dict[str, Any]:
 
 async def get_tenant_summary() -> dict[str, Any]:
     """Return all tenants with plan, draft count, and onboarding status."""
+    # The route must already have authorized tenants:manage. Clear only the
+    # request tenant while reading control-plane metadata; protected data is
+    # still queried once per enumerated tenant under tenant_db_context below.
+    with authenticated_tenant_context(None):
+        return await _get_tenant_summary_for_authorized_admin()
+
+
+async def _get_tenant_summary_for_authorized_admin() -> dict[str, Any]:
     async with get_conn() as conn:
         tenants = await conn.fetch("""
             SELECT tenant_id, name, plan, is_active, status, created_at
@@ -114,6 +122,14 @@ async def get_tenant_summary() -> dict[str, Any]:
 
 async def get_tenant_detail(tenant_id: str) -> dict[str, Any]:
     """Return a detailed view of one tenant for support purposes."""
+    # This cross-tenant support route is permission-gated before this service
+    # call. Resolve target identity from control-plane metadata, then scope all
+    # tenant-owned reads under that server-resolved identity.
+    with authenticated_tenant_context(None):
+        return await _get_tenant_detail_for_authorized_admin(tenant_id)
+
+
+async def _get_tenant_detail_for_authorized_admin(tenant_id: str) -> dict[str, Any]:
     async with get_conn() as conn:
         tenant = await conn.fetchrow(
             _q("SELECT * FROM tenants WHERE tenant_id = $1"),

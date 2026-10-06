@@ -53,18 +53,23 @@ def test_background_sets_failed_on_exception():
     """_process_document_background sets status=failed on any exception."""
     import asyncio
     from app.api.services.document_processing_service import _mark_doc_status
+    from app.api.db import tenant_db_context
 
     status_updates = []
 
     def fake_mark(doc_id, status, tenant_id):
         status_updates.append(status)
 
+    async def run_scoped():
+        async with tenant_db_context("tenant_a"):
+            await _process_document_background(
+                1, "tenant_a", b"fake_bytes", "application/pdf", "test.pdf"
+            )
+
     with patch("app.api.services.document_processing_service._mark_doc_status", side_effect=fake_mark):
         with patch("app.api.services.document_processing_service.parse_document", side_effect=RuntimeError("OCR failed")):
             from app.api.services.document_processing_service import _process_document_background
-            asyncio.run(
-                _process_document_background(1, "tenant_a", b"fake_bytes", "application/pdf", "test.pdf")
-            )
+            asyncio.run(run_scoped())
 
     assert "failed" in status_updates
 

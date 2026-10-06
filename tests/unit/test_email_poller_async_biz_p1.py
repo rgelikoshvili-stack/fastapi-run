@@ -48,7 +48,8 @@ def test_email_poller_does_not_submit_collector_to_executor():
 
     source = inspect.getsource(background.email_poller_loop)
     assert "run_in_executor" not in source
-    assert "collect_tenant_inbox(tid)" in source
+    assert "run_email_tenant_work(" in source
+    assert "collect_tenant_inbox(trusted_tid)" in source
 
 
 @pytest.mark.asyncio
@@ -157,6 +158,7 @@ async def test_timeout_log_includes_tenant_id(caplog):
 @pytest.mark.asyncio
 async def test_credential_db_lookup_stays_on_main_event_loop():
     from app.api.services import email_collector
+    from app.api.db import tenant_db_context
 
     running_loop = asyncio.get_running_loop()
     main_thread = threading.current_thread()
@@ -169,7 +171,8 @@ async def test_credential_db_lookup_stays_on_main_event_loop():
         return None
 
     with patch.object(email_collector, "get_tenant_email_credentials", side_effect=credentials):
-        result = await email_collector.collect_tenant_inbox("tenant-db")
+        async with tenant_db_context("tenant-db"):
+            result = await email_collector.collect_tenant_inbox("tenant-db")
 
     assert result["status"] == "no_credentials"
     assert observed == {

@@ -4,10 +4,11 @@ Bridge Hub — Context Builder
 ამოიღებს კონტექსტს transaction-ისთვის classification-ის გასაუმჯობესებლად.
 Core classification არ იცვლება — ეს მხოლოდ optional enrichment-ია.
 """
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 
 
-async def build_context_for_transaction(transaction: dict, tenant_id: str = "default") -> dict:
+async def build_context_for_transaction(transaction: dict, tenant_id: str) -> dict:
+    require_current_tenant_id(tenant_id)
     try:
         context = {
             "similar_cases": await _get_similar_cases(transaction, tenant_id),

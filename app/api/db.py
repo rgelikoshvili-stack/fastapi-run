@@ -39,9 +39,35 @@ _current_tenant_id: ContextVar[Optional[str]] = ContextVar(
 def set_authenticated_tenant_context(tenant_id: Optional[str]) -> Token:
     """Set request DB context from a verified server-side identity only."""
     if tenant_id is not None:
-        if not isinstance(tenant_id, str) or not tenant_id or tenant_id != tenant_id.strip():
-            raise ValueError("authenticated tenant_id must be a non-empty canonical string")
+        _validate_tenant_id(tenant_id)
+    active_tenant_id = _current_tenant_id.get()
+    if tenant_id is not None and active_tenant_id is not None and active_tenant_id != tenant_id:
+        raise ValueError("nested tenant DB context cannot change the active tenant")
     return _current_tenant_id.set(tenant_id)
+
+
+def _validate_tenant_id(tenant_id: str) -> str:
+    if (
+        not isinstance(tenant_id, str)
+        or not tenant_id
+        or tenant_id != tenant_id.strip()
+        or tenant_id.casefold() == "default"
+    ):
+        raise ValueError("tenant_id must be a non-empty canonical tenant identifier")
+    return tenant_id
+
+
+def require_current_tenant_id(expected_tenant_id: Optional[str] = None) -> str:
+    """Return the current authorized tenant, optionally checking a caller's hint."""
+    active_tenant_id = _current_tenant_id.get()
+    if active_tenant_id is None:
+        raise ValueError("tenant DB context is required")
+    _validate_tenant_id(active_tenant_id)
+    if expected_tenant_id is not None:
+        _validate_tenant_id(expected_tenant_id)
+        if expected_tenant_id != active_tenant_id:
+            raise ValueError("tenant hint does not match authorized DB context")
+    return active_tenant_id
 
 
 def reset_authenticated_tenant_context(token: Token) -> None:
@@ -58,10 +84,39 @@ def authenticated_tenant_context(tenant_id: Optional[str]):
         reset_authenticated_tenant_context(token)
 
 
+@contextmanager
+def tenant_db_context_sync(trusted_tenant_id: str):
+    """Synchronous form of the canonical trusted tenant context for scripts/workers."""
+    _validate_tenant_id(trusted_tenant_id)
+    with authenticated_tenant_context(trusted_tenant_id):
+        yield
+
+
+@asynccontextmanager
+async def tenant_db_context(trusted_tenant_id: str):
+    """Bind an authoritative tenant for background work; DB GUC remains transaction-local."""
+    _validate_tenant_id(trusted_tenant_id)
+    token = set_authenticated_tenant_context(trusted_tenant_id)
+    try:
+        yield
+    finally:
+        reset_authenticated_tenant_context(token)
+
+
+async def run_in_tenant_executor(trusted_tenant_id: str, function, *args):
+    """Run synchronous tenant work in a thread with the same trusted context."""
+    _validate_tenant_id(trusted_tenant_id)
+    loop = asyncio.get_running_loop()
+    async with tenant_db_context(trusted_tenant_id):
+        context = copy_context()
+        return await loop.run_in_executor(None, context.run, function, *args)
+
+
 def _resolve_tenant_context(expected_tenant_id: Optional[str] = None) -> Optional[str]:
     resolved = _current_tenant_id.get()
     if resolved is not None and (
         not isinstance(resolved, str) or not resolved or resolved != resolved.strip()
+        or resolved.casefold() == "default"
     ):
         raise ValueError("tenant_id must be a non-empty canonical string")
     if expected_tenant_id is not None:
@@ -69,6 +124,7 @@ def _resolve_tenant_context(expected_tenant_id: Optional[str] = None) -> Optiona
             not isinstance(expected_tenant_id, str)
             or not expected_tenant_id
             or expected_tenant_id != expected_tenant_id.strip()
+            or expected_tenant_id.casefold() == "default"
             or expected_tenant_id != resolved
         ):
             raise ValueError("explicit tenant_id must match authenticated DB context")

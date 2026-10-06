@@ -1,8 +1,9 @@
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
 
 
-async def get_system_summary_service(tenant_id: str = "default"):
+async def get_system_summary_service(tenant_id: str):
+    tenant_id = require_current_tenant_id(tenant_id)
     try:
         async with get_conn() as conn:
             bank_files_processed = await conn.fetchval(
@@ -53,7 +54,8 @@ async def get_system_summary_service(tenant_id: str = "default"):
     })
 
 
-async def get_system_overview_service(tenant_id: str = "default"):
+async def get_system_overview_service(tenant_id: str):
+    tenant_id = require_current_tenant_id(tenant_id)
     try:
         async with get_conn() as conn:
             drafts_summary = dict(await conn.fetchrow(_q("""
@@ -118,6 +120,7 @@ async def get_system_overview_service(tenant_id: str = "default"):
 
 
 async def get_bank_files_history_service(limit: int, offset: int, tenant_id: str):
+    tenant_id = require_current_tenant_id(tenant_id)
     try:
         async with get_conn() as conn:
             total = await conn.fetchval(
@@ -141,6 +144,7 @@ async def get_bank_files_history_service(limit: int, offset: int, tenant_id: str
 
 
 async def get_bank_file_detail_service(file_id: int, tenant_id: str):
+    tenant_id = require_current_tenant_id(tenant_id)
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow("""
@@ -158,6 +162,7 @@ async def get_bank_file_detail_service(file_id: int, tenant_id: str):
 
 
 async def get_bank_file_drafts_service(file_id: int, limit: int, offset: int, tenant_id: str):
+    tenant_id = require_current_tenant_id(tenant_id)
     try:
         async with get_conn() as conn:
             bank_file = await conn.fetchrow(

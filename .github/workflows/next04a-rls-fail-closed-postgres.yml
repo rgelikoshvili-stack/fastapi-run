@@ -1,13 +1,32 @@
 name: NEXT-04A RLS Fail-Closed Disposable PostgreSQL
 
 on:
+  push:
+    branches: [codex/next04a1-runtime-compatibility]
   pull_request:
-    branches: [main]
+    branches: [main, codex/next04a-rls-fail-closed-foundation]
     paths:
       - "app/api/db.py"
       - "app/api/middleware/auth_middleware.py"
+      - "app/api/middleware/rbac_middleware.py"
+      - "app/api/routes_worker.py"
+      - "app/api/services/approval_service.py"
+      - "app/api/services/document_processing_service.py"
+      - "app/api/services/email_collector.py"
+      - "app/api/services/admin_dashboard_service.py"
+      - "app/api/services/saas_service.py"
+      - "app/api/services/system_service.py"
+      - "app/api/services/export_service.py"
+      - "app/api/services/worker_client.py"
+      - "app/context_memory/context_builder.py"
+      - "app/startup/background.py"
+      - "app/api/backfill_tx_fingerprint.py"
       - "app/storage/migrations/013_rls_fail_closed_foundation.sql"
       - "tests/integration/test_next04a_rls_fail_closed_postgres.py"
+      - "tests/unit/test_next04a_tenant_db_context.py"
+      - "tests/unit/test_next04a1_worker_callback_auth.py"
+      - "tests/unit/test_next04a1_service_tenant_context.py"
+      - "tests/unit/test_background_autopilot_multitenant.py"
       - ".github/workflows/next04a-rls-fail-closed-postgres.yml"
 
 permissions:

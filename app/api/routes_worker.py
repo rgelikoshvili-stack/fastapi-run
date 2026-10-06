@@ -13,10 +13,9 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context
 from app.api.response_utils import ok_response, error_response
-from app.api.services.worker_client import verify_worker_signature
-from app.api.authz import require_permission
+from app.api.services.worker_client import verify_worker_signature, authorize_callback_payload
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 log = logging.getLogger(__name__)
@@ -29,15 +28,15 @@ async def worker_result(request: Request):
     Body (JSON):
       {
         "job_type":   "ocr",
-        "tenant_id":  "default",
+        "tenant_id":  "server-signed tenant claim",
         "doc_id":     123,
+        "callback_token": "Bridge Hub-signed job authorization",
         "status":     "ok" | "failed",
         "raw_text":   "...",    # for OCR jobs
         "method":     "tesseract_pdf",
         "error":      "..."     # if status == "failed"
       }
     """
-    require_permission(request, "dashboard:admin")
     body = await request.body()
     sig  = request.headers.get("X-Worker-Signature", "")
 
@@ -49,50 +48,47 @@ async def worker_result(request: Request):
         data = json.loads(body)
     except Exception:
         return error_response("Invalid JSON", "BAD_REQUEST")
+    if not isinstance(data, dict):
+        return error_response("Invalid worker result", "BAD_REQUEST")
 
-    tenant_id = data.get("tenant_id", "default")
-    doc_id    = data.get("doc_id")
+    claims = authorize_callback_payload(data)
+    if not claims:
+        log.warning("action=worker_result_rejected reason=job_claim_mismatch")
+        return error_response("Invalid internal job authorization", "UNAUTHORIZED")
+
+    tenant_id = claims["tenant_id"]
+    doc_id    = claims["doc_id"]
     status    = data.get("status", "failed")
     job_type  = data.get("job_type", "ocr")
 
     log.info("action=worker_result type=%s doc=%s tenant=%s status=%s",
              job_type, doc_id, tenant_id, status)
 
-    if not doc_id:
-        return error_response("doc_id required", "BAD_REQUEST")
+    async with tenant_db_context(tenant_id):
+        if status == "ok" and job_type == "ocr":
+            raw_text = (data.get("raw_text") or "")[:10000]
+            method   = data.get("method", "hetzner_ocr")
+            await _update_doc_text(tenant_id, doc_id, raw_text, method)
+            await _retrigger_pipeline(tenant_id, doc_id)
 
-    if status == "ok" and job_type == "ocr":
-        raw_text = (data.get("raw_text") or "")[:10000]
-        method   = data.get("method", "hetzner_ocr")
-        await _update_doc_text(tenant_id, doc_id, raw_text, method)
-        await _retrigger_pipeline(tenant_id, doc_id)
-
-    elif status == "failed":
-        await _mark_doc_status(tenant_id, doc_id, "ocr_failed")
+        elif status == "failed":
+            await _mark_doc_status(tenant_id, doc_id, "ocr_failed")
 
     return ok_response("result received", {"doc_id": doc_id, "status": status})
 
 
 async def _update_doc_text(tenant_id: str, doc_id: int, raw_text: str, method: str):
-    require_permission(request, "dashboard:admin")
-    try:
-        async with get_conn() as conn:
-            await conn.execute(_q(
-                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s AND tenant_id=%s"
-            ), raw_text, method, doc_id, tenant_id)
-    except Exception as e:
-        log.error("_update_doc_text doc=%s err=%s", doc_id, e)
+    async with get_conn() as conn:
+        await conn.execute(_q(
+            "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s AND tenant_id=%s"
+        ), raw_text, method, doc_id, tenant_id)
 
 
 async def _mark_doc_status(tenant_id: str, doc_id: int, status: str):
-    require_permission(request, "dashboard:admin")
-    try:
-        async with get_conn() as conn:
-            await conn.execute(_q(
-                "UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s"
-            ), status, doc_id, tenant_id)
-    except Exception as e:
-        log.error("_mark_doc_status doc=%s err=%s", doc_id, e)
+    async with get_conn() as conn:
+        await conn.execute(_q(
+            "UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s"
+        ), status, doc_id, tenant_id)
 
 
 async def _retrigger_pipeline(tenant_id: str, doc_id: int):

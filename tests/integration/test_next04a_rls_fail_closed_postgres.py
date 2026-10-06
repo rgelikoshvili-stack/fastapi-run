@@ -10,6 +10,10 @@ from psycopg2 import pool
 from psycopg2.errors import InsufficientPrivilege
 import pytest
 
+from app.api import db
+from app.api.services import worker_client
+from app.startup.background import run_autopilot_tenant_work, run_email_tenant_work
+
 
 EXPECTED_HOST = "127.0.0.1"
 EXPECTED_PORT = 55438
@@ -82,6 +86,10 @@ def rls_db():
                     "('tenant-a', 'same-looking-inn', 'Synthetic A'), "
                     "('tenant-b', 'same-looking-inn', 'Synthetic B')"
                 )
+                cur.execute(
+                    "INSERT INTO journal_drafts (tenant_id) "
+                    "VALUES ('tenant-a'), ('tenant-b')"
+                )
 
                 migration = Path("app/storage/migrations/013_rls_fail_closed_foundation.sql")
                 cur.execute(migration.read_text(encoding="utf-8"))
@@ -121,6 +129,30 @@ def _release(db, conn):
 
 def _set_local(cur, tenant_id):
     cur.execute("SELECT set_config('app.current_tenant_id', %s, true)", (tenant_id,))
+
+
+def _read_counterparty_tenants():
+    conn = db.get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT tenant_id FROM counterparties ORDER BY tenant_id")
+            return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _read_draft_tenants():
+    conn = db.get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT tenant_id FROM journal_drafts ORDER BY tenant_id")
+            return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _bind_runtime_pool(monkeypatch, rls_db):
+    monkeypatch.setattr(db, "_get_sync_pool", lambda: rls_db["pool"])
 
 
 def test_rls_allows_tenant_to_read_own_row(rls_db):
@@ -266,3 +298,135 @@ def test_nine_tables_have_single_forced_all_command_policy(rls_db):
                     assert cur.fetchone() == (True, True, 1, True, True, True), table
     finally:
         _release(rls_db, conn)
+
+
+@pytest.mark.asyncio
+async def test_email_worker_context_scopes_each_tenant_and_resets_between_iterations(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+
+    async def mocked_collect(tenant_id):
+        return tenant_id, _read_counterparty_tenants()
+
+    assert await run_email_tenant_work("tenant-a", mocked_collect) == (
+        "tenant-a", ["tenant-a"]
+    )
+    assert db._current_tenant_id.get() is None
+    assert await run_email_tenant_work("tenant-b", mocked_collect) == (
+        "tenant-b", ["tenant-b"]
+    )
+    assert db._current_tenant_id.get() is None
+
+
+@pytest.mark.asyncio
+async def test_failed_email_tenant_work_cannot_leak_context_to_next_tenant(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+
+    async def fail_after_scoped_read(_tenant_id):
+        assert _read_counterparty_tenants() == ["tenant-a"]
+        raise RuntimeError("synthetic tenant worker failure")
+
+    with pytest.raises(RuntimeError, match="synthetic tenant worker failure"):
+        await run_email_tenant_work("tenant-a", fail_after_scoped_read)
+    assert db._current_tenant_id.get() is None
+
+    async def read_scoped(tenant_id):
+        return tenant_id, _read_counterparty_tenants()
+
+    assert await run_email_tenant_work("tenant-b", read_scoped) == (
+        "tenant-b", ["tenant-b"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_autopilot_executor_is_scoped_and_cannot_update_other_tenant_draft(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+
+    def synthetic_autopilot(tenant_id):
+        conn = db.get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT tenant_id FROM journal_drafts ORDER BY tenant_id")
+                visible = [row[0] for row in cur.fetchall()]
+                cur.execute(
+                    "UPDATE journal_drafts SET document_number = 'blocked' "
+                    "WHERE tenant_id = %s",
+                    ("tenant-b",),
+                )
+                return visible, cur.rowcount
+        finally:
+            conn.close()
+
+    visible, changed = await run_autopilot_tenant_work("tenant-a", synthetic_autopilot)
+    assert visible == ["tenant-a"]
+    assert changed == 0
+    assert db._current_tenant_id.get() is None
+
+
+def test_unscoped_admin_or_background_draft_lookup_fails_closed(rls_db, monkeypatch):
+    _bind_runtime_pool(monkeypatch, rls_db)
+    assert db._current_tenant_id.get() is None
+    assert _read_counterparty_tenants() == []
+    assert _read_draft_tenants() == []
+
+
+@pytest.mark.asyncio
+async def test_scheduled_report_context_and_pool_reuse_are_tenant_scoped(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+    first = await db.run_in_tenant_executor("tenant-a", _read_counterparty_tenants)
+    second = await db.run_in_tenant_executor("tenant-b", _read_counterparty_tenants)
+    assert first == ["tenant-a"]
+    assert second == ["tenant-b"]
+    assert db._current_tenant_id.get() is None
+
+
+@pytest.mark.asyncio
+async def test_ocr_callback_body_hint_cannot_establish_arbitrary_tenant_context(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+    monkeypatch.setattr(
+        worker_client,
+        "verify_callback_token",
+        lambda token: {
+            "tenant_id": "tenant-a", "doc_id": 17, "job_type": "ocr", "job_id": "job-a"
+        } if token == "server-signed-a" else None,
+    )
+    forged = {
+        "callback_token": "server-signed-a",
+        "tenant_id": "tenant-b",
+        "doc_id": 17,
+        "job_type": "ocr",
+    }
+    assert worker_client.authorize_callback_payload(forged) is None
+    assert db._current_tenant_id.get() is None
+    assert _read_counterparty_tenants() == []
+
+    valid = {**forged, "tenant_id": "tenant-a"}
+    claims = worker_client.authorize_callback_payload(valid)
+    assert claims["tenant_id"] == "tenant-a"
+    async with db.tenant_db_context(claims["tenant_id"]):
+        assert _read_counterparty_tenants() == ["tenant-a"]
+
+
+@pytest.mark.asyncio
+async def test_background_context_rollback_and_pool_return_clear_tenant_scope(
+    rls_db, monkeypatch
+):
+    _bind_runtime_pool(monkeypatch, rls_db)
+    async with db.tenant_db_context("tenant-a"):
+        conn = db.get_db()
+        with conn.cursor() as cur:
+            cur.execute("SELECT tenant_id FROM counterparties")
+            assert [row[0] for row in cur.fetchall()] == ["tenant-a"]
+        conn.rollback()
+        conn.close()
+    assert db._current_tenant_id.get() is None
+    assert _read_counterparty_tenants() == []

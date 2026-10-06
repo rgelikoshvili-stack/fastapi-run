@@ -548,7 +548,7 @@ async def test_ocr_callback_receipts_are_durable_tenant_scoped_and_idempotent(
     assert _receipt_counts() == 0  # no-context visibility never widens to global rows
 
     def inspect_accepted_state():
-        with db.tenant_db_context("tenant-a"):
+        with db.tenant_db_context_sync("tenant-a"):
             conn = db.get_db("tenant-a")
             try:
                 with conn.cursor() as cur:
@@ -589,7 +589,7 @@ async def test_ocr_callback_receipts_are_durable_tenant_scoped_and_idempotent(
     assert await accept("cross-tenant", rls_db["doc_b"]) == "conflict"
 
     def inspect_receipt_absence():
-        with db.tenant_db_context("tenant-a"):
+        with db.tenant_db_context_sync("tenant-a"):
             conn = db.get_db("tenant-a")
             try:
                 with conn.cursor() as cur:

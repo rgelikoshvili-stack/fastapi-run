@@ -21,7 +21,8 @@ import logging
 import re
 import psycopg2
 import psycopg2.pool
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar, Token, copy_context
 from typing import Optional, AsyncGenerator
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,48 @@ log = logging.getLogger(__name__)
 # asyncpg pool
 # ─────────────────────────────────────────────────────────────────────────────
 _async_pool: Optional[asyncpg.Pool] = None
+_current_tenant_id: ContextVar[Optional[str]] = ContextVar(
+    "current_tenant_id", default=None
+)
+
+
+def set_authenticated_tenant_context(tenant_id: Optional[str]) -> Token:
+    """Set request DB context from a verified server-side identity only."""
+    if tenant_id is not None:
+        if not isinstance(tenant_id, str) or not tenant_id or tenant_id != tenant_id.strip():
+            raise ValueError("authenticated tenant_id must be a non-empty canonical string")
+    return _current_tenant_id.set(tenant_id)
+
+
+def reset_authenticated_tenant_context(token: Token) -> None:
+    _current_tenant_id.reset(token)
+
+
+@contextmanager
+def authenticated_tenant_context(tenant_id: Optional[str]):
+    """Bind a verified tenant identity to the current async request context."""
+    token = set_authenticated_tenant_context(tenant_id)
+    try:
+        yield
+    finally:
+        reset_authenticated_tenant_context(token)
+
+
+def _resolve_tenant_context(expected_tenant_id: Optional[str] = None) -> Optional[str]:
+    resolved = _current_tenant_id.get()
+    if resolved is not None and (
+        not isinstance(resolved, str) or not resolved or resolved != resolved.strip()
+    ):
+        raise ValueError("tenant_id must be a non-empty canonical string")
+    if expected_tenant_id is not None:
+        if (
+            not isinstance(expected_tenant_id, str)
+            or not expected_tenant_id
+            or expected_tenant_id != expected_tenant_id.strip()
+            or expected_tenant_id != resolved
+        ):
+            raise ValueError("explicit tenant_id must match authenticated DB context")
+    return resolved
 
 
 def _q(sql: str) -> str:
@@ -74,17 +117,30 @@ async def get_pool() -> asyncpg.Pool:
 
 
 @asynccontextmanager
-async def get_conn():
-    """Async context manager — yields asyncpg connection."""
+async def _tenant_connection():
+    """Acquire a connection and bind tenant context only for its transaction."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        async with conn.transaction():
+            resolved_tenant_id = _resolve_tenant_context()
+            if resolved_tenant_id is not None:
+                await conn.execute(
+                    "SELECT set_config('app.current_tenant_id', $1, true)",
+                    resolved_tenant_id,
+                )
+            yield conn
+
+
+@asynccontextmanager
+async def get_conn():
+    """Async DB context; authenticated tenant scope is transaction-local."""
+    async with _tenant_connection() as conn:
         yield conn
 
 
 async def get_db_dep() -> AsyncGenerator[asyncpg.Connection, None]:
     """FastAPI Depends generator — yields asyncpg connection."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
+    async with _tenant_connection() as conn:
         yield conn
 
 
@@ -101,8 +157,8 @@ async def close_pool():
 # ─────────────────────────────────────────────────────────────────────────────
 _sync_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
-_RESET_GUC = "SELECT set_config('app.current_tenant_id', '', false)"
-_SET_GUC   = "SELECT set_config('app.current_tenant_id', %s, false)"
+_CHECK_GUC = "SELECT current_setting('app.current_tenant_id', true)"
+_SET_LOCAL_GUC = "SELECT set_config('app.current_tenant_id', %s, true)"
 
 
 def _get_sync_pool() -> psycopg2.pool.ThreadedConnectionPool:
@@ -131,16 +187,15 @@ class _PooledConn:
         try:
             if not self._conn.closed:
                 try:
-                    with self._conn.cursor() as cur:
-                        cur.execute(_RESET_GUC)
-                    self._conn.commit()
-                except Exception as e:
-                    log.warning("unexpected error: %s", e)
-                try:
+                    # SET LOCAL is cleared by ending the transaction. If the
+                    # rollback fails, discard the physical connection.
                     self._conn.rollback()
+                    self._pool.putconn(self._conn)
                 except Exception as e:
-                    log.warning("unexpected error: %s", e)
-            self._pool.putconn(self._conn)
+                    log.warning("pooled transaction cleanup failed; discarding connection: %s", e)
+                    self._pool.putconn(self._conn, close=True)
+            else:
+                self._pool.putconn(self._conn, close=True)
         except Exception as e:
             log.warning("pool putconn error: %s", e)
             try:
@@ -157,26 +212,43 @@ class _PooledConn:
 
 def get_db(tenant_id: Optional[str] = None):
     """Legacy sync psycopg2 connection — still used by unconverted routes."""
+    resolved_tenant_id = _resolve_tenant_context(tenant_id)
     try:
         pool = _get_sync_pool()
         raw_conn = pool.getconn()
-        raw_conn.set_client_encoding("UTF8")
-        if tenant_id:
-            with raw_conn.cursor() as cur:
-                cur.execute(_SET_GUC, (tenant_id,))
-            raw_conn.commit()
-        return _PooledConn(raw_conn, pool)
     except Exception as e:
         log.error("DB pool getconn failed: %s — falling back to direct connect", e)
         from app.config.secrets import get_secret
         db_url = get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL", "")
         conn = psycopg2.connect(db_url)
-        conn.set_client_encoding("UTF8")
-        if tenant_id:
-            with conn.cursor() as cur:
-                cur.execute(_SET_GUC, (tenant_id,))
-            conn.commit()
-        return conn
+        try:
+            conn.set_client_encoding("UTF8")
+            if resolved_tenant_id is not None:
+                with conn.cursor() as cur:
+                    cur.execute(_SET_LOCAL_GUC, (resolved_tenant_id,))
+            return conn
+        except Exception:
+            conn.close()
+            raise
+
+    try:
+        raw_conn.set_client_encoding("UTF8")
+        try:
+            raw_conn.rollback()
+            with raw_conn.cursor() as cur:
+                cur.execute(_CHECK_GUC)
+                existing_tenant_id = cur.fetchone()[0]
+            if existing_tenant_id not in (None, ""):
+                raise RuntimeError("pooled connection has non-transactional tenant context")
+            if resolved_tenant_id is not None:
+                with raw_conn.cursor() as cur:
+                    cur.execute(_SET_LOCAL_GUC, (resolved_tenant_id,))
+        except Exception:
+            pool.putconn(raw_conn, close=True)
+            raise
+        return _PooledConn(raw_conn, pool)
+    except Exception:
+        raise
 
 
 def get_db_sync(tenant_id: Optional[str] = None):
@@ -187,7 +259,8 @@ def get_db_sync(tenant_id: Optional[str] = None):
 async def get_db_async(tenant_id: Optional[str] = None):
     """Async wrapper — runs get_db() in thread pool (legacy compat)."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: get_db(tenant_id))
+    context = copy_context()
+    return await loop.run_in_executor(None, context.run, get_db, tenant_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

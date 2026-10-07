@@ -27,6 +27,7 @@ import asyncpg
 def _make_mock_pool(conn=None):
     pool = MagicMock()
     _conn = conn or AsyncMock()
+    _conn.transaction = MagicMock(return_value=_MockTransaction())
 
     @asynccontextmanager
     async def _acquire():
@@ -34,6 +35,14 @@ def _make_mock_pool(conn=None):
 
     pool.acquire = _acquire
     return pool
+
+
+class _MockTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 # ---------------------------------------------------------------------------

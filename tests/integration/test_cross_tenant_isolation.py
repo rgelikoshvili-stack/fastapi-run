@@ -175,11 +175,11 @@ def test_rls_enforcement_via_guc(two_tenants, draft_in_tenant_a):
     row = cur.fetchone()
     assert row is not None, f"Tenant A cannot see own draft via GUC — RLS too strict?"
 
-    # GUC = '' (reset) → pass-through, sees all
+    # Empty tenant context must fail closed and reveal no tenant rows.
     cur.execute("SELECT set_config('app.current_tenant_id', '', false)")
     cur.execute("SELECT id FROM journal_drafts WHERE id = %s", (draft_in_tenant_a,))
     row = cur.fetchone()
-    assert row is not None, "Pass-through mode (GUC='') must see all rows"
+    assert row is None, "Missing tenant context must not expose tenant rows"
 
     cur.close()
     conn.close()

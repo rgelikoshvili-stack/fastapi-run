@@ -94,7 +94,7 @@ def test_intentional_failure_rolls_back_all_policy_changes(rehearsal_db):
             runner.execute(conn, operator_identity="disposable/failure", schema=schema, inject_failure_before_verify=True)
         with conn.cursor() as cur:
             cur.execute("""SELECT count(*) FROM pg_policies
-                            WHERE schemaname=%s AND policyname LIKE 'tenant_fail_closed_%'""", (schema,))
+                            WHERE schemaname=%s AND policyname LIKE 'tenant_fail_closed_%%'""", (schema,))
             assert cur.fetchone()[0] == 0
             cur.execute("SELECT count(*) FROM pg_policies WHERE schemaname=%s AND policyname='legacy_allow_all'", (schema,))
             assert cur.fetchone()[0] == len(runner.PROTECTED_TABLES)

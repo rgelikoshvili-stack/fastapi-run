@@ -2,7 +2,7 @@ name: NEXT-04A RLS Fail-Closed Disposable PostgreSQL
 
 on:
   push:
-    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety]
+    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety, codex/next04a11-migration-readiness]
   pull_request:
     branches: [main, codex/next04a-rls-fail-closed-foundation, codex/next04a1-runtime-compatibility]
     paths:
@@ -24,6 +24,9 @@ on:
       - "app/api/backfill_tx_fingerprint.py"
       - "app/storage/migrations/013_rls_fail_closed_foundation.sql"
       - "tests/integration/test_next04a_rls_fail_closed_postgres.py"
+      - "tests/integration/test_next04a11_migration_runner_postgres.py"
+      - "tests/unit/test_migration013_controlled_runner.py"
+      - "scripts/run_migration_013_controlled.py"
       - "tests/unit/test_next04a_tenant_db_context.py"
       - "tests/unit/test_next04a1_worker_callback_auth.py"
       - "tests/unit/test_next04a1_service_tenant_context.py"
@@ -64,4 +67,8 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt
       - name: Run NEXT-04A disposable PostgreSQL RLS proofs
-        run: python -m pytest tests/integration/test_next04a_rls_fail_closed_postgres.py -q --tb=short
+        run: >-
+          python -m pytest
+          tests/integration/test_next04a_rls_fail_closed_postgres.py
+          tests/integration/test_next04a11_migration_runner_postgres.py
+          -q --tb=short

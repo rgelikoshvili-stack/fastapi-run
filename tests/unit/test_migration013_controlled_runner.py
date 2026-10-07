@@ -43,3 +43,13 @@ def test_runtime_database_url_is_deliberately_ignored(monkeypatch):
             "--execute", "--authorization", "MIGRATION_013_APPROVED",
             "--operator-identity", "change/test",
         ])
+
+
+def test_role_and_schema_identifiers_fail_closed_before_database_work():
+    class NeverUsedConnection:
+        pass
+
+    with pytest.raises(runner.MigrationBlocked, match="schema"):
+        runner.execute(NeverUsedConnection(), operator_identity="test", schema="public;drop schema public")
+    with pytest.raises(runner.MigrationBlocked, match="migration role"):
+        runner.execute(NeverUsedConnection(), operator_identity="test", migration_role="owner;reset role")

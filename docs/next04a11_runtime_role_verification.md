@@ -59,8 +59,8 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
 -- Prefer an already-established non-runtime owner. Any transfer of all nine
 -- protected tables requires separate review and must never target runtime.
 GRANT bridgehub_migration_013 TO <short_lived_job_login>;
--- The job SET ROLEs to bridgehub_migration_013. The runner records both the
--- auditable session_user and the effective current_user.
+-- Invoke the runner with --migration-role bridgehub_migration_013. It performs
+-- SET LOCAL ROLE and records both auditable session_user and effective current_user.
 ```
 
 Migration 013 itself needs no schema `CREATE`. Control-table bootstrap is a separate

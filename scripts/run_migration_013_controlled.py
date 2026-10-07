@@ -104,11 +104,14 @@ def _verify_result(cur, schema: str) -> None:
 
 def execute(conn, *, operator_identity: str, schema: str = "public", payload: bytes | None = None,
             lock_timeout: str = "5s", statement_timeout: str = "120s",
-            inject_failure_before_verify: bool = False) -> dict:
+            inject_failure_before_verify: bool = False,
+            migration_role: str | None = None) -> dict:
     """Execute one guarded attempt. Intended for the controlled job and disposable tests."""
     body = validate_artifact(payload)
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
         raise MigrationBlocked("schema must be a simple PostgreSQL identifier")
+    if migration_role and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", migration_role):
+        raise MigrationBlocked("migration role must be a simple PostgreSQL identifier")
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
     lock_acquired = False
@@ -116,6 +119,8 @@ def execute(conn, *, operator_identity: str, schema: str = "public", payload: by
     try:
         conn.autocommit = False
         with conn.cursor() as cur:
+            if migration_role:
+                cur.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(migration_role)))
             cur.execute(sql.SQL("SET LOCAL search_path TO {}, pg_catalog").format(sql.Identifier(schema)))
             cur.execute("SELECT set_config('lock_timeout', %s, true)", (lock_timeout,))
             cur.execute("SELECT set_config('statement_timeout', %s, true)", (statement_timeout,))
@@ -183,6 +188,7 @@ def _parse_args(argv=None):
     parser.add_argument("--authorization", default="")
     parser.add_argument("--operator-identity", default="")
     parser.add_argument("--schema", default="public")
+    parser.add_argument("--migration-role", default=os.environ.get("MIGRATION_ROLE", ""))
     return parser.parse_args(argv)
 
 
@@ -201,7 +207,10 @@ def main(argv=None) -> int:
     if not dsn:
         raise MigrationBlocked("MIGRATION_DATABASE_URL is required; DATABASE_URL is deliberately ignored")
     with psycopg2.connect(dsn) as conn:
-        result = execute(conn, operator_identity=args.operator_identity, schema=args.schema)
+        result = execute(
+            conn, operator_identity=args.operator_identity, schema=args.schema,
+            migration_role=args.migration_role or None,
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 

@@ -110,6 +110,7 @@ Only after separate production authorization, the controlled job may invoke:
 ```text
 python scripts/run_migration_013_controlled.py --execute \
   --authorization MIGRATION_013_APPROVED \
+  --migration-role bridgehub_migration_013 \
   --operator-identity <approved-change-and-human-identity>
 ```
 
@@ -129,7 +130,10 @@ line. The runner performs, in one transaction:
 
 Any SQL error, lock timeout, statement timeout, lost connection, or failed verification
 must issue ROLLBACK. No policy state or success record may survive a pre-commit failure.
-Failure details must be preserved in the controlled job log/change record without secrets.
+After rollback, the runner records a separate `FAILED`/`ROLLED_BACK` attempt with the
+bounded error text when the control table remains available. Failure details must also be
+preserved in the controlled job log/change record without secrets. The partial unique index
+permits failed attempts but permits only one successful record for the migration ID.
 
 ## VERIFY
 

@@ -64,6 +64,12 @@ def test_success_duplicate_isolation_and_force_rls(rehearsal_db):
         result = runner.execute(conn, operator_identity="disposable/test", schema=schema)
         assert result["result"] == "SUCCESS"
         with conn.cursor() as cur:
+            cur.execute(sql.SQL("""SELECT migration_id, checksum, result, transaction_status,
+                                           advisory_lock_acquired, ended_at IS NOT NULL
+                                      FROM {}.{}""").format(sql.Identifier(schema), sql.Identifier(runner.CONTROL_TABLE)))
+            assert cur.fetchone() == (
+                runner.MIGRATION_ID, runner.EXPECTED_SHA256, "SUCCESS", "COMMITTED", True, True
+            )
             cur.execute("SELECT set_config('app.current_tenant_id','tenant-a',true)")
             cur.execute(sql.SQL("SELECT id FROM {}.counterparties ORDER BY id").format(sql.Identifier(schema)))
             assert cur.fetchall() == [(1,)]
@@ -100,3 +106,24 @@ def test_intentional_failure_rolls_back_all_policy_changes(rehearsal_db):
             assert cur.fetchone()[0] == len(runner.PROTECTED_TABLES)
             cur.execute(sql.SQL("SELECT result, transaction_status FROM {}.{} ORDER BY started_at").format(sql.Identifier(schema), sql.Identifier(runner.CONTROL_TABLE)))
             assert cur.fetchall() == [("FAILED", "ROLLED_BACK")]
+
+
+def test_table_lock_timeout_aborts_without_partial_policy_state(rehearsal_db):
+    _, kwargs, schema = rehearsal_db
+    with psycopg2.connect(**kwargs) as holder, psycopg2.connect(**kwargs) as contender:
+        with holder.cursor() as cur:
+            cur.execute(sql.SQL("SELECT count(*) FROM {}.counterparties").format(sql.Identifier(schema)))
+        with pytest.raises(psycopg2.errors.LockNotAvailable):
+            runner.execute(
+                contender, operator_identity="disposable/lock-timeout", schema=schema,
+                lock_timeout="100ms", statement_timeout="5s",
+            )
+        with contender.cursor() as cur:
+            cur.execute("""SELECT count(*) FROM pg_policies
+                            WHERE schemaname=%s AND policyname LIKE 'tenant_fail_closed_%%'""", (schema,))
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT count(*) FROM pg_policies WHERE schemaname=%s AND policyname='legacy_allow_all'", (schema,))
+            assert cur.fetchone()[0] == len(runner.PROTECTED_TABLES)
+            cur.execute(sql.SQL("SELECT result, transaction_status FROM {}.{}").format(sql.Identifier(schema), sql.Identifier(runner.CONTROL_TABLE)))
+            assert cur.fetchall() == [("FAILED", "ROLLED_BACK")]
+        holder.rollback()

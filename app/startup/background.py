@@ -1,6 +1,7 @@
 """app/startup/background.py — Supervised background task loops."""
 import asyncio
 import logging
+import os
 from app.api.metrics import WORKER_ERRORS
 from app.api.db import get_conn, _q, tenant_db_context, run_in_tenant_executor
 
@@ -15,6 +16,11 @@ async def run_email_tenant_work(tenant_id: str, work):
 
 async def run_autopilot_tenant_work(tenant_id: str, work):
     """Run synchronous autopilot/posting work with context copied into its thread."""
+    return await run_in_tenant_executor(tenant_id, work, tenant_id)
+
+
+async def run_decay_tenant_work(tenant_id: str, work):
+    """Run synchronous learning decay with one trusted tenant in its worker thread."""
     return await run_in_tenant_executor(tenant_id, work, tenant_id)
 
 
@@ -108,12 +114,38 @@ async def decay_loop():
     from app.api.services.learning_service import run_decay_service
     log = logging.getLogger("bg.decay")
 
+    if os.getenv("LEARNING_DECAY_ENABLED", "true").strip().lower() not in {
+        "1", "true", "yes", "on",
+    }:
+        log.info("task=decay disabled")
+        return
+
     async def _run():
-        log.info("task=decay running")
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, run_decay_service)
-        log.info("task=decay result=%s", result)
-        return result
+        tenant_ids = await _get_active_tenant_ids()
+        log.info("task=decay starting tenants=%d", len(tenant_ids))
+        total_decayed = 0
+        failed = 0
+        for tenant_id in tenant_ids:
+            try:
+                result = await run_decay_tenant_work(tenant_id, run_decay_service)
+                decayed_result = result.get("decayed", {}) if isinstance(result, dict) else {}
+                decayed = decayed_result.get("decayed", 0) if isinstance(decayed_result, dict) else 0
+                total_decayed += decayed
+            except Exception as exc:
+                failed += 1
+                log.warning("task=decay tenant_failed error=%s", exc)
+        summary = {
+            "total_decayed": total_decayed,
+            "tenants": len(tenant_ids),
+            "failed": failed,
+        }
+        log.info(
+            "task=decay done total_decayed=%d tenants=%d failed=%d",
+            total_decayed,
+            len(tenant_ids),
+            failed,
+        )
+        return summary
 
     await _monitored_loop("decay", _run, interval=3600)
 

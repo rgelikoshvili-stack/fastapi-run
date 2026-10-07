@@ -2,7 +2,7 @@ name: NEXT-04A RLS Fail-Closed Disposable PostgreSQL
 
 on:
   push:
-    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety]
+    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety, codex/next04a12-decay-tenant-scope]
   pull_request:
     branches: [main, codex/next04a-rls-fail-closed-foundation, codex/next04a1-runtime-compatibility]
     paths:
@@ -24,6 +24,8 @@ on:
       - "app/api/backfill_tx_fingerprint.py"
       - "app/storage/migrations/013_rls_fail_closed_foundation.sql"
       - "tests/integration/test_next04a_rls_fail_closed_postgres.py"
+      - "tests/integration/test_next04a12_learning_decay_postgres.py"
+      - "tests/unit/test_background_learning_decay_tenant_scope.py"
       - "tests/unit/test_next04a_tenant_db_context.py"
       - "tests/unit/test_next04a1_worker_callback_auth.py"
       - "tests/unit/test_next04a1_service_tenant_context.py"
@@ -39,6 +41,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
+      postgres-next01:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bridge_hub_next01_test
+          POSTGRES_USER: next01_test_user
+          POSTGRES_PASSWORD: next01_synthetic_test_password_only
+        ports:
+          - 55436:5432
+        options: >-
+          --health-cmd "pg_isready -U next01_test_user -d bridge_hub_next01_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres-next02:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bridge_hub_next02_test
+          POSTGRES_USER: next02_test_user
+          POSTGRES_PASSWORD: next02_synthetic_test_password_only
+        ports:
+          - 55437:5432
+        options: >-
+          --health-cmd "pg_isready -U next02_test_user -d bridge_hub_next02_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
       postgres:
         image: postgres:16
         env:
@@ -53,6 +81,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      NEXT01_TEST_DATABASE_URL: postgresql://next01_test_user:next01_synthetic_test_password_only@127.0.0.1:55436/bridge_hub_next01_test
+      NEXT02_TEST_DATABASE_URL: postgresql://next02_test_user:next02_synthetic_test_password_only@127.0.0.1:55437/bridge_hub_next02_test
       NEXT04A_TEST_DATABASE_URL: postgresql://next04a_test_admin:next04a_synthetic_test_password_only@127.0.0.1:55438/bridge_hub_next04a_test
     steps:
       - name: Checkout PR head
@@ -64,4 +94,10 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt
       - name: Run NEXT-04A disposable PostgreSQL RLS proofs
-        run: python -m pytest tests/integration/test_next04a_rls_fail_closed_postgres.py -q --tb=short
+        run: >-
+          python -m pytest
+          tests/integration/test_next01_tenant_membership_postgres.py
+          tests/integration/test_next02_ocr_bank_tenant_isolation_postgres.py
+          tests/integration/test_next04a_rls_fail_closed_postgres.py
+          tests/integration/test_next04a12_learning_decay_postgres.py
+          -q --tb=short

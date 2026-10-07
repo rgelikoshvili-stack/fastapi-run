@@ -2,14 +2,16 @@ name: NEXT-04A RLS Fail-Closed Disposable PostgreSQL
 
 on:
   push:
-    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety, codex/next04a3-ocr-callback-contract]
+    branches: [codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety, codex/next04a3-ocr-callback-contract, codex/next04a4-ocr-dispatch-replay]
   pull_request:
-    branches: [main, codex/next04a-rls-fail-closed-foundation, codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety]
+    branches: [main, codex/next04a-rls-fail-closed-foundation, codex/next04a1-runtime-compatibility, codex/next04a2-startup-dml-safety, codex/next04a3-ocr-callback-contract, codex/next04a4-ocr-dispatch-replay]
     paths:
       - "app/api/db.py"
       - "app/api/middleware/auth_middleware.py"
       - "app/api/middleware/rbac_middleware.py"
       - "app/api/routes_worker.py"
+      - "app/api/routes_documents.py"
+      - "app/api/services/ocr_callback_receipts.py"
       - "app/api/services/approval_service.py"
       - "app/api/services/document_processing_service.py"
       - "app/api/services/email_collector.py"
@@ -23,6 +25,7 @@ on:
       - "app/startup/migrations_indexes.py"
       - "app/api/backfill_tx_fingerprint.py"
       - "app/storage/migrations/013_rls_fail_closed_foundation.sql"
+      - "app/storage/migrations/014_ocr_callback_receipts.sql"
       - "tests/integration/test_next04a_rls_fail_closed_postgres.py"
       - "tests/unit/test_next04a_tenant_db_context.py"
       - "tests/unit/test_next04a1_worker_callback_auth.py"
@@ -30,6 +33,7 @@ on:
       - "tests/unit/test_background_autopilot_multitenant.py"
       - "tests/unit/test_startup_no_tenant_business_dml.py"
       - "docs/next04a3-ocr-worker-callback-contract.md"
+      - "tests/unit/test_ocr_callback_route_auth.py"
       - ".github/workflows/next04a-rls-fail-closed-postgres.yml"
 
 permissions:

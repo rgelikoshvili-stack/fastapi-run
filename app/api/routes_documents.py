@@ -67,12 +67,17 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     # ── 1. Dedup by file hash ──────────────────────────────────────────────
     async with get_conn() as conn:
         existing_file = await conn.fetchrow(_q(
-            "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
+            "SELECT id, status, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
             "FROM processed_documents WHERE tenant_id = %s AND file_hash = %s"
         ), tenant_id, file_hash)
 
     if existing_file and existing_file["has_content"]:
         doc_id_existing = existing_file["id"]
+        if existing_file.get("status") == "processing":
+            return ok_response("Document is already processing", {
+                "status": "processing",
+                "doc_id": doc_id_existing,
+            })
         async with get_conn() as conn:
             existing_draft = await conn.fetchrow(_q(
                 "SELECT id, status FROM journal_drafts "
@@ -146,6 +151,23 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
         return error_response("DB error", "DB_ERROR", str(e))
 
     # ── 3. Fire background processing — return immediately ─────────────────
+    if mime_type == "application/pdf" and gcs_path:
+        from app.api.services.worker_client import dispatch_ocr_document
+
+        worker_result = await dispatch_ocr_document(int(doc_id))
+        if worker_result.get("dispatched"):
+            log.info("action=document_dispatched_to_ocr_worker tenant=%s doc_id=%s", tenant_id, doc_id)
+            return ok_response("Document queued for OCR", {
+                "status": "processing",
+                "doc_id": doc_id,
+            })
+        if worker_result.get("attempted"):
+            async with get_conn() as conn:
+                await conn.execute(_q(
+                    "UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s"
+                ), "ocr_dispatch_failed", doc_id, tenant_id)
+            return http_error(503, "OCR worker dispatch failed", "OCR_DISPATCH_FAILED")
+
     asyncio.create_task(
         _process_document_background(doc_id, tenant_id, file_bytes, mime_type, file.filename or "document")
     )

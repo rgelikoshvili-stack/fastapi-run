@@ -2,7 +2,7 @@
 Cloud Run → Hetzner job dispatch.
 
 Job flow:
-  1. Cloud Run calls dispatch_job() with job type + GCS path
+  1. Cloud Run calls dispatch_ocr_document() with a persisted document ID
   2. Hetzner worker receives POST /worker/job
   3. Worker downloads file from GCS, processes it, POSTs result back
   4. Cloud Run receives result at POST /worker/result
@@ -18,6 +18,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from uuid import uuid4
 from typing import Optional
 
@@ -27,9 +28,34 @@ log = logging.getLogger(__name__)
 
 WORKER_URL   = os.environ.get("HETZNER_WORKER_URL", "").rstrip("/")
 WORKER_TOKEN = os.environ.get("HETZNER_WORKER_TOKEN", "")
+_WORKER_DISPATCH_ENABLED = os.environ.get("OCR_WORKER_DISPATCH_ENABLED", "0") == "1"
 
 _TIMEOUT = 10.0  # seconds — fire-and-forget; worker calls back async
 _OCR_CALLBACK_AUDIENCE = "bridge-hub-ocr-callback"
+_OCR_CALLBACK_BASE_URL = os.environ.get("OCR_CALLBACK_BASE_URL", "").strip()
+
+
+def build_callback_url(base_url: Optional[str] = None) -> str:
+    """Build callback URL only from trusted server configuration, never Request headers."""
+    configured = (base_url if base_url is not None else _OCR_CALLBACK_BASE_URL).strip()
+    parsed = urlsplit(configured)
+    test_mode = os.environ.get("TEST_MODE") == "1"
+    local_test_http = (
+        test_mode
+        and parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    )
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or (parsed.scheme != "https" and not local_test_http)
+    ):
+        raise ValueError("OCR callback base URL is not valid trusted HTTPS configuration")
+    return f"{parsed.scheme}://{parsed.netloc}/worker/result"
 
 
 def _sign_payload(body: bytes) -> str:
@@ -38,7 +64,7 @@ def _sign_payload(body: bytes) -> str:
 
 
 def worker_available() -> bool:
-    return bool(WORKER_URL and WORKER_TOKEN)
+    return bool(_WORKER_DISPATCH_ENABLED and WORKER_URL and WORKER_TOKEN)
 
 
 def create_callback_token(
@@ -111,43 +137,66 @@ def authorize_callback_payload(data: dict) -> Optional[dict]:
     return claims
 
 
-async def dispatch_job(
-    job_type: str,
-    tenant_id: str,
-    gcs_path: str,
-    doc_id: int,
-    callback_doc_id: Optional[int] = None,
-    extra: Optional[dict] = None,
+async def dispatch_ocr_document(doc_id: int) -> dict:
+    """Dispatch one persisted PDF for the authenticated tenant; never trust body job data."""
+    from app.api.db import require_current_tenant_id
+
+    tenant_id = require_current_tenant_id()
+    if not worker_available():
+        return {"dispatched": False, "reason": "OCR worker is not configured"}
+    try:
+        callback_url = build_callback_url()
+    except ValueError:
+        log.warning("action=worker_dispatch_unavailable reason=callback_url_not_configured")
+        return {"dispatched": False, "reason": "OCR callback URL is not configured"}
+    return await _dispatch_ocr_job(
+        tenant_id=tenant_id,
+        doc_id=int(doc_id),
+        callback_url=callback_url,
+    )
+
+
+async def _dispatch_ocr_job(
+    *, tenant_id: str, doc_id: int, callback_url: str
 ) -> dict:
     """
     Send a job to the Hetzner worker asynchronously.
     Returns {"dispatched": True/False, "reason": str}.
 
-    job_type options:
-      "ocr"          — heavy OCR on scanned PDF (Tesseract Georgian)
-      "ocr_vision"   — vision-LLM fallback for low-quality scans
-      "pdf_split"    — split multi-page PDF into individual pages
+    Only the fixed OCR job type is dispatched by the application flow.
     """
     if not worker_available():
-        return {"dispatched": False, "reason": "HETZNER_WORKER_URL not configured"}
+        return {"dispatched": False, "attempted": False, "reason": "OCR worker is not configured"}
 
     job_id = uuid4().hex
-    callback_document_id = callback_doc_id if callback_doc_id is not None else doc_id
     callback_token = create_callback_token(
         tenant_id=tenant_id,
-        doc_id=callback_document_id,
-        job_type=job_type,
+        doc_id=doc_id,
+        job_type="ocr",
         job_id=job_id,
     )
+    from app.api.services.ocr_callback_receipts import register_dispatch
+    try:
+        registered = await register_dispatch(
+            tenant_id=tenant_id, doc_id=doc_id, job_id=job_id
+        )
+    except Exception:
+        log.warning("action=worker_dispatch_unavailable reason=job_registry_unavailable")
+        return {"dispatched": False, "attempted": False, "reason": "OCR job registry is unavailable"}
+    if not registered:
+        return {"dispatched": False, "attempted": False, "reason": "document is not eligible for OCR dispatch"}
+    if not registered["send"]:
+        return {"dispatched": True, "attempted": False, "job_id": registered["job_id"]}
+    gcs_path = registered["gcs_path"]
     payload = {
-        **(extra or {}),
-        "job_type": job_type,
+        "job_type": "ocr",
         "tenant_id": tenant_id,
         "gcs_path": gcs_path,
         "doc_id": doc_id,
-        "callback_doc_id": callback_document_id,
+        "callback_doc_id": doc_id,
         "job_id": job_id,
         "callback_token": callback_token,
+        "callback_url": callback_url,
         "issued_at": int(time.time()),
     }
     body = json.dumps(payload, ensure_ascii=False).encode()
@@ -164,18 +213,18 @@ async def dispatch_job(
                 },
             )
         if resp.status_code == 202:
-            log.info("action=worker_job_dispatched type=%s doc=%s tenant=%s", job_type, doc_id, tenant_id)
+            log.info("action=worker_job_dispatched type=ocr doc=%s tenant=%s", doc_id, tenant_id)
             # The Bridge Hub-generated ID is the signed callback identity. A
             # worker response must not replace that authoritative identifier.
-            return {"dispatched": True, "job_id": job_id}
+            return {"dispatched": True, "attempted": True, "job_id": job_id}
         # Worker error bodies may echo the short-lived signed callback token.
         log.warning("action=worker_dispatch_failed status=%d", resp.status_code)
-        return {"dispatched": False, "reason": f"worker HTTP {resp.status_code}"}
+        return {"dispatched": False, "attempted": True, "reason": f"worker HTTP {resp.status_code}"}
     except Exception:
         # Exception strings can include request payloads; callback_token is a
         # short-lived bearer credential and must not be written to logs/output.
         log.warning("action=worker_dispatch_error")
-        return {"dispatched": False, "reason": "worker dispatch failed"}
+        return {"dispatched": False, "attempted": True, "reason": "worker dispatch failed"}
 
 
 def verify_worker_signature(body: bytes, signature: str) -> bool:

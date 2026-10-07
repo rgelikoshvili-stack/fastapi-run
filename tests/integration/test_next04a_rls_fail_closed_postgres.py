@@ -13,6 +13,7 @@ import pytest
 from app.api import db
 from app.api.services import worker_client
 from app.startup.background import run_autopilot_tenant_work, run_email_tenant_work
+from app.startup.migrations_indexes import run_index_migrations
 
 
 EXPECTED_HOST = "127.0.0.1"
@@ -163,6 +164,25 @@ def test_rls_allows_tenant_to_read_own_row(rls_db):
                 _set_local(cur, "tenant-a")
                 cur.execute("SELECT tenant_id FROM counterparties WHERE tenant_id = 'tenant-a'")
                 assert cur.fetchone() == ("tenant-a",)
+    finally:
+        _release(rls_db, conn)
+
+
+def test_index_startup_is_safe_with_fail_closed_rls_and_missing_context(rls_db):
+    """Startup schema/index work cannot read or mutate protected tenant rows."""
+    conn = _acquire(rls_db)
+    try:
+        with conn.cursor() as cur:
+            # The fixture uses the non-owner, NOSUPERUSER, NOBYPASSRLS role and
+            # migration 013 is active. No tenant GUC is set for this startup.
+            cur.execute("SELECT count(*) FROM journal_drafts")
+            before = cur.fetchone()[0]
+            assert before == 0
+
+            run_index_migrations(cur)
+
+            cur.execute("SELECT count(*) FROM journal_drafts")
+            assert cur.fetchone()[0] == 0
     finally:
         _release(rls_db, conn)
 

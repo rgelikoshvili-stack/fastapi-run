@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api import routes_export, routes_ocr, routes_system
+from app.api.db import authenticated_tenant_context
 from app.api.services import system_service
 
 
@@ -209,22 +210,23 @@ async def test_ocr_exports_do_not_bypass_history_tenant_scope(tenant_history_db)
 
 @pytest.mark.asyncio
 async def test_bank_history_count_pagination_and_shared_identifiers_are_scoped(tenant_history_db):
-    result = await routes_system.get_bank_files_history(
-        _request("/system/bank-files"), limit=1, offset=1
-    )
-    assert result["ok"] is True
-    assert result["data"]["count"] == 2
-    assert len(result["data"]["items"]) == 1
-    assert result["data"]["items"][0]["filename"] == "a-only.csv"
-    assert all(item["id"] != tenant_history_db["bank_ids"]["tenant-B", "shared.csv"]
-               for item in result["data"]["items"])
+    with authenticated_tenant_context("tenant-A"):
+        result = await routes_system.get_bank_files_history(
+            _request("/system/bank-files"), limit=1, offset=1
+        )
+        assert result["ok"] is True
+        assert result["data"]["count"] == 2
+        assert len(result["data"]["items"]) == 1
+        assert result["data"]["items"][0]["filename"] == "a-only.csv"
+        assert all(item["id"] != tenant_history_db["bank_ids"]["tenant-B", "shared.csv"]
+                   for item in result["data"]["items"])
 
-    own_id = tenant_history_db["bank_ids"]["tenant-A", "shared.csv"]
-    own_detail = await routes_system.get_bank_file_detail(
-        _request("/system/bank-files/detail"), own_id
-    )
-    assert own_detail["ok"] is True
-    assert own_detail["data"]["id"] == own_id
+        own_id = tenant_history_db["bank_ids"]["tenant-A", "shared.csv"]
+        own_detail = await routes_system.get_bank_file_detail(
+            _request("/system/bank-files/detail"), own_id
+        )
+        assert own_detail["ok"] is True
+        assert own_detail["data"]["id"] == own_id
 
 
 @pytest.mark.asyncio
@@ -237,19 +239,20 @@ async def test_guessed_cross_tenant_bank_ids_return_safe_404_without_mutation(te
             "(SELECT count(*) FROM journal_drafts) AS drafts"
         )
 
-    detail = await routes_system.get_bank_file_detail(
-        _request("/system/bank-files/detail"), guessed_id
-    )
-    assert detail.status_code == 404
-    assert b"tenant-B" not in detail.body
-    assert b"shared.csv" not in detail.body
+    with authenticated_tenant_context("tenant-A"):
+        detail = await routes_system.get_bank_file_detail(
+            _request("/system/bank-files/detail"), guessed_id
+        )
+        assert detail.status_code == 404
+        assert b"tenant-B" not in detail.body
+        assert b"shared.csv" not in detail.body
 
-    metadata = await routes_system.get_bank_file_drafts(
-        _request("/system/bank-files/drafts"), guessed_id, limit=10, offset=0
-    )
-    assert metadata.status_code == 404
-    assert b"tenant-B" not in metadata.body
-    assert b"shared.csv" not in metadata.body
+        metadata = await routes_system.get_bank_file_drafts(
+            _request("/system/bank-files/drafts"), guessed_id, limit=10, offset=0
+        )
+        assert metadata.status_code == 404
+        assert b"tenant-B" not in metadata.body
+        assert b"shared.csv" not in metadata.body
 
     async with pool.acquire() as conn:
         after = await conn.fetchrow(
@@ -261,19 +264,20 @@ async def test_guessed_cross_tenant_bank_ids_return_safe_404_without_mutation(te
 
 @pytest.mark.asyncio
 async def test_bank_summary_and_overview_metadata_are_tenant_scoped(tenant_history_db):
-    summary = await routes_system.get_system_summary(
-        _request("/system/summary")
-    )
-    assert summary["data"]["bank_files_processed"] == 2
-    assert summary["data"]["file_stats"]["total_rows_sum"] == 16
+    with authenticated_tenant_context("tenant-A"):
+        summary = await routes_system.get_system_summary(
+            _request("/system/summary")
+        )
+        assert summary["data"]["bank_files_processed"] == 2
+        assert summary["data"]["file_stats"]["total_rows_sum"] == 16
 
-    overview = await routes_system.get_system_overview(
-        _request("/system/overview")
-    )
-    assert overview["data"]["summary"]["bank_files"]["total_bank_files"] == 2
-    assert {row["filename"] for row in overview["data"]["latest_bank_files"]} == {
-        "shared.csv", "a-only.csv"
-    }
+        overview = await routes_system.get_system_overview(
+            _request("/system/overview")
+        )
+        assert overview["data"]["summary"]["bank_files"]["total_bank_files"] == 2
+        assert {row["filename"] for row in overview["data"]["latest_bank_files"]} == {
+            "shared.csv", "a-only.csv"
+        }
 
 
 @pytest.mark.asyncio

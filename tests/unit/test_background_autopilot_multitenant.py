@@ -7,7 +7,7 @@ Contract:
   - autopilot_loop must iterate ALL active tenants from the tenants table,
     not only the hard-coded "default" tenant.
   - A per-tenant exception must not prevent remaining tenants from running.
-  - _get_active_tenant_ids must fall back to ["default"] on any DB error.
+  - _get_active_tenant_ids must fail closed when server-side tenant enumeration fails.
   - No DB connection is made in these tests (all mocked).
   - No connectors are activated.
   - No approval logic is changed.
@@ -92,7 +92,7 @@ class TestGetActiveTenantIds:
         assert set(result) == {"company_x", "company_y"}
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_default_on_db_connection_error(self):
+    async def test_does_not_run_without_tenant_enumeration_on_db_connection_error(self):
         from app.startup.background import _get_active_tenant_ids
         from contextlib import asynccontextmanager
 
@@ -103,10 +103,10 @@ class TestGetActiveTenantIds:
 
         with patch("app.startup.background.get_conn", _err_ctx):
             result = await _get_active_tenant_ids()
-        assert result == ["default"]
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_default_on_query_error(self):
+    async def test_does_not_run_without_tenant_enumeration_on_query_error(self):
         from app.startup.background import _get_active_tenant_ids
         from contextlib import asynccontextmanager
         conn = AsyncMock()
@@ -118,15 +118,15 @@ class TestGetActiveTenantIds:
 
         with patch("app.startup.background.get_conn", _ctx):
             result = await _get_active_tenant_ids()
-        assert result == ["default"]
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_default_when_table_is_empty(self):
+    async def test_does_not_run_when_tenant_table_is_empty(self):
         from app.startup.background import _get_active_tenant_ids
         ctx = _make_async_conn([])
         with patch("app.startup.background.get_conn", ctx):
             result = await _get_active_tenant_ids()
-        assert result == ["default"]
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_closes_connection_after_successful_query(self):
@@ -150,7 +150,7 @@ class TestGetActiveTenantIds:
 
         with patch("app.startup.background.get_conn", _ctx):
             result = await _get_active_tenant_ids()
-        assert result == ["default"]
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_returns_list_type(self):

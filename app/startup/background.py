@@ -2,9 +2,20 @@
 import asyncio
 import logging
 from app.api.metrics import WORKER_ERRORS
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context, run_in_tenant_executor
 
 _TASK_MAX_FAILURES = 5
+
+
+async def run_email_tenant_work(tenant_id: str, work):
+    """Run one enumerated tenant's email work in an isolated DB context."""
+    async with tenant_db_context(tenant_id):
+        return await work(tenant_id)
+
+
+async def run_autopilot_tenant_work(tenant_id: str, work):
+    """Run synchronous autopilot/posting work with context copied into its thread."""
+    return await run_in_tenant_executor(tenant_id, work, tenant_id)
 
 
 async def _monitored_loop(name: str, fn, interval: int, max_failures: int = _TASK_MAX_FAILURES):
@@ -49,14 +60,19 @@ async def _get_active_tenant_ids() -> list[str]:
                 "SELECT tenant_id FROM tenants "
                 "WHERE status IS NULL OR status NOT IN ('inactive', 'suspended')"
             )
-        ids = [r["tenant_id"] for r in rows]
-        return ids if ids else ["default"]
+        ids = []
+        for row in rows:
+            tenant_id = row["tenant_id"]
+            try:
+                async with tenant_db_context(tenant_id):
+                    pass
+                ids.append(tenant_id)
+            except ValueError:
+                _log.warning("task=autopilot skipping invalid tenant identity")
+        return ids
     except Exception as exc:
-        _log.warning(
-            "task=autopilot _get_active_tenant_ids failed: %s — falling back to ['default']",
-            exc,
-        )
-        return ["default"]
+        _log.warning("task=autopilot tenant enumeration failed: %s", exc)
+        return []
 
 
 async def autopilot_loop():
@@ -64,14 +80,13 @@ async def autopilot_loop():
     log = logging.getLogger("bg.autopilot")
 
     async def _run():
-        loop = asyncio.get_running_loop()
         tenant_ids = await _get_active_tenant_ids()
         log.info("task=autopilot starting tenants=%d", len(tenant_ids))
         total_approved = 0
         for tenant_id in tenant_ids:
             try:
-                result = await loop.run_in_executor(
-                    None, lambda t=tenant_id: autopilot_approve_service(t)
+                result = await run_autopilot_tenant_work(
+                    tenant_id, autopilot_approve_service
                 )
                 approved = result.get("approved", 0) if isinstance(result, dict) else 0
                 total_approved += approved
@@ -116,7 +131,9 @@ async def email_poller_loop():
         for tid in tenants:
             try:
                 result = await _asyncio.wait_for(
-                    collect_tenant_inbox(tid),
+                    run_email_tenant_work(
+                        tid, lambda trusted_tid: collect_tenant_inbox(trusted_tid)
+                    ),
                     timeout=20.0,
                 )
                 processed = result.get("processed", 0)

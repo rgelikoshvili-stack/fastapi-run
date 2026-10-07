@@ -7,10 +7,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, require_current_tenant_id
 
 
-async def get_journal_drafts(tenant_id="default", status=None, limit=1000):
+async def get_journal_drafts(tenant_id: str, status=None, limit=1000):
+    tenant_id = require_current_tenant_id(tenant_id)
     async with get_conn() as conn:
         if status:
             rows = await conn.fetch(_q("""
@@ -33,7 +34,7 @@ async def get_journal_drafts(tenant_id="default", status=None, limit=1000):
     return [dict(r) for r in rows]
 
 
-async def export_excel(tenant_id="default", status=None):
+async def export_excel(tenant_id: str, status=None):
     rows = await get_journal_drafts(tenant_id, status)
     wb = Workbook()
     ws = wb.active
@@ -88,7 +89,7 @@ async def export_excel(tenant_id="default", status=None):
     return output
 
 
-async def export_csv_drafts(tenant_id="default", status=None):
+async def export_csv_drafts(tenant_id: str, status=None):
     rows = await get_journal_drafts(tenant_id, status)
     output = io.StringIO()
     fields = ["id", "date", "description", "partner", "amount",
@@ -102,7 +103,7 @@ async def export_csv_drafts(tenant_id="default", status=None):
     return output
 
 
-async def export_1c_xml(tenant_id="default", status="approved"):
+async def export_1c_xml(tenant_id: str, status="approved"):
     rows = await get_journal_drafts(tenant_id, status)
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
     lines.append(f'<ФайлОбменДанными ВерсияФормата="1.0" ДатаФормирования="{datetime.now().strftime("%Y-%m-%d")}">')
@@ -121,7 +122,7 @@ async def export_1c_xml(tenant_id="default", status="approved"):
     return "\n".join(lines)
 
 
-async def export_pdf(tenant_id="default", status=None):
+async def export_pdf(tenant_id: str, status=None):
     rows = await get_journal_drafts(tenant_id, status, limit=500)
     output = io.BytesIO()
     doc = SimpleDocTemplate(output, pagesize=A4,

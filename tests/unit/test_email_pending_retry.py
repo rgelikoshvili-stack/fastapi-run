@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.api.db import tenant_db_context
 
 
 class _EmailDocumentDB:
@@ -62,6 +63,11 @@ def _patch_collector(monkeypatch, db, ai):
     return ec
 
 
+async def _collect_scoped(collector, tenant_id):
+    async with tenant_db_context(tenant_id):
+        return await collector.collect_tenant_inbox(tenant_id)
+
+
 @pytest.mark.asyncio
 async def test_timeout_after_save_before_ai_then_rerun_resumes_pending(monkeypatch):
     db = _EmailDocumentDB()
@@ -69,11 +75,11 @@ async def test_timeout_after_save_before_ai_then_rerun_resumes_pending(monkeypat
     ec = _patch_collector(monkeypatch, db, ai)
 
     with pytest.raises(__import__("asyncio").CancelledError):
-        await ec.collect_tenant_inbox("tenant-a")
+        await _collect_scoped(ec, "tenant-a")
     assert db.saved
     assert db.row["status"] == "pending"
 
-    result = await ec.collect_tenant_inbox("tenant-a")
+    result = await _collect_scoped(ec, "tenant-a")
     assert result["processed"] == 1
     assert ai.await_count == 2
     assert db.row == {"id": 41, "status": "processed", "draft_id": 77}
@@ -90,7 +96,7 @@ async def test_pending_duplicate_is_retried_not_skipped(monkeypatch):
     ai = AsyncMock(return_value={"ok": True, "draft_id": 77})
     ec = _patch_collector(monkeypatch, db, ai)
 
-    result = await ec.collect_tenant_inbox("tenant-a")
+    result = await _collect_scoped(ec, "tenant-a")
 
     assert result["processed"] == 1
     ai.assert_awaited_once()
@@ -103,7 +109,7 @@ async def test_processed_document_is_skipped(monkeypatch):
     ai = AsyncMock()
     ec = _patch_collector(monkeypatch, db, ai)
 
-    result = await ec.collect_tenant_inbox("tenant-a")
+    result = await _collect_scoped(ec, "tenant-a")
 
     assert result["processed"] == 0
     ai.assert_not_awaited()
@@ -116,7 +122,7 @@ async def test_existing_ai_draft_completes_pending_document_without_duplicate_ai
     ec = _patch_collector(monkeypatch, db, ai)
 
     with patch.object(ec, "_existing_email_draft", new=AsyncMock(return_value=88)):
-        result = await ec.collect_tenant_inbox("tenant-a")
+        result = await _collect_scoped(ec, "tenant-a")
 
     assert result["processed"] == 1
     assert result["drafts"][0]["draft_id"] == 88

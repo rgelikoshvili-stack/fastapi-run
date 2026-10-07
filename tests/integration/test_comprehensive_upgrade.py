@@ -122,6 +122,12 @@ def test_resolve_keeps_valid_code():
 # ── TASK 5.1 — /approval/stats ───────────────────────────────────────────────
 
 _MOCK_TOKEN_PAYLOAD = {"sub": "test-user", "role": "admin", "tenant_id": "default", "type": "access"}
+_APPROVAL_STATS_TOKEN_PAYLOAD = {
+    "sub": "test-user",
+    "role": "admin",
+    "tenant_id": "tenant-approval-stats-test",
+    "type": "access",
+}
 
 
 def test_approval_stats_endpoint_exists():
@@ -132,7 +138,7 @@ def test_approval_stats_endpoint_exists():
     with patch("app.api.routes_approval.get_conn",
                _make_get_conn(fetchrow_result=stats_row)), \
          patch("app.api.middleware.auth_middleware.verify_token",
-               return_value=_MOCK_TOKEN_PAYLOAD):
+               return_value=_APPROVAL_STATS_TOKEN_PAYLOAD):
         r = client.get("/approval/stats", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()

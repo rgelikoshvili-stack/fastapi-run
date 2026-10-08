@@ -49,13 +49,29 @@ async def test_tenant_failure_clears_context_before_next_tenant(monkeypatch):
         seen.append(require_current_tenant_id(tenant_id))
         if tenant_id == "tenant-a":
             raise RuntimeError("synthetic tenant failure")
-        return {"decayed": {"decayed": 3}}
+        return {"ok": True, "decayed": {"decayed": 3}}
 
     summaries = await _run_one_tick(["tenant-a", "tenant-b"], work)
     assert seen == ["tenant-a", "tenant-b"]
     assert summaries == [{"total_decayed": 3, "tenants": 2, "failed": 1}]
     with pytest.raises(ValueError, match="context is required"):
         require_current_tenant_id()
+
+
+@pytest.mark.asyncio
+async def test_service_reported_failure_is_counted_and_next_tenant_runs(monkeypatch):
+    monkeypatch.delenv("LEARNING_DECAY_ENABLED", raising=False)
+    seen = []
+
+    def work(tenant_id):
+        seen.append(require_current_tenant_id(tenant_id))
+        if tenant_id == "tenant-a":
+            return {"ok": False, "error": "synthetic database failure"}
+        return {"ok": True, "decayed": {"decayed": 2}}
+
+    summaries = await _run_one_tick(["tenant-a", "tenant-b"], work)
+    assert seen == ["tenant-a", "tenant-b"]
+    assert summaries == [{"total_decayed": 2, "tenants": 2, "failed": 1}]
 
 
 @pytest.mark.asyncio

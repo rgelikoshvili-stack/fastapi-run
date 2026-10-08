@@ -128,6 +128,10 @@ async def decay_loop():
         for tenant_id in tenant_ids:
             try:
                 result = await run_decay_tenant_work(tenant_id, run_decay_service)
+                if not isinstance(result, dict) or not result.get("ok"):
+                    failed += 1
+                    log.warning("task=decay tenant_failed")
+                    continue
                 decayed_result = result.get("decayed", {}) if isinstance(result, dict) else {}
                 decayed = decayed_result.get("decayed", 0) if isinstance(decayed_result, dict) else 0
                 total_decayed += decayed

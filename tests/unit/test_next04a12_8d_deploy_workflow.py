@@ -10,6 +10,8 @@ def test_production_deploy_and_smoke_target_canonical_us_service():
     assert "SERVICE_URL: https://fastapi-run-oobzrmikna-uc.a.run.app" in text
     assert "--region ${{ env.REGION }}" in text
     assert "europe-west1" not in text
+    assert "pull_request:" in text
+    assert "if: github.event_name != 'pull_request'" in text
 
 
 def test_deploy_stamps_and_checks_revision_provenance():

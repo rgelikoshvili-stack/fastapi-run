@@ -3,6 +3,8 @@ name: Deploy to Cloud Run
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -90,6 +92,7 @@ jobs:
         run: npm run build
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: [test, frontend-build]
     runs-on: ubuntu-latest
     env:

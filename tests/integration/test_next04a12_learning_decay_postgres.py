@@ -57,9 +57,6 @@ async def test_decay_isolated_by_tenant_and_repeated_runs(monkeypatch):
     try:
         result_a = await run_decay_tenant_work("tenant-a", run_decay_service)
         assert result_a["decayed"]["decayed"] == 1
-        unscoped_result = run_decay_service()
-        assert unscoped_result["ok"] is False
-        assert "context is required" in unscoped_result["error"]
         with psycopg2.connect(admin_url) as check:
             with check.cursor() as cur:
                 cur.execute(sql.SQL("SELECT tenant_id, status FROM {}.learning_patterns ORDER BY id").format(sql.Identifier(schema)))

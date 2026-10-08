@@ -3,14 +3,16 @@ name: Deploy to Cloud Run
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: fastapi-run
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGION: europe-west1
-  SERVICE_URL: https://fastapi-run-226875230147.europe-west1.run.app
+  REGION: us-central1
+  SERVICE_URL: https://fastapi-run-oobzrmikna-uc.a.run.app
 
 jobs:
   test:
@@ -90,6 +92,7 @@ jobs:
         run: npm run build
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: [test, frontend-build]
     runs-on: ubuntu-latest
     env:
@@ -177,8 +180,38 @@ jobs:
             --timeout 300 \
             --remove-env-vars "SMTP_PASS,IMAP_PASS" \
             --update-env-vars "COMMIT_SHA=${COMMIT_SHA},BUILD_TIME=${BUILD_TIME},ENVIRONMENT=${ENVIRONMENT}" \
-            --update-secrets "DATABASE_URL=bridge-hub-database-url:latest,JWT_SECRET=bridge-hub-jwt-secret:latest,ANTHROPIC_API_KEY=bridge-hub-anthropic-api-key:latest,OPENROUTER_API_KEY=bridge-hub-openrouter-api-key:latest,VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest,SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION},IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" \
+            --update-secrets "VAULT_ENCRYPTION_KEY=bridge-hub-vault-encryption-key:latest,SMTP_PASS=bridge-hub-smtp-password:${SMTP_PASS_SECRET_VERSION},IMAP_PASS=bridge-hub-imap-password:${IMAP_PASS_SECRET_VERSION}" \
+            --update-labels "bridgehub-commit-sha=${COMMIT_SHA},bridgehub-workflow-run=${GITHUB_RUN_ID}" \
             --quiet
+
+      - name: Verify deployed revision provenance and traffic
+        shell: bash
+        run: |
+          SERVICE_JSON="$(gcloud run services describe "$SERVICE_NAME" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --format='json(status.latestReadyRevisionName,status.traffic)')"
+          READY_REVISION="$(jq -r '.status.latestReadyRevisionName // empty' <<<"$SERVICE_JSON")"
+          TRAFFIC_MATCHES="$(jq -r '[.status.traffic[]? | select(.percent == 100)] | length' <<<"$SERVICE_JSON")"
+          TRAFFIC_REVISION="$(jq -r '[.status.traffic[]? | select(.percent == 100)][0].revisionName // empty' <<<"$SERVICE_JSON")"
+          if [[ -z "$READY_REVISION" || "$TRAFFIC_MATCHES" != "1" || "$TRAFFIC_REVISION" != "$READY_REVISION" ]]; then
+            echo "Expected the Ready revision to receive 100% traffic; refusing deployment verification."
+            exit 1
+          fi
+
+          REVISION_JSON="$(gcloud run revisions describe "$READY_REVISION" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --format='json(metadata.name,metadata.creationTimestamp,metadata.labels,spec.containers[].image,status.imageDigest,status.conditions)')"
+          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready")][0].status // empty' <<<"$REVISION_JSON")"
+          COMMIT_LABEL="$(jq -r '.metadata.labels["bridgehub-commit-sha"] // empty' <<<"$REVISION_JSON")"
+          RUN_LABEL="$(jq -r '.metadata.labels["bridgehub-workflow-run"] // empty' <<<"$REVISION_JSON")"
+          IMAGE_DIGEST="$(jq -r '.status.imageDigest // empty' <<<"$REVISION_JSON")"
+          IMAGE="$(jq -r '.spec.containers[0].image // empty' <<<"$REVISION_JSON")"
+          CREATED="$(jq -r '.metadata.creationTimestamp // empty' <<<"$REVISION_JSON")"
+          if [[ "$READY_STATUS" != "True" || "$COMMIT_LABEL" != "$COMMIT_SHA" || "$RUN_LABEL" != "$GITHUB_RUN_ID" || -z "$IMAGE_DIGEST" ]]; then
+            echo "Revision readiness or provenance labels did not match this workflow run."
+            exit 1
+          fi
+          echo "Verified deployment: service=$SERVICE_NAME region=$REGION revision=$READY_REVISION traffic_revision=$TRAFFIC_REVISION traffic_percent=100 commit_sha=$COMMIT_LABEL workflow_run=$RUN_LABEL image=$IMAGE image_digest=$IMAGE_DIGEST created=$CREATED"
 
       - name: Smoke test - health check
         run: |

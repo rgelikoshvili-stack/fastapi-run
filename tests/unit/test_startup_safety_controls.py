@@ -186,6 +186,9 @@ def test_lifespan_can_register_loops_without_scheduling_startup_maintenance(monk
     import main
 
     scheduled = []
+    async def harmless():
+        return None
+
     class FakeTask:
         def add_done_callback(self, callback):
             self.callback = callback
@@ -197,14 +200,16 @@ def test_lifespan_can_register_loops_without_scheduling_startup_maintenance(monk
 
     async def run_lifespan():
         with patch("app.api.services.auth_service.validate_jwt_secret_at_startup") as jwt_validate, \
-             patch.object(main, "_create_background_tasks", return_value=[FakeTask()]) as make_loops, \
+             patch.object(main, "autopilot_loop", harmless), \
+             patch.object(main, "decay_loop", harmless), \
+             patch.object(main, "email_poller_loop", harmless), \
+             patch.object(main, "_nbg_sync_loop", harmless), \
              patch.object(main, "_cancel_background_tasks", new_callable=AsyncMock):
             with patch("asyncio.create_task", side_effect=fake_create_task):
                 async with main.lifespan(main.app):
                     assert main.app.state.background_tasks
             jwt_validate.assert_called_once()
-            make_loops.assert_called_once()
-        assert scheduled == []
+        assert scheduled == ["autopilot_loop", "decay_loop", "email_poller_loop", "nbg_sync_loop"]
 
     asyncio.run(run_lifespan())
 

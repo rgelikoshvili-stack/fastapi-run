@@ -144,7 +144,8 @@ async def _mark_doc_status(doc_id: int, status: str, tenant_id: str):
     try:
         async with get_conn() as conn:
             await conn.execute(
-                _q("UPDATE processed_documents SET status=%s WHERE id=%s"), status, doc_id
+                _q("UPDATE processed_documents SET status=%s WHERE id=%s AND tenant_id=%s"),
+                status, doc_id, tenant_id,
             )
     except Exception as e:
         log.warning("_mark_doc_status failed: %s", e)
@@ -444,8 +445,9 @@ async def _process_document_background(
 
         async with get_conn() as conn:
             await conn.execute(_q(
-                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s WHERE id=%s"
-            ), (parsed.get("text") or "")[:10000], parsed.get("method"), doc_id)
+                "UPDATE processed_documents SET raw_text=%s, extraction_method=%s "
+                "WHERE id=%s AND tenant_id=%s"
+            ), (parsed.get("text") or "")[:10000], parsed.get("method"), doc_id, tenant_id)
 
         if extracted.document_series and extracted.document_number:
             async with get_conn() as conn:

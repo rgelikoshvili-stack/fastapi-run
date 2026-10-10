@@ -5,7 +5,7 @@ from typing import Optional, List
 
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
-from app.api.tenant_context import resolve_tenant_id
+from app.api.tenant_context import resolve_tenant_id, require_request_tenant_id
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
 from app.api.services.cache_service import cache_get, cache_set, cache_clear_prefix, CACHE_TTL
@@ -103,7 +103,7 @@ async def get_suggestions(request: Request, q: str = "", field: str = "partner")
 async def get_queue(request: Request, status: str = "", limit: int = 100, offset: int = 0, q: str = ""):
     require_permission(request, "approval:read")
     _validate_pagination(limit, offset)
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     return await get_queue_service(status, limit, offset, tenant_id=tenant_id, q=q)
 
 
@@ -235,7 +235,7 @@ async def delete_draft(draft_id: int, request: Request):
 async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
     """Save draft edits without changing status (no auto-approve)."""
     require_permission(request, "approval:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     log.info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
 
     fields, vals = [], []
@@ -558,7 +558,7 @@ async def attach_file_to_draft(draft_id: int, request: Request, file=None):
     """Attach a file to an existing journal draft."""
     require_permission(request, "approval:write")
     from app.api.services.storage_service import upload_file as gcs_upload, generate_signed_url
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
 
     form = await request.form()
     file = form.get("file")
@@ -601,7 +601,7 @@ async def get_draft_attachment(draft_id: int, request: Request):
     """Return signed URL or file info for a draft's attachment."""
     from app.api.services.storage_service import generate_signed_url, download_file
     from fastapi.responses import Response
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
 
     async with get_conn() as conn:
         row = await conn.fetchrow(_q(
@@ -709,4 +709,3 @@ async def list_awaiting_cfo(request: Request):
         r["amount"] = float(r["amount"] or 0)
 
     return ok_response("Drafts awaiting CFO approval", {"items": rows, "count": len(rows)})
-

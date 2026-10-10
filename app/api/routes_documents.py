@@ -12,7 +12,7 @@ import hashlib
 import logging
 from fastapi import APIRouter, UploadFile, File, Request, Query
 
-from app.api.tenant_context import resolve_tenant_id
+from app.api.tenant_context import require_request_tenant_id
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.db import get_conn, get_db, _q
 from app.api.security import limiter
@@ -55,7 +55,7 @@ def _mark_doc_status(doc_id: int, status: str, tenant_id: str) -> None:
 @limiter.limit("10/minute")
 async def upload_document(file: UploadFile = File(...), request: Request = None):
     require_permission(request, "ocr:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -67,7 +67,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
     # ── 1. Dedup by file hash ──────────────────────────────────────────────
     async with get_conn() as conn:
         existing_file = await conn.fetchrow(_q(
-            "SELECT id, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
+            "SELECT id, status, (file_content IS NOT NULL OR gcs_path IS NOT NULL) AS has_content "
             "FROM processed_documents WHERE tenant_id = %s AND file_hash = %s"
         ), tenant_id, file_hash)
 
@@ -79,14 +79,46 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
                 "WHERE source_document_id = %s AND tenant_id = %s ORDER BY id DESC LIMIT 1"
             ), doc_id_existing, tenant_id)
 
-        _terminal = {'rejected', 'posted', 'auto_approved'}
-        draft_is_terminal = (existing_draft is None) or (existing_draft["status"] in _terminal)
-
-        if not draft_is_terminal:
+        if existing_draft:
             return ok_response("Duplicate file", {
                 "status": "duplicate_file",
                 "message": "ეს ფაილი უკვე ატვირთულია",
-                "existing_draft_id": existing_draft["id"] if existing_draft else None,
+                "existing_draft_id": existing_draft["id"],
+                "existing_draft_status": existing_draft["status"],
+            })
+
+        if existing_file["status"] == "duplicate":
+            return http_error(
+                409,
+                "This document matches an existing draft and requires review there",
+                "DUPLICATE_DOCUMENT",
+            )
+
+        if existing_file["status"] != "failed":
+            if existing_file["status"] == "completed":
+                return http_error(
+                    409,
+                    "Document processing completed without a reviewable draft; manual review is required",
+                    "DRAFT_NOT_CREATED",
+                )
+            return ok_response("Document already processing", {
+                "status": "processing",
+                "doc_id": doc_id_existing,
+                "message": "ეს ფაილი უკვე მუშავდება",
+            })
+
+        # Claim a failed document atomically so concurrent retries cannot
+        # schedule multiple processors and create duplicate drafts.
+        async with get_conn() as conn:
+            claimed_doc_id = await conn.fetchval(_q(
+                "UPDATE processed_documents SET status = 'processing' "
+                "WHERE id = %s AND tenant_id = %s AND status = 'failed' RETURNING id"
+            ), doc_id_existing, tenant_id)
+        if not claimed_doc_id:
+            return ok_response("Document already processing", {
+                "status": "processing",
+                "doc_id": doc_id_existing,
+                "message": "ეს ფაილი უკვე მუშავდება",
             })
         asyncio.create_task(
             _process_document_background(doc_id_existing, tenant_id, file_bytes, mime_type, file.filename or "document")
@@ -166,7 +198,7 @@ async def upload_document(file: UploadFile = File(...), request: Request = None)
 async def upload_waybill(file: UploadFile = File(...), request: Request = None):
     """Upload a waybill (ზედნადები). Extracts fields + attempts triangle match."""
     require_permission(request, "ocr:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -230,7 +262,7 @@ async def upload_waybill(file: UploadFile = File(...), request: Request = None):
 async def upload_tax_invoice(file: UploadFile = File(...), request: Request = None):
     """Upload a tax invoice (საგადასახადო ანგარიშ-ფაქტურა)."""
     require_permission(request, "ocr:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -295,7 +327,7 @@ async def upload_tax_invoice(file: UploadFile = File(...), request: Request = No
 async def upload_commercial_invoice(file: UploadFile = File(...), request: Request = None):
     """Upload a commercial invoice (ანგარიში)."""
     require_permission(request, "ocr:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -362,7 +394,7 @@ async def list_triangle_matches(
     offset: int = Query(0, ge=0),
 ):
     """List triangle matches for tenant, optionally filtered by match_status."""
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     where = "WHERE tenant_id = %s"
     params: list = [tenant_id]
     if status:
@@ -395,7 +427,7 @@ async def list_waybills(
     offset: int = Query(0, ge=0),
 ):
     """List waybills with triangle-match status joined."""
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     conditions = ["w.tenant_id = %s"]
     params: list = [tenant_id]
     if status:
@@ -442,7 +474,7 @@ async def list_tax_invoices(
     offset: int = Query(0, ge=0),
 ):
     """List tax invoices with optional waybill link status."""
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     conditions = ["ti.tenant_id = %s"]
     params: list = [tenant_id]
     if status:
@@ -505,7 +537,7 @@ async def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Re
     if not recipient or "@" not in recipient:
         return error_response("Invalid email", "VALIDATION_ERROR", "სწორი ელ-ფოსტა შეიყვანეთ")
 
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     async with get_conn() as conn:
         inv = await conn.fetchrow(_q(
             "SELECT * FROM tax_invoices WHERE id = %s AND tenant_id = %s"
@@ -586,10 +618,10 @@ async def send_tax_invoice_email(invoice_id: int, data: _TIEmailReq, request: Re
 @router.get("/{doc_id}")
 async def get_document_meta(doc_id: int, request: Request = None):
     """Return extracted metadata for a processed document (no file bytes)."""
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
     async with get_conn() as conn:
         row = await conn.fetchrow(_q(
-            """SELECT id, file_name, mime_type, file_size_bytes, extraction_method,
+            """SELECT id, file_name, mime_type, file_size_bytes, extraction_method, status,
                       raw_text, extracted_data, created_at
                FROM processed_documents WHERE id = %s AND tenant_id = %s"""
         ), doc_id, tenant_id)
@@ -611,8 +643,13 @@ async def get_document_meta(doc_id: int, request: Request = None):
         "file_name": row["file_name"],
         "mime_type": row["mime_type"],
         "file_size_bytes": row["file_size_bytes"],
+        "status": row["status"],
         "extraction_method": row["extraction_method"],
         "extracted": extracted,
+        "processing_message": (
+            "Document extraction failed. Upload a clearer supported file or request operator review."
+            if row["status"] == "failed" else None
+        ),
         "created_at": str(row["created_at"]) if row["created_at"] else None,
     })
 
@@ -622,7 +659,7 @@ async def get_document_file(doc_id: int, request: Request = None):
     """Serve the original uploaded file bytes for invoice/document preview."""
     import time
     from fastapi.responses import Response
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
     async with get_conn() as conn:
         row = await conn.fetchrow(_q(
             "SELECT file_name, mime_type, gcs_path, file_content FROM processed_documents "
@@ -657,7 +694,7 @@ async def get_document_signed_url(doc_id: int, request: Request = None):
     """Return a short-lived GCS signed URL for direct browser preview.
     Falls back to {"signed_url": null, "fallback": true} when GCS is unavailable."""
     from app.api.services.storage_service import generate_signed_url
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None) if request else None)
+    tenant_id = require_request_tenant_id(request)
     async with get_conn() as conn:
         row = await conn.fetchrow(_q(
             "SELECT file_name, mime_type, gcs_path FROM processed_documents "

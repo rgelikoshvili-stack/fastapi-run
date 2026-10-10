@@ -1,0 +1,8 @@
+SYNTHETIC TEST FIXTURE — NOT A REAL INVOICE
+Invoice: TEST-2026-0042
+Date: 2026-10-01
+Seller: Example Stationery Ltd (SELLER-TEST-ID)
+Buyer: Example Customer (BUYER-TEST-ID)
+Line: Office supplies paper, quantity 1, net 120.00 GEL
+VAT: 24.00 GEL
+Total: 144.00 GEL

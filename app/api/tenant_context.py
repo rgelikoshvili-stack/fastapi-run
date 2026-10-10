@@ -31,3 +31,19 @@ def resolve_tenant_id(value: str | None) -> str:
     if tid.isdigit():
         tid = _inn_to_tenant_id(tid)
     return tid
+
+
+def require_request_tenant_id(request) -> str:
+    """Return the authenticated tenant bound to this request, never a default."""
+    from app.api.db import require_current_tenant_id
+
+    state_tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
+    try:
+        return require_current_tenant_id(state_tenant_id)
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "TENANT_REQUIRED", "message": "Authenticated tenant context is required"},
+        ) from exc

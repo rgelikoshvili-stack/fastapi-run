@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Path, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.tenant_context import resolve_tenant_id
+from app.api.tenant_context import resolve_tenant_id, require_request_tenant_id
 from app.api.authz import require_permission
 from app.api.security import limiter
 
@@ -160,7 +160,7 @@ async def preview_posting(
     draft_id: int = Path(...),
 ):
     require_permission(request, "posting:read")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_request_tenant_id(request)
     return await preview_posting_service(draft_id=draft_id, tenant_id=tenant_id)
 
 

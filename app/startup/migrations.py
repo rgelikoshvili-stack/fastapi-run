@@ -2,11 +2,22 @@
 import logging
 import os
 
+from app.startup.controls import migrations_enabled
+
 log = logging.getLogger(__name__)
 
 
 def run_db_migrations():
     """Safe startup migrations — CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS."""
+    try:
+        if not migrations_enabled():
+            log.info("action=db_migrations_skipped reason=startup_control")
+            return False
+    except ValueError:
+        # Ambiguous safety controls must never fall through to database work.
+        log.critical("action=db_migrations_skipped reason=invalid_startup_control")
+        return False
+
     try:
         from app.api.db import get_db_sync
         conn = get_db_sync()
@@ -261,6 +272,7 @@ def run_db_migrations():
         cur.close()
         conn.close()
         log.info("action=db_migration_ok")
+        return True
     except Exception as e:
         log.warning("action=db_migration_skipped reason=%s", e)
-
+        return None

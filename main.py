@@ -70,6 +70,11 @@ from app.api.services.email_collector import _ensure_tables as _ensure_email_tab
 from app.api.middleware.tenant_middleware import tenant_middleware
 from app.api.middleware.rbac_middleware import rbac_middleware
 from app.startup.background import autopilot_loop, decay_loop, email_poller_loop
+from app.startup.controls import (
+    migrations_enabled,
+    startup_maintenance_enabled,
+    startup_work_enabled,
+)
 from app.startup.migrations import run_db_migrations as _run_db_migrations
 
 log = logging.getLogger(__name__)
@@ -306,6 +311,10 @@ def _log_background_task_result(task: asyncio.Task) -> None:
 
 
 def _create_background_tasks() -> list[asyncio.Task]:
+    if not startup_work_enabled():
+        log.info("action=startup_work_skipped component=background_tasks")
+        return []
+
     tasks = [
         asyncio.create_task(autopilot_loop(), name="autopilot_loop"),
         asyncio.create_task(decay_loop(), name="decay_loop"),
@@ -325,6 +334,11 @@ async def _cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
 
 async def _run_startup_maintenance() -> None:
     """Run slow startup maintenance after the server starts listening."""
+    if not startup_maintenance_enabled():
+        log.info("action=startup_maintenance_skipped component=startup_maintenance")
+        return
+    allow_migrations = migrations_enabled()
+
     try:
         from app.api.db import get_pool
         await get_pool()
@@ -333,13 +347,13 @@ async def _run_startup_maintenance() -> None:
         log.warning("action=asyncpg_pool_init_failed non_fatal=true error=%s", e)
 
     loop = asyncio.get_running_loop()
-    if os.getenv("SKIP_MIGRATIONS", "false").lower() != "true":
+    if allow_migrations:
         try:
             await loop.run_in_executor(None, _run_db_migrations)
         except Exception:
             log.exception("action=db_migration_failed non_fatal=true")
     else:
-        log.info("action=db_migrations_skipped reason=SKIP_MIGRATIONS=true")
+        log.info("action=db_migrations_skipped reason=startup_control")
     try:
         await _ensure_email_tables()
         log.info("action=email_collector_tables_ready")
@@ -389,12 +403,21 @@ async def _run_startup_maintenance() -> None:
 async def lifespan(app: FastAPI):
     # ── startup ────────────────────────────────────────────────────────────────
     log.info("action=startup_begin")
+    startup_enabled = startup_work_enabled()
+    maintenance_enabled = startup_maintenance_enabled() if startup_enabled else False
+    # Validate every applicable control before creating workers. Invalid
+    # values fail startup closed rather than accidentally enabling side effects.
+    if startup_enabled:
+        migrations_enabled()
     from app.api.services.auth_service import validate_jwt_secret_at_startup
     validate_jwt_secret_at_startup()
-    background_tasks = _create_background_tasks()
-    maintenance_task = asyncio.create_task(_run_startup_maintenance(), name="startup_maintenance")
-    maintenance_task.add_done_callback(_log_background_task_result)
-    background_tasks.append(maintenance_task)
+    background_tasks = _create_background_tasks() if startup_enabled else []
+    if maintenance_enabled:
+        maintenance_task = asyncio.create_task(_run_startup_maintenance(), name="startup_maintenance")
+        maintenance_task.add_done_callback(_log_background_task_result)
+        background_tasks.append(maintenance_task)
+    else:
+        log.info("action=startup_maintenance_skipped component=startup_maintenance")
     app.state.background_tasks = background_tasks
 
     try:

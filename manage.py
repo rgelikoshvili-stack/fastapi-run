@@ -23,8 +23,13 @@ def cmd_migrate(args):
     from app.startup.migrations import run_db_migrations
     try:
         if not dry_run:
-            run_db_migrations()
-            log.info("Migrations complete.")
+            ran = run_db_migrations()
+            if ran is True:
+                log.info("Migrations complete.")
+            elif ran is False:
+                log.info("Migrations skipped by startup safety controls.")
+            else:
+                sys.exit(1)
         else:
             from app.api.db import get_db_sync
             conn = get_db_sync()

@@ -84,7 +84,7 @@ def test_live_run_calls_run_db_migrations(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@host/db")
     mod = _import_migrate()
 
-    mock_run_db = MagicMock()
+    mock_run_db = MagicMock(return_value=True)
     mock_migrations = types.ModuleType("app.startup.migrations")
     mock_migrations.run_db_migrations = mock_run_db
 

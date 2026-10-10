@@ -65,8 +65,13 @@ def live_run() -> None:
     log.info("running DDL migrations against %s...", host_hint)
 
     from app.startup.migrations import run_db_migrations
-    run_db_migrations()
-    log.info("action=migrate_ok")
+    ran = run_db_migrations()
+    if ran is True:
+        log.info("action=migrate_ok")
+    elif ran is False:
+        log.info("action=migrate_skipped reason=startup_control")
+    else:
+        sys.exit(1)
 
 
 def main() -> None:

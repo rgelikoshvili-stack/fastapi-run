@@ -235,9 +235,6 @@ async def delete_draft(draft_id: int, request: Request):
 async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request):
     """Save draft edits without changing status (no auto-approve)."""
     require_permission(request, "approval:write")
-    tenant_id = require_request_tenant_id(request)
-    log.info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
-
     fields, vals = [], []
     if req.description   is not None: fields.append("description = %s");   vals.append(req.description)
     if req.partner        is not None: fields.append("partner = %s");        vals.append(req.partner)
@@ -248,6 +245,8 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
     if req.reason         is not None: fields.append("reason = %s");         vals.append(req.reason)
     if not fields:
         return ok_response("No changes requested", {"draft_id": draft_id})
+    tenant_id = require_request_tenant_id(request)
+    log.info("action=update_draft draft_id=%s tenant=%s", draft_id, tenant_id)
     fields.append("updated_at = NOW()")
     vals += [draft_id, tenant_id]
     try:

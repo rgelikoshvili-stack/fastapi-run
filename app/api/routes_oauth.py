@@ -154,9 +154,9 @@ async def oauth_callback(
         return http_error(403, "Tenant membership required", "OAUTH_MEMBERSHIP_REQUIRED")
 
     role = existing["role"]
-    user_id = str(existing["id"])
-    if not user_id or user_id == "None" or not role:
+    if existing["id"] is None or not role:
         return http_error(403, "Incomplete tenant membership", "OAUTH_MEMBERSHIP_REQUIRED")
+    user_id = str(existing["id"])
 
     # Use the same identity/refresh claims as password-based login.
     claims = {"sub": user_id, "tenant_id": tenant_id, "role": role, "email": email}
@@ -165,10 +165,10 @@ async def oauth_callback(
     log.info("action=oauth_login provider=%s email=%s tenant=%s", provider, email, tenant_id)
 
     def _script_json(value: str) -> str:
-        # Prevent untrusted tenant strings from terminating the HTML <script> tag.
-        return (json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e")
-                .replace("&", "\\u0026").replace("\\u2028", "\\\\u2028")
-                .replace("\\u2029", "\\\\u2029"))
+        # Encode <, > and & to prevent closing the enclosing HTML script.
+        # json.dumps already escapes U+2028/U+2029 with ensure_ascii=True.
+        return (json.dumps(value).replace("<", "\\u003c")
+                .replace(">", "\\u003e").replace("&", "\\u0026"))
 
     page = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
 <script>

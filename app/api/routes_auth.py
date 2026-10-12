@@ -529,7 +529,8 @@ async def save_signature(data: SignatureRequest, request: Request):
 
 @router.get("/signature")
 async def get_signature(request: Request):
-    """Return tenant's saved signature image (base64)."""
+    """Return tenant's saved signature image (base64) to authorized settings editors."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT signature_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)
@@ -556,7 +557,8 @@ async def save_stamp(data: StampRequest, request: Request):
 
 @router.get("/stamp")
 async def get_stamp(request: Request):
-    """Return tenant's saved stamp image (base64)."""
+    """Return tenant's saved stamp image (base64) to authorized settings editors."""
+    require_permission(request, "settings:write")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT stamp_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)

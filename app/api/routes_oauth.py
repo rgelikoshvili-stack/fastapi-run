@@ -1,4 +1,6 @@
 """app/api/routes_oauth.py — Google / Microsoft SSO, OAuth 2.0 code flow."""
+import html
+import json
 import logging
 import os
 import secrets
@@ -98,6 +100,9 @@ async def oauth_callback(
     tenant_id = _consume_state(state)
     if tenant_id is None:
         return http_error(400, "State expired or already used", "OAUTH_STATE_INVALID")
+    if (not isinstance(tenant_id, str) or not tenant_id.strip() or
+            tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
+        return http_error(403, "Explicit tenant membership required", "OAUTH_MEMBERSHIP_REQUIRED")
 
     cfg = _PROVIDERS[provider]
     client_id = os.environ.get(cfg["client_id_env"], "")
@@ -131,46 +136,51 @@ async def oauth_callback(
     name = info.get("name") or info.get("displayName") or email
     if not email:
         return http_error(400, "Provider did not return email", "OAUTH_NO_EMAIL")
+    if provider == "google" and info.get("email_verified") is not True:
+        return http_error(403, "Google email is not verified", "OAUTH_EMAIL_NOT_VERIFIED")
 
+    # An OAuth identity is NOT an invitation to join a tenant.
+    # Membership must already exist and be active; do not INSERT, UPSERT, or DDL here.
     try:
         async with get_conn() as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(32)"
-                )
-                existing = await conn.fetchrow(_q(
-                    "SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
-                ), email, tenant_id)
-                if not existing:
-                    row = await conn.fetchrow(_q("""
-                        INSERT INTO users (email, password_hash, tenant_id, role, oauth_provider)
-                        VALUES (%s, %s, %s, 'accountant', %s)
-                        ON CONFLICT (email, tenant_id) DO UPDATE
-                            SET oauth_provider = EXCLUDED.oauth_provider
-                        RETURNING id, role
-                    """), email, secrets.token_hex(32), tenant_id, provider)
-                    role = row["role"] if row else "accountant"
-                else:
-                    role = existing["role"]
-    except Exception as e:
-        log.warning("oauth_user_upsert failed: %s", e)
-        return http_error(500, "User persistence failed", "DB_ERROR")
+            existing = await conn.fetchrow(_q(
+                "SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
+            ), email, tenant_id)
+    except Exception:
+        log.exception("oauth_membership_lookup_failed provider=%s", provider)
+        return http_error(500, "Membership lookup failed", "DB_ERROR")
+    if not existing:
+        log.warning("oauth_tenant_membership_denied provider=%s tenant=%s", provider, tenant_id)
+        return http_error(403, "Tenant membership required", "OAUTH_MEMBERSHIP_REQUIRED")
 
-    jwt_access  = create_access_token({"sub": email, "tenant_id": tenant_id, "role": role or "accountant"})
-    jwt_refresh = create_refresh_token({"sub": email, "tenant_id": tenant_id})
+    role = existing["role"]
+    user_id = str(existing["id"])
+    if not user_id or user_id == "None" or not role:
+        return http_error(403, "Incomplete tenant membership", "OAUTH_MEMBERSHIP_REQUIRED")
+
+    # Use the same identity/refresh claims as password-based login.
+    claims = {"sub": user_id, "tenant_id": tenant_id, "role": role, "email": email}
+    jwt_access = create_access_token(claims)
+    jwt_refresh = create_refresh_token(claims)
     log.info("action=oauth_login provider=%s email=%s tenant=%s", provider, email, tenant_id)
 
-    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+    def _script_json(value: str) -> str:
+        # Prevent untrusted tenant strings from terminating the HTML <script> tag.
+        return (json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e")
+                .replace("&", "\\u0026").replace("\\u2028", "\\\\u2028")
+                .replace("\\u2029", "\\\\u2029"))
+
+    page = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
 <script>
-localStorage.setItem('access_token', {repr(jwt_access)});
-localStorage.setItem('refresh_token', {repr(jwt_refresh)});
-localStorage.setItem('tenant_id', {repr(tenant_id)});
+localStorage.setItem('access_token', {_script_json(jwt_access)});
+localStorage.setItem('refresh_token', {_script_json(jwt_refresh)});
+localStorage.setItem('tenant_id', {_script_json(tenant_id)});
 window.location.replace('/');
 </script></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px">
-  <p>Logging in as <strong>{name}</strong>…</p>
+  <p>Logging in as <strong>{html.escape(str(name))}</strong>…</p>
 </body></html>"""
-    return HTMLResponse(html)
+    return HTMLResponse(page)
 
 
 @router.get("/providers")

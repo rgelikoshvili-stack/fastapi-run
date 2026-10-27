@@ -16,8 +16,8 @@
 Last fully verified commit after wiring the Chat166 test into CI and correcting test Request fixtures:
 `165110c9faea180f4949857955838ec3425edbfb`.
 
-- [PostgreSQL 15+16 disposable CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40524133171): **80 passed** on PostgreSQL 15, **80 passed** on PostgreSQL 16 (test results verified from logs, action URL should be independently checked in PR checks).
-- [Full backend test CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40524133332): **7,946 passed, 3 skipped**, and one extra integration smoke pass (action URL should be independently checked in PR checks).
+- [PostgreSQL 15+16 disposable CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40524009886): **80 passed** on PostgreSQL 15, **80 passed** on PostgreSQL 16 (verified directly from CI job logs).
+- [Full backend test CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40524009760): **7,946 passed, 3 skipped**, and one extra integration smoke pass (verified directly from CI job logs).
 - Frontend Build, RLS fail-closed disposable PostgreSQL and tenant-membership disposable PostgreSQL: all **PASS**.
 - Deploy: **SKIPPED**, no Production deployment.
 - Earlier CI initially failed because Chat166 test code passed `SimpleNamespace` to a SlowAPI-decorated route, which requires a real Starlette `Request`. Corrected in isolated test code; final PostgreSQL 15/16 matrix and full tests passed.

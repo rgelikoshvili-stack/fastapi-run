@@ -1,7 +1,7 @@
 # Bridge Hub — Chat172 SlowAPI shared-Redis fail-closed gate
 
 **Date:** 2026-10-28. **Scope:** Draft PR #154 ONLY; release decision **HOLD**.
-**Last code SHA verified by GitHub CI:** `d3be28f52fae236fefeed3c52f22b673a091b23c`.
+**Last code SHA verified by GitHub CI:** `0a7882bd8ef8008cb8f0ab3a4407bc231a16222f`.
 No updates to `main`, Production Cloud Run/Cloud SQL/Redis, runtime flags,
 production secrets, or original Windows Git/index/ACLs.
 
@@ -49,20 +49,20 @@ https://github.com/laurentS/slowapi/blob/v0.1.9/slowapi/middleware.py
   namespaced synthetic test keys, never uses FLUSHDB.
 - Updated both GitHub Actions matrix workflows to run the above tests.
 
-## Verified evidence — code SHA d3be28f...
+## Verified evidence — code SHA 0a7882b...
 
-- [Disposable Redis 7 CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596317055):
-  **209 passed**; actual two-client shared SlowAPI quota plus category
+- [Disposable Redis 7 CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596774454):
+  **210 passed**; actual two-client shared SlowAPI quota plus category
   atomic/outage and 3/minute / 5/minute decorator contract tests.
-- [Disposable PG15 / PG16 CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596317021):
-  **161 passed on PostgreSQL 15**, **161 passed on PostgreSQL 16**.
-- [Backend and frontend CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596317073):
-  backend **8,022 passed, 3 skipped**, additional smoke **1 passed**,
+- [Disposable PG15 / PG16 CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596774421):
+  **162 passed on PostgreSQL 15**, **162 passed on PostgreSQL 16**.
+- [Backend and frontend CI](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596774434):
+  backend **8,023 passed, 3 skipped**, additional smoke **1 passed**,
   frontend build PASS. Actual deployment job must remain **SKIPPED**
   for Draft PR (verify before using this evidence for promotion).
-- [Tenant membership](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596317134):
+- [Tenant membership](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596774460):
   PASS.
-- [Fail-closed financial RLS](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596317250):
+- [Fail-closed financial RLS](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40596774488):
   PASS.
 
 ## Staging gate and release blockers

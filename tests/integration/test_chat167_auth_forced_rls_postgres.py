@@ -266,8 +266,9 @@ async def test_forgot_and_reset_nonowner_forced_rls_preserves_other_tenant(auth_
         "https", "bridge.example.test", "/static/reset_password.html"
     )
     assert "reset-link-attacker" not in sent[0][1]
-    token = parse_qs(link.query)["token"][0]
-    assert parse_qs(link.query)["tenant_id"] == ["t_alpha"]
+    assert link.query == ""  # secret is not sent to the HTTP server
+    token = parse_qs(link.fragment)["token"][0]
+    assert parse_qs(link.fragment)["tenant_id"] == ["t_alpha"]
     async with auth_db["admin"].acquire() as conn:
         stored = await conn.fetchval(
             "SELECT token FROM password_reset_tokens "

@@ -4,15 +4,14 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from app.api.client_ip import client_ip_for_rate_limit
 
 log = logging.getLogger(__name__)
 
 
 def _real_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # SlowAPI and the category limiter must use the same verified identity.
+    return client_ip_for_rate_limit(request)
 
 
 def _make_limiter() -> Limiter:

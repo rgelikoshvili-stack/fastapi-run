@@ -30,8 +30,10 @@ class GuardedSlowAPILimiter(Limiter):
         self._shared_unavailable_on_startup = unavailable
         super().__init__(*args, **kwargs)
         if _shared_storage_required():
-            # SlowAPI may read inherited settings from .env. Never silently
-            # enable its per-replica in-memory fallback in strict mode.
+            # SlowAPI can also read RATELIMIT_ENABLED from an inherited .env.
+            # Do not permit a config file to disable strict route-specific
+            # limits or enable process-local memory fallback in Production.
+            self.enabled = True
             self._in_memory_fallback_enabled = False
             self._fallback_limiter = None
             self._swallow_errors = False

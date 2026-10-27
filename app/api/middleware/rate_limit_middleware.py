@@ -22,6 +22,7 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from app.api.client_ip import client_ip_for_rate_limit
 
 from app.api.services.rate_limit_policy_service import (
     RateLimitCategory,
@@ -67,10 +68,8 @@ def _is_always_safe(path: str) -> bool:
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # Share the exact same trusted-proxy logic as the SlowAPI limiter.
+    return client_ip_for_rate_limit(request)
 
 
 async def rate_limit_middleware(request: Request, call_next: Any):
@@ -96,24 +95,16 @@ async def rate_limit_middleware(request: Request, call_next: Any):
     if category == RateLimitCategory.SAFE or not is_rate_limited_category(category):
         return await call_next(request)
 
-    # AUTH endpoints (including OAuth login/callback) are anonymous.
-    # Never use client-supplied X-Tenant-ID or arbitrary X-Forwarded-For for
-    # their quota key: either would let an attacker rotate the quota bucket.
-    # The direct connection peer is the conservative non-spoofable default;
-    # behind a proxy it can group clients together, so verify the origin
-    # topology and use an upstream edge rate limit before production release.
+    # AUTH endpoints never use unsigned tenant hints or a client-spoofable
+    # forwarded IP. Only explicit trusted socket proxies may supply XFF,
+    # resolved right-to-left; otherwise the socket peer is the quota key.
     if category == RateLimitCategory.AUTH:
         tenant_id = None
         user_id = None
-        client_ip = (
-            request.client.host
-            if request.client is not None and request.client.host
-            else "unknown"
-        )
     else:
         tenant_id = getattr(request.state, "tenant_id", None)
         user_id = getattr(request.state, "user_id", None)
-        client_ip = _get_client_ip(request)
+    client_ip = _get_client_ip(request)
 
     key = build_rate_limit_key(tenant_id, user_id, client_ip, category)
     rule = get_rate_limit_rule(category)

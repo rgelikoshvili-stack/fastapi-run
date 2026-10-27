@@ -111,6 +111,24 @@ def test_new_key_expires_and_can_reopen_window(disposable_redis):
     assert again.allowed and again.remaining == 1 and again.backend == "redis"
 
 
+def test_traffic_near_window_expiry_must_not_extend_ttl(disposable_redis):
+    """Repeated over-quota traffic must not convert a fixed window to a lockout."""
+    dsn, client, new_key = disposable_redis
+    key = new_key()
+    limiter = RedisRateLimiterBackend(dsn, require_shared=True)
+    rule = _rule(limit=1, window=2)
+
+    assert limiter.check(key, rule).allowed
+    time.sleep(1.65)
+    # Redis TTL rounds down to 0 near the end of this two-second window.
+    assert client.pttl(key) > 0
+    assert not limiter.check(key, rule).allowed
+    time.sleep(0.65)
+    # Expiration remains tied to the FIRST request, not last request.
+    assert client.get(key) is None
+    assert limiter.check(key, rule).allowed
+
+
 def test_strict_mode_does_not_reset_shared_quota_on_redis_error(disposable_redis):
     dsn, client, new_key = disposable_redis
     key = new_key()

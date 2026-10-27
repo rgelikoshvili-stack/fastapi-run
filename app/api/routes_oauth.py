@@ -20,6 +20,28 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
 
 _STATE_TTL = 600  # seconds
+_STATE_PURGE_BATCH = 128  # bounded cleanup, avoids unbounded delete locks
+
+
+async def _purge_expired_states(conn) -> None:
+    """Remove at most one indexed batch during login; safe under concurrency.
+
+    This is opportunistic cleanup, not a time-based scheduled job: expired
+    rows with no new login traffic still require an approved periodic job.
+    """
+    await conn.execute(
+        _q(
+            "WITH stale AS ("
+            " SELECT state_hash FROM oauth_login_states"
+            " WHERE expires_at <= NOW()"
+            " ORDER BY expires_at"
+            " LIMIT %s FOR UPDATE SKIP LOCKED"
+            ")"
+            " DELETE FROM oauth_login_states AS states USING stale"
+            " WHERE states.state_hash = stale.state_hash"
+        ),
+        _STATE_PURGE_BATCH,
+    )
 
 
 async def _issue_state(tenant_id: str, provider: str) -> str:
@@ -32,6 +54,7 @@ async def _issue_state(tenant_id: str, provider: str) -> str:
     state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
     expiry = datetime.now(timezone.utc) + timedelta(seconds=_STATE_TTL)
     async with get_conn() as conn:
+        await _purge_expired_states(conn)
         await conn.execute(
             _q(
                 "INSERT INTO oauth_login_states (state_hash, tenant_id, provider, expires_at) "

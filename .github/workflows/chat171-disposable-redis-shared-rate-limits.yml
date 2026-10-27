@@ -8,9 +8,13 @@ on:
       - "app/api/services/rate_limit_policy_service.py"
       - "app/api/middleware/rate_limit_middleware.py"
       - "app/api/security.py"
+      - "app/api/slowapi_shared_guard.py"
+      - "main.py"
       - "app/api/client_ip.py"
       - "tests/unit/test_chat171_shared_rate_limit_fail_closed.py"
       - "tests/integration/test_chat171_redis_shared_rate_limits.py"
+      - "tests/integration/test_chat172_slowapi_redis_shared.py"
+      - "tests/unit/test_chat172_slowapi_shared_guard.py"
       - "tests/unit/test_rate_limiter_service.py"
       - "tests/unit/test_rate_limit_middleware.py"
       - ".github/workflows/chat171-disposable-redis-shared-rate-limits.yml"
@@ -55,6 +59,8 @@ jobs:
         run: >-
           python -m pytest
           tests/integration/test_chat171_redis_shared_rate_limits.py
+          tests/integration/test_chat172_slowapi_redis_shared.py
+          tests/unit/test_chat172_slowapi_shared_guard.py
           tests/unit/test_chat171_shared_rate_limit_fail_closed.py
           tests/unit/test_rate_limiter_service.py
           tests/unit/test_rate_limit_policy_service.py

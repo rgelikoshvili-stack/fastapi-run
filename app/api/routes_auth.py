@@ -370,39 +370,47 @@ async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
 @router.post("/reset-password")
 @limiter.limit("5/minute")
 async def auth_reset_password(data: ResetPasswordRequest, request: Request):
-    """Validate reset token and update password."""
+    """Atomically consume a reset token and rotate the user's session version.
+
+    A concurrent reuse waits for the first transaction's row lock, then
+    observes used=TRUE and cannot apply a second password update.
+    """
+    version_enabled = jwt_session_version_enabled()
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT email, tenant_id, expires_at, used FROM password_reset_tokens WHERE token = %s"
+                "SELECT email, tenant_id, expires_at, used "
+                "FROM password_reset_tokens WHERE token=%s FOR UPDATE"
             ), data.token)
+            if not row:
+                return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
+            if row["used"]:
+                return error_response("Token used", "TOKEN_USED", "ეს ლინკი უკვე გამოყენებულია")
+            if datetime.utcnow() > row["expires_at"]:
+                return error_response("Token expired", "TOKEN_EXPIRED", "ლინკის ვადა გასულია — ახალი მოითხოვეთ")
 
-        if not row:
-            return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
-        email = row["email"]
-        tenant_id = row["tenant_id"]
-        expires_at = row["expires_at"]
-        used = row["used"]
-        if used:
-            return error_response("Token used", "TOKEN_USED", "ეს ლინკი უკვე გამოყენებულია")
-        if datetime.utcnow() > expires_at:
-            return error_response("Token expired", "TOKEN_EXPIRED", "ლინკის ვადა გასულია — ახალი მოითხოვეთ")
-
-        new_hash = hash_password(data.new_password)
-        async with get_conn() as conn:
-            await conn.execute(_q(
-                "UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s"
+            email, tenant_id = row["email"], row["tenant_id"]
+            new_hash = hash_password(data.new_password)
+            set_clause = (
+                "password_hash=%s, auth_version=auth_version+1"
+                if version_enabled else "password_hash=%s"
+            )
+            updated = await conn.fetchrow(_q(
+                f"UPDATE users SET {set_clause} "
+                "WHERE email=%s AND tenant_id=%s AND is_active=TRUE RETURNING id"
             ), new_hash, email, tenant_id)
+            if not updated:
+                return error_response("User not found", "NOT_FOUND", "მომხმარებელი ვერ მოიძებნა")
+
             await conn.execute(_q(
                 "UPDATE password_reset_tokens SET used=TRUE WHERE token=%s"
             ), data.token)
 
         log.info("action=password_reset_success email=%s tenant=%s", email, tenant_id)
         return ok_response("პაროლი წარმატებით შეიცვალა", {"email": email, "tenant_id": tenant_id})
-
-    except Exception as e:
-        log.error("action=reset_password_error: %s", e)
-        return error_response("Error", "RESET_ERROR", str(e))
+    except Exception:
+        log.exception("action=reset_password_error")
+        return error_response("Error", "RESET_ERROR", "Password reset failed")
 
 
 class CompanyProfileRequest(BaseModel):
@@ -485,7 +493,7 @@ async def update_company_profile(data: CompanyProfileRequest, request: Request, 
 @router.post("/change-password")
 @limiter.limit("5/minute")
 async def auth_change_password(data: ChangePasswordRequest, request: Request, authorization: Optional[str] = Header(None)):
-    """Change password for logged-in user."""
+    """Change password and, when enabled, revoke all old JWTs atomically."""
     token = _extract_bearer_token(authorization)
     if not token:
         return error_response("Unauthorized", "AUTH_ERROR", "Missing bearer token")
@@ -495,17 +503,52 @@ async def auth_change_password(data: ChangePasswordRequest, request: Request, au
 
     email = payload.get("email")
     tenant_id = payload.get("tenant_id", "default")
-    user = await get_user(email, tenant_id)
-    if not user:
-        return error_response("User not found", "NOT_FOUND", "მომხმარებელი ვერ მოიძებნა")
-    if not verify_password(data.current_password, user["password_hash"]):
-        return error_response("Wrong password", "AUTH_ERROR", "მიმდინარე პაროლი არასწორია")
-
-    new_hash = hash_password(data.new_password)
-    async with get_conn() as conn:
-        await conn.execute(_q(
-            "UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s"
-        ), new_hash, email, tenant_id)
+    if jwt_session_version_enabled():
+        # Authenticate the exact signed membership and lock the user row
+        # before comparing the old password and incrementing auth_version.
+        subject = payload.get("sub")
+        claim_version = payload.get("auth_version")
+        if (
+            not isinstance(subject, str) or not subject.isascii()
+            or not subject.isdecimal() or not 0 < len(subject) <= 18
+            or int(subject) <= 0
+            or not isinstance(tenant_id, str) or not tenant_id
+            or tenant_id != tenant_id.strip()
+            or tenant_id.casefold() == "default"
+            or not isinstance(email, str) or not email.strip()
+            or type(claim_version) is not int or claim_version < 1
+        ):
+            return http_error(401, "Invalid session", "AUTH_MEMBERSHIP_REVOKED")
+        try:
+            async with get_conn() as conn:
+                user = await conn.fetchrow(_q(
+                    "SELECT id, password_hash, auth_version FROM users "
+                    "WHERE id=%s AND email=%s AND tenant_id=%s AND is_active=TRUE FOR UPDATE"
+                ), int(subject), email, tenant_id)
+                if not user or user["auth_version"] != claim_version:
+                    return http_error(401, "Session was revoked", "AUTH_MEMBERSHIP_REVOKED")
+                if not verify_password(data.current_password, user["password_hash"]):
+                    return error_response("Wrong password", "AUTH_ERROR", "მიმდინარე პაროლი არასწორია")
+                new_hash = hash_password(data.new_password)
+                await conn.execute(_q(
+                    "UPDATE users SET password_hash=%s, auth_version=auth_version+1 "
+                    "WHERE id=%s AND tenant_id=%s"
+                ), new_hash, int(subject), tenant_id)
+        except Exception:
+            log.exception("action=change_password_db_failure")
+            return http_error(503, "Password service unavailable", "PASSWORD_CHANGE_UNAVAILABLE")
+    else:
+        # Legacy path remains intact until migration 015 and staging rollout.
+        user = await get_user(email, tenant_id)
+        if not user:
+            return error_response("User not found", "NOT_FOUND", "მომხმარებელი ვერ მოიძებნა")
+        if not verify_password(data.current_password, user["password_hash"]):
+            return error_response("Wrong password", "AUTH_ERROR", "მიმდინარე პაროლი არასწორია")
+        new_hash = hash_password(data.new_password)
+        async with get_conn() as conn:
+            await conn.execute(_q(
+                "UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s"
+            ), new_hash, email, tenant_id)
 
     log.info("action=change_password_success email=%s tenant=%s", email, tenant_id)
     return ok_response("პაროლი წარმატებით შეიცვალა", {})

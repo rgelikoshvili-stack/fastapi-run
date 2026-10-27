@@ -167,6 +167,68 @@ def verify_token(token: str, expected_type: str = "access") -> dict | None:
         return None
 
 
+def access_membership_check_enabled() -> bool:
+    """Explicit release gate for per-request JWT revocation validation.
+
+    Keep disabled until the real DB schema, throughput and failure behavior
+    have passed staging. A release MUST deliberately set this to '1'.
+    """
+    return os.environ.get("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "0") == "1"
+
+
+async def verify_live_access_membership(payload: dict) -> bool:
+    """Verify a signed access claim still matches an active tenant member.
+
+    Called only after signature/type/expiration verification. Database errors
+    propagate so callers can respond 503 (fail closed), not accept a token
+    whose current membership cannot be established.
+    """
+    if not isinstance(payload, dict):
+        return False
+    subject = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    email = payload.get("email")
+    role = payload.get("role")
+    if (
+        not isinstance(subject, str)
+        or not subject.isascii()
+        or not subject.isdecimal()
+        or not 0 < len(subject) <= 18
+        or int(subject) <= 0
+        or not isinstance(tenant_id, str)
+        or not tenant_id
+        or tenant_id != tenant_id.strip()
+        or tenant_id.casefold() == "default"
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(role, str)
+        or not role.strip()
+    ):
+        return False
+
+    from app.api.db import _q, get_conn, tenant_db_context
+
+    async with tenant_db_context(tenant_id):
+        async with get_conn() as conn:
+            current = await conn.fetchrow(
+                _q(
+                    "SELECT id, email, role, tenant_id FROM users "
+                    "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
+                ),
+                int(subject),
+                tenant_id,
+            )
+    if not current:
+        return False
+    return (
+        str(current["id"]) == subject
+        and current["tenant_id"] == tenant_id
+        and current["role"] == role
+        and isinstance(current["email"], str)
+        and current["email"].casefold() == email.casefold()
+    )
+
+
 async def refresh_token(refresh_token_value: str) -> dict | None:
     """Renew tokens only while the signed user's tenant membership is active.
 

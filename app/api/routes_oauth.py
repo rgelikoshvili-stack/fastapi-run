@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
-from app.api.services.auth_service import create_access_token, create_refresh_token
+from app.api.services.auth_service import create_access_token, create_refresh_token, jwt_session_version_enabled
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
@@ -197,10 +197,12 @@ async def oauth_callback(
 
     # An OAuth identity is NOT an invitation to join a tenant.
     # Membership must already exist and be active; do not INSERT, UPSERT, or DDL here.
+    version_enabled = jwt_session_version_enabled()
+    columns = "id, role, auth_version" if version_enabled else "id, role"
     try:
         async with get_conn() as conn:
             existing = await conn.fetchrow(_q(
-                "SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
+                f"SELECT {columns} FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
             ), email, tenant_id)
     except Exception:
         log.exception("oauth_membership_lookup_failed provider=%s", provider)
@@ -216,6 +218,8 @@ async def oauth_callback(
 
     # Use the same identity/refresh claims as password-based login.
     claims = {"sub": user_id, "tenant_id": tenant_id, "role": role, "email": email}
+    if version_enabled:
+        claims["auth_version"] = existing["auth_version"]
     jwt_access = create_access_token(claims)
     jwt_refresh = create_refresh_token(claims)
     log.info("action=oauth_login provider=%s email=%s tenant=%s", provider, email, tenant_id)

@@ -277,6 +277,15 @@ async def test_forgot_and_reset_nonowner_forced_rls_preserves_other_tenant(auth_
         )
         assert stored == routes_auth._reset_token_storage_key(token)
         assert stored.startswith("sha256:") and token not in stored
+    # A leaked database digest cannot be replayed as the raw reset code.
+    digest_replay = await routes_auth.auth_reset_password(
+        ResetPasswordRequest(
+            token=stored, new_password="MustNotChangeWithDigest123!"
+        ),
+        request("/auth/reset-password", "127.0.0.170"),
+    )
+    assert digest_replay["ok"] is False
+    assert digest_replay["error"]["code"] == "INVALID_TOKEN"
     a = await auth_service.login(_EMAIL, _OLD_PASSWORD, "t_alpha")
     b = await auth_service.login(_EMAIL, _OLD_PASSWORD, "t_beta")
     reset = await routes_auth.auth_reset_password(

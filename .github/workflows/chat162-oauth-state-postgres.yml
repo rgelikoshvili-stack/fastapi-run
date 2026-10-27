@@ -15,6 +15,7 @@ on:
       - "tests/integration/test_chat162_oauth_state_postgres.py"
       - "tests/integration/test_chat165_auth_staging_readiness_postgres.py"
       - "tests/integration/test_chat166_session_version_postgres.py"
+      - "tests/integration/test_chat167_auth_forced_rls_postgres.py"
       - "tests/unit/test_chat161_oauth_state.py"
       - "tests/unit/test_chat161_refresh_membership.py"
       - "tests/unit/test_chat164_live_access_revocation.py"
@@ -67,6 +68,7 @@ jobs:
           tests/integration/test_chat162_oauth_state_postgres.py
           tests/integration/test_chat165_auth_staging_readiness_postgres.py
           tests/integration/test_chat166_session_version_postgres.py
+          tests/integration/test_chat167_auth_forced_rls_postgres.py
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py

@@ -14,7 +14,7 @@ from app.api.models.user import create_user, create_users_table, get_user, hash_
 from app.api.services.auth_service import ACCESS_TOKEN_EXPIRE_HOURS, login, verify_token, refresh_token, create_access_token, create_refresh_token, jwt_session_version_enabled
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
 from app.api.observability import structured_log
@@ -346,7 +346,17 @@ async def auth_refresh(data: RefreshRequest):
 async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
     """Generate a reset token and send email. Always returns ok (security — don't leak email existence)."""
     try:
-        user = await get_user(data.email, data.tenant_id)
+        # The tenant hint is used only to scope a public credential-recovery
+        # lookup; possession of the emailed one-time token is required to reset.
+        if (
+            isinstance(data.tenant_id, str) and data.tenant_id
+            and data.tenant_id == data.tenant_id.strip()
+            and data.tenant_id.casefold() != "default"
+        ):
+            async with tenant_db_context(data.tenant_id):
+                user = await get_user(data.email, data.tenant_id)
+        else:
+            user = await get_user(data.email, data.tenant_id)
         if user:
             token = secrets.token_urlsafe(48)
             expires = datetime.utcnow() + timedelta(hours=1)
@@ -530,6 +540,11 @@ async def auth_change_password(data: ChangePasswordRequest, request: Request, au
             return http_error(401, "Invalid session", "AUTH_MEMBERSHIP_REVOKED")
         try:
             async with get_conn() as conn:
+                # Signed JWT tenant; transaction-local for direct handler calls
+                # and for an unprivileged runtime role with forced user RLS.
+                await conn.execute(
+                    "SELECT set_config('app.current_tenant_id', $1, true)", tenant_id
+                )
                 user = await conn.fetchrow(_q(
                     "SELECT id, password_hash, auth_version FROM users "
                     "WHERE id=%s AND email=%s AND tenant_id=%s AND is_active=TRUE FOR UPDATE"
@@ -555,6 +570,14 @@ async def auth_change_password(data: ChangePasswordRequest, request: Request, au
             return error_response("Wrong password", "AUTH_ERROR", "მიმდინარე პაროლი არასწორია")
         new_hash = hash_password(data.new_password)
         async with get_conn() as conn:
+            if (
+                isinstance(tenant_id, str) and tenant_id
+                and tenant_id == tenant_id.strip()
+                and tenant_id.casefold() != "default"
+            ):
+                await conn.execute(
+                    "SELECT set_config('app.current_tenant_id', $1, true)", tenant_id
+                )
             await conn.execute(_q(
                 "UPDATE users SET password_hash=%s WHERE email=%s AND tenant_id=%s"
             ), new_hash, email, tenant_id)

@@ -4,6 +4,7 @@ No production network, database, SMTP, Cloud Run or Cloud SQL access.
 The disposable PG15/16 forced-RLS tests cover actual token issuance/replay.
 """
 from email import message_from_string
+from pathlib import Path
 
 import pytest
 from starlette.requests import Request
@@ -20,6 +21,13 @@ def synthetic_request(ip="127.0.0.191"):
         "client": (ip, 45678), "server": ("127.0.0.1", 80),
         "http_version": "1.1",
     })
+
+
+def test_reset_page_supports_private_fragment_and_legacy_query_links():
+    html = Path("static/reset_password.html").read_text(encoding="utf-8")
+    assert '<meta name="referrer" content="no-referrer"/>' in html
+    assert "location.hash ? location.hash.slice(1) : location.search.slice(1)" in html
+    assert "history.replaceState" in html
 
 
 def test_new_reset_token_is_digest_and_fits_existing_column():

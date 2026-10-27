@@ -431,7 +431,9 @@ async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
                 ), token_key, data.email, data.tenant_id, expires)
 
             query = urlencode({"token": token, "tenant_id": data.tenant_id})
-            reset_link = f"{base_url}/static/reset_password.html?{query}"
+            # New links use URL fragments so raw secrets never reach web-server
+            # query logs/referrers. The static page accepts legacy query links.
+            reset_link = f"{base_url}/static/reset_password.html#{query}"
             _send_reset_email(data.email, reset_link)
             log.info("action=forgot_password_accepted")
 

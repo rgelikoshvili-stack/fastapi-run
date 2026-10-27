@@ -12,9 +12,13 @@ class FakeConn:
     def __init__(self):
         self.inserts = []
         self.deletes = []
+        self.cleanup_calls = []
         self.states = {}
 
     async def execute(self, sql, *args):
+        if "WITH stale AS" in sql:
+            self.cleanup_calls.append((sql, args))
+            return "DELETE 0"
         self.inserts.append((sql, args))
         digest, tenant, provider, expiry = args
         self.states[(digest, provider)] = (tenant, expiry)
@@ -71,3 +75,15 @@ async def test_login_fails_closed_when_state_store_is_missing(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "synthetic-client")
     result = await routes_oauth.oauth_login("google", SimpleNamespace(base_url="https://example.test/"), tenant_id="t_alpha")
     assert result.status_code == 503
+
+@pytest.mark.asyncio
+async def test_issue_state_cleans_only_a_bounded_expired_batch(state_store):
+    await routes_oauth._issue_state("t_alpha", "google")
+    assert len(state_store.cleanup_calls) == 1
+    sql, args = state_store.cleanup_calls[0]
+    assert args == (128,)
+    assert "expires_at <= NOW()" in sql
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "ORDER BY expires_at" in sql
+    assert len(state_store.inserts) == 1
+

@@ -57,6 +57,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS, SECURITY_HEADERS_STATIC
+from app.api.slowapi_shared_guard import (
+    SharedRateLimitStoreUnavailable,
+    shared_rate_limit_unavailable_handler,
+)
 
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -219,6 +223,11 @@ app.add_middleware(
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# SlowAPI 0.1.9's middleware incorrectly dispatches ordinary Redis exceptions
+# to a 429-only handler; the guarded limiter raises a dedicated safe 503.
+app.add_exception_handler(
+    SharedRateLimitStoreUnavailable, shared_rate_limit_unavailable_handler
+)
 app.add_middleware(SlowAPIMiddleware)
 
 

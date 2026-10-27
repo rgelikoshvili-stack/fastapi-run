@@ -39,7 +39,7 @@ def provider_setup(monkeypatch, row, *, state_tenant="t_alpha", info=None):
     if info is None:
         info = {"email": "person@example.test", "email_verified": True, "name": "Person"}
     conn = FakeConnection(row)
-    monkeypatch.setattr(routes_oauth, "_consume_state", lambda state: state_tenant)
+    monkeypatch.setattr(routes_oauth, "_consume_state", AsyncMock(return_value=state_tenant))
     monkeypatch.setattr(routes_oauth, "get_conn", lambda: conn)
     monkeypatch.setattr(routes_oauth._http, "post", lambda *args, **kwargs:
                         FakeProviderResponse({"access_token": "synthetic-provider-token"}))

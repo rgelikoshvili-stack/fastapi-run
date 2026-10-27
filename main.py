@@ -250,6 +250,10 @@ async def add_security_headers(request: Request, call_next):
     headers = SECURITY_HEADERS_STATIC if request.url.path.startswith("/static/") else SECURITY_HEADERS
     for k, v in headers.items():
         response.headers[k] = v
+    if request.url.path == "/static/reset_password.html":
+        # Legacy query links may carry reset tokens; do not cache or refer them.
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
     if "X-Powered-By" in response.headers:
         del response.headers["X-Powered-By"]
     return response

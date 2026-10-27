@@ -82,21 +82,6 @@ def _redirect_uri(request: Request, provider: str) -> str:
     return f"{base}/auth/oauth/{provider}/callback"
 
 
-def _issue_state(tenant_id: str) -> str:
-    state = secrets.token_urlsafe(32)
-    _states[state] = (time.time() + _STATE_TTL, tenant_id)
-    now = time.time()
-    for k in [k for k, v in list(_states.items()) if v[0] < now]:
-        _states.pop(k, None)
-    return state
-
-
-def _consume_state(state: str):
-    entry = _states.pop(state, None)
-    if entry and entry[0] > time.time():
-        return entry[1]
-    return None
-
 
 @router.get("/{provider}/login")
 async def oauth_login(provider: str, request: Request, tenant_id: str = "default"):

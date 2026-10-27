@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 
 from app.api.models.user import create_user, create_users_table, get_user, hash_password, verify_password
-from app.api.services.auth_service import login, verify_token, refresh_token, create_access_token, create_refresh_token
+from app.api.services.auth_service import ACCESS_TOKEN_EXPIRE_HOURS, login, verify_token, refresh_token, create_access_token, create_refresh_token
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.db import get_conn, _q
@@ -274,7 +274,7 @@ async def auth_signup(data: FullRegisterRequest, request: Request):
             "access_token": access,
             "refresh_token": refresh,
             "token_type": "bearer",
-            "expires_in": 3600,
+            "expires_in": ACCESS_TOKEN_EXPIRE_HOURS * 3600,
             "trial_days_left": 14,
             "user": {
                 "id": user["id"],

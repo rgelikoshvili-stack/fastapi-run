@@ -1,6 +1,9 @@
 import logging
 import json
 import secrets
+import hashlib
+from html import escape as html_escape
+from urllib.parse import urlencode, urlsplit, urlunsplit
 import smtplib
 import os
 from email.mime.text import MIMEText
@@ -137,11 +140,63 @@ _CREATE_RESET_TOKENS = """
 """
 
 
+_RESET_REQUESTED_MESSAGE = "თუ ეს email რეგისტრირებულია, reset ლინკი გაიგზავნება"
+
+
+def _reset_token_storage_key(raw_token: str) -> str:
+    """Store newly issued high-entropy reset tokens by digest, not in cleartext.
+
+    The existing VARCHAR(128) token column can hold the 71-character key;
+    outstanding legacy cleartext token rows remain valid until their expiry.
+    """
+    return "sha256:" + hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _trusted_password_reset_base_url() -> str:
+    """Never derive an emailed recovery link from untrusted Host/X-Forwarded-*."""
+    configured = (
+        os.environ.get("PASSWORD_RESET_BASE_URL")
+        or os.environ.get("APP_BASE_URL")
+        or ""
+    ).strip()
+    if (
+        not configured
+        or any(c.isspace() or ord(c) < 32 for c in configured)
+        or "\\" in configured
+    ):
+        raise ValueError("trusted reset URL is not configured")
+    parsed = urlsplit(configured)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or not parsed.netloc.isascii()
+        or "%" in parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("invalid trusted reset URL")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid trusted reset URL port") from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("invalid trusted reset URL port")
+    if parsed.scheme == "http" and not (
+        os.environ.get("TEST_MODE") == "1"
+        and parsed.hostname in {"localhost", "127.0.0.1"}
+    ):
+        raise ValueError("trusted reset URL must use HTTPS")
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
 def _send_reset_email(to_email: str, reset_link: str):
     smtp_user = os.environ.get("SMTP_USER", "")
     smtp_pass = os.environ.get("SMTP_PASS", "")
     if not smtp_user or not smtp_pass:
-        log.warning("SMTP not configured — reset link not sent for email=%s", to_email)
+        log.warning("SMTP not configured — reset link not sent")
         return
 
     msg = MIMEMultipart("alternative")
@@ -153,7 +208,7 @@ def _send_reset_email(to_email: str, reset_link: str):
     <div style="font-family:Georgia,serif;max-width:480px;margin:40px auto;background:#f3ecdc;padding:32px;border-radius:8px">
       <h2 style="color:#8c3c2d;margin:0 0 8px">Bridge Hub</h2>
       <p style="color:#4a3728;margin:0 0 24px">პაროლის აღდგენის მოთხოვნა მიღებულია.</p>
-      <a href="{reset_link}"
+      <a href="{html_escape(reset_link, quote=True)}"
          style="display:inline-block;background:#8c3c2d;color:#fff;padding:12px 24px;border-radius:4px;text-decoration:none;font-size:15px">
         პაროლის შეცვლა
       </a>
@@ -166,9 +221,9 @@ def _send_reset_email(to_email: str, reset_link: str):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(smtp_user, smtp_pass)
             s.sendmail(smtp_user, to_email, msg.as_string())
-        log.info("action=reset_email_sent to=%s", to_email)
+        log.info("action=reset_email_sent")
     except Exception as e:
-        log.error("action=reset_email_error: %s", e)
+        log.error("action=reset_email_error error_type=%s", type(e).__name__)
 
 
 async def _tenant_exists_by_inn(inn: str) -> bool:
@@ -358,25 +413,34 @@ async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
         else:
             user = await get_user(data.email, data.tenant_id)
         if user:
+            try:
+                base_url = _trusted_password_reset_base_url()
+            except ValueError:
+                # Fail closed: never mint/email a link using a request Host.
+                # Public responses must not reveal account existence or config.
+                log.error("action=forgot_password_origin_not_trusted")
+                return ok_response(_RESET_REQUESTED_MESSAGE, {})
+
             token = secrets.token_urlsafe(48)
+            token_key = _reset_token_storage_key(token)
             expires = datetime.utcnow() + timedelta(hours=1)
             async with get_conn() as conn:
-                # Migration 016 must create this table ahead of service rollout.
-                # A public credential-recovery endpoint must never run DDL or
-                # require CREATE privilege in the service database role.
+                # Migration 016 must create the table before application rollout.
                 await conn.execute(_q(
                     "INSERT INTO password_reset_tokens (token, email, tenant_id, expires_at) VALUES (%s, %s, %s, %s)"
-                ), token, data.email, data.tenant_id, expires)
+                ), token_key, data.email, data.tenant_id, expires)
 
-            base_url = str(request.base_url).rstrip("/")
-            reset_link = f"{base_url}/static/reset_password.html?token={token}&tenant_id={data.tenant_id}"
+            query = urlencode({"token": token, "tenant_id": data.tenant_id})
+            reset_link = f"{base_url}/static/reset_password.html?{query}"
             _send_reset_email(data.email, reset_link)
-            log.info("action=forgot_password email=%s tenant=%s", data.email, data.tenant_id)
+            log.info("action=forgot_password_accepted")
 
-        return ok_response("თუ ეს email რეგისტრირებულია, reset ლინკი გაიგზავნება", {})
-    except Exception as e:
-        log.error("action=forgot_password_error: %s", e)
-        return error_response("Error", "RESET_ERROR", str(e))
+        return ok_response(_RESET_REQUESTED_MESSAGE, {})
+    except Exception as exc:
+        # Never return database, SMTP, tenant or account details to a public
+        # forgot-password caller (account enumeration / SQL error disclosure).
+        log.error("action=forgot_password_internal_error error_type=%s", type(exc).__name__)
+        return ok_response(_RESET_REQUESTED_MESSAGE, {})
 
 
 @router.post("/reset-password")
@@ -388,12 +452,18 @@ async def auth_reset_password(data: ResetPasswordRequest, request: Request):
     observes used=TRUE and cannot apply a second password update.
     """
     version_enabled = jwt_session_version_enabled()
+    if not 1 <= len(data.token) <= 128:
+        return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
+    # Hash-first lookup for new tokens; raw fallback ONLY for outstanding
+    # legacy links issued before digest storage was introduced.
+    candidate_keys = [_reset_token_storage_key(data.token), data.token]
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
-                "SELECT email, tenant_id, expires_at, used "
-                "FROM password_reset_tokens WHERE token=%s FOR UPDATE"
-            ), data.token)
+                "SELECT token, email, tenant_id, expires_at, used "
+                "FROM password_reset_tokens "
+                "WHERE token = ANY(%s::varchar[]) FOR UPDATE"
+            ), candidate_keys)
             if not row:
                 return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
             if row["used"]:
@@ -425,7 +495,7 @@ async def auth_reset_password(data: ResetPasswordRequest, request: Request):
 
             await conn.execute(_q(
                 "UPDATE password_reset_tokens SET used=TRUE WHERE token=%s"
-            ), data.token)
+            ), row["token"])
 
         log.info("action=password_reset_success email=%s tenant=%s", email, tenant_id)
         return ok_response("პაროლი წარმატებით შეიცვალა", {"email": email, "tenant_id": tenant_id})

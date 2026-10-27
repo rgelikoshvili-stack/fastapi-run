@@ -66,6 +66,23 @@ def test_prod_missing_or_invalid_redis_returns_503_for_decorated_route(monkeypat
     assert response.headers["Cache-Control"] == "no-store"
 
 
+def test_inherited_slowapi_disable_and_fallback_flags_cannot_bypass_prod(monkeypatch):
+    # SlowAPI reads RATELIMIT_* from environment/.env in its constructor.
+    # The strict guard must override both a disabled limiter and fallback.
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("RATELIMIT_ENABLED", "false")
+    monkeypatch.setenv("RATELIMIT_IN_MEMORY_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("RATELIMIT_HEADERS_ENABLED", "true")
+    limiter = _make_limiter()
+    assert limiter.enabled is True
+    assert limiter._in_memory_fallback_enabled is False
+    assert limiter._fallback_limiter is None
+    assert limiter._headers_enabled is False
+    with TestClient(_app(limiter)) as client:
+        response = client.get("/chat172-limited")
+    assert response.status_code == 503
+
+
 def test_shared_required_staging_is_also_strict(monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_REQUIRE_SHARED", "1")
     limiter = _make_limiter()

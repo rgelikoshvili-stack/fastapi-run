@@ -152,6 +152,18 @@ def _reset_token_storage_key(raw_token: str) -> str:
     return "sha256:" + hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
+def _reset_token_lookup_keys(presented_token: str) -> list[str]:
+    """The stored digest must NEVER be accepted as a bearer reset token.
+
+    Only legacy URL-safe cleartext tokens can use the raw-value fallback.
+    A stored sha256:<hex> value must require its unknown preimage.
+    """
+    keys = [_reset_token_storage_key(presented_token)]
+    if not presented_token.startswith("sha256:"):
+        keys.append(presented_token)
+    return keys
+
+
 def _trusted_password_reset_base_url() -> str:
     """Never derive an emailed recovery link from untrusted Host/X-Forwarded-*."""
     configured = (
@@ -458,7 +470,7 @@ async def auth_reset_password(data: ResetPasswordRequest, request: Request):
         return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
     # Hash-first lookup for new tokens; raw fallback ONLY for outstanding
     # legacy links issued before digest storage was introduced.
-    candidate_keys = [_reset_token_storage_key(data.token), data.token]
+    candidate_keys = _reset_token_lookup_keys(data.token)
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(

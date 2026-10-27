@@ -361,7 +361,9 @@ async def auth_forgot_password(data: ForgotPasswordRequest, request: Request):
             token = secrets.token_urlsafe(48)
             expires = datetime.utcnow() + timedelta(hours=1)
             async with get_conn() as conn:
-                await conn.execute(_CREATE_RESET_TOKENS)
+                # Migration 016 must create this table ahead of service rollout.
+                # A public credential-recovery endpoint must never run DDL or
+                # require CREATE privilege in the service database role.
                 await conn.execute(_q(
                     "INSERT INTO password_reset_tokens (token, email, tenant_id, expires_at) VALUES (%s, %s, %s, %s)"
                 ), token, data.email, data.tenant_id, expires)

@@ -50,43 +50,83 @@ manager = NotificationManager()
 
 @router.websocket("/live")
 async def websocket_notifications(websocket: WebSocket, tenant_id: str = "default", token: str = ""):
-    """
-    WebSocket endpoint with JWT token verification.
-    Query params: ?tenant_id=xxx&token=<jwt>
-    """
-    if token:
-        try:
-            from app.api.services.auth_service import verify_token
-            payload = verify_token(token, expected_type="access")
-            token_tenant = payload.get("tenant_id", "default")
-            if token_tenant != tenant_id:
-                await websocket.close(code=4003)
-                return
-        except Exception:
-            await websocket.close(code=4001)
-            return
+    """Read-only live notifications, bound to an authenticated tenant.
 
-    await manager.connect(websocket, tenant_id)
+    WebSocket connections do not traverse HTTP auth middleware. Refuse missing,
+    invalid, refresh-only, default-tenant or cross-tenant access tokens even
+    when the optional live-membership release flag is not enabled.
+    """
+    from app.api.db import tenant_db_context
+    from app.api.services.auth_service import (
+        access_membership_check_enabled,
+        verify_live_access_membership,
+        verify_token,
+    )
+
+    if not token:
+        await websocket.close(code=4001)
+        return
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        await websocket.close(code=4001)
+        return
+    signed_tenant = payload.get("tenant_id")
+    if (
+        not isinstance(signed_tenant, str)
+        or not signed_tenant
+        or signed_tenant != signed_tenant.strip()
+        or signed_tenant.casefold() == "default"
+        or signed_tenant != tenant_id
+        or not payload.get("sub")
+    ):
+        await websocket.close(code=4003)
+        return
+
+    live_enabled = access_membership_check_enabled()
+
+    async def member_still_active() -> bool:
+        if not live_enabled:
+            return True
+        try:
+            return await verify_live_access_membership(payload)
+        except Exception:
+            # Do not send notifications when membership status is unknown.
+            return False
+
+    if not await member_still_active():
+        await websocket.close(code=4003)
+        return
+
+    await manager.connect(websocket, signed_tenant)
     try:
         await websocket.send_text(json.dumps({
             "type": "connected",
-            "tenant_id": tenant_id,
+            "tenant_id": signed_tenant,
             "message": "Bridge Hub live notifications connected",
             "timestamp": datetime.now().isoformat(),
         }, ensure_ascii=False))
 
         while True:
-            stats = await _get_tenant_stats(tenant_id)
+            # Existing sockets revalidate before each poll (maximum 30 seconds
+            # between checks). This is not instantaneous revocation of a
+            # broadcast already in flight; release still requires that gate.
+            if not await member_still_active():
+                await websocket.close(code=4003)
+                break
+            async with tenant_db_context(signed_tenant):
+                stats = await _get_tenant_stats(signed_tenant)
             await websocket.send_text(json.dumps({
                 "type": "stats_update",
-                "tenant_id": tenant_id,
+                "tenant_id": signed_tenant,
                 "data": stats,
                 "timestamp": datetime.now().isoformat(),
             }, ensure_ascii=False))
             await asyncio.sleep(30)
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket, tenant_id)
+        pass
+    finally:
+        manager.disconnect(websocket, signed_tenant)
 
 
 @router.get("/stats")

@@ -64,6 +64,22 @@ def _now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
+def jwt_session_version_enabled() -> bool:
+    """Controlled rollout. Requires migration 015 before activation.
+
+    Must be consistently enabled on all serving replicas. Default is OFF.
+    """
+    return os.environ.get("JWT_SESSION_VERSION_ENABLED", "0") == "1"
+
+
+def _required_auth_version(user) -> int:
+    """Fail closed: never mint a non-revocable JWT with the flag enabled."""
+    version = user["auth_version"]
+    if type(version) is not int or version < 1:
+        raise ValueError("valid database auth_version required")
+    return version
+
+
 def _create_access_token(user: dict) -> str:
     payload = {
         "sub": str(user["id"]),
@@ -74,6 +90,8 @@ def _create_access_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)).timestamp()),
     }
+    if jwt_session_version_enabled():
+        payload["auth_version"] = _required_auth_version(user)
     return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
@@ -87,10 +105,14 @@ def _create_refresh_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
+    if jwt_session_version_enabled():
+        payload["auth_version"] = _required_auth_version(user)
     return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def create_access_token(payload_extra: dict) -> str:
+    if jwt_session_version_enabled():
+        _required_auth_version(payload_extra)
     now = datetime.now(timezone.utc)
     payload = {
         "type": "access",
@@ -102,6 +124,8 @@ def create_access_token(payload_extra: dict) -> str:
 
 
 def create_refresh_token(payload_extra: dict) -> str:
+    if jwt_session_version_enabled():
+        _required_auth_version(payload_extra)
     now = datetime.now(timezone.utc)
     payload = {
         "type": "refresh",
@@ -173,7 +197,10 @@ def access_membership_check_enabled() -> bool:
     Keep disabled until the real DB schema, throughput and failure behavior
     have passed staging. A release MUST deliberately set this to '1'.
     """
-    return os.environ.get("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "0") == "1"
+    return (
+        os.environ.get("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "0") == "1"
+        or jwt_session_version_enabled()
+    )
 
 
 async def verify_live_access_membership(payload: dict) -> bool:
@@ -206,13 +233,20 @@ async def verify_live_access_membership(payload: dict) -> bool:
     ):
         return False
 
+    version_enabled = jwt_session_version_enabled()
+    if version_enabled:
+        claim_version = payload.get("auth_version")
+        if type(claim_version) is not int or claim_version < 1:
+            return False
+
     from app.api.db import _q, get_conn, tenant_db_context
 
+    columns = "id, email, role, tenant_id, auth_version" if version_enabled else "id, email, role, tenant_id"
     async with tenant_db_context(tenant_id):
         async with get_conn() as conn:
             current = await conn.fetchrow(
                 _q(
-                    "SELECT id, email, role, tenant_id FROM users "
+                    f"SELECT {columns} FROM users "
                     "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
                 ),
                 int(subject),
@@ -226,6 +260,10 @@ async def verify_live_access_membership(payload: dict) -> bool:
         and current["role"] == role
         and isinstance(current["email"], str)
         and current["email"].casefold() == email.casefold()
+        and (
+            not version_enabled
+            or current["auth_version"] == claim_version
+        )
     )
 
 
@@ -261,14 +299,21 @@ async def refresh_token(refresh_token_value: str) -> dict | None:
     ):
         return None
 
+    version_enabled = jwt_session_version_enabled()
+    if version_enabled:
+        claim_version = payload.get("auth_version")
+        if type(claim_version) is not int or claim_version < 1:
+            return None
+
     try:
         from app.api.db import _q, get_conn, tenant_db_context
+        columns = "id, email, role, tenant_id, auth_version" if version_enabled else "id, email, role, tenant_id"
 
         async with tenant_db_context(tenant_id):
             async with get_conn() as conn:
                 current = await conn.fetchrow(
                     _q(
-                        "SELECT id, email, role, tenant_id FROM users "
+                        f"SELECT {columns} FROM users "
                         "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
                     ),
                     int(subject),
@@ -286,6 +331,7 @@ async def refresh_token(refresh_token_value: str) -> dict | None:
         or current["role"] != role
         or not isinstance(current["email"], str)
         or current["email"].casefold() != email.casefold()
+        or (version_enabled and current["auth_version"] != claim_version)
     ):
         return None
 
@@ -295,6 +341,8 @@ async def refresh_token(refresh_token_value: str) -> dict | None:
         "role": current["role"],
         "tenant_id": current["tenant_id"],
     }
+    if version_enabled:
+        user["auth_version"] = current["auth_version"]
     return {
         "access_token": _create_access_token(user),
         "refresh_token": _create_refresh_token(user),

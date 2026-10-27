@@ -390,6 +390,15 @@ async def auth_reset_password(data: ResetPasswordRequest, request: Request):
                 return error_response("Token expired", "TOKEN_EXPIRED", "ლინკის ვადა გასულია — ახალი მოითხოვეთ")
 
             email, tenant_id = row["email"], row["tenant_id"]
+            # The reset token identifies the tenant after its locked, unexpired
+            # row has been verified. Scope this *same* transaction for an
+            # unprivileged app role when users has forced tenant RLS.
+            # set_config(..., true) is transaction-local, never session-wide.
+            if not isinstance(tenant_id, str) or not tenant_id or tenant_id != tenant_id.strip():
+                return error_response("Invalid token", "INVALID_TOKEN", "ლინკი არასწორია")
+            await conn.execute(
+                "SELECT set_config('app.current_tenant_id', $1, true)", tenant_id
+            )
             new_hash = hash_password(data.new_password)
             set_clause = (
                 "password_hash=%s, auth_version=auth_version+1"

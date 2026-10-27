@@ -85,7 +85,7 @@ async def synthetic_user(pool, email="member-chat166@example.test", tenant="t_al
     return uid
 
 
-def synthetic_request(path: str) -> Request:
+def synthetic_request(path: str, client_host: str = "127.0.0.1") -> Request:
     """Real Starlette request so the rate limiter can inspect the peer."""
     return Request({
         "type": "http",
@@ -95,7 +95,7 @@ def synthetic_request(path: str) -> Request:
         "raw_path": path.encode("ascii"),
         "query_string": b"",
         "headers": [],
-        "client": ("127.0.0.1", 41002),
+        "client": (client_host, 41002),
         "server": ("127.0.0.1", 80),
         "http_version": "1.1",
     })
@@ -412,7 +412,7 @@ async def test_reset_binds_token_tenant_for_rls_scoped_user_update(session_db):
             token="chat167-alpha-reset-code",
             new_password="ChangedInAlphaOnly123!",
         ),
-        synthetic_request("/auth/reset-password"),
+        synthetic_request("/auth/reset-password", client_host="127.0.0.166"),
     )
     assert result["ok"] is True
     async with session_db.acquire() as conn:

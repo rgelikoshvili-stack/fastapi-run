@@ -369,3 +369,63 @@ async def test_reset_rolls_back_password_and_version_when_token_consume_fails(se
         auth_service.verify_token(access)
     )
     assert (await auth_service.refresh_token(refresh))["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_reset_binds_token_tenant_for_rls_scoped_user_update(session_db):
+    """A reset for tenant A sets a transaction-local scope before touching users.
+
+    The synthetic trigger acts as an RLS context assertion; this alone does
+    NOT certify actual forced-RLS production role behavior.
+    """
+    from app.api.routes_auth import ResetPasswordRequest
+
+    email = "shared-reset-chat167@example.test"
+    uid_a = await synthetic_user(session_db, email=email, tenant="t_alpha")
+    uid_b = await synthetic_user(session_db, email=email, tenant="t_beta")
+    async with session_db.acquire() as conn:
+        await conn.execute("""
+            CREATE FUNCTION check_chat167_user_update_tenant()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                IF current_setting('app.current_tenant_id', true)
+                   IS DISTINCT FROM OLD.tenant_id THEN
+                    RAISE EXCEPTION 'user update missing tenant context';
+                END IF;
+                RETURN NEW;
+            END $$;
+        """)
+        await conn.execute(
+            "CREATE TRIGGER chat167_user_update_tenant "
+            "BEFORE UPDATE OF password_hash ON users "
+            "FOR EACH ROW EXECUTE FUNCTION check_chat167_user_update_tenant()"
+        )
+        await conn.execute(
+            "INSERT INTO password_reset_tokens "
+            "(token,email,tenant_id,expires_at,used) VALUES ($1,$2,$3,$4,FALSE)",
+            "chat167-alpha-reset-code", email, "t_alpha",
+            datetime.utcnow() + timedelta(minutes=10),
+        )
+
+    result = await routes_auth.auth_reset_password(
+        ResetPasswordRequest(
+            token="chat167-alpha-reset-code",
+            new_password="ChangedInAlphaOnly123!",
+        ),
+        synthetic_request("/auth/reset-password"),
+    )
+    assert result["ok"] is True
+    async with session_db.acquire() as conn:
+        alpha = await conn.fetchrow(
+            "SELECT password_hash,auth_version FROM users WHERE id=$1", uid_a
+        )
+        beta = await conn.fetchrow(
+            "SELECT password_hash,auth_version FROM users WHERE id=$1", uid_b
+        )
+        assert await conn.fetchval(
+            "SELECT current_setting('app.current_tenant_id',true)"
+        ) in (None, "")
+    assert alpha["auth_version"] == 2
+    assert verify_password("ChangedInAlphaOnly123!", alpha["password_hash"])
+    assert beta["auth_version"] == 1
+    assert verify_password("OldStrongPassword456!", beta["password_hash"])

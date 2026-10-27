@@ -12,6 +12,7 @@ on:
       - "app/api/services/auth_service.py"
       - "app/storage/migrations/014_durable_oauth_login_states.sql"
       - "app/storage/migrations/015_user_auth_version.sql"
+      - "app/storage/migrations/016_password_reset_tokens.sql"
       - "tests/integration/test_chat162_oauth_state_postgres.py"
       - "tests/integration/test_chat165_auth_staging_readiness_postgres.py"
       - "tests/integration/test_chat166_session_version_postgres.py"

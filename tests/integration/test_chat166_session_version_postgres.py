@@ -7,7 +7,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from starlette.requests import Request
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -19,7 +19,7 @@ from app.api.models.user import create_users_table, hash_password, verify_passwo
 from app.api.services import auth_service
 
 
-def test_dsn():
+def _disposable_dsn():
     value = __import__("os").environ.get("CHAT162_TEST_DATABASE_URL", "")
     if not value:
         pytest.skip("disposable PostgreSQL DSN is not available")
@@ -36,7 +36,7 @@ def test_dsn():
 
 @pytest.fixture
 async def session_db(monkeypatch):
-    dsn = test_dsn()
+    dsn = _disposable_dsn()
     namespace = "chat166_" + uuid4().hex
     admin = await asyncpg.connect(dsn)
     pool = None
@@ -83,6 +83,22 @@ async def synthetic_user(pool, email="member-chat166@example.test", tenant="t_al
             email, hashed, tenant,
         )
     return uid
+
+
+def synthetic_request(path: str) -> Request:
+    """Real Starlette request so the rate limiter can inspect the peer."""
+    return Request({
+        "type": "http",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 41002),
+        "server": ("127.0.0.1", 80),
+        "http_version": "1.1",
+    })
 
 
 def claims(uid, email, tenant, version=1):
@@ -178,7 +194,7 @@ async def test_password_change_revokes_both_tokens_and_preserves_other_tenant(se
             current_password="OldStrongPassword456!",
             new_password="NewStrongPassword987!",
         ),
-        SimpleNamespace(),
+        synthetic_request("/auth/change-password"),
         "Bearer " + old_access_a,
     )
     assert result["ok"] is True
@@ -218,7 +234,7 @@ async def test_wrong_old_password_does_not_revoke_or_modify(session_db):
             current_password="Incorrect1234!",
             new_password="ChangedButForbidden234!",
         ),
-        SimpleNamespace(),
+        synthetic_request("/auth/change-password"),
         "Bearer " + access,
     )
     assert result["ok"] is False
@@ -249,7 +265,7 @@ async def test_reset_consumes_once_and_revokes_access_and_refresh(session_db):
 
     action = await routes_auth.auth_reset_password(
         ResetPasswordRequest(token=reset_code, new_password="ResetNewPassword789!"),
-        SimpleNamespace(),
+        synthetic_request("/auth/reset-password"),
     )
     assert action["ok"] is True
     async with session_db.acquire() as conn:
@@ -269,7 +285,7 @@ async def test_reset_consumes_once_and_revokes_access_and_refresh(session_db):
 
     second = await routes_auth.auth_reset_password(
         ResetPasswordRequest(token=reset_code, new_password="IllegalSecondPass111!"),
-        SimpleNamespace(),
+        synthetic_request("/auth/reset-password"),
     )
     assert second["ok"] is False
     assert second["error"]["code"] == "TOKEN_USED"
@@ -292,7 +308,7 @@ async def test_concurrent_reuse_of_reset_link_can_only_succeed_once(session_db):
     async def reset(password):
         return await routes_auth.auth_reset_password(
             ResetPasswordRequest(token=code, new_password=password),
-            SimpleNamespace(),
+            synthetic_request("/auth/reset-password"),
         )
 
     results = await asyncio.gather(
@@ -336,7 +352,7 @@ async def test_reset_rolls_back_password_and_version_when_token_consume_fails(se
         )
     failed = await routes_auth.auth_reset_password(
         ResetPasswordRequest(token=code, new_password="ShouldRollbackNew111!"),
-        SimpleNamespace(),
+        synthetic_request("/auth/reset-password"),
     )
     assert failed["ok"] is False
     async with session_db.acquire() as conn:

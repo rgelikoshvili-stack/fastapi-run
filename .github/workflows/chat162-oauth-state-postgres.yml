@@ -11,8 +11,10 @@ on:
       - "app/api/routes_notifications_ws.py"
       - "app/api/services/auth_service.py"
       - "app/storage/migrations/014_durable_oauth_login_states.sql"
+      - "app/storage/migrations/015_user_auth_version.sql"
       - "tests/integration/test_chat162_oauth_state_postgres.py"
       - "tests/integration/test_chat165_auth_staging_readiness_postgres.py"
+      - "tests/integration/test_chat166_session_version_postgres.py"
       - "tests/unit/test_chat161_oauth_state.py"
       - "tests/unit/test_chat161_refresh_membership.py"
       - "tests/unit/test_chat164_live_access_revocation.py"
@@ -64,6 +66,7 @@ jobs:
           python -m pytest
           tests/integration/test_chat162_oauth_state_postgres.py
           tests/integration/test_chat165_auth_staging_readiness_postgres.py
+          tests/integration/test_chat166_session_version_postgres.py
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py

@@ -8,12 +8,14 @@ on:
       - "app/api/routes_auth.py"
       - "app/api/middleware/auth_middleware.py"
       - "app/api/middleware/rbac_middleware.py"
+      - "app/api/routes_notifications_ws.py"
       - "app/api/services/auth_service.py"
       - "app/storage/migrations/014_durable_oauth_login_states.sql"
       - "tests/integration/test_chat162_oauth_state_postgres.py"
       - "tests/unit/test_chat161_oauth_state.py"
       - "tests/unit/test_chat161_refresh_membership.py"
       - "tests/unit/test_chat164_live_access_revocation.py"
+      - "tests/unit/test_chat164_websocket_revocation.py"
       - ".github/workflows/chat162-oauth-state-postgres.yml"
 
 permissions:
@@ -63,5 +65,6 @@ jobs:
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py
+          tests/unit/test_chat164_websocket_revocation.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q --tb=short

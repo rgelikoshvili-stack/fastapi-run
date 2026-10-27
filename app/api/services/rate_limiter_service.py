@@ -127,7 +127,9 @@ if count == 1 then
     redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 end
 local ttl = redis.call('TTL', KEYS[1])
-if ttl < 1 then
+if ttl == -1 then
+    -- Repair a legacy counter missing TTL, but do not extend a normal
+    -- window whose TTL has rounded down to zero just before expiration.
     redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
     ttl = redis.call('TTL', KEYS[1])
 end
@@ -198,9 +200,12 @@ class RedisRateLimiterBackend:
                 _REDIS_FIXED_WINDOW_LUA, 1, key, rule.window_seconds,
             )
             count, ttl = int(count), int(ttl)
-            if count < 1 or ttl < 1:
+            if count < 1 or ttl < 0:
                 raise ValueError("Redis counter or TTL was invalid")
+            # Redis TTL may be zero for the final fraction of a second;
+            # keep the original expiry rather than reopening the window.
             remaining = max(0, rule.limit - count)
+            seconds_remaining = max(1, ttl)
             if not self._redis_ok:
                 log.info("rate_limit_redis_recovered")
                 self._redis_ok = True
@@ -208,8 +213,8 @@ class RedisRateLimiterBackend:
                 allowed=count <= rule.limit,
                 remaining=remaining,
                 limit=rule.limit,
-                retry_after_seconds=0 if count <= rule.limit else max(1, ttl),
-                reset_at=now + ttl,
+                retry_after_seconds=0 if count <= rule.limit else seconds_remaining,
+                reset_at=now + seconds_remaining,
                 backend="redis",
                 error_code=rule.error_code if count > rule.limit else None,
             )

@@ -152,10 +152,25 @@ async def _resolve_tenant_id(tenant_id: str) -> str:
 
 
 async def login(email: str, password: str, tenant_id: str = "default") -> dict:
+    # Public password authentication has no pre-existing JWT tenant context.
+    # Scope only the credential lookup to the selected canonical tenant.
+    # User identity is established only after a successful password check.
+    from app.api.db import tenant_db_context
+
+    async def _credential_lookup(candidate: str):
+        if (
+            isinstance(candidate, str) and candidate
+            and candidate == candidate.strip()
+            and candidate.casefold() != "default"
+        ):
+            async with tenant_db_context(candidate):
+                return await get_user(email, candidate)
+        return await get_user(email, candidate)  # legacy default tenant path
+
     resolved = await _resolve_tenant_id(tenant_id)
-    user = await get_user(email, resolved)
+    user = await _credential_lookup(resolved)
     if not user and resolved != tenant_id:
-        user = await get_user(email, tenant_id)
+        user = await _credential_lookup(tenant_id)
     if not user:
         return {"ok": False, "error": "მომხმარებელი ვერ მოიძებნა"}
 
@@ -164,7 +179,18 @@ async def login(email: str, password: str, tenant_id: str = "default") -> dict:
 
     access_token = _create_access_token(user)
     refresh_token = _create_refresh_token(user)
-    await update_last_login(user["id"])
+    # With tenant RLS enabled, last_login must use the authenticated row's
+    # actual tenant rather than the public request's original tenant hint.
+    verified_tenant = user["tenant_id"]
+    if (
+        isinstance(verified_tenant, str) and verified_tenant
+        and verified_tenant == verified_tenant.strip()
+        and verified_tenant.casefold() != "default"
+    ):
+        async with tenant_db_context(verified_tenant):
+            await update_last_login(user["id"])
+    else:
+        await update_last_login(user["id"])
 
     return {
         "ok": True,

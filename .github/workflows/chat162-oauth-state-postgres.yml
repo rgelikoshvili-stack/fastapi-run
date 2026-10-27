@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - "main.py"
+      - "Dockerfile"
+      - "Procfile"
+      - "app/api/client_ip.py"
+      - "app/api/security.py"
+      - "app/api/middleware/rate_limit_middleware.py"
       - "static/reset_password.html"
       - "app/api/routes_oauth.py"
       - "app/api/routes_auth.py"
@@ -24,6 +29,7 @@ on:
       - "tests/unit/test_chat164_live_access_revocation.py"
       - "tests/unit/test_chat164_websocket_revocation.py"
       - "tests/unit/test_chat169_password_reset_security.py"
+      - "tests/unit/test_chat170_trusted_proxy_rate_limits.py"
       - ".github/workflows/chat162-oauth-state-postgres.yml"
 
 permissions:
@@ -78,5 +84,6 @@ jobs:
           tests/unit/test_chat164_live_access_revocation.py
           tests/unit/test_chat164_websocket_revocation.py
           tests/unit/test_chat169_password_reset_security.py
+          tests/unit/test_chat170_trusted_proxy_rate_limits.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

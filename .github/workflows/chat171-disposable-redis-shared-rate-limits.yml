@@ -1,0 +1,63 @@
+name: Chat171 Disposable Redis Shared Quota
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/services/rate_limiter_service.py"
+      - "app/api/services/rate_limit_policy_service.py"
+      - "app/api/middleware/rate_limit_middleware.py"
+      - "app/api/security.py"
+      - "app/api/client_ip.py"
+      - "tests/unit/test_chat171_shared_rate_limit_fail_closed.py"
+      - "tests/integration/test_chat171_redis_shared_rate_limits.py"
+      - "tests/unit/test_rate_limiter_service.py"
+      - "tests/unit/test_rate_limit_middleware.py"
+      - ".github/workflows/chat171-disposable-redis-shared-rate-limits.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  redis-atomic-shared-quota:
+    name: Two independent rate-limit clients / Redis 7
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      TEST_MODE: "1"
+      ENVIRONMENT: "test"
+      DATABASE_URL: ""
+      JWT_SECRET: "chat171-synthetic-only-ci-signing-key-32chars"
+      CHAT171_TEST_REDIS_URL: redis://127.0.0.1:56379/14
+    steps:
+      - name: Checkout isolated Draft PR
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Test real shared Redis and fail-closed category middleware
+        run: >-
+          python -m pytest
+          tests/integration/test_chat171_redis_shared_rate_limits.py
+          tests/unit/test_chat171_shared_rate_limit_fail_closed.py
+          tests/unit/test_rate_limiter_service.py
+          tests/unit/test_rate_limit_policy_service.py
+          tests/unit/test_rate_limit_middleware.py
+          tests/unit/test_chat170_trusted_proxy_rate_limits.py
+          -q --tb=short

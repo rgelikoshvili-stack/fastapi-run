@@ -297,3 +297,120 @@ async def test_chat163_cleanup_skips_locked_expired_row(postgres):
         assert await conn.fetchval(
             "SELECT count(*) FROM oauth_login_states WHERE state_hash=$1", digest
         ) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat164_real_postgres_revokes_previously_issued_access_token(postgres, monkeypatch):
+    """The SAME signed JWT must stop authorizing after the user is disabled."""
+    from types import SimpleNamespace
+    from fastapi.responses import JSONResponse
+    from app.api.middleware import auth_middleware as auth_module
+
+    monkeypatch.setenv("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "1")
+    monkeypatch.setattr(
+        auth_service, "_get_secret_key",
+        lambda: "chat164-only-synthetic-jwt-key-never-for-production",
+    )
+    email = "member-chat164@example.test"
+    async with postgres.acquire() as conn:
+        user_id = await conn.fetchval(
+            "INSERT INTO users (email, role, tenant_id, is_active) "
+            "VALUES ($1,'accountant','t_alpha',TRUE) RETURNING id",
+            email,
+        )
+    token = auth_service.create_access_token({
+        "sub": str(user_id), "email": email,
+        "role": "accountant", "tenant_id": "t_alpha",
+    })
+
+    def request(path, query=False):
+        return SimpleNamespace(
+            url=SimpleNamespace(path=path),
+            method="GET",
+            headers={} if query else {"Authorization": "Bearer " + token},
+            query_params={"token": token} if query else {},
+            state=SimpleNamespace(tenant_id="spoofed-tenant"),
+        )
+
+    called = []
+    async def final_handler(req):
+        called.append(req.state.user_id)
+        assert db.require_current_tenant_id() == "t_alpha"
+        return JSONResponse({"ok": True})
+
+    first = await auth_module.auth_middleware(
+        request("/posting/approved-drafts"), final_handler
+    )
+    assert first.status_code == 200
+    assert called == [str(user_id)]
+    assert db._current_tenant_id.get() is None
+
+    async with postgres.acquire() as conn:
+        await conn.execute("UPDATE users SET is_active=FALSE WHERE id=$1", user_id)
+
+    for path, query in [
+        ("/posting/approved-drafts", False),
+        ("/auth/me", False),
+        ("/auth/signature", False),
+        ("/api/documents/download/11", True),
+    ]:
+        denied = await auth_module.auth_middleware(request(path, query), final_handler)
+        assert denied.status_code == 401
+    assert called == [str(user_id)]
+    assert db._current_tenant_id.get() is None
+
+    async with postgres.acquire() as conn:
+        await conn.execute("UPDATE users SET is_active=TRUE, role='viewer' WHERE id=$1", user_id)
+    changed_role = await auth_module.auth_middleware(
+        request("/posting/approved-drafts"), final_handler
+    )
+    assert changed_role.status_code == 401
+
+    async with postgres.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET role='accountant', tenant_id='t_beta' WHERE id=$1",
+            user_id,
+        )
+    changed_tenant = await auth_module.auth_middleware(
+        request("/posting/approved-drafts"), final_handler
+    )
+    assert changed_tenant.status_code == 401
+    assert called == [str(user_id)]
+
+
+@pytest.mark.asyncio
+async def test_chat164_previous_access_token_denied_if_user_deleted(postgres, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi.responses import JSONResponse
+    from app.api.middleware import auth_middleware as auth_module
+
+    monkeypatch.setenv("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "1")
+    monkeypatch.setattr(
+        auth_service, "_get_secret_key",
+        lambda: "chat164-only-synthetic-jwt-key-never-for-production",
+    )
+    email = "deleted-chat164@example.test"
+    async with postgres.acquire() as conn:
+        user_id = await conn.fetchval(
+            "INSERT INTO users (email, role, tenant_id, is_active) "
+            "VALUES ($1,'accountant','t_alpha',TRUE) RETURNING id", email,
+        )
+    token = auth_service.create_access_token({
+        "sub": str(user_id), "email": email,
+        "role": "accountant", "tenant_id": "t_alpha",
+    })
+    async with postgres.acquire() as conn:
+        await conn.execute("DELETE FROM users WHERE id=$1", user_id)
+    req = SimpleNamespace(
+        url=SimpleNamespace(path="/posting/approved-drafts"),
+        method="GET", headers={"Authorization": "Bearer " + token},
+        query_params={}, state=SimpleNamespace(tenant_id="t_alpha"),
+    )
+    passed = False
+    async def handler(_req):
+        nonlocal passed
+        passed = True
+        return JSONResponse({"ok": True})
+    result = await auth_module.auth_middleware(req, handler)
+    assert result.status_code == 401
+    assert passed is False

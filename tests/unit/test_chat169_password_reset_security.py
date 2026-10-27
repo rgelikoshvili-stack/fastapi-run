@@ -38,6 +38,9 @@ def test_new_reset_token_is_digest_and_fits_existing_column():
     assert raw not in stored
     assert stored == routes_auth._reset_token_storage_key(raw)
     assert stored != routes_auth._reset_token_storage_key(raw + "x")
+    assert routes_auth._reset_token_lookup_keys(raw) == [stored, raw]
+    # A read-only database leak of a digest must NOT be usable as a reset link.
+    assert stored not in routes_auth._reset_token_lookup_keys(stored)
 
 
 def test_configured_https_origin_override_does_not_read_request_host(monkeypatch):

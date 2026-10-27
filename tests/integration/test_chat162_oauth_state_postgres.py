@@ -232,3 +232,68 @@ async def test_real_db_refresh_checks_live_user_and_revocation(postgres, monkeyp
     # Tenant DB context is transaction-local; no request leakage after reuse.
     async with postgres.acquire() as conn:
         assert await conn.fetchval("SELECT current_setting('app.current_tenant_id', true)") in ("", None)
+
+
+@pytest.mark.asyncio
+async def test_chat163_new_oauth_login_purges_only_one_expired_batch(postgres):
+    # Populate 133 synthetic expired states. The first new OAuth login may
+    # delete at most 128; a later login purges the remaining five.
+    expired = datetime.now(timezone.utc) - timedelta(minutes=1)
+    async with postgres.acquire() as conn:
+        await conn.executemany(
+            "INSERT INTO oauth_login_states "
+            "(state_hash,tenant_id,provider,expires_at) VALUES ($1,$2,$3,$4)",
+            [(f"{n:064x}", "t_alpha", "google", expired) for n in range(1, 134)],
+        )
+
+    first_state = await routes_oauth._issue_state("t_alpha", "google")
+    assert first_state
+    async with postgres.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT count(*) FROM oauth_login_states WHERE expires_at <= NOW()"
+        ) == 5
+
+    second_state = await routes_oauth._issue_state("t_alpha", "google")
+    assert second_state
+    async with postgres.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT count(*) FROM oauth_login_states WHERE expires_at <= NOW()"
+        ) == 0
+        assert await conn.fetchval(
+            "SELECT count(*) FROM oauth_login_states WHERE expires_at > NOW()"
+        ) == 2
+
+
+@pytest.mark.asyncio
+async def test_chat163_cleanup_skips_locked_expired_row(postgres):
+    # Real PostgreSQL row-lock proof: opportunistic cleanup must not block
+    # OAuth login while another transaction owns a stale state row.
+    digest = "e" * 64
+    async with postgres.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO oauth_login_states "
+            "(state_hash,tenant_id,provider,expires_at) "
+            "VALUES ($1,'t_alpha','google',NOW()-INTERVAL '30 seconds')",
+            digest,
+        )
+
+    async with postgres.acquire() as blocker:
+        async with blocker.transaction():
+            await blocker.fetchrow(
+                "SELECT state_hash FROM oauth_login_states WHERE state_hash=$1 FOR UPDATE",
+                digest,
+            )
+            fresh = await asyncio.wait_for(
+                routes_oauth._issue_state("t_alpha", "google"), timeout=3
+            )
+            assert fresh
+            async with postgres.acquire() as check:
+                assert await check.fetchval(
+                    "SELECT count(*) FROM oauth_login_states WHERE state_hash=$1", digest
+                ) == 1
+
+    await routes_oauth._issue_state("t_alpha", "google")
+    async with postgres.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT count(*) FROM oauth_login_states WHERE state_hash=$1", digest
+        ) == 0

@@ -7,7 +7,7 @@ policy; current Production users RLS policy is NOT established by this test.
 The legacy password_reset_tokens table is not tenant-RLS-protected here.
 """
 from datetime import datetime
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from uuid import uuid4
 
 import asyncpg
@@ -41,11 +41,11 @@ def disposable_dsn():
     return dsn
 
 
-def request(path, ip):
+def request(path, ip, headers=None):
     return Request({
         "type": "http", "method": "POST", "scheme": "http",
         "path": path, "raw_path": path.encode("ascii"),
-        "query_string": b"", "headers": [],
+        "query_string": b"", "headers": headers or [],
         "client": (ip, 43167), "server": ("127.0.0.1", 80),
         "http_version": "1.1",
     })
@@ -247,22 +247,35 @@ async def test_forgot_and_reset_nonowner_forced_rls_preserves_other_tenant(auth_
     from app.api.routes_auth import ForgotPasswordRequest, ResetPasswordRequest
 
     sent = []
+    monkeypatch.setenv("APP_BASE_URL", "https://bridge.example.test")
+    monkeypatch.delenv("PASSWORD_RESET_BASE_URL", raising=False)
     monkeypatch.setattr(
         routes_auth, "_send_reset_email", lambda email, link: sent.append((email, link))
     )
     forgot = await routes_auth.auth_forgot_password(
         ForgotPasswordRequest(email=_EMAIL, tenant_id="t_alpha"),
-        request("/auth/forgot-password", "127.0.0.168"),
+        request("/auth/forgot-password", "127.0.0.168", headers=[
+            (b"host", b"reset-link-attacker.example"),
+            (b"x-forwarded-host", b"reset-link-attacker.example"),
+        ]),
     )
     assert forgot["ok"] is True
     assert len(sent) == 1
+    link = urlsplit(sent[0][1])
+    assert (link.scheme, link.netloc, link.path) == (
+        "https", "bridge.example.test", "/static/reset_password.html"
+    )
+    assert "reset-link-attacker" not in sent[0][1]
+    token = parse_qs(link.query)["token"][0]
+    assert parse_qs(link.query)["tenant_id"] == ["t_alpha"]
     async with auth_db["admin"].acquire() as conn:
-        token = await conn.fetchval(
+        stored = await conn.fetchval(
             "SELECT token FROM password_reset_tokens "
             "WHERE email=$1 AND tenant_id='t_alpha'",
             _EMAIL,
         )
-        assert token
+        assert stored == routes_auth._reset_token_storage_key(token)
+        assert stored.startswith("sha256:") and token not in stored
     a = await auth_service.login(_EMAIL, _OLD_PASSWORD, "t_alpha")
     b = await auth_service.login(_EMAIL, _OLD_PASSWORD, "t_beta")
     reset = await routes_auth.auth_reset_password(

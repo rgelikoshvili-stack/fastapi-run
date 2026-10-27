@@ -37,6 +37,11 @@ class GuardedSlowAPILimiter(Limiter):
             self._in_memory_fallback_enabled = False
             self._fallback_limiter = None
             self._swallow_errors = False
+            # SlowAPI 0.1.9 injects optional headers AFTER the endpoint ran;
+            # a Redis failure then can turn a committed write into a false
+            # 500/503 and encourage unsafe retries. Keep headers disabled in
+            # strict mode; the category limiter still emits quota headers.
+            self._headers_enabled = False
 
     def _check_request_limit(
         self,

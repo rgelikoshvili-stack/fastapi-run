@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 
 from app.api.models.user import create_user, create_users_table, get_user, hash_password, verify_password
-from app.api.services.auth_service import ACCESS_TOKEN_EXPIRE_HOURS, login, verify_token, refresh_token, create_access_token, create_refresh_token
+from app.api.services.auth_service import ACCESS_TOKEN_EXPIRE_HOURS, login, verify_token, refresh_token, create_access_token, create_refresh_token, jwt_session_version_enabled
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
 from app.api.db import get_conn, _q
@@ -264,6 +264,8 @@ async def auth_signup(data: FullRegisterRequest, request: Request):
             "role": "admin",
             "email": data.email,
         }
+        if jwt_session_version_enabled():
+            token_payload["auth_version"] = user["auth_version"]
         access = create_access_token(token_payload)
         refresh = create_refresh_token(token_payload)
 

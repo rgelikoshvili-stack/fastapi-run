@@ -85,7 +85,11 @@ async def auth_db(monkeypatch):
         async with admin_pool.acquire() as conn:
             await conn.execute(migration)
             await conn.execute(migration)
-            await conn.execute(routes_auth._CREATE_RESET_TOKENS)
+            reset_migration = __import__("pathlib").Path(
+                "app/storage/migrations/016_password_reset_tokens.sql"
+            ).read_text(encoding="utf-8")
+            await conn.execute(reset_migration)
+            await conn.execute(reset_migration)  # idempotent privileged migration
             old_hash = hash_password(_OLD_PASSWORD)
             alpha = await conn.fetchval(
                 "INSERT INTO users(email,password_hash,tenant_id,role,is_active)"
@@ -170,6 +174,10 @@ async def test_nonowner_forced_rls_fails_closed_without_tenant(auth_db):
         )
         assert flags["rolsuper"] is False
         assert flags["rolbypassrls"] is False
+        # The running service role must NOT require CREATE to issue reset links.
+        assert await conn.fetchval(
+            "SELECT has_schema_privilege(current_user,current_schema(),'CREATE')"
+        ) is False
         owner = await conn.fetchval(
             "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='users'::regclass"
         )

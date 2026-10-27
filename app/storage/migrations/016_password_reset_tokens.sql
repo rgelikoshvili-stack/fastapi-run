@@ -3,6 +3,9 @@
 -- Never auto-run DDL from /auth/forgot-password or on service startup.
 -- Existing tables and outstanding reset links remain preserved.
 -- Re-applying this migration is safe (additive, no DROP/DELETE).
+-- Chat169: newly issued reset codes now occupy this token column as
+-- sha256:<hex>, without storing raw code. Outstanding legacy raw token
+-- rows remain valid until expiration, so no destructive rewrite is done.
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id SERIAL PRIMARY KEY,
     token VARCHAR(128) UNIQUE NOT NULL,

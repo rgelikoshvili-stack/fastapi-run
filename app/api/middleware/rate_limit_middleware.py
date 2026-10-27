@@ -96,10 +96,24 @@ async def rate_limit_middleware(request: Request, call_next: Any):
     if category == RateLimitCategory.SAFE or not is_rate_limited_category(category):
         return await call_next(request)
 
-    # Build rate-limit key from non-secret request context
-    tenant_id = getattr(request.state, "tenant_id", None)
-    user_id = getattr(request.state, "user_id", None)
-    client_ip = _get_client_ip(request)
+    # AUTH endpoints (including OAuth login/callback) are anonymous.
+    # Never use client-supplied X-Tenant-ID or arbitrary X-Forwarded-For for
+    # their quota key: either would let an attacker rotate the quota bucket.
+    # The direct connection peer is the conservative non-spoofable default;
+    # behind a proxy it can group clients together, so verify the origin
+    # topology and use an upstream edge rate limit before production release.
+    if category == RateLimitCategory.AUTH:
+        tenant_id = None
+        user_id = None
+        client_ip = (
+            request.client.host
+            if request.client is not None and request.client.host
+            else "unknown"
+        )
+    else:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        user_id = getattr(request.state, "user_id", None)
+        client_ip = _get_client_ip(request)
 
     key = build_rate_limit_key(tenant_id, user_id, client_ip, category)
     rule = get_rate_limit_rule(category)

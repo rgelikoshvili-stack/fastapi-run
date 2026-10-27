@@ -71,6 +71,10 @@ def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
     if not client_id:
         return http_error(503, f"{provider} OAuth not configured — set {cfg['client_id_env']}", "OAUTH_NOT_CONFIGURED")
 
+    if (not isinstance(tenant_id, str) or not tenant_id.strip() or
+            tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
+        return http_error(403, "Explicit tenant ID is required for OAuth login", "OAUTH_MEMBERSHIP_REQUIRED")
+
     state = _issue_state(tenant_id)
     params = {
         "client_id": client_id,

@@ -12,6 +12,7 @@ on:
       - "app/api/services/auth_service.py"
       - "app/storage/migrations/014_durable_oauth_login_states.sql"
       - "tests/integration/test_chat162_oauth_state_postgres.py"
+      - "tests/integration/test_chat165_auth_staging_readiness_postgres.py"
       - "tests/unit/test_chat161_oauth_state.py"
       - "tests/unit/test_chat161_refresh_membership.py"
       - "tests/unit/test_chat164_live_access_revocation.py"
@@ -62,9 +63,10 @@ jobs:
         run: >-
           python -m pytest
           tests/integration/test_chat162_oauth_state_postgres.py
+          tests/integration/test_chat165_auth_staging_readiness_postgres.py
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py
           tests/unit/test_chat164_websocket_revocation.py
           tests/unit/test_oauth_existing_tenant_membership.py
-          -q --tb=short
+          -q -s --tb=short

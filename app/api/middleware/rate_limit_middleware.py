@@ -112,6 +112,26 @@ async def rate_limit_middleware(request: Request, call_next: Any):
     limiter = get_rate_limiter_service()
     result = limiter.check_limit(key, rule)
 
+    if result.error_code == "RATE_LIMIT_BACKEND_UNAVAILABLE":
+        # A missing shared Redis store is an infrastructure outage, not
+        # a user quota violation. Never fall through to a local silo.
+        log.error("rate_limit_shared_storage_unavailable category=%s", category)
+        response = JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "message": "Service temporarily unavailable",
+                "data": None,
+                "error": {
+                    "code": "RATE_LIMIT_BACKEND_UNAVAILABLE",
+                    "details": None,
+                },
+            },
+        )
+        response.headers["Retry-After"] = str(result.retry_after_seconds)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     if not result.allowed:
         log.warning(
             "rate_limit_blocked tenant=%s category=%s path=%s method=%s "

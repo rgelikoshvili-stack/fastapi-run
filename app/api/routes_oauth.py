@@ -1,10 +1,11 @@
 """app/api/routes_oauth.py — Google / Microsoft SSO, OAuth 2.0 code flow."""
+import hashlib
 import html
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 import os
 import secrets
-import time
 from urllib.parse import urlencode
 
 import requests as _http
@@ -19,7 +20,42 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
 
 _STATE_TTL = 600  # seconds
-_states: dict[str, tuple[float, str]] = {}  # state → (expiry, tenant_id)
+
+
+async def _issue_state(tenant_id: str, provider: str) -> str:
+    """Persist only the hash of a one-use OAuth state across Cloud Run replicas.
+
+    The dedicated table must be provisioned by migration 014 before this
+    feature is enabled. On DB failure the login fails closed, not in-memory.
+    """
+    state = secrets.token_urlsafe(32)
+    state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+    expiry = datetime.now(timezone.utc) + timedelta(seconds=_STATE_TTL)
+    async with get_conn() as conn:
+        await conn.execute(
+            _q(
+                "INSERT INTO oauth_login_states (state_hash, tenant_id, provider, expires_at) "
+                "VALUES (%s, %s, %s, %s)"
+            ),
+            state_hash, tenant_id, provider, expiry,
+        )
+    return state
+
+
+async def _consume_state(state: str, provider: str) -> str | None:
+    """Consume once through one atomic DELETE, bound to the OAuth provider."""
+    state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(
+            _q(
+                "DELETE FROM oauth_login_states "
+                "WHERE state_hash=%s AND provider=%s AND expires_at > NOW() "
+                "RETURNING tenant_id"
+            ),
+            state_hash, provider,
+        )
+    return row["tenant_id"] if row else None
+
 
 _PROVIDERS = {
     "google": {
@@ -63,7 +99,7 @@ def _consume_state(state: str):
 
 
 @router.get("/{provider}/login")
-def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
+async def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
     if provider not in _PROVIDERS:
         return http_error(400, f"Unknown provider: {provider}", "INVALID_PROVIDER")
     cfg = _PROVIDERS[provider]
@@ -75,7 +111,11 @@ def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
             tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
         return http_error(403, "Explicit tenant ID is required for OAuth login", "OAUTH_MEMBERSHIP_REQUIRED")
 
-    state = _issue_state(tenant_id)
+    try:
+        state = await _issue_state(tenant_id, provider)
+    except Exception:
+        log.exception("oauth_state_creation_failed provider=%s", provider)
+        return http_error(503, "OAuth state unavailable", "OAUTH_STATE_UNAVAILABLE")
     params = {
         "client_id": client_id,
         "redirect_uri": _redirect_uri(request, provider),
@@ -101,7 +141,11 @@ async def oauth_callback(
     if provider not in _PROVIDERS:
         return http_error(400, f"Unknown provider: {provider}", "INVALID_PROVIDER")
 
-    tenant_id = _consume_state(state)
+    try:
+        tenant_id = await _consume_state(state, provider)
+    except Exception:
+        log.exception("oauth_state_consume_failed provider=%s", provider)
+        return http_error(503, "OAuth state unavailable", "OAUTH_STATE_UNAVAILABLE")
     if tenant_id is None:
         return http_error(400, "State expired or already used", "OAUTH_STATE_INVALID")
     if (not isinstance(tenant_id, str) or not tenant_id.strip() or

@@ -167,24 +167,75 @@ def verify_token(token: str, expected_type: str = "access") -> dict | None:
         return None
 
 
-def refresh_token(refresh_token_value: str) -> dict | None:
+async def refresh_token(refresh_token_value: str) -> dict | None:
+    """Renew tokens only while the signed user's tenant membership is active.
+
+    Refresh requests are public endpoints, so explicitly bind the verified
+    tenant context for this DB read. Never trust role/email claims after the
+    membership has been disabled or edited in the database.
+    """
     payload = verify_token(refresh_token_value, expected_type="refresh")
     if not payload:
         return None
 
+    subject = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    email = payload.get("email")
+    role = payload.get("role")
+    if (
+        not isinstance(subject, str)
+        or not subject.isascii()
+        or not subject.isdecimal()
+        or not 0 < len(subject) <= 18
+        or int(subject) <= 0
+        or not isinstance(tenant_id, str)
+        or not tenant_id
+        or tenant_id != tenant_id.strip()
+        or tenant_id.casefold() == "default"
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(role, str)
+        or not role
+    ):
+        return None
+
+    try:
+        from app.api.db import _q, get_conn, tenant_db_context
+
+        async with tenant_db_context(tenant_id):
+            async with get_conn() as conn:
+                current = await conn.fetchrow(
+                    _q(
+                        "SELECT id, email, role, tenant_id FROM users "
+                        "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
+                    ),
+                    int(subject),
+                    tenant_id,
+                )
+    except Exception:
+        log.exception("refresh_membership_lookup_failed")
+        return None
+
+    if not current:
+        return None
+    if (
+        str(current["id"]) != subject
+        or current["tenant_id"] != tenant_id
+        or current["role"] != role
+        or not isinstance(current["email"], str)
+        or current["email"].casefold() != email.casefold()
+    ):
+        return None
+
     user = {
-        "id": int(payload["sub"]),
-        "email": payload["email"],
-        "role": payload["role"],
-        "tenant_id": payload["tenant_id"],
+        "id": current["id"],
+        "email": current["email"],
+        "role": current["role"],
+        "tenant_id": current["tenant_id"],
     }
-
-    new_access_token = _create_access_token(user)
-    new_refresh_token = _create_refresh_token(user)
-
     return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
+        "access_token": _create_access_token(user),
+        "refresh_token": _create_refresh_token(user),
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_EXPIRE_HOURS * 3600,
     }

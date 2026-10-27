@@ -173,6 +173,9 @@ _AUTH_PREFIXES: tuple[str, ...] = (
     "/auth/refresh",
     "/auth/oauth/",
     "/auth/password-reset",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/change-password",
     "/auth/totp",
 )
 

@@ -56,7 +56,11 @@ async def session_db(monkeypatch):
         async with pool.acquire() as conn:
             await conn.execute(sql)
             await conn.execute(sql)  # every migration must be safely repeatable
-            await conn.execute(routes_auth._CREATE_RESET_TOKENS)
+            reset_sql = Path(
+                "app/storage/migrations/016_password_reset_tokens.sql"
+            ).read_text(encoding="utf8")
+            await conn.execute(reset_sql)
+            await conn.execute(reset_sql)  # idempotent, migration-role fixture
 
         monkeypatch.setenv("JWT_SESSION_VERSION_ENABLED", "1")
         monkeypatch.delenv("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", raising=False)

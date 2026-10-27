@@ -265,7 +265,7 @@ async def auth_signup(data: FullRegisterRequest, request: Request):
             "email": data.email,
         }
         access = create_access_token(token_payload)
-        refresh = create_refresh_token({"sub": str(user["id"])})
+        refresh = create_refresh_token(token_payload)
 
         log.info("action=signup_success email=%s tenant=%s inn=%s", data.email, tenant_id, data.company_inn)
 
@@ -332,8 +332,8 @@ async def auth_me(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/refresh")
-def auth_refresh(data: RefreshRequest):
-    refreshed = refresh_token(data.refresh_token)
+async def auth_refresh(data: RefreshRequest):
+    refreshed = await refresh_token(data.refresh_token)
     if not refreshed:
         return error_response("Refresh failed", "AUTH_ERROR", "Invalid refresh token")
     return ok_response("Token refreshed", refreshed)

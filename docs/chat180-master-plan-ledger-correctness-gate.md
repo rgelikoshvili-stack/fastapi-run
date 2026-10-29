@@ -146,7 +146,7 @@ PostgreSQL fixture deliberately contains one unclassifiable movement: it now
 requires unavailable unbounded official cashflow, a successful bounded known
 period, tenant-B isolation, and an available trial cash balance alongside null
 cashflow KPIs. Actual classification guesses and historical financial rows
-are not changed. Exact stage-4 CI pending.
+are not changed. Exact stage-4 implementation `23811088fd116ce8ae4d5973c177820fc1580b44`: all 9 workflows PASS. Backend 8,331 PASS / 3 SKIP plus smoke 1 (40923579539); PG15/16 492 EACH (40923579609); real Chroma/ONNX 43 (40923579685); Redis 210 (40923579719); membership 45 (40923579923); vault 104 (40923579676); finance RLS 18 (40923579585); PR127 reporting 241 plus real-DB 1 (40923579743); PR84 82/190 plus real-DB 1 (40923579599). Actual deployment and frontend build SKIPPED.
 
 ## Remaining work
 
@@ -155,3 +155,27 @@ Historical/custom account classification,
 complete non-GEL report conversion, balance retained-earnings reconciliation,
 complete unknown-cashflow review workflow, immutable ledger constraints and all live
 RLS/backup/provider/UI gates remain explicitly open in the master plan.
+
+
+## Preservation and review boundary
+
+A blob-by-blob comparison of all 1,060 files at implementation `2381108`
+matched the local work exactly. Main and PR153 remain at their recorded SHAs;
+PR154 remains Draft/unmerged. No reset/rebase/force push, merge, deploy, live
+configuration/DB migration, data deletion or Windows-original edit was performed.
+All inherited reports and source history remain. Documentation-only closeout
+will not alter the tested implementation.
+
+Each source stage has its own immutable commit and passing scoped/whole-suite
+checks; the master plan maps exact compare ranges. Recovery is a reviewed Draft
+revert of the affected source commit together with its tests, accounting for
+subsequent dependencies; no automatic rollback or deployment is attempted.
+Stricter invalid-ledger rejection, required transaction/isolation, signed ERP
+memory scope, disabled incomplete live history and null CFO metrics are intended
+compatibility changes. API clients and UI must accept unavailable states.
+
+The next safe work is the real-PG mixed-currency reporting defect (FIN-05),
+including line functional-currency rounding invariants, then historical account
+classification, direct-SQL uniqueness/immutability and receipt/outbox boundaries.
+V1 and Production acceptance remain open; passing synthetic CI is not a claim
+of live schema, provider, operational recovery or browser acceptance.

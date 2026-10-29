@@ -98,7 +98,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
 | FIN-08 P1 V1 | balance sheet assets/liabilities/equity read path | current profit/retained earnings, opening balances, period close and FX; trial equation and complete equity reconciliation, not just asset totals |
-| FIN-09 P1 V1 | cashflow classifier + salary fix; partial DRAFT-VERIFIED | unknown/ambiguous movements must be visible; cash-account movement reconciliation, transfers, compound entries, noncash and reversals |
+| FIN-09 P1 V1 | unknown periods fail closed; unavailable CFO cashflow is null; DRAFT-VERIFIED at `2381108` | complete classification-review workflow and actual cash reconciliation; FX/compound/noncash/reversals and UI unavailable-state acceptance remain |
 | FIN-10 P1 V1 | trial/account/counterparty ledgers have legacy posted-draft paths | consistent source flag/labels, opening/period/closing balances and statement parity; no silent fallback |
 | FIN-11 P0 V1-B | approval/correction/period-lock services, historical guarded candidates | actual route→transaction→audit; maker/checker, concurrent close vs posting, locked dates, immutable reversal; preserve candidate provenance |
 | FIN-12 P0 V1-B writes | posting/ERP success and local ledger are separate transactions | durable receipt/outbox/reconciliation; timeout and unknown result, commit failure, duplicate importer; never retry external mutation blindly |
@@ -231,6 +231,7 @@ connectivity cannot be inferred from mocks. No P0 may remain open at release.
 | Chat180 stage 1 | stored-line validation, Decimal and trial tenant/date repaired | `af537f8917864120d347c87fcb1a6ef71dd52408`; backend 8,276 PASS / 3 SKIP; PG15/16 432 each; all 9 CI workflows PASS |
 | Chat180 stage 2 | transaction-bound READ COMMITTED cooperative source lock; autocommit/stale snapshots refused | `a91b50f60281600edc8c8d4a79f925e9369384ad`; backend 8,277 PASS / 3 SKIP; PG15/16 437 EACH; all 9 CI PASS; DB uniqueness remains open |
 | Chat180 stage 3 | signed ERP memory/import scope, write RBAC, redaction and demo isolation; incomplete live history adapter fails closed | `da32bac9ce1a8c461f63823adcaec6c5b9e4adb7`; backend 8,319 PASS / 3 SKIP; PG15/16 480 EACH; all 9 CI PASS |
+| Chat180 stage 4 | incomplete official cashflow refused; missing/malformed CFO cashflow stays null, verified zero stays zero | `23811088fd116ce8ae4d5973c177820fc1580b44`; backend 8,331 PASS / 3 SKIP; PG15/16 492 EACH; real reporting fixture + all 9 CI PASS |
 
 ყოველი ეტაპი განაახლებს ამ ჟურნალს, ტექნიკურ ანგარიშსა და სრულ **პირად**
 Master Handoff-ს. GitHub-ში ინახება მხოლოდ სანიტიზებული გეგმა/კოდი/ანგარიში;
@@ -239,3 +240,32 @@ Master Handoff-ს. GitHub-ში ინახება მხოლოდ ს�
 აკრძალულია ცალკე თანხმობის გარეშე: merge, Production deploy/config,
 რეალური DB migration და Windows ორიგინალების შეცვლა. ეს შეზღუდვები არ
 აჩერებს უკვე ნებადართულ Draft corrections/isolated tests-ს.
+
+
+## 8. ამ checkpoint-ის შემდეგი უსაფრთხო სამუშაო
+
+ოთხი დასრულებული ცვლილება საერთო V1 მიღებას არ ნიშნავს. შემდეგი ყველაზე
+მაღალი ფინანსური რისკია FIN-05: GEL-ით დასათაურებული ანგარიშები ჯერ raw
+foreign-currency debit/credit-ს აჯამებს. ჯერ შექმენით failing real-PG
+mixed-currency მაგალითი, გადაამოწმეთ amount_gel/ორიგინალი posting FX/
+rounding და ყველა P&L/BS/TB/CFO/AI reader; rate=1 ან ახალი კურსი არ გამოიცნოთ.
+ასევე შეამოწმეთ stored functional-currency debit/credit-ის სენტების ბალანსი.
+
+შემდეგ FIN-04/06/11/12: უცნობი/ისტორიული account_type-ის დაკარგული თანხები,
+DB source uniqueness და immutability, close-vs-post races, ERP receipt/outbox.
+FIN-08 retained result/equity და COM-01 subscription lifecycle რჩება ღია.
+Live history adapter, frontend E2E, runtime RLS/backup/recovery/region/provenance
+კვლავ საჭიროებს შესაბამის მტკიცებულებას. Provider API-ს ნამდვილ ხელშეკრულებას
+ვერ დაამტკიცებს synthetic stub; Production readiness ამ ეტაპზე HOLD-ია.
+
+Review-ის bounded source ranges, ყოველგვარი ისტორიის გადაწერის გარეშე:
+
+| ცვლილება | exact compare range | დამოუკიდებელი შემოწმება |
+|---|---|---|
+| Stored cents / reader tenant+DATE | `c215adb..af537f8` | invalid-before, Decimal, rounded lines, PG15/16 writer→report |
+| Cooperative source concurrency | `af537f8..a91b50f` | eight simultaneous PG connections, A/B, rollback, isolation/autocommit |
+| ERP memory tenant / demo safety | `a91b50f..da32bac` | signed route guard, read-vs-write, actual sync helper + nonowner FORCE-RLS |
+| Incomplete cashflow / CFO null | `da32bac..2381108` | unknown movement, complete zero, malformed/unavailable, real report period fixture |
+
+ეს ranges cumulative Draft-ის მცირე review-ებად წაკითხვის საშუალებას იძლევა;
+ცალკე stacked PR-ები ჯერ არ შექმნილა და main-ზე არაფერი ინტეგრირებულა.

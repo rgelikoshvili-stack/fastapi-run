@@ -1195,3 +1195,130 @@ async def test_chat180_erp_memory_routes_import_classifier_nonowner_force_rls(au
         assert {row["tenant_id"]: row["n"] for row in rows} == {"default": 1, "t_alpha": 1, "t_beta": 1}
     async with auth_db["runtime"].acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM erp_posting_memory") == 0
+
+
+async def _chat181_report_inputs(auth_db):
+    """Small synthetic ancillary tables for actual AI readers, tenant RLS enabled."""
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""CREATE TABLE journal_drafts (
+            id SERIAL PRIMARY KEY, tenant_id TEXT, status TEXT, confidence NUMERIC, amount NUMERIC);
+            CREATE TABLE bank_accounts (tenant_id TEXT, name TEXT, balance NUMERIC, currency TEXT);
+        """)
+        for table in ("journal_drafts", "bank_accounts"):
+            await conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+            await conn.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+            await conn.execute(f'GRANT SELECT ON {table} TO "{auth_db["role"]}"')
+            await conn.execute(f"CREATE POLICY chat181_exact ON {table} USING (tenant_id=current_setting('app.current_tenant_id',true))")
+
+
+@pytest.mark.asyncio
+async def test_chat181_actual_mixed_currency_writer_reports_ai_and_cfo(auth_db, monkeypatch):
+    from app.api.services import financial_statements_service as finance, ledger_service as ledger
+    from app.api.services import chat_context_service as chat, cfo_dashboard_service as cfo
+    from app.api.services.ai_tool_registry import run_tool
+    from app.api.services.posting_service import _write_ledger_entries
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
+    await _chat179_prepare_ledger(auth_db)
+    await _chat181_report_inputs(auth_db)
+    entries = [("t_alpha", "2026-09-30", "GEL", "1", "1120", "6110", "7"),
+               ("t_alpha", "2026-10-10", "USD", "2.5", "1120", "6110", "100"),
+               ("t_alpha", "2026-10-20", "EUR", "3", "1120", "6110", "20"),
+               ("t_alpha", "2026-10-25", "GEL", "1", "7210", "1120", "10"),
+               ("t_beta", "2026-10-10", "USD", "4", "1120", "6110", "9000")]
+    for tenant, day, currency, rate, dr, cr, amount in entries:
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn, {"id": str(uuid4()), "date": day, "currency": currency,
+                    "lines": [{"account_code": dr, "debit": amount}, {"account_code": cr, "credit": amount}]},
+                    {"exchange_rate": rate}, tenant, "synthetic", "fin05")
+    with db.authenticated_tenant_context("t_alpha"):
+        pnl = await finance.build_profit_and_loss("t_alpha", "2026-10-01", "2026-10-31")
+        assert pnl["ok"] is True, pnl
+        assert pnl["data"]["currency"] == "GEL"
+        assert pnl["data"]["revenue"]["total"] == 310  # 100USD*2.5 + 20EUR*3
+        assert pnl["data"]["opex"]["total"] == 10 and pnl["data"]["ebit"] == 300
+        balance = await finance.build_balance_sheet("t_alpha", "2026-10-31")
+        assert balance["ok"] and balance["data"]["assets"]["total"] == 307
+        cashflow = await finance.build_cashflow_statement("t_alpha", "2026-10-01", "2026-10-31")
+        assert cashflow["ok"] and cashflow["data"]["net_change_in_cash"] == 300
+        trial = await ledger.get_trial_balance("t_alpha", "2026-10-01", "2026-10-31")
+        assert "error" not in trial and trial["total_debit"] == trial["total_credit"] == 320
+        ending = await finance._get_posted_trial_balance_as_of("t_alpha", "2026-10-31")
+        assert ending["1120"] == 307 and ending["6110"] == -317 and ending["7210"] == 10
+        dashboard = await cfo.build_cfo_dashboard("t_alpha", date_from="2026-10-01", date_to="2026-10-31")
+        assert dashboard["cash_position"]["total_liquid"] == 307
+        assert dashboard["cash_position"]["net_cashflow"] == 300
+        context = await chat.build_chat_context("t_alpha", "P&L")
+        assert context["reports_summary"]["revenue"] == 317
+        assert context["reports_summary"]["profit"] == 307
+        tool = await run_tool("financial_summary", {}, "t_alpha")
+        assert tool["preview"]["revenue"] == "317.00 GEL" and tool["preview"]["profit"] == "307.00 GEL"
+    with db.authenticated_tenant_context("t_beta"):
+        pnl = await finance.build_profit_and_loss("t_beta")
+        assert pnl["ok"] and pnl["data"]["revenue"]["total"] == 36000
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["zero_gel", "zero_rate", "nan_rate", "currency_mismatch", "rounded_imbalance"])
+async def test_chat181_legacy_invalid_fx_never_becomes_official_gel(auth_db, monkeypatch, bad):
+    from app.api.services import financial_statements_service as finance, ledger_service as ledger
+    from app.api.services import cfo_dashboard_service as cfo
+    from app.api.services.posting_service import _write_ledger_entries
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
+    await _chat179_prepare_ledger(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await _write_ledger_entries(conn, {"id": str(uuid4()), "date": "2026-10-29", "currency": "USD",
+                "lines": [{"account_code": "1120", "debit": "100"}, {"account_code": "6110", "credit": "100"}]},
+                {"exchange_rate": "2.5"}, "t_alpha", "synthetic", "fin05")
+    async with auth_db["admin"].acquire() as conn:
+        if bad == "zero_gel":
+            await conn.execute("UPDATE journal_entry_lines SET amount_gel=0")
+        elif bad == "zero_rate":
+            await conn.execute("UPDATE journal_entry_lines SET exchange_rate=0")
+        elif bad == "nan_rate":
+            await conn.execute("UPDATE journal_entry_lines SET exchange_rate='NaN'::numeric")
+        elif bad == "currency_mismatch":
+            await conn.execute("UPDATE journal_entry_lines SET currency='EUR'")
+        else:
+            # Historic raw-balanced journal with valid per-line FX rounding, but
+            # functional debit=.01 and functional credit=.02. Synthetic only.
+            header = uuid4()
+            await conn.execute("""INSERT INTO journal_entry_headers
+                (id,tenant_id,entry_date,period,status,source_type,currency,exchange_rate,total_debit,total_credit)
+                VALUES ($1,'t_alpha','2026-10-29','2026-10','posted','synthetic','USD',.5,.02,.02)""", header)
+            for n, code, typ, debit, credit in [(1,"1120","asset",".02","0"),(2,"6110","income","0",".01"),(3,"6120","income","0",".01")]:
+                from decimal import Decimal
+                await conn.execute("""INSERT INTO journal_entry_lines
+                    (id,tenant_id,journal_entry_id,line_no,account_code,account_type,debit,credit,currency,exchange_rate,amount_gel)
+                    VALUES ($1,'t_alpha',$2,$3,$4,$5,$6,$7,'USD',.5,.01)""", uuid4(),header,n,code,typ,Decimal(debit),Decimal(credit))
+    with db.authenticated_tenant_context("t_alpha"):
+        for build in (finance.build_profit_and_loss, finance.build_balance_sheet, finance.build_cashflow_statement):
+            response = await build("t_alpha")
+            assert response["ok"] is False and response["error"]["code"] == "POSTED_LEDGER_FX_INVALID", response
+        trial = await ledger.get_trial_balance("t_alpha")
+        assert trial["error"] == "POSTED_LEDGER_FX_INVALID"
+        with pytest.raises(ValueError, match="POSTED_LEDGER_FX_INVALID"):
+            await finance._get_posted_trial_balance_as_of("t_alpha", None)
+        dashboard = await cfo.build_cfo_dashboard("t_alpha")
+        assert dashboard["cash_position"]["available"] is False
+        assert dashboard["cash_position"]["net_cashflow"] is None
+        assert dashboard["profitability"]["available"] is False
+        assert dashboard["profitability"]["revenue"] is None
+
+
+@pytest.mark.asyncio
+async def test_chat181_actual_writer_rejects_functional_rounding_imbalance_without_rows(auth_db):
+    from app.api.services.posting_service import _write_ledger_entries
+    await _chat179_prepare_ledger(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(ValueError, match="LEDGER_FUNCTIONAL_UNBALANCED"):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn, {"id": str(uuid4()), "date": "2026-10-29", "currency": "USD",
+                    "lines": [{"account_code": "1120", "debit": ".02"}, {"account_code": "6110", "credit": ".01"}, {"account_code": "6120", "credit": ".01"}]},
+                    {"exchange_rate": ".5"}, "t_alpha", "synthetic", "fin05")
+        async with db.get_conn() as conn:
+            for table in ("journal_entry_headers", "journal_entry_lines", "journal_entry_sources"):
+                assert await conn.fetchval(f"SELECT count(*) FROM {table}") == 0

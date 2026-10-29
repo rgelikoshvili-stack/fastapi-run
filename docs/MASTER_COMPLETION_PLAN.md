@@ -152,7 +152,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | რიგი | ეტაპი | ფუნქციები / დასრულების მტკიცებულება | რეჟიმი |
 |---|---|---|---|
 | 0 | baseline + ეს გეგმა | source inventory, main/153/154 ancestry, current handoff, G0 preservation | READ-ONLY; COMPLETE for this checkpoint |
-| 1 | Ledger validation და sibling readers | FIN-01/03/04; failing-before + passing-after, actual PG15/16 writer/report tests | DRAFT; NEXT |
+| 1 | Ledger validation და sibling readers | FIN-01/03/04; failing-before + passing-after, actual PG15/16 writer/report tests | DRAFT; implementation prepared, CI pending |
 | 2 | Retry/concurrency და import tenant | FIN-02, SEC-08/ING-08; simultaneous writers and A/B memory import | DRAFT |
 | 3 | Financial reconciliation | FIN-05/07/08/09/10/13; FX, complete balance, unknown cashflow and all AI/report readers | DRAFT |
 | 4 | Mutation boundaries | FIN-06/11/12, SEC-01/04/06/07; all direct/correction/export paths and rollback | DRAFT; DB candidates remain unapplied |

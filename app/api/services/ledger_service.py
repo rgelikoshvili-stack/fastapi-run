@@ -12,6 +12,7 @@ from app.api.services.financial_statements_service import (
     _posted_ledger_reports_enabled,
     _require_tenant_id,
     _assert_no_silent_fallback,
+    _pg_date,
     STANDARD_NET_STATUSES,
 )
 
@@ -29,10 +30,10 @@ def _build_trial_balance_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = f"""
         SELECT jel.account_code,
@@ -40,6 +41,7 @@ def _build_trial_balance_posted_ledger_query(
                SUM(jel.credit) AS total_credit
         FROM journal_entry_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+                                     AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           {date_filter}

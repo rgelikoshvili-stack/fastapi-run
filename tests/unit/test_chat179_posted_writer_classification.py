@@ -18,12 +18,13 @@ async def test_writer_persists_canonical_classification_not_caller_hint(code, ex
     draft = {
         "id": "synthetic-draft", "date": "2026-10-29", "currency": "GEL",
         "lines": [{"account_code": code, "debit": 10, "credit": 0,
-                   "account_type": "caller-forged"}],
+                   "account_type": "caller-forged"},
+                  {"account_code": "1120", "debit": 0, "credit": 10}],
     }
     await _write_ledger_entries(conn, draft, {}, "t_alpha", "test", "synthetic")
     calls = [c for c in conn.execute.call_args_list
              if "INSERT INTO journal_entry_lines" in c.args[0]]
-    assert len(calls) == 1
+    assert len(calls) == 2
     sql, *values = calls[0].args
     assert "account_type" in sql
     assert values[-1] == expected

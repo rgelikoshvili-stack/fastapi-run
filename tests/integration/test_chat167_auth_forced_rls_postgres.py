@@ -691,6 +691,7 @@ async def test_chat178_migration011_posted_ledger_tenant_line_integrity(
     from datetime import date
     from app.api.services import financial_statements_service as finance
     from app.api.services import chat_context_service as chat
+    from app.api.services import ledger_service as ledger
 
     monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
     migration = Path(
@@ -769,6 +770,7 @@ async def test_chat178_migration011_posted_ledger_tenant_line_integrity(
             official = await finance.build_profit_and_loss(tenant)
             ai = await chat.build_chat_context(tenant, "P&L")
             trial = await finance._get_posted_trial_balance_as_of(tenant, None)
+            routed_trial = await ledger.get_trial_balance(tenant, "2026-10-01", "2026-10-31")
         assert official["ok"] is True, official.get("error")
         assert official["data"]["source"] == "posted_ledger"
         assert official["data"]["revenue"]["total"] == revenue
@@ -780,6 +782,10 @@ async def test_chat178_migration011_posted_ledger_tenant_line_integrity(
         assert ai["reports_summary"]["expenses"] == expenses
         assert ai["reports_summary"]["profit"] == revenue - expenses
         assert trial["6110"] == -revenue
+        assert "error" not in routed_trial, routed_trial
+        assert routed_trial["total_debit"] == revenue + expenses
+        assert routed_trial["total_credit"] == revenue + expenses
+        assert next(a for a in routed_trial["accounts"] if a["account_code"] == "6110")["closing_balance"] == -revenue
 
     await assert_ledger("t_alpha", 1000.0, 400.0)
     await assert_ledger("t_beta", 9000.0, 200.0)
@@ -966,3 +972,47 @@ async def test_chat179_candidate_refuses_bad_legacy_rows_without_repair(auth_db)
         assert await conn.fetchval("SELECT tenant_id FROM journal_entry_lines WHERE id=$1", line) == "t_beta"
         assert await conn.fetchval("""SELECT count(*) FROM pg_constraint
             WHERE conrelid='journal_entry_headers'::regclass AND conname='uq_chat179_jeh_id_tenant'""") == 0
+
+
+@pytest.mark.asyncio
+async def test_chat180_actual_writer_stored_cents_precision_and_invalid_rollback(auth_db):
+    from decimal import Decimal
+    from app.api.services.posting_service import _write_ledger_entries
+
+    await _chat179_prepare_ledger(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            for lines in (
+                [{"account_code": "", "debit": 10}, {"account_code": "6110", "credit": 10}],
+                [{"account_code": "1120", "debit": ".005"},
+                 {"account_code": "1130", "debit": ".005"},
+                 {"account_code": "6110", "credit": ".01"}],
+                [{"account_code": "1120", "debit": "invalid"},
+                 {"account_code": "6110", "credit": 10}],
+            ):
+                invalid = {"id": str(uuid4()), "date": "2026-10-29", "currency": "GEL", "lines": lines}
+                with pytest.raises(ValueError):
+                    await _write_ledger_entries(conn, invalid, {}, "t_alpha", "test", "hash")
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 0
+
+            for amount in (".005", "9007199254740993.01"):
+                valid = {"id": str(uuid4()), "date": "2026-10-29", "currency": "GEL",
+                         "lines": [{"account_code": "1120", "debit": amount},
+                                   {"account_code": "6110", "credit": amount}]}
+                await _write_ledger_entries(conn, valid, {}, "t_alpha", "test", "hash")
+            rows = await conn.fetch("""SELECT h.total_debit,h.total_credit,
+                       sum(l.debit) AS line_debit,sum(l.credit) AS line_credit,
+                       max(l.amount_gel) AS gel
+                FROM journal_entry_headers h JOIN journal_entry_lines l
+                  ON l.journal_entry_id=h.id AND l.tenant_id=h.tenant_id
+                GROUP BY h.id ORDER BY h.total_debit""")
+            assert len(rows) == 2
+            assert rows[0]["total_debit"] == Decimal(".01")
+            assert rows[1]["total_debit"] == Decimal("9007199254740993.01")
+            for row in rows:
+                assert row["total_debit"] == row["total_credit"] == row["line_debit"] == row["line_credit"] == row["gel"]
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0

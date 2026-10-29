@@ -3,15 +3,16 @@ import json
 import logging
 import os
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 from datetime import date as _date
 from typing import Any, List, Optional
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, _validate_tenant_id
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.observability import structured_log
 from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
+from app.api.services.posted_ledger_validation import prepare_posted_ledger_lines, MAX_AMOUNT
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -596,8 +597,16 @@ async def _write_ledger_entries(
     Runs inside the caller's transaction (separate from the main posting tx).
     Tables created by migration 011; only reached when POSTED_LEDGER_WRITES_ENABLED=true.
     """
+    try:
+        _validate_tenant_id(tenant_id)
+    except ValueError as exc:
+        raise ValueError("LEDGER_TENANT_MISMATCH: canonical tenant required") from exc
+    if draft.get("tenant_id") is not None and draft["tenant_id"] != tenant_id:
+        raise ValueError("LEDGER_TENANT_MISMATCH: draft tenant differs")
+    if draft.get("id") is None or isinstance(draft.get("id"), bool) or not str(draft["id"]).strip():
+        raise ValueError("LEDGER_SOURCE_REQUIRED: stable draft ID required")
     # REQ-5: idempotent pre-check — skip if source already written for this draft
-    draft_id_str = str(draft.get("id", ""))
+    draft_id_str = str(draft["id"])
     if draft_id_str:
         existing = await conn.fetchval(_q("""
             SELECT id FROM journal_entry_sources
@@ -613,14 +622,11 @@ async def _write_ledger_entries(
             }, tenant_id=tenant_id)
             return
 
-    lines = draft.get("lines", [])
-    total_debit  = sum(_to_decimal(ln.get("debit",  0) or 0) for ln in lines)
-    total_credit = sum(_to_decimal(ln.get("credit", 0) or 0) for ln in lines)
-
-    entry_date_str = (draft.get("date") or "")[:10] or None
-    period = entry_date_str[:7] if entry_date_str and len(entry_date_str) >= 7 else "1970-01"
-    # asyncpg requires a datetime.date object for date columns
-    entry_date_val = _date.fromisoformat(entry_date_str) if entry_date_str else None
+    try:
+        entry_date_val = _date.fromisoformat(str(draft.get("date") or "")[:10])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("LEDGER_DATE_INVALID: valid entry date required") from exc
+    period = entry_date_val.isoformat()[:7]
 
     # posting_log_id linkage: schema column is UUID; accept string or uuid.UUID from payload
     posting_log_id: Optional[uuid.UUID] = None
@@ -631,13 +637,33 @@ async def _write_ledger_entries(
         except (ValueError, AttributeError):
             pass
 
+    currency = (draft.get("currency") or "GEL").upper()
+    if currency != "GEL" and "exchange_rate" not in payload:
+        # Recovery must supply the original verified posting FX, never guess 1.
+        raise ValueError("FX_RATE_INVALID: explicit posting exchange rate required")
     try:
         exchange_rate = Decimal(str(payload.get("exchange_rate", 1)))
+        if not exchange_rate.is_finite() or exchange_rate <= 0:
+            raise ValueError
+        exchange_rate = exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)
+        if exchange_rate <= 0 or exchange_rate > Decimal("9999999999.99999999"):
+            raise ValueError
     except Exception as exc:
         raise ValueError("FX_RATE_INVALID: ledger exchange rate is invalid") from exc
-    if not exchange_rate.is_finite() or exchange_rate <= 0:
-        raise ValueError("FX_RATE_INVALID: ledger exchange rate must be positive and finite")
-    currency = (draft.get("currency") or "GEL").upper()
+    lines, total_debit, total_credit = prepare_posted_ledger_lines(draft.get("lines"))
+    # Prepare all numeric values BEFORE any INSERT, using the same cents as
+    # the stored debit/credit lines and never a binary float intermediary.
+    with localcontext() as context:
+        context.prec = 50
+        for line in lines:
+            try:
+                line["amount_gel"] = (max(line["debit"], line["credit"]) * exchange_rate).quantize(
+                    Decimal("0.01"), ROUND_HALF_UP
+                )
+                if line["amount_gel"] > MAX_AMOUNT:
+                    raise ValueError
+            except (ValueError, DecimalException) as exc:
+                raise ValueError("LEDGER_LINES_INVALID: GEL amount exceeds numeric range") from exc
 
     header_id = await conn.fetchval(_q("""
         INSERT INTO journal_entry_headers (
@@ -653,21 +679,18 @@ async def _write_ledger_entries(
         period,
         entry_hash,
         currency,
-        float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
-        float(total_debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-        float(total_credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+        exchange_rate,
+        total_debit,
+        total_credit,
         json.dumps({"target_system": target, "source_hash": entry_hash}, ensure_ascii=False),
         posting_log_id,
     )
 
     for idx, line in enumerate(lines, start=1):
         account_code = str(line.get("account_code", "") or "").strip()
-        if not account_code:
-            continue
-        debit  = _to_decimal(line.get("debit",  0) or 0)
-        credit = _to_decimal(line.get("credit", 0) or 0)
-        amount = debit if debit > 0 else credit
-        amount_gel = (amount * exchange_rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        debit = line["debit"]
+        credit = line["credit"]
+        amount_gel = line["amount_gel"]
         # The posted report queries use account_type, not just account_code.
         # Derive it from the existing canonical COA, never caller hints.
         # Ledger vocabulary uses income and asset for revenue/contra_asset.
@@ -683,11 +706,11 @@ async def _write_ledger_entries(
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """),
             tenant_id, header_id, idx, account_code,
-            float(debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-            float(credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+            debit,
+            credit,
             currency,
-            float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
-            float(amount_gel),
+            exchange_rate,
+            amount_gel,
             str(line.get("label", "") or draft.get("description", "") or ""),
             account_type,
         )

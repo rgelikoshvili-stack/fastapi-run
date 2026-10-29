@@ -17,6 +17,7 @@ from app.api.models.user import create_user, create_users_table, get_user, hash_
 from app.api.services.auth_service import ACCESS_TOKEN_EXPIRE_HOURS, login, verify_token, refresh_token, create_access_token, create_refresh_token, jwt_session_version_enabled
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.security import limiter
+from app.api.client_ip import client_ip_for_rate_limit
 from app.api.db import get_conn, _q, tenant_db_context
 from app.api.tenant_context import resolve_tenant_id
 from app.api.authz import require_permission
@@ -268,9 +269,13 @@ async def _create_tenant(tenant_id: str, inn: str, name: str, company_type: str,
 @router.post("/login")
 @limiter.limit("5/minute")
 async def auth_login(request: Request, data: LoginRequest):
-    log.info("action=login_attempt email=%s tenant=%s ip=%s",
-             data.email, data.tenant_id,
-             request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown"))
+    # Do not log client-selected X-Forwarded-For or a raw personal IP.
+    # Use the same trusted socket-peer policy as both rate limiters.
+    ip_fingerprint = hashlib.sha256(
+        client_ip_for_rate_limit(request).encode("utf-8")
+    ).hexdigest()[:12]
+    log.info("action=login_attempt email=%s tenant=%s ip_hash=%s",
+             data.email, data.tenant_id, ip_fingerprint)
     result = await login(data.email, data.password, data.tenant_id)
     if not result.get("ok"):
         log.warning("action=login_fail email=%s tenant=%s reason=%s",

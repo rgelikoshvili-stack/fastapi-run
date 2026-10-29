@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
 from app.api.services.auth_service import create_access_token, create_refresh_token, jwt_session_version_enabled
+from app.api.trusted_request_origin import configured_oauth_origin
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
@@ -101,7 +102,9 @@ _PROVIDERS = {
 
 
 def _redirect_uri(request: Request, provider: str) -> str:
-    base = os.environ.get("APP_BASE_URL", str(request.base_url).rstrip("/"))
+    # Never obtain OAuth callback authority from Host or X-Forwarded-*.
+    # APP_BASE_URL or OAUTH_REDIRECT_BASE_URL must be explicitly trusted.
+    base = configured_oauth_origin()
     return f"{base}/auth/oauth/{provider}/callback"
 
 
@@ -119,6 +122,14 @@ async def oauth_login(provider: str, request: Request, tenant_id: str = "default
             tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
         return http_error(403, "Explicit tenant ID is required for OAuth login", "OAUTH_MEMBERSHIP_REQUIRED")
 
+    # Fail before issuing/persisting any one-time state when callback origin
+    # is not configured. Never redirect to a request-controlled hostname.
+    try:
+        redirect_uri = _redirect_uri(request, provider)
+    except ValueError:
+        log.error("oauth_redirect_origin_not_configured provider=%s", provider)
+        return http_error(503, "OAuth callback origin unavailable", "OAUTH_ORIGIN_UNTRUSTED")
+
     try:
         state = await _issue_state(tenant_id, provider)
     except Exception:
@@ -126,7 +137,7 @@ async def oauth_login(provider: str, request: Request, tenant_id: str = "default
         return http_error(503, "OAuth state unavailable", "OAUTH_STATE_UNAVAILABLE")
     params = {
         "client_id": client_id,
-        "redirect_uri": _redirect_uri(request, provider),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": cfg["scope"],
         "state": state,
@@ -149,6 +160,14 @@ async def oauth_callback(
     if provider not in _PROVIDERS:
         return http_error(400, f"Unknown provider: {provider}", "INVALID_PROVIDER")
 
+    # Callback must use the identical configured URI as the authorization
+    # request. Fail before consuming the one-use state on misconfiguration.
+    try:
+        redirect_uri = _redirect_uri(request, provider)
+    except ValueError:
+        log.error("oauth_callback_origin_not_configured provider=%s", provider)
+        return http_error(503, "OAuth callback origin unavailable", "OAUTH_ORIGIN_UNTRUSTED")
+
     try:
         tenant_id = await _consume_state(state, provider)
     except Exception:
@@ -169,7 +188,7 @@ async def oauth_callback(
             "code": code,
             "client_id": client_id,
             "client_secret": client_secret,
-            "redirect_uri": _redirect_uri(request, provider),
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }, timeout=10)
         tok.raise_for_status()

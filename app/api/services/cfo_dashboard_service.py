@@ -459,4 +459,10 @@ async def build_cfo_dashboard(
         period_lock=period_lock_status,
         as_of=effective_as_of,
     )
+    if not pnl_resp.get("ok"):
+        result["profitability"] = {key: None for key in result["profitability"]}
+        result["profitability"].update({"available": False,
+            "error": (pnl_resp.get("error") or {}).get("code", "PNL_UNAVAILABLE")})
+    else:
+        result["profitability"]["available"] = True
     return result

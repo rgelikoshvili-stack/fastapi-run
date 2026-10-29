@@ -9,6 +9,10 @@ from datetime import date
 
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
+from app.api.services.posted_ledger_reporting import (
+    functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
+    LEGACY_FX_INVALID_LINE, LEGACY_FX_ERROR, legacy_fx_unavailable,
+)
 
 log = logging.getLogger(__name__)
 
@@ -64,11 +68,12 @@ def _build_pnl_posted_ledger_query(
     if date_to:
         params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
+    sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.account_code,
                jel.account_type,
-               SUM(jel.debit)  AS total_debit,
-               SUM(jel.credit) AS total_credit,
+               SUM(jel.gel_debit)  AS total_debit,
+               SUM(jel.gel_credit) AS total_credit,
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count,
                CASE WHEN COUNT(*) = COUNT(jeh.source_draft_id)
                           AND COUNT(DISTINCT jeh.source_draft_id) = 1
                     THEN (ARRAY_AGG(jeh.source_draft_id))[1]
@@ -81,7 +86,7 @@ def _build_pnl_posted_ledger_query(
                           AND COUNT(DISTINCT jeh.evidence_bundle_id) = 1
                     THEN (ARRAY_AGG(jeh.evidence_bundle_id))[1]
                     ELSE NULL END AS evidence_bundle_id
-        FROM journal_entry_lines jel
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
          AND jel.tenant_id = jeh.tenant_id
@@ -107,12 +112,13 @@ def _build_balance_sheet_posted_ledger_query(
     if as_of:
         params.append(_pg_date(as_of))
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
+    sql = functional_ledger_cte(as_of_filter) + f"""
         SELECT jel.account_code,
                jel.account_type,
-               SUM(jel.debit)  AS total_debit,
-               SUM(jel.credit) AS total_credit
-        FROM journal_entry_lines jel
+               SUM(jel.gel_debit)  AS total_debit,
+               SUM(jel.gel_credit) AS total_credit,
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
          AND jel.tenant_id = jeh.tenant_id
@@ -142,16 +148,17 @@ def _build_cashflow_posted_ledger_query(
     if date_to:
         params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
+    sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.id AS line_id,
                jel.account_code,
                jel.account_type,
                jel.cashflow_category,
-               jel.debit,
-               jel.credit,
+               jel.gel_debit AS debit,
+               jel.gel_credit AS credit,
+               {FX_INVALID_LINE} AS fx_invalid_count,
                jel.description,
                jeh.id AS header_id
-        FROM journal_entry_lines jel
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
          AND jel.tenant_id = jeh.tenant_id
@@ -175,10 +182,11 @@ def _build_posted_trial_balance_as_of_query(
     if as_of:
         params.append(_pg_date(as_of))
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
-        SELECT jel.account_code, SUM(jel.debit) AS total_debit,
-               SUM(jel.credit) AS total_credit
-        FROM journal_entry_lines jel
+    sql = functional_ledger_cte(as_of_filter) + f"""
+        SELECT jel.account_code, SUM(jel.gel_debit) AS total_debit,
+               SUM(jel.gel_credit) AS total_credit,
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
          AND jel.tenant_id = jeh.tenant_id
@@ -200,6 +208,7 @@ async def _get_posted_trial_balance_as_of(
     sql, params = _build_posted_trial_balance_as_of_query(tenant_id, as_of)
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+    assert_functional_basis(rows)
     return {
         str(row["account_code"]): round(
             float(row["total_debit"] or 0) - float(row["total_credit"] or 0), 2
@@ -305,7 +314,8 @@ async def _get_trial_balance(
         SELECT
             COALESCE(entry->>'dr', entry->>'cr') AS account_code,
             CASE WHEN entry->>'dr' IS NOT NULL THEN 'debit' ELSE 'credit' END AS side,
-            SUM(CAST(COALESCE(entry->>'amount', '0') AS NUMERIC)) AS total
+            SUM(CAST(COALESCE(entry->>'amount', '0') AS NUMERIC)) AS total,
+            SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -318,6 +328,9 @@ async def _get_trial_balance(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+
+    if legacy_fx_unavailable(rows):
+        raise ValueError(LEGACY_FX_ERROR)
 
     balances: dict[str, float] = {}
     for row in rows:
@@ -348,6 +361,11 @@ async def _build_pnl_from_posted_ledger(
     except Exception as e:
         log.error("Posted-ledger P&L unavailable: %s", e)
         return error_response("Posted-ledger P&L unavailable", "POSTED_LEDGER_UNAVAILABLE", str(e))
+
+    try:
+        assert_functional_basis(rows)
+    except ValueError:
+        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
 
     revenue_lines, cogs_lines, opex_lines = [], [], []
     for row in rows:
@@ -402,6 +420,8 @@ async def build_profit_and_loss(
     try:
         tb = await _get_trial_balance(tenant_id, date_from, date_to)
     except Exception as e:
+        if str(e) == LEGACY_FX_ERROR:
+            return error_response("Legacy foreign-currency report requires verified booked FX", LEGACY_FX_ERROR)
         log.error("P&L trial balance failed: %s", e)
         return error_response("P&L build failed", "DB_ERROR", str(e))
 
@@ -451,6 +471,11 @@ async def _build_balance_sheet_from_posted_ledger(
         log.error("Posted-ledger Balance Sheet unavailable: %s", e)
         return error_response("Posted-ledger Balance Sheet unavailable",
                               "POSTED_LEDGER_UNAVAILABLE", str(e))
+
+    try:
+        assert_functional_basis(rows)
+    except ValueError:
+        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
 
     sections: dict = {
         "assets":      {"current": [], "non_current": []},
@@ -532,6 +557,11 @@ async def build_cashflow_statement(
             "Official cashflow requires journal_entry_headers and journal_entry_lines.",
         )
 
+    try:
+        assert_functional_basis(rows)
+    except ValueError:
+        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
+
     result = build_cashflow_from_posted_ledger_rows([dict(row) for row in rows])
     unclassified = result["unknown"]["lines"]
     if unclassified:
@@ -564,6 +594,8 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
     try:
         tb = await _get_trial_balance(tenant_id, None, as_of)
     except Exception as e:
+        if str(e) == LEGACY_FX_ERROR:
+            return error_response("Legacy foreign-currency report requires verified booked FX", LEGACY_FX_ERROR)
         log.error("Balance Sheet trial balance failed: %s", e)
         return error_response("Balance Sheet build failed", "DB_ERROR", str(e))
 

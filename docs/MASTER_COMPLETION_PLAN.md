@@ -1,6 +1,6 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
-განახლება: 2026-10-29, Chat180. სტატუსი: სამუშაო გეგმა; **Production HOLD**.
+განახლება: 2026-10-29, Chat181 (Chat180 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
 
@@ -269,3 +269,19 @@ Review-ის bounded source ranges, ყოველგვარი ისტო
 
 ეს ranges cumulative Draft-ის მცირე review-ებად წაკითხვის საშუალებას იძლევა;
 ცალკე stacked PR-ები ჯერ არ შექმნილა და main-ზე არაფერი ინტეგრირებულა.
+
+
+## Chat181 — FIN-05 მიმდინარეობს
+
+საწყისი HEAD `81d2150e0efc5e15b35db9358d1c35459d18b616` და ოთხივე
+მიმაგრებული ფაილი/ZIP manifest გადამოწმებულია. Isolated regression commit
+`28794b0e63dfc3cb548efe93c4a7dde6e41134fe`: PG15/16 14 FAIL /492 PASS EACH;
+რეალურად 120 გამოჩნდა სწორი310GEL-ის ნაცვლად. ეს არის ტესტის მტკიცებულება,
+არა production failure ან release candidate.
+
+Draft candidate უკვე ერთ stored functional basis-ს იყენებს P&L/BS/CF/TB-ში;
+unknown/invalid FX და legacy foreign totals unavailable-ია, არა guessed GEL.
+GEL-rate1 და functional-rounded balance ინვარიანტები writer-ზე დგას.
+Exact-SHA CI ჯერ გადასამოწმებელია. შემდეგ დამოუკიდებელი P0 არის posting-rate
+lookup-ში static fallback/source/date provenance, შემდეგ FIN-04 unknown COA.
+მთავარი გეგმის ზემოთ მოცემული ისტორიული ჩანაწერები არ წაშლილა.

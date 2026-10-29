@@ -8,6 +8,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 from app.api.db import get_conn, _q
+from app.api.services.posted_ledger_reporting import (
+    functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
+    LEGACY_FX_INVALID_LINE, LEGACY_FX_INVALID_HEADER, LEGACY_FX_ERROR, legacy_fx_unavailable,
+)
 from app.api.services.financial_statements_service import (
     _posted_ledger_reports_enabled,
     _require_tenant_id,
@@ -35,11 +39,12 @@ def _build_trial_balance_posted_ledger_query(
     if date_to:
         params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
+    sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.account_code,
-               SUM(jel.debit)  AS total_debit,
-               SUM(jel.credit) AS total_credit
-        FROM journal_entry_lines jel
+               SUM(jel.gel_debit)  AS total_debit,
+               SUM(jel.gel_credit) AS total_credit,
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
                                      AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
@@ -94,7 +99,8 @@ async def get_account_ledger(
             SELECT
                 entry->>'dr' AS dr,
                 entry->>'cr' AS cr,
-                COALESCE(SUM((entry->>'amount')::numeric), 0) AS total
+                COALESCE(SUM((entry->>'amount')::numeric), 0) AS total,
+                SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
             FROM journal_drafts jd
             CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
             WHERE jd.tenant_id = %s
@@ -107,6 +113,8 @@ async def get_account_ledger(
         """)
         async with get_conn() as conn:
             opening_rows = await conn.fetch(opening_sql, *opening_params)
+        if legacy_fx_unavailable(opening_rows):
+            return {"error": LEGACY_FX_ERROR, "account_code": account_code, "lines": [], "count": 0}
         for r in opening_rows:
             amt = Decimal(str(r["total"] or 0))
             opening += amt if r["dr"] == account_code else -amt
@@ -120,7 +128,8 @@ async def get_account_ledger(
             entry->>'dr'                   AS dr,
             entry->>'cr'                   AS cr,
             (entry->>'amount')::numeric    AS amount,
-            entry->>'note'                 AS note
+            entry->>'note'                 AS note,
+            {LEGACY_FX_INVALID_LINE} AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -136,6 +145,9 @@ async def get_account_ledger(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "account_code": account_code, "lines": [], "count": 0}
 
     lines = []
     running = opening
@@ -163,6 +175,8 @@ async def get_account_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "account_code": account_code,
         "counterparty_inn": counterparty_inn,
         "date_from": date_from,
@@ -199,6 +213,12 @@ async def _get_trial_balance_from_posted_ledger(
             "count": 0,
         }
 
+    try:
+        assert_functional_basis(rows)
+    except ValueError:
+        return {"error": POSTED_FX_ERROR, "date_from": date_from, "date_to": date_to,
+                "accounts": [], "count": 0}
+
     items = []
     for row in rows:
         dr = float(row["total_debit"] or 0)
@@ -218,6 +238,7 @@ async def _get_trial_balance_from_posted_ledger(
     grand_cr = round(sum(i["credit_turnover"] for i in items), 2)
     return {
         "source": "posted_ledger",
+        "currency": "GEL",
         "date_from": date_from,
         "date_to": date_to,
         "total_debit": grand_dr,
@@ -257,7 +278,8 @@ async def get_trial_balance(
                 THEN 'opening'
                 ELSE 'period'
             END                              AS bucket,
-            SUM((entry->>'amount')::numeric) AS total
+            SUM((entry->>'amount')::numeric) AS total,
+            SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -281,7 +303,8 @@ async def get_trial_balance(
                 THEN 'opening'
                 ELSE 'period'
             END                              AS bucket,
-            SUM((entry->>'amount')::numeric) AS total
+            SUM((entry->>'amount')::numeric) AS total,
+            SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -302,6 +325,9 @@ async def get_trial_balance(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params_full)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "accounts": [], "count": 0}
 
     accounts: dict[str, dict] = {}
     for r in rows:
@@ -345,6 +371,8 @@ async def get_trial_balance(
     closing_total = sum(i["closing_balance"] for i in items)
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "date_from": date_from,
         "date_to": date_to,
         "total_debit": round(grand_dr, 2),
@@ -383,7 +411,8 @@ async def get_counterparty_ledger(
             jd.account_code,
             jd.reason,
             jd.status,
-            jd.journal_entries
+            jd.journal_entries,
+            {LEGACY_FX_INVALID_HEADER} AS fx_invalid_count
         FROM journal_drafts jd
         WHERE jd.tenant_id = %s
           AND jd.counterparty_inn = %s
@@ -397,6 +426,9 @@ async def get_counterparty_ledger(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "counterparty_inn": counterparty_inn, "lines": [], "count": 0}
 
     lines = []
     total = Decimal("0")
@@ -416,6 +448,8 @@ async def get_counterparty_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "counterparty_inn": counterparty_inn,
         "date_from": date_from,
         "date_to": date_to,
@@ -459,7 +493,8 @@ async def get_payroll_ledger(
             entry->>'dr'                    AS dr,
             entry->>'cr'                    AS cr,
             (entry->>'amount')::numeric     AS amount,
-            entry->>'note'                  AS note
+            entry->>'note'                  AS note,
+            {LEGACY_FX_INVALID_LINE} AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -479,6 +514,9 @@ async def get_payroll_ledger(
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params_full)
 
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "employee_id": employee_id, "lines": [], "count": 0}
+
     lines = []
     total_wages = Decimal("0")
     for r in rows:
@@ -497,6 +535,8 @@ async def get_payroll_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "employee_id": employee_id,
         "year": year,
         "total_wages": float(total_wages),
@@ -535,6 +575,7 @@ async def get_journal_entries(
             jd.counterparty_inn,
             jd.counterparty_name,
             jd.amount,
+            COALESCE(to_jsonb(jd)->>'currency','GEL') AS currency,
             jd.account_code,
             jd.debit_account,
             jd.credit_account,
@@ -574,6 +615,7 @@ async def get_journal_entries(
             "counterparty_inn": r["counterparty_inn"],
             "counterparty_name": r["counterparty_name"],
             "amount": float(r["amount"] or 0),
+            "currency": r.get("currency", "GEL"),
             "account_code": r["account_code"],
             "debit_account": r["debit_account"],
             "credit_account": r["credit_account"],
@@ -583,6 +625,7 @@ async def get_journal_entries(
         })
 
     return {
+        "source": "posted_drafts",
         "date": date,
         "total": total,
         "limit": limit,

@@ -54,7 +54,9 @@ async def posted_ledger_db(monkeypatch):
                     entry_date DATE NOT NULL,
                     source_draft_id UUID,
                     posting_log_id UUID,
-                    evidence_bundle_id UUID
+                    evidence_bundle_id UUID,
+                    currency TEXT NOT NULL DEFAULT 'GEL',
+                    exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1
                 );
                 CREATE TABLE journal_entry_lines (
                     id UUID PRIMARY KEY,
@@ -65,7 +67,10 @@ async def posted_ledger_db(monkeypatch):
                     cashflow_category TEXT,
                     debit NUMERIC(18,2) NOT NULL DEFAULT 0,
                     credit NUMERIC(18,2) NOT NULL DEFAULT 0,
-                    description TEXT
+                    description TEXT,
+                    currency TEXT NOT NULL DEFAULT 'GEL',
+                    exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1,
+                    amount_gel NUMERIC(18,2) NOT NULL DEFAULT 0
                 );
                 CREATE TABLE journal_drafts (
                     tenant_id TEXT NOT NULL,

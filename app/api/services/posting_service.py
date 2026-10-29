@@ -663,6 +663,8 @@ async def _write_ledger_entries(
             raise ValueError
     except Exception as exc:
         raise ValueError("FX_RATE_INVALID: ledger exchange rate is invalid") from exc
+    if currency == "GEL" and exchange_rate != 1:
+        raise ValueError("FX_RATE_INVALID: GEL posting exchange rate must equal 1")
     lines, total_debit, total_credit = prepare_posted_ledger_lines(draft.get("lines"))
     # Prepare all numeric values BEFORE any INSERT, using the same cents as
     # the stored debit/credit lines and never a binary float intermediary.
@@ -677,6 +679,11 @@ async def _write_ledger_entries(
                     raise ValueError
             except (ValueError, DecimalException) as exc:
                 raise ValueError("LEDGER_LINES_INVALID: GEL amount exceeds numeric range") from exc
+
+        gel_debit = sum((line["amount_gel"] for line in lines if line["debit"] > 0), Decimal(0))
+        gel_credit = sum((line["amount_gel"] for line in lines if line["credit"] > 0), Decimal(0))
+        if gel_debit != gel_credit:
+            raise ValueError("LEDGER_FUNCTIONAL_UNBALANCED: stored GEL lines must balance")
 
     header_id = await conn.fetchval(_q("""
         INSERT INTO journal_entry_headers (

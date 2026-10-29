@@ -47,3 +47,25 @@ async def test_invalid_functional_basis_never_publishes_partial_official_totals(
         code = result.get("error") if reader == "trial" else result["error"]["code"]
         assert code == "POSTED_LEDGER_FX_INVALID"
         assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reader", ["pnl", "balance", "trial", "account", "counterparty", "payroll"])
+async def test_legacy_foreign_amounts_are_unavailable_without_booked_fx(monkeypatch, reader):
+    from app.api.services import financial_statements_service as finance, ledger_service as ledger
+    monkeypatch.delenv("POSTED_LEDGER_REPORTS_ENABLED", raising=False)
+    bad_row = {"account_code": "1120", "side": "debit", "total": 100, "bucket": "period",
+               "dr": "1120", "cr": "6110", "amount": 100, "fx_invalid_count": 1}
+    @asynccontextmanager
+    async def connection():
+        conn = AsyncMock()
+        conn.fetch.return_value = [bad_row]
+        yield conn
+    monkeypatch.setattr(finance, "get_conn", connection)
+    monkeypatch.setattr(ledger, "get_conn", connection)
+    args = ("t_alpha", "1120") if reader == "account" else (("t_alpha", "test-inn") if reader == "counterparty" else ("t_alpha",))
+    result = await {"pnl": finance.build_profit_and_loss, "balance": finance.build_balance_sheet,
+                    "trial": ledger.get_trial_balance, "account": ledger.get_account_ledger,
+                    "counterparty": ledger.get_counterparty_ledger, "payroll": ledger.get_payroll_ledger}[reader](*args)
+    code = result["error"]["code"] if reader in {"pnl", "balance"} else result["error"]
+    assert code == "LEGACY_FX_UNAVAILABLE"

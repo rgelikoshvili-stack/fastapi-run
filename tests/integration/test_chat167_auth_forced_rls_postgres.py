@@ -1322,3 +1322,48 @@ async def test_chat181_actual_writer_rejects_functional_rounding_imbalance_witho
         async with db.get_conn() as conn:
             for table in ("journal_entry_headers", "journal_entry_lines", "journal_entry_sources"):
                 assert await conn.fetchval(f"SELECT count(*) FROM {table}") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("foreign_at", ["header", "line"])
+async def test_chat181_legacy_currency_guard_preserves_raw_journal_and_own_gel(auth_db, monkeypatch, foreign_at):
+    import json
+    from app.api.services import financial_statements_service as finance, ledger_service as ledger
+    monkeypatch.delenv("POSTED_LEDGER_REPORTS_ENABLED", raising=False)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""CREATE TABLE journal_drafts (
+            id SERIAL PRIMARY KEY, tenant_id TEXT, status TEXT, date TEXT,
+            created_at TIMESTAMPTZ DEFAULT now(), description TEXT, partner TEXT,
+            counterparty_inn TEXT, counterparty_name TEXT, amount NUMERIC,
+            account_code TEXT, debit_account TEXT, credit_account TEXT, reason TEXT,
+            currency TEXT, journal_entries JSONB);
+            ALTER TABLE journal_drafts ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE journal_drafts FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat181_legacy_tenant ON journal_drafts
+                USING (tenant_id=current_setting('app.current_tenant_id',true));
+        """)
+        await conn.execute(f'GRANT SELECT ON journal_drafts TO "{auth_db["role"]}"')
+        for tenant, currency, debit, amount in [("t_alpha", "USD" if foreign_at == "header" else "GEL", "7210",100), ("t_beta","GEL","1120",1000)]:
+            entries=[{"dr":debit,"amount":amount},{"cr":"1120" if tenant=="t_alpha" else "6110","amount":amount}]
+            if tenant=="t_alpha" and foreign_at=="line":
+                for entry in entries:entry["currency"]="USD"
+            await conn.execute("""INSERT INTO journal_drafts
+                (tenant_id,status,date,description,counterparty_inn,amount,account_code,currency,journal_entries)
+                VALUES($1,'posted','2026-10-15','synthetic','test-inn',$2,$3,$4,$5::jsonb)""",
+                tenant,amount,debit,currency,json.dumps(entries))
+    with db.authenticated_tenant_context("t_alpha"):
+        for build in (finance.build_profit_and_loss,finance.build_balance_sheet):
+            result=await build("t_alpha")
+            assert not result["ok"] and result["error"]["code"]=="LEGACY_FX_UNAVAILABLE"
+        results=[await ledger.get_trial_balance("t_alpha"), await ledger.get_account_ledger("t_alpha","1120"),
+                 await ledger.get_account_ledger("t_alpha","1120","2026-11-01","2026-11-30"),
+                 await ledger.get_counterparty_ledger("t_alpha","test-inn"),await ledger.get_payroll_ledger("t_alpha")]
+        assert all(r["error"]=="LEGACY_FX_UNAVAILABLE" for r in results)
+        raw=await ledger.get_journal_entries("t_alpha")
+        assert raw["source"]=="posted_drafts" and raw["items"][0]["amount"]==100
+        assert raw["items"][0]["currency"]==("USD" if foreign_at=="header" else "GEL")
+    with db.authenticated_tenant_context("t_beta"):
+        result=await finance.build_profit_and_loss("t_beta")
+        assert result["ok"] and result["data"]["revenue"]["total"]==1000
+        trial=await ledger.get_trial_balance("t_beta")
+        assert "error" not in trial and trial["total_debit"]==trial["total_credit"]==1000

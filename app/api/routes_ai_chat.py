@@ -113,10 +113,10 @@ class IndexRequest(BaseModel):
 async def ai_stats(request: Request):
     require_signed_tenant_permission(request, "chat:use")
     # Global learned-rule/vector counts are not tenant-isolated.
-    status = get_ai_system_stats()
+    from app.api.services import ai_calculators_service as calc
     return {
-        "kb_loaded": bool(status.get("kb_loaded")),
-        "accounting_rules_loaded": bool(status.get("accounting_rules_loaded")),
+        "kb_loaded": bool(calc.KB_LOADED),
+        "accounting_rules_loaded": bool(calc.ACCT_RULES_LOADED),
         "vector_search_tenant_isolated": False,
     }
 

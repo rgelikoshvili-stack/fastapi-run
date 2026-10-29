@@ -1,5 +1,7 @@
 import logging
 import json
+import base64
+import binascii
 import secrets
 import hashlib
 from html import escape as html_escape
@@ -20,7 +22,7 @@ from app.api.security import limiter
 from app.api.client_ip import client_ip_for_rate_limit
 from app.api.db import get_conn, _q, tenant_db_context
 from app.api.tenant_context import resolve_tenant_id
-from app.api.authz import require_permission
+from app.api.authz import require_permission, require_signed_tenant_permission
 from app.api.observability import structured_log
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -677,6 +679,41 @@ async def auth_change_password(data: ChangePasswordRequest, request: Request, au
     return ok_response("პაროლი წარმატებით შეიცვალა", {})
 
 
+_IDENTITY_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp"})
+
+
+def _validated_identity_image(raw: str) -> str:
+    """Accept clear ('') or bounded passive raster image data URLs only.
+
+    Do not persist arbitrary HTML/SVG/JS or external URLs as a signature.
+    Legacy saved values are still read; the UI separately renders them via
+    safe DOM image.src assignment after a type check.
+    """
+    image = raw.strip()
+    if not image:
+        return ""
+    if len(image) > 2_000_000 or not image.startswith("data:"):
+        raise ValueError("invalid image data URL or size")
+    try:
+        header, encoded = image.split(",", 1)
+        mime = header[5:-7]
+        if mime not in _IDENTITY_IMAGE_MIMES or not header.endswith(";base64"):
+            raise ValueError("unsupported image format")
+        payload = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        raise ValueError("invalid image encoding") from None
+    if not payload or len(payload) > 1_500_000:
+        raise ValueError("invalid image size")
+    supported = (
+        (mime == "image/png" and payload.startswith(b"\x89PNG\r\n\x1a\n"))
+        or (mime == "image/jpeg" and payload.startswith(b"\xff\xd8\xff"))
+        or (mime == "image/webp" and payload[:4] == b"RIFF" and payload[8:12] == b"WEBP")
+    )
+    if not supported:
+        raise ValueError("invalid image signature")
+    return image
+
+
 class SignatureRequest(BaseModel):
     signature_b64: str  # base64 data URL, e.g. "data:image/png;base64,..."
 
@@ -685,21 +722,24 @@ class SignatureRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_signature(data: SignatureRequest, request: Request):
     """Save tenant signature/stamp image (base64)."""
-    require_permission(request, "settings:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    b64 = data.signature_b64.strip()
-    if len(b64) > 2_000_000:
-        return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")
+    tenant_id = require_signed_tenant_permission(request, "settings:write")
+    try:
+        b64 = _validated_identity_image(data.signature_b64)
+    except ValueError:
+        return http_error(422, "Invalid signature image", "VALIDATION_ERROR")
     async with get_conn() as conn:
-        await conn.execute(_q("UPDATE tenants SET signature_b64=%s WHERE tenant_id=%s"), b64, tenant_id)
+        result = await conn.execute(_q(
+            "UPDATE tenants SET signature_b64=%s WHERE tenant_id=%s"
+        ), b64, tenant_id)
+    if result == "UPDATE 0":
+        return http_error(404, "Tenant not found", "TENANT_NOT_FOUND")
     return ok_response("ხელმოწერა/ბეჭედი შენახულია", {})
 
 
 @router.get("/signature")
 async def get_signature(request: Request):
     """Return tenant's saved signature image (base64) to authorized settings editors."""
-    require_permission(request, "settings:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_signed_tenant_permission(request, "settings:write")
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT signature_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)
     return ok_response("OK", {"signature_b64": row["signature_b64"] if row else None})
@@ -713,21 +753,24 @@ class StampRequest(BaseModel):
 @limiter.limit("10/minute")
 async def save_stamp(data: StampRequest, request: Request):
     """Save tenant stamp image (base64)."""
-    require_permission(request, "settings:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    b64 = data.stamp_b64.strip()
-    if len(b64) > 2_000_000:
-        return error_response("Image too large (max 1.5 MB)", "VALIDATION_ERROR")
+    tenant_id = require_signed_tenant_permission(request, "settings:write")
+    try:
+        b64 = _validated_identity_image(data.stamp_b64)
+    except ValueError:
+        return http_error(422, "Invalid stamp image", "VALIDATION_ERROR")
     async with get_conn() as conn:
-        await conn.execute(_q("UPDATE tenants SET stamp_b64=%s WHERE tenant_id=%s"), b64, tenant_id)
+        result = await conn.execute(_q(
+            "UPDATE tenants SET stamp_b64=%s WHERE tenant_id=%s"
+        ), b64, tenant_id)
+    if result == "UPDATE 0":
+        return http_error(404, "Tenant not found", "TENANT_NOT_FOUND")
     return ok_response("ბეჭედი შენახულია", {})
 
 
 @router.get("/stamp")
 async def get_stamp(request: Request):
     """Return tenant's saved stamp image (base64) to authorized settings editors."""
-    require_permission(request, "settings:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_signed_tenant_permission(request, "settings:write")
     async with get_conn() as conn:
         row = await conn.fetchrow(_q("SELECT stamp_b64 FROM tenants WHERE tenant_id=%s"), tenant_id)
     return ok_response("OK", {"stamp_b64": row["stamp_b64"] if row else None})

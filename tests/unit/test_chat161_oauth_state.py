@@ -73,6 +73,8 @@ async def test_login_fails_closed_when_state_store_is_missing(monkeypatch):
 
     monkeypatch.setattr(routes_oauth, "_issue_state", broken_state)
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv("APP_BASE_URL", "https://bridge.example.test")
+    monkeypatch.delenv("OAUTH_REDIRECT_BASE_URL", raising=False)
     result = await routes_oauth.oauth_login("google", SimpleNamespace(base_url="https://example.test/"), tenant_id="t_alpha")
     assert result.status_code == 503
 

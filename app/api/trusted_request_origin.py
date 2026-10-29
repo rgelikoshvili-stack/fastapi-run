@@ -61,7 +61,9 @@ def trusted_public_origin(raw: str) -> str:
     if port is not None and not 1 <= port <= 65535:
         raise ValueError("invalid public origin port")
     if parts.scheme == "http" and not (
-        os.getenv("TEST_MODE") == "1" and hostname in ("localhost", "127.0.0.1", "::1")
+        os.getenv("TEST_MODE") == "1"
+        and os.getenv("ENVIRONMENT", "").strip().casefold() != "production"
+        and hostname in ("localhost", "127.0.0.1", "::1")
     ):
         raise ValueError("public origin must use HTTPS")
 

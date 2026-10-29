@@ -8,11 +8,13 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
+from app.api.db import authenticated_tenant_context
 
 
 def _request(*, authenticated: bool, role: str | None, tenant_id: str = "t_alpha"):
     return SimpleNamespace(state=SimpleNamespace(
         authenticated=authenticated, role=role, tenant_id=tenant_id,
+        auth_tenant_id=tenant_id,
     ))
 
 
@@ -55,8 +57,11 @@ def test_branding_image_read_authorized_and_tenant_scoped(handler_name, column, 
             return False
 
     request = _request(authenticated=True, role=role)
-    with patch.object(routes_auth, "get_conn", return_value=FakeConnectionManager()):
-        result = asyncio.run(getattr(routes_auth, handler_name)(request))
+    # New security contract requires a JWT-derived tenant and the exact
+    # transaction-local DB tenant context, not only request.state.tenant_id.
+    with authenticated_tenant_context("t_alpha"):
+        with patch.object(routes_auth, "get_conn", return_value=FakeConnectionManager()):
+            result = asyncio.run(getattr(routes_auth, handler_name)(request))
 
     assert requested_tenants == ["t_alpha"]
     assert result["ok"] is True

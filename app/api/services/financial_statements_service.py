@@ -82,7 +82,9 @@ def _build_pnl_posted_ledger_query(
                     THEN (ARRAY_AGG(jeh.evidence_bundle_id))[1]
                     ELSE NULL END AS evidence_bundle_id
         FROM journal_entry_lines jel
-        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        JOIN journal_entry_headers jeh
+          ON jeh.id = jel.journal_entry_id
+         AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           AND jel.account_type IN ('income', 'expense')
@@ -111,7 +113,9 @@ def _build_balance_sheet_posted_ledger_query(
                SUM(jel.debit)  AS total_debit,
                SUM(jel.credit) AS total_credit
         FROM journal_entry_lines jel
-        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        JOIN journal_entry_headers jeh
+          ON jeh.id = jel.journal_entry_id
+         AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           AND jel.account_type IN ('asset', 'liability', 'equity')
@@ -148,7 +152,9 @@ def _build_cashflow_posted_ledger_query(
                jel.description,
                jeh.id AS header_id
         FROM journal_entry_lines jel
-        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        JOIN journal_entry_headers jeh
+          ON jeh.id = jel.journal_entry_id
+         AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           {date_filter}
@@ -173,7 +179,9 @@ def _build_posted_trial_balance_as_of_query(
         SELECT jel.account_code, SUM(jel.debit) AS total_debit,
                SUM(jel.credit) AS total_credit
         FROM journal_entry_lines jel
-        JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+        JOIN journal_entry_headers jeh
+          ON jeh.id = jel.journal_entry_id
+         AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           {as_of_filter}

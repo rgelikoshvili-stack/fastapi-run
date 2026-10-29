@@ -14,7 +14,7 @@ import asyncpg
 import pytest
 from starlette.requests import Request
 
-from app.api import db, routes_auth, routes_oauth
+from app.api import db, routes_auth, routes_reports, routes_audit_trail, routes_oauth
 from app.api.models.user import create_users_table, hash_password, verify_password
 from app.api.services import auth_service
 
@@ -438,3 +438,155 @@ async def test_oauth_no_membership_cannot_join_another_tenant_under_forced_rls(
     assert response.status_code == 403
     assert b"OAUTH_MEMBERSHIP_REQUIRED" in response.body
     mint.assert_not_called()
+
+
+
+@pytest.mark.asyncio
+async def test_chat175_signature_stamp_and_financial_audit_forced_rls(auth_db):
+    """Actual nonowner runtime role with two tenants, forced RLS on every table.
+
+    No real financial/Production data. The same signed tenant must bind RBAC,
+    request state, PostgreSQL SET LOCAL and explicit query filters.
+    """
+    from app.api.routes_auth import SignatureRequest, StampRequest
+    from fastapi import HTTPException
+
+    png = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8"
+        "AAwMCAO+hU2cAAAAASUVORK5CYII="
+    )
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE tenants (
+                tenant_id TEXT PRIMARY KEY, signature_b64 TEXT, stamp_b64 TEXT
+            )
+        """)
+        await conn.execute("""
+            INSERT INTO tenants(tenant_id,signature_b64,stamp_b64)
+            VALUES ('t_alpha',NULL,NULL), ('t_beta','beta-original','beta-stamp')
+        """)
+        await conn.execute("""
+            CREATE TABLE pipeline_runs (
+                run_id TEXT PRIMARY KEY, filename TEXT, state TEXT,
+                created_at TIMESTAMPTZ NOT NULL, tenant_id TEXT NOT NULL
+            )
+        """)
+        await conn.execute("""
+            INSERT INTO pipeline_runs(run_id,filename,state,created_at,tenant_id)
+            VALUES ('alpha-run','alpha-secret.csv','APPROVED',
+                    '2023-08-01'::timestamptz,'t_alpha'),
+                   ('beta-run','beta-private.csv','REJECTED',
+                    '2024-09-01'::timestamptz,'t_beta')
+        """)
+        await conn.execute("""
+            CREATE TABLE audit_log (
+                id BIGSERIAL PRIMARY KEY, tenant_id TEXT NOT NULL,
+                actor TEXT, action TEXT, resource TEXT, resource_id TEXT,
+                old_value TEXT, new_value TEXT, details TEXT,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+        await conn.execute("""
+            INSERT INTO audit_log(tenant_id,actor,action,resource,resource_id,
+                                  old_value,new_value,details)
+            VALUES ('t_alpha','alice','UPDATE','expenses','77',NULL,
+                    '{"amount":11}','alpha-only'),
+                   ('t_beta','bob','UPDATE','expenses','77',NULL,
+                    '{"amount":99999}','beta-only')
+        """)
+        for table in ("tenants", "pipeline_runs", "audit_log"):
+            await conn.execute(
+                f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
+            )
+            await conn.execute(
+                f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"
+            )
+            await conn.execute(f"""
+                CREATE POLICY chat175_exact_tenant ON {table}
+                FOR ALL
+                USING (tenant_id = current_setting('app.current_tenant_id',true))
+                WITH CHECK (
+                    tenant_id = current_setting('app.current_tenant_id',true)
+                )
+            """)
+            await conn.execute(
+                f'GRANT SELECT,UPDATE ON {table} TO "{auth_db["role"]}"'
+            )
+
+    def signed_req(tenant="t_alpha", visible=None, role="admin"):
+        r = request("/auth/signature", "127.0.0.175")
+        r.state.authenticated = True
+        r.state.role = role
+        r.state.auth_tenant_id = tenant
+        r.state.tenant_id = visible if visible is not None else tenant
+        r.state.user_id = auth_db["alpha" if tenant == "t_alpha" else "beta"]
+        return r
+
+    # No signed DB scope: denial precedes all SQL.
+    with pytest.raises(HTTPException) as no_scope:
+        await routes_auth.get_signature(signed_req())
+    assert no_scope.value.status_code == 403
+    with db.authenticated_tenant_context("t_alpha"):
+        alpha_req = signed_req()
+        assert (await routes_auth.save_signature(
+            SignatureRequest(signature_b64=png), alpha_req
+        ))["ok"] is True
+        assert (await routes_auth.save_stamp(
+            StampRequest(stamp_b64=png), alpha_req
+        ))["ok"] is True
+        assert (await routes_auth.get_signature(alpha_req))["data"]["signature_b64"] == png
+        assert (await routes_auth.get_stamp(alpha_req))["data"]["stamp_b64"] == png
+
+        yearly = await routes_reports.annual_report(alpha_req)
+        assert len(yearly["data"]["annual_reports"]) == 1
+        assert int(yearly["data"]["annual_reports"][0]["year"]) == 2023
+        trail = await routes_reports.audit_trail(alpha_req)
+        assert [x["filename"] for x in trail["data"]["pipeline_runs"]] == [
+            "alpha-secret.csv"
+        ]
+        recent = await routes_audit_trail.recent_changes(
+            alpha_req, entity_type=None, actor=None, limit=20,
+        )
+        assert [x["details"] for x in recent["data"]["events"]] == ["alpha-only"]
+        history = await routes_audit_trail.get_history(
+            "expenses", 77, alpha_req, limit=20,
+        )
+        assert [x["details"] for x in history["data"]["history"]] == ["alpha-only"]
+
+        # Forged X-Tenant-ID / request state cannot re-scope a signed JWT.
+        with pytest.raises(HTTPException) as forged:
+            await routes_auth.get_stamp(signed_req(visible="t_beta"))
+        assert forged.value.status_code == 403
+        with pytest.raises(HTTPException) as wrong_role:
+            await routes_auth.get_signature(signed_req(role="viewer"))
+        assert wrong_role.value.status_code == 403
+
+    async with auth_db["admin"].acquire() as conn:
+        beta = await conn.fetchrow(
+            "SELECT signature_b64,stamp_b64 FROM tenants WHERE tenant_id='t_beta'"
+        )
+        assert beta["signature_b64"] == "beta-original"
+        assert beta["stamp_b64"] == "beta-stamp"
+
+    with db.authenticated_tenant_context("t_beta"):
+        beta_req = signed_req(tenant="t_beta")
+        assert (await routes_auth.get_signature(beta_req))["data"][
+            "signature_b64"
+        ] == "beta-original"
+        beta_year = await routes_reports.annual_report(beta_req)
+        assert int(beta_year["data"]["annual_reports"][0]["year"]) == 2024
+        beta_recent = await routes_audit_trail.recent_changes(
+            beta_req, entity_type=None, actor=None, limit=20,
+        )
+        assert [x["details"] for x in beta_recent["data"]["events"]] == [
+            "beta-only"
+        ]
+
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT current_setting('app.current_tenant_id',true)"
+        ) in (None, "")
+        assert await conn.fetchval("SELECT count(*) FROM tenants") == 0
+        assert await conn.fetchval("SELECT count(*) FROM pipeline_runs") == 0
+        assert await conn.fetchval("SELECT count(*) FROM audit_log") == 0

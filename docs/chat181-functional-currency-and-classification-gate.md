@@ -58,3 +58,16 @@ that provenance. The next independent safe step must block that fallback on
 the financial posting boundary while preserving separately labelled previews.
 Historical backfill, default-rate replacement, unknown COA, report numeric-output
 precision, complete equity, live schema/provider/UI/recovery gates remain open.
+
+
+### Actual CI follow-up
+
+Initial implementation `f42dcfa` passed the mixed-currency/report/AI/CFO and
+invalid-FX PostgreSQL cases. Two new legacy cases exposed an older trial SQL
+bug: SELECT and GROUP BY used different bind positions for the same CASE.
+Grouping now uses the selected bucket, DATE inputs are normalized, and null
+opposite-side accounts are excluded instead of doubling legacy turnover.
+Real tests also cover opening-only foreign rejection and GEL-only period/
+opening balances. The separate H84 snapshot fixture, like PR127, needed the
+migration011 currency fields; its synthetic schema is now updated. No test
+assertion or FX validation was weakened. Full isolated CI is rerun below.

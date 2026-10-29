@@ -61,10 +61,10 @@ def _period_conditions(date_from: Optional[str], date_to: Optional[str], params:
     parts = []
     if date_from:
         parts.append("(jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND jd.date::date >= %s)")
-        params.append(date_from)
+        params.append(_pg_date(date_from))
     if date_to:
         parts.append("(jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND jd.date::date <= %s)")
-        params.append(date_to)
+        params.append(_pg_date(date_to))
     return (" AND " + " AND ".join(parts)) if parts else ""
 
 
@@ -90,7 +90,7 @@ async def get_account_ledger(
 
     opening = Decimal("0")
     if date_from:
-        opening_params: list = [tenant_id, account_code, account_code, date_from]
+        opening_params: list = [tenant_id, account_code, account_code, _pg_date(date_from)]
         opening_counterparty = ""
         if counterparty_inn:
             opening_counterparty = " AND jd.counterparty_inn = %s"
@@ -267,7 +267,7 @@ async def get_trial_balance(
     date_to_filter = ""
     if date_to:
         date_to_filter = " AND jd.date::date <= %s"
-        where_params.append(date_to)
+        where_params.append(_pg_date(date_to))
 
     sql = _q(f"""
         SELECT
@@ -286,12 +286,8 @@ async def get_trial_balance(
           AND jd.status = 'posted'
           AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
           {date_to_filter}
-        GROUP BY entry->>'dr'
-               , CASE
-                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
-                    THEN 'opening'
-                    ELSE 'period'
-                 END
+        AND entry->>'dr' IS NOT NULL
+        GROUP BY 1, 3
 
         UNION ALL
 
@@ -311,16 +307,12 @@ async def get_trial_balance(
           AND jd.status = 'posted'
           AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
           {date_to_filter}
-        GROUP BY entry->>'cr'
-               , CASE
-                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
-                    THEN 'opening'
-                    ELSE 'period'
-                 END
+        AND entry->>'cr' IS NOT NULL
+        GROUP BY 1, 3
         ORDER BY account_code, side
     """)
 
-    branch_params = [date_from, date_from, *where_params, date_from, date_from]
+    branch_params = [_pg_date(date_from), _pg_date(date_from), *where_params]
     params_full = branch_params + branch_params
 
     async with get_conn() as conn:

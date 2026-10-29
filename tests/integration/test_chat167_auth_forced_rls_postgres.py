@@ -1367,3 +1367,8 @@ async def test_chat181_legacy_currency_guard_preserves_raw_journal_and_own_gel(a
         assert result["ok"] and result["data"]["revenue"]["total"]==1000
         trial=await ledger.get_trial_balance("t_beta")
         assert "error" not in trial and trial["total_debit"]==trial["total_credit"]==1000
+        assert len(trial["accounts"]) == 2  # no phantom null-account aggregates
+        opening=await ledger.get_trial_balance("t_beta","2026-11-01","2026-11-30")
+        assert "error" not in opening and opening["total_debit"]==opening["total_credit"]==0
+        bank=next(row for row in opening["accounts"] if row["account_code"]=="1120")
+        assert bank["opening_balance"]==bank["closing_balance"]==1000

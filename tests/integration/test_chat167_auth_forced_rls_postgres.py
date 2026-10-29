@@ -590,3 +590,86 @@ async def test_chat175_signature_stamp_and_financial_audit_forced_rls(auth_db):
         assert await conn.fetchval("SELECT count(*) FROM tenants") == 0
         assert await conn.fetchval("SELECT count(*) FROM pipeline_runs") == 0
         assert await conn.fetchval("SELECT count(*) FROM audit_log") == 0
+
+
+
+@pytest.mark.asyncio
+async def test_chat176_ai_finance_parity_nonowner_force_rls(auth_db, monkeypatch):
+    """Actual PG15/16 nonowner: AI P&L equals report for each tenant.
+
+    Approved-only but unposted draft and another tenant's posted entries
+    must not enter either report or AI context. No external AI/provider calls.
+    """
+    import json
+    from app.api.services import chat_context_service, financial_statements_service
+
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "0")
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE journal_drafts (
+                id BIGSERIAL PRIMARY KEY, tenant_id TEXT NOT NULL,
+                description TEXT, amount NUMERIC, partner TEXT, account_code TEXT,
+                status TEXT NOT NULL, confidence NUMERIC,
+                journal_entries JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT now(),
+                date TEXT
+            )
+        """)
+        entries = [
+            ("t_alpha", "posted", [
+                {"cr": "6110", "amount": 1000},
+                {"dr": "7210", "amount": 300},
+            ]),
+            ("t_alpha", "approved", [
+                {"cr": "6110", "amount": 99999},
+            ]),
+            ("t_beta", "posted", [
+                {"cr": "6110", "amount": 9000},
+                {"dr": "7210", "amount": 100},
+            ]),
+        ]
+        for tenant, status, payload in entries:
+            await conn.execute("""
+                INSERT INTO journal_drafts(
+                    tenant_id, description, amount, partner, account_code,
+                    status, confidence, journal_entries, date
+                ) VALUES ($1,'Synthetic Chat176',1,'No real partner','6110',
+                          $2,0.8,$3::jsonb,'2026-10-01')
+            """, tenant, status, json.dumps(payload))
+
+        await conn.execute("ALTER TABLE journal_drafts ENABLE ROW LEVEL SECURITY")
+        await conn.execute("ALTER TABLE journal_drafts FORCE ROW LEVEL SECURITY")
+        await conn.execute("""
+            CREATE POLICY chat176_tenant_ledger ON journal_drafts FOR ALL
+            USING (tenant_id = current_setting('app.current_tenant_id', true))
+            WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true))
+        """)
+        await conn.execute(
+            f'GRANT SELECT ON journal_drafts TO "{auth_db["role"]}"'
+        )
+
+    async def check(tenant, expected_revenue, expected_expense):
+        with db.authenticated_tenant_context(tenant):
+            canonical = await financial_statements_service.build_profit_and_loss(tenant)
+            ctx = await chat_context_service.build_chat_context(
+                tenant, "ფინანსური ანგარიში მოგება P&L"
+            )
+        assert canonical["ok"] is True, canonical.get("error")
+        assert ctx["reports_unavailable"] is False
+        amounts = ctx["reports_summary"]
+        assert amounts["source"] == "posted_drafts"
+        assert amounts["revenue"] == canonical["data"]["revenue"]["total"]
+        assert amounts["expenses"] == (
+            canonical["data"]["cogs"]["total"] + canonical["data"]["opex"]["total"]
+        )
+        assert amounts["profit"] == canonical["data"]["ebit"]
+        assert amounts["revenue"] == expected_revenue
+        assert amounts["expenses"] == expected_expense
+
+    await check("t_alpha", 1000.0, 300.0)
+    await check("t_beta", 9000.0, 100.0)
+    # Unprivileged pooled role has no tenant scope outside transaction.
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT current_setting('app.current_tenant_id', true)"
+        ) in (None, "")
+        assert await conn.fetchval("SELECT count(*) FROM journal_drafts") == 0

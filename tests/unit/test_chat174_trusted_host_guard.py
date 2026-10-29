@@ -89,6 +89,15 @@ def test_invalid_or_overbroad_allowlist_rejected(bad):
         _parse_explicit_hosts(bad)
 
 
+@pytest.mark.parametrize("invalid_flag", ["true", "TRUE", "false", "on", "yes", "2"])
+def test_mistyped_activation_flag_fails_closed(monkeypatch, invalid_flag):
+    monkeypatch.setenv("BRIDGE_TRUSTED_HOSTS_ENFORCE", invalid_flag)
+    monkeypatch.setenv("BRIDGE_TRUSTED_HOSTS", "bridge.example.test")
+    assert trusted_host_decision(_request([b"bridge.example.test"])) == (
+        False, 503, "HOST_POLICY_UNAVAILABLE"
+    )
+
+
 def test_host_gate_denies_missing_policy_not_fail_open(monkeypatch):
     monkeypatch.setenv("BRIDGE_TRUSTED_HOSTS_ENFORCE", "1")
     assert trusted_host_decision(_request([b"bridge.example.test"])) == (

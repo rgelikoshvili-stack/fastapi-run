@@ -20,6 +20,11 @@ on:
       - "app/api/routes_auth.py"
       - "app/api/authz.py"
       - "app/api/routes_reports.py"
+      - "app/api/routes_chat.py"
+      - "app/api/routes_ask_bridge_hub.py"
+      - "app/api/services/ask_bridge_hub_service.py"
+      - "app/api/services/chat_context_service.py"
+      - "app/api/services/chat_context_formatter_service.py"
       - "app/api/routes_audit_trail.py"
       - "static/outgoing_form.html"
       - "app/api/middleware/auth_middleware.py"
@@ -44,6 +49,7 @@ on:
       - "tests/unit/test_chat173_https_oauth_host_proxy.py"
       - "tests/unit/test_chat174_trusted_host_guard.py"
       - "tests/unit/test_chat175_signature_stamp_security.py"
+      - "tests/unit/test_chat176_finance_chat_isolation.py"
       - "tests/unit/test_oauth_existing_tenant_membership.py"
       - ".github/workflows/chat162-oauth-state-postgres.yml"
 
@@ -105,5 +111,6 @@ jobs:
           tests/unit/test_chat173_https_oauth_host_proxy.py
           tests/unit/test_chat174_trusted_host_guard.py
           tests/unit/test_chat175_signature_stamp_security.py
+          tests/unit/test_chat176_finance_chat_isolation.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

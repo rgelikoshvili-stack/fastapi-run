@@ -215,6 +215,14 @@
     ("PATCH",  "/rs-ge",              "documents:write"),
     ("DELETE", "/rs-ge",              "documents:write"),
 
+    # Chat177: AI endpoints must never rely on the old public /api/ai bypass.
+    # More restrictive entries precede the general chat permission.
+    ("POST",   "/api/ai/action/confirm", "approval:write"),
+    ("POST",   "/api/ai/learn",          "patterns:manage"),
+    ("POST",   "/api/ai/index",          "patterns:manage"),
+    ("GET",    "/api/ai/vector-stats",   "patterns:manage"),
+    ("*",      "/api/ai/",              "chat:use"),
+
     # ── Chat / Collaboration ──────────────────────────────────────────────────
     ("*",      "/chat",               "chat:use"),
     ("*",      "/collaboration",      "chat:use"),

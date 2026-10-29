@@ -60,7 +60,7 @@ async def test_chat_history_is_private_to_tenant_and_user(monkeypatch):
          patch.object(routes_chat, "_get_db_context", new=AsyncMock(return_value="synthetic context")):
         with authenticated_tenant_context("t_alpha"):
             first = await routes_chat.send_message(
-                req(), message="private alpha", session_id="shared-id"
+                req(), message="private alpha", session_id="shared-id", file=None
             )
             own = routes_chat.chat_history(req(), session_id="shared-id")
             other_user = routes_chat.chat_history(req(user="202"), session_id="shared-id")
@@ -70,7 +70,7 @@ async def test_chat_history_is_private_to_tenant_and_user(monkeypatch):
             )
             second = await routes_chat.send_message(
                 req(tenant="t_beta", user="101"),
-                message="private beta", session_id="shared-id"
+                message="private beta", session_id="shared-id", file=None
             )
         with authenticated_tenant_context("t_alpha"):
             removed = routes_chat.clear_session("shared-id", req())

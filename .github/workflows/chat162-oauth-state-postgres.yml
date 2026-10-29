@@ -24,6 +24,7 @@ on:
       - "app/api/routes_ai_chat.py"
       - "app/api/services/ai_session_scope.py"
       - "app/api/services/llm_service.py"
+      - "app/api/services/ai_tool_registry.py"
       - "app/api/services/chat_session_service.py"
       - "app/api/policy/permission_map.py"
       - "app/api/routes_ask_bridge_hub.py"

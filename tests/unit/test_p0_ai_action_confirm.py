@@ -65,6 +65,7 @@ def test_accountant_with_approval_write_can_approve():
     mock_result = {"ok": True, "message": "approved", "data": {"status": "approved"}, "error": None}
 
     with patch("app.api.routes_ai_chat.require_permission"), \
+         patch("app.api.routes_ai_chat.require_signed_tenant_permission", return_value="tenant1"), \
          patch("app.api.services.approval_service.approve_draft_service",
                new=AsyncMock(return_value=mock_result)):
         result = run_sync(confirm_action(req, {"action": "approve_draft", "params": {"draft_id": 42}}))
@@ -102,7 +103,8 @@ def test_unknown_action_raises_400():
 
     req = _make_request(role="accountant", permissions={"approval:write"})
 
-    with patch("app.api.routes_ai_chat.require_permission"):
+    with patch("app.api.routes_ai_chat.require_permission"), \
+         patch("app.api.routes_ai_chat.require_signed_tenant_permission", return_value="tenant1"):
         with pytest.raises(HTTPException) as exc_info:
             run_sync(confirm_action(req, {"action": "delete_everything", "params": {}}))
         assert exc_info.value.status_code == 400

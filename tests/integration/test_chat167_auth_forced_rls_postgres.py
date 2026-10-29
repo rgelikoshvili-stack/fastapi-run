@@ -14,7 +14,7 @@ import asyncpg
 import pytest
 from starlette.requests import Request
 
-from app.api import db, routes_auth
+from app.api import db, routes_auth, routes_oauth
 from app.api.models.user import create_users_table, hash_password, verify_password
 from app.api.services import auth_service
 
@@ -90,6 +90,11 @@ async def auth_db(monkeypatch):
             ).read_text(encoding="utf-8")
             await conn.execute(reset_migration)
             await conn.execute(reset_migration)  # idempotent privileged migration
+            oauth_migration = __import__("pathlib").Path(
+                "app/storage/migrations/014_durable_oauth_login_states.sql"
+            ).read_text(encoding="utf-8")
+            await conn.execute(oauth_migration)
+            await conn.execute(oauth_migration)  # pre-provision, no runtime DDL
             old_hash = hash_password(_OLD_PASSWORD)
             alpha = await conn.fetchval(
                 "INSERT INTO users(email,password_hash,tenant_id,role,is_active)"
@@ -315,3 +320,121 @@ async def test_forgot_and_reset_nonowner_forced_rls_preserves_other_tenant(auth_
         assert verify_password(
             _OLD_PASSWORD, by_id[auth_db["beta"]]["password_hash"]
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tenant", ["t_alpha", "t_beta"])
+async def test_oauth_callback_nonowner_forced_users_rls_resolves_exact_tenant(
+    auth_db, monkeypatch, tenant
+):
+    """Provider-bound, one-use state scopes membership without role bypass.
+
+    There are two synthetic active users with the same email in two tenants.
+    Both provider requests are mocked: NO Google/Microsoft network traffic.
+    """
+    from unittest.mock import MagicMock
+
+    class FakeProviderResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    monkeypatch.setenv("APP_BASE_URL", "https://bridge.example.test")
+    monkeypatch.delenv("OAUTH_REDIRECT_BASE_URL", raising=False)
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "synthetic-chat174-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "synthetic-chat174-secret")
+    token_call = MagicMock(
+        return_value=FakeProviderResponse({"access_token": "synthetic-provider-token"})
+    )
+    info_call = MagicMock(return_value=FakeProviderResponse({
+        "email": _EMAIL, "email_verified": True, "name": "Synthetic Chat174",
+    }))
+    monkeypatch.setattr(routes_oauth._http, "post", token_call)
+    monkeypatch.setattr(routes_oauth._http, "get", info_call)
+    access = MagicMock(return_value="synthetic-access-chat174")
+    refresh = MagicMock(return_value="synthetic-refresh-chat174")
+    monkeypatch.setattr(routes_oauth, "create_access_token", access)
+    monkeypatch.setattr(routes_oauth, "create_refresh_token", refresh)
+
+    state = await routes_oauth._issue_state(tenant, "google")
+    result = await routes_oauth.oauth_callback(
+        "google",
+        request("/auth/oauth/google/callback", "127.0.0.174"),
+        code="synthetic-provider-code", state=state,
+    )
+    assert result.status_code == 200
+    expected_id = auth_db["alpha" if tenant == "t_alpha" else "beta"]
+    expected_claims = {
+        "sub": str(expected_id), "tenant_id": tenant, "role": "accountant",
+        "email": _EMAIL, "auth_version": 1,
+    }
+    access.assert_called_once_with(expected_claims)
+    refresh.assert_called_once_with(expected_claims)
+    assert token_call.call_args.kwargs["data"]["redirect_uri"] == (
+        "https://bridge.example.test/auth/oauth/google/callback"
+    )
+    assert info_call.call_count == 1
+    # Each provider-bound state is consumed once, even under forced RLS.
+    replay = await routes_oauth.oauth_callback(
+        "google",
+        request("/auth/oauth/google/callback", "127.0.0.175"),
+        code="synthetic-provider-code", state=state,
+    )
+    assert replay.status_code == 400
+    assert b"OAUTH_STATE_INVALID" in replay.body
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT current_setting('app.current_tenant_id', true)"
+        ) in (None, "")
+        assert await conn.fetchval("SELECT count(*) FROM users") == 0
+
+
+@pytest.mark.asyncio
+async def test_oauth_no_membership_cannot_join_another_tenant_under_forced_rls(
+    auth_db, monkeypatch
+):
+    """Unknown company scope cannot inherit same-email membership elsewhere."""
+    from unittest.mock import MagicMock
+
+    class FakeProviderResponse:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    monkeypatch.setenv("APP_BASE_URL", "https://bridge.example.test")
+    monkeypatch.delenv("OAUTH_REDIRECT_BASE_URL", raising=False)
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "synthetic-chat174-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "synthetic-chat174-secret")
+    monkeypatch.setattr(
+        routes_oauth._http, "post",
+        lambda *args, **kwargs: FakeProviderResponse({
+            "access_token": "synthetic-provider-token"
+        }),
+    )
+    monkeypatch.setattr(
+        routes_oauth._http, "get",
+        lambda *args, **kwargs: FakeProviderResponse({
+            "email": _EMAIL, "email_verified": True,
+        }),
+    )
+    mint = MagicMock(side_effect=AssertionError("must not grant access"))
+    monkeypatch.setattr(routes_oauth, "create_access_token", mint)
+    state = await routes_oauth._issue_state("t_gamma", "google")
+    response = await routes_oauth.oauth_callback(
+        "google",
+        request("/auth/oauth/google/callback", "127.0.0.176"),
+        code="synthetic-provider-code", state=state,
+    )
+    assert response.status_code == 403
+    assert b"OAUTH_MEMBERSHIP_REQUIRED" in response.body
+    mint.assert_not_called()

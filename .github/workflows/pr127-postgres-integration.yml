@@ -7,6 +7,7 @@ on:
       - "app/api/services/cashflow_classification_service.py"
       - "app/api/services/cfo_dashboard_service.py"
       - "app/api/services/financial_statements_service.py"
+      - "tests/unit/test_chat180_cashflow_completeness.py"
       - "tests/integration/test_pr127_cashflow_postgres.py"
       - ".github/workflows/pr127-postgres-integration.yml"
       - "requirements.txt"
@@ -55,6 +56,7 @@ jobs:
           tests/unit/test_cashflow_classification_biz2.py
           tests/unit/test_cfo_dashboard_metrics_biz2.py
           tests/unit/test_cashflow_posted_ledger_safety_biz2.py
+          tests/unit/test_chat180_cashflow_completeness.py
           tests/unit/test_report_service_posted_ledger_feature_flag.py
           tests/unit/test_report_service_posted_ledger_fixture_verification.py
           tests/unit/test_report_service_posted_ledger_query_mock_contract.py

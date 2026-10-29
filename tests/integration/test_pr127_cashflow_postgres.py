@@ -171,13 +171,18 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
 
     monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
 
-    all_data = await statements.build_cashflow_statement("tenant-a")
-    assert all_data["ok"] is True
+    incomplete = await statements.build_cashflow_statement("tenant-a")
+    assert incomplete["ok"] is False
+    assert incomplete["error"]["code"] == "CASHFLOW_CLASSIFICATION_INCOMPLETE"
+    assert incomplete["error"]["details"]["unclassified_cash_movements"] == 1
+    # A bounded period excluding the bad movement remains usable.
+    all_data = await statements.build_cashflow_statement("tenant-a", date_to="2026-09-19")
+    assert all_data["ok"] is True and all_data["data"]["complete"] is True
     assert all_data["data"]["operating"]["inflows"] == 160
     assert all_data["data"]["investing"]["outflows"] == 30
-    assert all_data["data"]["financing"]["inflows"] == 50
+    assert all_data["data"]["financing"]["inflows"] == 0
     # The invalid account-type fallback must not leak into financing/operating
-    # totals; the response contract intentionally omits unclassified lines.
+    # totals; the incomplete unbounded report is explicitly unavailable.
     # The compound journal has one cash line for 60, not a multiplied 120.
     compound_lines = [
         row for section in ("operating", "investing", "financing")
@@ -205,7 +210,7 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert tenant_b_data["data"]["operating"]["inflows"] == 0
 
     bounded = await statements.build_cashflow_statement(
-        "tenant-a", date_from="2026-09-10", date_to="2026-09-30"
+        "tenant-a", date_from="2026-09-10", date_to="2026-09-19"
     )
     assert bounded["data"]["operating"]["inflows"] == 60
     assert bounded["data"]["investing"]["outflows"] == 30
@@ -224,6 +229,8 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert cash["as_of"] == "2026-09-30"
     assert cash["bank_1120"] == 137
     assert cash["total_liquid"] == 137
+    assert cash["cashflow_available"] is False
+    assert cash["net_cashflow"] is None
 
     # Force a genuine PostgreSQL query error inside this disposable schema.
     async with posted_ledger_db.acquire() as conn:

@@ -79,7 +79,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | SEC-05 P0 V1 | Host/origin/proxy and Redis/SlowAPI guards; DRAFT-VERIFIED | observed proxy/host inventory, two actual replicas/outage, redirects/websocket; flags unchanged until separately authorized |
 | SEC-06 P0 V1 | credential vault/encryption/masked reads, migrations 009/012; vault CI exists | key loss/rotation, cross-tenant refs, redacted logs, runtime grant/schema parity and real connector auth |
 | SEC-07 P0 V1 | signed branding/report/audit guards; Chat175 | all sibling routes, attachment download and unsafe legacy preview; positive/negative JWT HTTP/browser |
-| SEC-08 P0 V1 | ERP history importer still has default-tenant paths; `erp_import_service.py`, `erp_history_import_service.py`; REPAIR | explicit signed tenant through route → connector → memory; no global/default fallback; two-tenant write/read test |
+| SEC-08 P0 V1 | signed tenant and write RBAC through ERP routes/services; DRAFT-VERIFIED at `da32bac`; live adapter remains HOLD | PG15/16 A/B import/upsert/list/classifier with real sync helper under nonowner FORCE-RLS; default rows preserved; no demo credential load or persistence |
 | OPS-01 P0 V1 | backups/PITR/restore runbooks, historical snapshot | current backup/PITR/RPO/RTO and isolated DB+GCS restore evidence; EXTERNAL-HOLD; never restore over live DB |
 | OPS-02 P0 V1 | preserved conflicted Windows/worktrees/manifests | retain source/index/ACL and all unique staged work; restoration acceptance distinct from semantic Git parity; originals read-only |
 | OPS-03 P0 V1 | additive SQL files + startup DDL shims | actual schema inventory, privileged migration order, zero runtime DDL under nonowner, additive compatibility/rollback tests |
@@ -117,7 +117,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | ING-05 P1 V1 | Bank CSV/parser/Bank Brain/reconciliation | deterministic golden bank formats, units/signs, duplicate statement, partial matching, ownership, replay and FX; no live transfer |
 | ING-06 P1 V1 | RS.ge SOAP/read/compare/draft workflow | reconcile actual WSDL/API contract; read-only sandbox, pagination/status mapping, error/retry, per-tenant vault; external calls EXTERNAL-HOLD |
 | ING-07 P0 write safety / P1 V1 read | Balance/ORIS/1C adapters contain demo/generic endpoint assumptions | one vendor-verified read adapter, capability matrix, record/COA/report mapping, cursor/freshness. Preserve disabled write gates |
-| ING-08 P0 V1 | ERP memory/history/import mapping exists | source-of-record and external identity, revision/dedup, tenant propagation, no demo data labelled official; SEC-08 first |
+| ING-08 P0 V1 | tenant/RBAC/demo safety DRAFT-VERIFIED; complete live source adapter FINISH | source-of-record and external identity, revision/dedup, tenant propagation, no demo data labelled official; SEC-08 first |
 | ING-09 P1 V1 fallback | journal/CSV/XML/PDF exports exist | formula injection, safe file names, evidence links, totals and one logical operation per import; exporter alone cannot ensure vendor dedup |
 | ING-10 P2 | second ERP, live bank API, universal tax submission | only after first adapter's accepted contract; vendor-specific receipt/idempotency tests, per-action authorization |
 
@@ -153,7 +153,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 |---|---|---|---|
 | 0 | baseline + ეს გეგმა | source inventory, main/153/154 ancestry, current handoff, G0 preservation | READ-ONLY; COMPLETE for this checkpoint |
 | 1 | Ledger validation და sibling readers | FIN-01/03/04; failing-before + passing-after, actual PG15/16 writer/report tests | DRAFT-VERIFIED at `af537f8`; PG15/16 432 each |
-| 2 | Retry/concurrency და import tenant | FIN-02, SEC-08/ING-08; simultaneous writers and A/B memory import | DRAFT |
+| 2 | Retry/concurrency და import tenant | FIN-02, SEC-08/ING-08 safety; simultaneous writers and A/B memory import | DRAFT-VERIFIED; actual DB uniqueness/live provider history remain open |
 | 3 | Financial reconciliation | FIN-05/07/08/09/10/13; FX, complete balance, unknown cashflow and all AI/report readers | DRAFT |
 | 4 | Mutation boundaries | FIN-06/11/12, SEC-01/04/06/07; all direct/correction/export paths and rollback | DRAFT; DB candidates remain unapplied |
 | 5 | Documents/jobs and commercial controls | ING-01..05, AI-03/04, COM-01..04; crash/replay, quotas, lifecycle and onboarding | DRAFT; synthetic identities/data |
@@ -230,6 +230,7 @@ connectivity cannot be inferred from mocks. No P0 may remain open at release.
 | Chat180 plan | source/roadmaps/main/PR ancestry reviewed; matrices and gates defined | baseline inventory; exact source SHA above |
 | Chat180 stage 1 | stored-line validation, Decimal and trial tenant/date repaired | `af537f8917864120d347c87fcb1a6ef71dd52408`; backend 8,276 PASS / 3 SKIP; PG15/16 432 each; all 9 CI workflows PASS |
 | Chat180 stage 2 | transaction-bound READ COMMITTED cooperative source lock; autocommit/stale snapshots refused | `a91b50f60281600edc8c8d4a79f925e9369384ad`; backend 8,277 PASS / 3 SKIP; PG15/16 437 EACH; all 9 CI PASS; DB uniqueness remains open |
+| Chat180 stage 3 | signed ERP memory/import scope, write RBAC, redaction and demo isolation; incomplete live history adapter fails closed | `da32bac9ce1a8c461f63823adcaec6c5b9e4adb7`; backend 8,319 PASS / 3 SKIP; PG15/16 480 EACH; all 9 CI PASS |
 
 ყოველი ეტაპი განაახლებს ამ ჟურნალს, ტექნიკურ ანგარიშსა და სრულ **პირად**
 Master Handoff-ს. GitHub-ში ინახება მხოლოდ სანიტიზებული გეგმა/კოდი/ანგარიში;

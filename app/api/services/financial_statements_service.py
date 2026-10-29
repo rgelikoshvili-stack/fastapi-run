@@ -533,7 +533,17 @@ async def build_cashflow_statement(
         )
 
     result = build_cashflow_from_posted_ledger_rows([dict(row) for row in rows])
+    unclassified = result["unknown"]["lines"]
+    if unclassified:
+        return error_response(
+            "Cashflow classification is incomplete",
+            "CASHFLOW_CLASSIFICATION_INCOMPLETE",
+            {"unclassified_cash_movements": len(unclassified),
+             "period": {"from": date_from, "to": date_to}},
+        )
     return ok_response("Cashflow statement built", {
+        "source": "posted_ledger",
+        "complete": True,
         "period": {"from": date_from, "to": date_to},
         "method": "direct",
         "operating": result["operating"],

@@ -1,4 +1,4 @@
-# Chat180 — Master completion plan and posted-ledger correctness
+# Chat180 — Master completion plan and finance/tenant correctness
 
 Date: 2026-10-29. Existing Draft PR #154 only. Production HOLD.
 Baseline: `52a35d9b8330bbbf9aa6b91c17f01cf9f4ce7b46`.
@@ -121,12 +121,37 @@ Python 3.11 results must be read independently. Actual nonowner FORCE-RLS PG15/1
 real route/import/list/classifier and sync DB helper against a synthetic schema,
 seeds separate A/B/legacy rows, checks zero cross-tenant visibility, refuses
 mismatches before connection checkout and returns connections on SQL errors.
-Exact stage-3 implementation CI pending.
+Exact stage-3 implementation `da32bac9ce1a8c461f63823adcaec6c5b9e4adb7`: all 9 CI workflows PASS. Backend 8,319 PASS / 3 SKIP plus smoke 1 (40922840715); PG15/16 480 EACH (40922840510); Chroma/ONNX 43 (40922840497); Redis 210 (40922840508); membership 45 (40922840549); vault 104 (40922840821); finance RLS 18 (40922840907); PR127 229 plus smoke 1 (40922840529); PR84 82/178 plus smoke 1 (40922840767). Actual deploy and frontend build SKIPPED.
+
+## Stage 4: incomplete cashflow and unavailable CFO metrics
+
+The pure classifier retained unknown cash movements, but the official response
+removed them and published the classified subtotal as complete cash change.
+The CFO aggregator turned missing cashflow into zero. A synthetic row with
+unknown account metadata reproduced an omitted movement; 12 new cases failed
+before the change.
+
+An official period with any unknown movement now returns
+`CASHFLOW_CLASSIFICATION_INCOMPLETE` and only a safe movement count/period,
+without fabricated classifications, raw financial rows or a partial official
+total. Fully classified periods return `complete=true` and `source=posted_ledger`.
+CFO metrics distinguish cash balance availability from cashflow availability;
+missing, partial, malformed or nonfinite cashflow yields null metrics and
+`cashflow_available=false`. A verified complete zero remains zero. This is an
+intentional response-contract correction; frontend empty/error-state acceptance
+remains in UI-01/02 and is not inferred from backend tests.
+
+Local focused suite: 160 PASS, including the new 12 cases. The existing real
+PostgreSQL fixture deliberately contains one unclassifiable movement: it now
+requires unavailable unbounded official cashflow, a successful bounded known
+period, tenant-B isolation, and an available trial cash balance alongside null
+cashflow KPIs. Actual classification guesses and historical financial rows
+are not changed. Exact stage-4 CI pending.
 
 ## Remaining work
 
 Arbitrary direct SQL still needs a reviewed source uniqueness invariant.
 Historical/custom account classification,
 complete non-GEL report conversion, balance retained-earnings reconciliation,
-unknown cashflow disclosure, immutable ledger constraints and all live
+complete unknown-cashflow review workflow, immutable ledger constraints and all live
 RLS/backup/provider/UI gates remain explicitly open in the master plan.

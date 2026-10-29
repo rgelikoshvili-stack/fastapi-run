@@ -6,7 +6,8 @@ enabled with an audited set of actual ingress, custom domain and probe hosts.
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
+from starlette.websockets import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from starlette.requests import Request as StarletteRequest
 
@@ -15,6 +16,7 @@ from app.api.trusted_host_guard import (
     _parse_explicit_hosts,
     trusted_host_decision,
     trusted_host_guard_middleware,
+    TrustedHostASGIMiddleware,
 )
 
 
@@ -166,7 +168,14 @@ def _app_with_guard():
         called["value"] += 1
         return {"ok": True}
 
-    app.middleware("http")(trusted_host_guard_middleware)
+    @app.websocket("/events")
+    async def events(ws: WebSocket):
+        called["value"] += 1
+        await ws.accept()
+        await ws.send_text("synthetic-message")
+        await ws.close()
+
+    app.add_middleware(TrustedHostASGIMiddleware)
     return app, called
 
 
@@ -199,7 +208,7 @@ def test_invalid_config_middleware_returns_503_not_unfiltered_200(monkeypatch):
 def test_main_registers_guard_as_outermost_before_sensitive_handlers():
     # Inspect the wiring without importing main.py's background startup loops.
     source = Path("main.py").read_text(encoding="utf-8")
-    last = source.index('app.middleware("http")(trusted_host_guard_middleware)')
+    last = source.index('app.add_middleware(TrustedHostASGIMiddleware)')
     for existing in (
         'app.middleware("http")(tenant_middleware)',
         'app.middleware("http")(auth_middleware)',
@@ -209,3 +218,61 @@ def test_main_registers_guard_as_outermost_before_sensitive_handlers():
         'async def prometheus_middleware(',
     ):
         assert source.index(existing) < last
+
+
+def test_asgi_websocket_guard_rejects_before_handshake(monkeypatch):
+    _enable(monkeypatch, "bridge.example.test")
+    app, called = _app_with_guard()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as denied:
+            with client.websocket_connect(
+                "/events", headers={"host": "attacker.example.test"}
+            ):
+                pass
+        assert denied.value.code == 1008
+        with client.websocket_connect(
+            "/events", headers={"host": "bridge.example.test"}
+        ) as ws:
+            assert ws.receive_text() == "synthetic-message"
+    assert called["value"] == 1
+
+
+def test_invalid_global_policy_denies_websocket_with_retry_later(monkeypatch):
+    _enable(monkeypatch, "*.example.test")
+    app, called = _app_with_guard()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as denied:
+            with client.websocket_connect(
+                "/events", headers={"host": "bridge.example.test"}
+            ):
+                pass
+    assert denied.value.code == 1013
+    assert called["value"] == 0
+
+
+@pytest.mark.asyncio
+async def test_websocket_duplicate_host_rejected_at_raw_asgi_boundary(monkeypatch):
+    _enable(monkeypatch, "bridge.example.test")
+    sent = []
+
+    async def no_handler(scope, receive, send):
+        raise AssertionError("WebSocket handler must not be invoked")
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "websocket",
+        "path": "/events", "query_string": b"",
+        "headers": [
+            (b"host", b"bridge.example.test"),
+            (b"host", b"evil.example.test"),
+        ],
+        "scheme": "wss", "server": ("127.0.0.1", 80),
+        "client": ("127.0.0.1", 34444),
+    }
+    await TrustedHostASGIMiddleware(no_handler)(scope, receive, send)
+    assert sent == [{"type": "websocket.close", "code": 1008}]

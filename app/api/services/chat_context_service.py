@@ -17,6 +17,7 @@ import logging
 from typing import Optional
 
 from app.api.db import get_conn, _q
+from app.api.services.financial_statements_service import build_profit_and_loss
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ async def build_chat_context(
         "notifications": [],
         "tax_summary": None,
         "reports_summary": None,
+        "reports_unavailable": False,
         "audit_recent": [],
         "learning_stats": None,
         "decisions_pending": [],
@@ -301,10 +303,11 @@ async def build_chat_context(
                             COALESCE(SUM(CASE WHEN credit_account = '3320' THEN amount ELSE 0 END), 0) as pit_payable,
                             COALESCE(SUM(CASE WHEN credit_account = '3340' THEN amount ELSE 0 END), 0) as cit_payable
                         FROM journal_drafts
-                        WHERE tenant_id = %s AND status IN ('approved','auto_approved')
+                        WHERE tenant_id = %s AND status = 'posted'
                     """), tenant_id)
                     if row:
                         ctx["tax_summary"] = {
+                            "source": "posted_drafts",
                             "vat_payable": float(row["vat_payable"]),
                             "pit_payable": float(row["pit_payable"]),
                             "cit_payable": float(row["cit_payable"]),
@@ -312,35 +315,17 @@ async def build_chat_context(
                 except Exception as e:
                     log.warning("tax_summary: %s", e)
 
-            # ── Reports summary ─────────────────────────────────
-            if "reports" in intents:
-                try:
-                    row = await conn.fetchrow(_q("""
-                        SELECT
-                            COALESCE(SUM(CASE WHEN credit_account LIKE '6%%' THEN amount ELSE 0 END), 0) as revenue,
-                            COALESCE(SUM(CASE WHEN debit_account  LIKE '7%%' THEN amount ELSE 0 END), 0) as expenses
-                        FROM journal_drafts
-                        WHERE tenant_id = %s AND status IN ('approved','auto_approved')
-                    """), tenant_id)
-                    if row:
-                        rev = float(row["revenue"])
-                        exp = float(row["expenses"])
-                        ctx["reports_summary"] = {
-                            "revenue": rev,
-                            "expenses": exp,
-                            "profit": round(rev - exp, 2),
-                            "margin_pct": round((rev - exp) / rev * 100, 1) if rev > 0 else 0,
-                        }
-                except Exception as e:
-                    log.warning("reports_summary: %s", e)
+            # P&L is fetched from the same canonical financial statements
+            # service as /reports/pnl after this connection is released,
+            # avoiding approved-but-unposted draft totals and pool nesting.
 
             # ── Audit log ───────────────────────────────────────
             if "audit" in intents:
                 try:
                     rows = await conn.fetch(_q("""
-                        SELECT event_type, actor, description, created_at
+                        SELECT actor, action, resource, resource_id, details, created_at
                         FROM audit_log
-                        WHERE (tenant_id IS NULL OR tenant_id::text = %s)
+                        WHERE tenant_id::text = %s
                         ORDER BY created_at DESC LIMIT 10
                     """), tenant_id)
                     ctx["audit_recent"] = [_safe_dict(r) for r in rows]
@@ -383,7 +368,31 @@ async def build_chat_context(
                     log.warning("decisions_pending: %s", e)
 
     except Exception as e:
-        log.error("build_chat_context failed: %s", e)
+        log.error("build_chat_context failed error_type=%s", type(e).__name__)
+
+    if "reports" in intents:
+        # This is the exact P&L calculation used by /reports/pnl, including
+        # its posted-ledger feature flag and fail-closed DB behavior.
+        try:
+            report = await build_profit_and_loss(tenant_id)
+            if not report.get("ok"):
+                raise RuntimeError("Canonical P&L not available")
+            data = report["data"]
+            revenue = round(float(data["revenue"]["total"]), 2)
+            expenses = round(
+                float(data["cogs"]["total"]) + float(data["opex"]["total"]), 2
+            )
+            profit = round(float(data["ebit"]), 2)
+            ctx["reports_summary"] = {
+                "revenue": revenue,
+                "expenses": expenses,
+                "profit": profit,
+                "margin_pct": round(profit / revenue * 100, 1) if revenue > 0 else 0,
+                "source": data.get("source", "posted_drafts"),
+            }
+        except Exception as e:
+            log.warning("canonical_pnl_unavailable error_type=%s", type(e).__name__)
+            ctx["reports_unavailable"] = True
 
     return ctx
 

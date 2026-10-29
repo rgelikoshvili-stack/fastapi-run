@@ -10,7 +10,7 @@ This document describes Draft code and synthetic tests, not a live deployment.
 - The policy is OFF when BRIDGE_TRUSTED_HOSTS_ENFORCE is absent or exactly 0. This preserves current, unverified ingress traffic; it does NOT prove live Host protection is enabled.
 - **Only after owner-authorized isolated staging:** supply BRIDGE_TRUSTED_HOSTS_ENFORCE=1 plus a comma-separated exact BRIDGE_TRUSTED_HOSTS authority list, each host optionally including a port. Synthetic example: bridge.example.test,internal.example.test:8080.
 - No wildcard, public-suffix entry, scheme, userinfo, URL path/query/fragment, percent-encoded hostname, unicode hostname, whitespace, ambiguous port or duplicate list entry. Unknown/missing/duplicate malformed Host returns generic HTTP 400 HOST_UNTRUSTED; invalid policy or mistyped enable value returns HTTP 503 HOST_POLICY_UNAVAILABLE.
-- X-Forwarded-Host is never used for acceptance, and raw Host is never echoed in the response. Explicit Host validation does not replace CORS, TLS at the edge, proxy identity, or Cloud Run health and WebSocket checks. The current new middleware is **HTTP only**; WebSocket Host protection requires a separate tested ASGI-level gate before Production release.
+- X-Forwarded-Host is never used for acceptance, and raw Host is never echoed in the response. The last-registered **ASGI middleware** checks BOTH HTTP requests and WebSocket upgrades before any application handler or WebSocket accept; a rejected WebSocket receives policy close 1008, or 1013 for invalid policy. Explicit Host validation does not replace CORS, TLS at the edge, proxy identity, or Cloud Run health and WebSocket end-to-end checks.
 
 ## OAuth membership proof (synthetic only)
 

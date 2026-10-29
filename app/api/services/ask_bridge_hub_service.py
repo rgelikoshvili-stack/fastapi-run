@@ -128,7 +128,7 @@ def parse_intent(question: str) -> dict[str, Any]:
 async def _query_expenses(tenant_id: str, filters: dict) -> dict:
     params: list = [tenant_id]
     where = ["tenant_id = $1", "account_code LIKE '7%'",
-             "status IN ('posted', 'approved')"]
+             "status = 'posted'"]
     if filters.get("min_amount"):
         params.append(filters["min_amount"]); where.append(f"amount >= ${len(params)}")
     if filters.get("max_amount"):
@@ -157,7 +157,7 @@ async def _query_expenses(tenant_id: str, filters: dict) -> dict:
 async def _query_revenue(tenant_id: str, filters: dict) -> dict:
     params: list = [tenant_id]
     where = ["tenant_id = $1", "account_code LIKE '6%'",
-             "status IN ('posted', 'approved')"]
+             "status = 'posted'"]
     if filters.get("month"):
         params.append(filters["month"] + "-01")
         params.append(filters["month"] + "-31")
@@ -225,7 +225,7 @@ async def _query_balance_summary(tenant_id: str) -> dict:
                          COUNT(*)            AS draft_count,
                          SUM(amount)         AS total_amount
                   FROM journal_drafts
-                  WHERE tenant_id = %s AND status IN ('posted','approved')
+                  WHERE tenant_id = %s AND status = 'posted'
                   GROUP BY account_code
                   ORDER BY total_amount DESC LIMIT 20"""),
             tenant_id,
@@ -259,16 +259,18 @@ def format_answer(results: dict, intent: dict) -> str:
     total = results.get("total", 0.0)
     month = intent["filters"].get("month") or "all time"
 
+    if results.get("unavailable"):
+        return "Accounting data unavailable; totals cannot be verified."
     if not rows:
         return f"No records found for '{intent['original']}'."
 
     if qt == "expenses":
-        return (f"Found {len(rows)} expense entries for {month}. "
+        return (f"Found {len(rows)} posted draft expense entries for {month} (not audited P&L). "
                 f"Total: {total:,.2f} GEL. "
                 f"Largest: {rows[0]['description']} — {float(rows[0]['amount']):,.2f} GEL.")
     if qt == "revenue":
-        return (f"Found {len(rows)} revenue entries for {month}. "
-                f"Total revenue: {total:,.2f} GEL.")
+        return (f"Found {len(rows)} posted draft revenue entries for {month} (not audited P&L). "
+                f"Posted draft activity total: {total:,.2f} GEL.")
     if qt == "unreconciled":
         return (f"Found {len(rows)} unreconciled drafts. "
                 f"Total unreconciled amount: {total:,.2f} GEL.")
@@ -276,7 +278,7 @@ def format_answer(results: dict, intent: dict) -> str:
         status = intent["filters"].get("status", "?")
         return f"Found {len(rows)} drafts with status '{status}'. Total: {total:,.2f} GEL."
     if qt == "balance_summary":
-        return f"Account summary: {len(rows)} accounts with posted/approved transactions."
+        return f"Posted draft activity: {len(rows)} account codes (not the official trial balance)."
     return f"Found {len(rows)} records."
 
 

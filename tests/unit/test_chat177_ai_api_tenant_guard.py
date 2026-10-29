@@ -115,6 +115,8 @@ async def test_ai_chat_ignores_forged_tenant_prompt_role_and_vector_opt_in(monke
             role="admin", use_vector_search=True, file=None, files=None,
         )
     assert result.status_code == 200
+    import json
+    assert json.loads(result.body)["session_id"] == "share"
     params = run.await_args.kwargs
     assert params["tenant_id"] == "t_alpha"
     assert params["role"] == "accountant"

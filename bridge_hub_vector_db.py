@@ -62,6 +62,23 @@ def _get_embedder():
     return _embedder
 
 
+def _plain_embedding(values) -> list[float]:
+    """Normalize ONNX/NumPy scalar output to Chroma's finite Python floats.
+
+    list(numpy_array) retains numpy.float32 elements, which Chroma's nested
+    list validator rejects. Use the same conversion for query and writes.
+    """
+    import math
+
+    try:
+        result = [float(value) for value in values]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("Vector embeddings unavailable") from exc
+    if not result or not all(math.isfinite(value) for value in result):
+        raise RuntimeError("Vector embeddings unavailable")
+    return result
+
+
 def _get_client():
     """ChromaDB კლიენტის ინიციალიზაცია."""
     global _chroma_client, _collection, _learn_collection
@@ -238,7 +255,7 @@ def index_files(files_dir: str = None, force_reindex: bool = False) -> dict:
 
         # Embeddings + ChromaDB-ში ჩაწერა
         try:
-            embeddings = list(embedder(chunks))
+            embeddings = [_plain_embedding(values) for values in embedder(chunks)]
 
             ids = [f"{file_hash}_{j}" for j in range(len(chunks))]
             metadatas = [
@@ -336,7 +353,7 @@ def semantic_search(
     if total == 0:
         return []
 
-    query_embedding = list(embedder([query])[0])
+    query_embedding = _plain_embedding(embedder([query])[0])
 
     # ფილტრი კატეგორიით
     where = {"category": category} if category else None
@@ -447,7 +464,7 @@ def tenant_learned_search(
         return []
 
     # No fallback to unfiltered query, global collection, or raw file scan.
-    embedding = list(_get_embedder()([query.strip()])[0])
+    embedding = _plain_embedding(_get_embedder()([query.strip()])[0])
     result = learned.query(
         query_embeddings=[embedding],
         n_results=min(top_k, total),
@@ -583,7 +600,7 @@ def learn_from_correction(
     )
 
     doc_id = hashlib.md5(f"{tenant_id}_{original_text}".encode()).hexdigest()
-    embedding = list(embedder([learn_text])[0])
+    embedding = _plain_embedding(embedder([learn_text])[0])
 
     # ძველი ჩანაწერის წაშლა
     try:

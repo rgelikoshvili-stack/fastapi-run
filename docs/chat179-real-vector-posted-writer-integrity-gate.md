@@ -41,6 +41,16 @@ was blocked by the host's HTTP proxy/download path; it is not counted as
 passed. The dedicated isolated CI job installs pinned optional vector
 dependencies without changing production requirements or enabling APIs.
 
+The first real ONNX CI run (`40909202361`) exposed a runtime defect, not a
+missing test dependency: `list(numpy_array)` retains `numpy.float32`
+elements, rejected by Chroma's nested-list validator. Actual inference
+worked, but tenant search failed. `_plain_embedding` now converts each
+coordinate to a finite native Python float at all four embedding-to-store
+boundaries (file batch, global query, tenant query, learned correction).
+No global retrieval or indexing HTTP permission is restored. A separate
+real-Chroma NumPy regression reproduces the failure without model downloads;
+invalid/empty/nonfinite embeddings are rejected before querying the store.
+
 ## Disposable PostgreSQL 15/16 verification
 
 The Chat167 nonowner, NOSUPERUSER, NOBYPASSRLS fixture now exercises actual

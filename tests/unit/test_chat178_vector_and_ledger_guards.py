@@ -159,6 +159,17 @@ def test_vector_backend_query_errors_do_not_fallback_to_global_data(monkeypatch,
     assert learned.query.call_args.kwargs["where"] == {"tenant_id": "t_alpha"}
 
 
+@pytest.mark.parametrize("embedding", [[], [float("nan")], [float("inf")], ["invalid"], None])
+def test_chat179_invalid_embeddings_fail_before_query(monkeypatch, vector_module, embedding):
+    learned = FakeLearned()
+    learned.query = MagicMock(side_effect=AssertionError("Invalid embedding reached store"))
+    monkeypatch.setattr(vector_module, "_get_client", lambda: (None, None, learned))
+    monkeypatch.setattr(vector_module, "_get_embedder", lambda: lambda q: [embedding])
+    with pytest.raises(RuntimeError, match="Vector embeddings unavailable"):
+        vector_module.tenant_learned_search("income", "t_alpha")
+    learned.query.assert_not_called()
+
+
 @pytest.mark.parametrize("name,params", [
     ("_build_pnl_posted_ledger_query", ("t_alpha", None, None)),
     ("_build_balance_sheet_posted_ledger_query", ("t_alpha", None)),

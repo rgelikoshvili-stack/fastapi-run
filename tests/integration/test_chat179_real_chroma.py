@@ -90,6 +90,17 @@ def test_actual_empty_collection_needs_no_embedding(real_vector, monkeypatch):
     assert vector.tenant_learned_search("expense", "t_alpha") == []
 
 
+def test_actual_numpy_float32_embedder_output_is_accepted(real_vector, monkeypatch):
+    import numpy as np
+
+    vector, client, base, learned = real_vector
+    seed(base, learned)
+    monkeypatch.setattr(vector, "_get_embedder", lambda: lambda q: np.asarray([[1., 0., 0.]], dtype=np.float32))
+    assert [r["text"] for r in vector.tenant_learned_search(
+        "expense", "t_alpha"
+    )] == ["alpha-only correction"]
+
+
 @pytest.mark.skipif(os.getenv("CHAT179_REAL_EMBEDDING_TEST") != "1",
                     reason="Dedicated vector CI opts into real local ONNX inference")
 def test_actual_default_onnx_embedding_and_tenant_privacy(tmp_path, monkeypatch):

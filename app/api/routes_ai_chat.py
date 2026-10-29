@@ -163,7 +163,9 @@ async def ai_chat(
         draft_id=draft_id,
     )
 
-    payload = ChatResponse(**result)
+    # The scoped DB/LLM identifier is internal. Clients keep their original
+    # public session ID; otherwise they would double-scope it on the next turn.
+    payload = ChatResponse(**{**result, "session_id": session_id})
     return JSONResponse(
         content=jsonable_encoder(payload),
         media_type="application/json; charset=utf-8",

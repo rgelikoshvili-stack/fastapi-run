@@ -72,8 +72,13 @@ def _request_authority(request: Request) -> str:
 
 def trusted_host_decision(request: Request) -> tuple[bool, int, str]:
     """Return allowed/status/code without revealing untrusted Host in logs."""
-    if os.getenv("BRIDGE_TRUSTED_HOSTS_ENFORCE") != "1":
+    setting = os.getenv("BRIDGE_TRUSTED_HOSTS_ENFORCE", "")
+    if setting in ("", "0"):
         return True, 200, ""
+    if setting != "1":
+        # A misspelled activation flag must not silently deactivate protection.
+        log.error("trusted_host_enforcement_flag_invalid")
+        return False, 503, "HOST_POLICY_UNAVAILABLE"
 
     try:
         allowed = _parse_explicit_hosts(os.getenv("BRIDGE_TRUSTED_HOSTS", ""))

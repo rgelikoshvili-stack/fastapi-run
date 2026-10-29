@@ -80,7 +80,33 @@ ledger immutability, line-total balancing or concurrency idempotency.
   successful, but React setup/install/build steps were SKIPPED because the
   frontend application is absent. Older “frontend build PASS” wording must
   not be treated as proof of a compiled frontend.
-- New exact implementation SHA / CI: PENDING.
+- Final local focused vector/writer/cashflow regressions: 63 passed,
+  1 intentionally skipped (local ONNX download unavailable). The dedicated
+  CI below executes ONNX without skipping.
+
+### Independently verified exact implementation SHA
+
+`222056017091476075c97c20a738f10fba663334` — all nine workflows successful.
+Counts below were read from the actual job logs, not inferred from green icons.
+
+| Isolated check | Result | Run |
+|---|---|---|
+| Real persistent Chroma + actual ONNX + vector guards | 43 PASS, no skips | [40910178460](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178460) |
+| PostgreSQL 15 and 16 auth/ledger/report/AI | 412 PASS on each | [40910178205](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178205) |
+| Full backend and smoke | 8,257 PASS / 3 SKIP; smoke 1 PASS | [40910178240](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178240) |
+| Redis 7 | 210 PASS | [40910178283](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178283) |
+| Tenant membership | 45 PASS | [40910178800](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178800) |
+| Balance credential vault | 104 PASS | [40910178777](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178777) |
+| Finance RLS | 18 PASS | [40910178324](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178324) |
+| PR127 reporting | 229 PASS + smoke 1 PASS | [40910178114](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178114) |
+| PR84 report snapshot | 82 PASS / 178 PASS + smoke 1 PASS | [40910178625](https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40910178625) |
+
+The frontend job completed its absence check; React setup/install/build
+were SKIPPED. The actual Cloud Run deploy job was SKIPPED. These are real
+disposable backend/DB/vector tests, not an authenticated Cloud Run or UI E2E
+certification. The initial implementation `b86342d4e0e4188618db7655fe60003159659493`
+passed its other eight workflows; its real ONNX failure led to the runtime
+normalization fix above, then all nine passed on the final implementation.
 
 ## Remaining release gates
 

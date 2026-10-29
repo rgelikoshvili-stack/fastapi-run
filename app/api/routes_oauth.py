@@ -12,7 +12,7 @@ import requests as _http
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context
 from app.api.response_utils import ok_response, http_error
 from app.api.services.auth_service import create_access_token, create_refresh_token, jwt_session_version_enabled
 from app.api.trusted_request_origin import configured_oauth_origin
@@ -219,10 +219,15 @@ async def oauth_callback(
     version_enabled = jwt_session_version_enabled()
     columns = "id, role, auth_version" if version_enabled else "id, role"
     try:
-        async with get_conn() as conn:
-            existing = await conn.fetchrow(_q(
-                f"SELECT {columns} FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
-            ), email, tenant_id)
+        # The one-use, provider-bound state supplies tenant scope only AFTER
+        # verified provider identity and server-side tenant validation. An
+        # unprivileged runtime role with FORCE RLS on users otherwise sees
+        # zero rows. The SQL lookup still requires the exact email+tenant.
+        async with tenant_db_context(tenant_id):
+            async with get_conn() as conn:
+                existing = await conn.fetchrow(_q(
+                    f"SELECT {columns} FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
+                ), email, tenant_id)
     except Exception:
         log.exception("oauth_membership_lookup_failed provider=%s", provider)
         return http_error(500, "Membership lookup failed", "DB_ERROR")

@@ -673,3 +673,133 @@ async def test_chat176_ai_finance_parity_nonowner_force_rls(auth_db, monkeypatch
             "SELECT current_setting('app.current_tenant_id', true)"
         ) in (None, "")
         assert await conn.fetchval("SELECT count(*) FROM journal_drafts") == 0
+
+
+
+@pytest.mark.asyncio
+async def test_chat178_migration011_posted_ledger_tenant_line_integrity(
+    auth_db, monkeypatch
+):
+    """Real disposable PG15/16 with unprivileged role and migration 011.
+
+    A header/line tenant mismatch is intentionally injected by the
+    synthetic schema OWNER to prove report SQL will not ingest another
+    tenant's line even if line RLS policy is mistakenly permissive.
+    Never run this fixture against a real tenant database.
+    """
+    from pathlib import Path
+    from datetime import date
+    from app.api.services import financial_statements_service as finance
+    from app.api.services import chat_context_service as chat
+
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
+    migration = Path(
+        "app/storage/migrations/011_posted_journal_entries_schema.sql"
+    ).read_text(encoding="utf-8")
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(migration)
+        await conn.execute(migration)  # additive/idempotent on disposable DB
+
+        async def add_entry(tenant, status, debit_code, debit_type,
+                            credit_code, credit_type, amount):
+            row_id = uuid4()
+            await conn.execute("""
+                INSERT INTO journal_entry_headers(
+                    id,tenant_id,entry_date,period,status,source_type,
+                    total_debit,total_credit
+                ) VALUES ($1,$2,$3,'2026-10',$4,'synthetic-test',$5,$5)
+            """, row_id, tenant, date(2026, 10, 15), status, amount)
+            for i, code, acct_type, debit, credit in (
+                (1, debit_code, debit_type, amount, 0),
+                (2, credit_code, credit_type, 0, amount),
+            ):
+                await conn.execute("""
+                    INSERT INTO journal_entry_lines(
+                        id,tenant_id,journal_entry_id,line_no,
+                        account_code,account_type,debit,credit,description
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'synthetic-only')
+                """, uuid4(), tenant, row_id, i, code, acct_type, debit, credit)
+            return row_id
+
+        alpha_revenue = await add_entry(
+            "t_alpha", "posted", "1120", "asset", "6110", "income", 1000,
+        )
+        await add_entry(
+            "t_alpha", "posted", "7210", "expense", "1120", "asset", 400,
+        )
+        await add_entry(
+            "t_alpha", "reversed", "1120", "asset", "6110", "income", 5000,
+        )
+        await add_entry(
+            "t_beta", "posted", "1120", "asset", "6110", "income", 9000,
+        )
+        await add_entry(
+            "t_beta", "posted", "7210", "expense", "1120", "asset", 200,
+        )
+        # Malicious/inconsistent line: links alpha header, claims beta tenant.
+        # Migration 011 documents this invariant as application-enforced;
+        # this fixture probes what happens if such a row ever exists.
+        await conn.execute("""
+            INSERT INTO journal_entry_lines(
+                id,tenant_id,journal_entry_id,line_no,
+                account_code,account_type,debit,credit,description
+            ) VALUES ($1,'t_beta',$2,3,'6110','income',0,99999,'injected-leak')
+        """, uuid4(), alpha_revenue)
+
+        for table in ("journal_entry_headers", "journal_entry_lines"):
+            await conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+            await conn.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+            await conn.execute(
+                f'GRANT SELECT ON {table} TO "{auth_db["role"]}"'
+            )
+        await conn.execute("""
+            CREATE POLICY chat178_header_scope ON journal_entry_headers
+            FOR SELECT USING (
+                tenant_id = current_setting('app.current_tenant_id', true)
+            )
+        """)
+        # Deliberately broad line policy: SQL join must still fail closed.
+        await conn.execute("""
+            CREATE POLICY chat178_line_broad ON journal_entry_lines
+            FOR SELECT USING (true)
+        """)
+
+    async def assert_ledger(tenant, revenue, expenses):
+        with db.authenticated_tenant_context(tenant):
+            official = await finance.build_profit_and_loss(tenant)
+            ai = await chat.build_chat_context(tenant, "P&L")
+            trial = await finance._get_posted_trial_balance_as_of(tenant, None)
+        assert official["ok"] is True, official.get("error")
+        assert official["data"]["source"] == "posted_ledger"
+        assert official["data"]["revenue"]["total"] == revenue
+        assert official["data"]["opex"]["total"] == expenses
+        assert official["data"]["ebit"] == revenue - expenses
+        assert ai["reports_unavailable"] is False
+        assert ai["reports_summary"]["source"] == "posted_ledger"
+        assert ai["reports_summary"]["revenue"] == revenue
+        assert ai["reports_summary"]["expenses"] == expenses
+        assert ai["reports_summary"]["profit"] == revenue - expenses
+        assert trial["6110"] == -revenue
+
+    await assert_ledger("t_alpha", 1000.0, 400.0)
+    await assert_ledger("t_beta", 9000.0, 200.0)
+
+    # Now restore strict line policy for a second real-DB verification.
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("DROP POLICY chat178_line_broad ON journal_entry_lines")
+        await conn.execute("""
+            CREATE POLICY chat178_line_strict ON journal_entry_lines
+            FOR SELECT USING (
+                tenant_id = current_setting('app.current_tenant_id', true)
+            )
+        """)
+    await assert_ledger("t_alpha", 1000.0, 400.0)
+    await assert_ledger("t_beta", 9000.0, 200.0)
+
+    # No tenant identity must bleed into a pooled, unprivileged connection.
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT current_setting('app.current_tenant_id', true)"
+        ) in (None, "")
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0

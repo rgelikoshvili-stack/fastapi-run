@@ -25,6 +25,9 @@ on:
       - "app/api/services/ai_session_scope.py"
       - "app/api/services/llm_service.py"
       - "app/api/services/ai_tool_registry.py"
+      - "app/api/services/financial_statements_service.py"
+      - "bridge_hub_vector_db.py"
+      - "app/storage/migrations/011_posted_journal_entries_schema.sql"
       - "app/api/services/chat_session_service.py"
       - "app/api/policy/permission_map.py"
       - "app/api/routes_ask_bridge_hub.py"
@@ -57,6 +60,7 @@ on:
       - "tests/unit/test_chat175_signature_stamp_security.py"
       - "tests/unit/test_chat176_finance_chat_isolation.py"
       - "tests/unit/test_chat177_ai_api_tenant_guard.py"
+      - "tests/unit/test_chat178_vector_and_ledger_guards.py"
       - "tests/unit/test_p0_ai_action_confirm.py"
       - "tests/unit/test_oauth_existing_tenant_membership.py"
       - ".github/workflows/chat162-oauth-state-postgres.yml"
@@ -121,6 +125,7 @@ jobs:
           tests/unit/test_chat175_signature_stamp_security.py
           tests/unit/test_chat176_finance_chat_isolation.py
           tests/unit/test_chat177_ai_api_tenant_guard.py
+          tests/unit/test_chat178_vector_and_ledger_guards.py
           tests/unit/test_p0_ai_action_confirm.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

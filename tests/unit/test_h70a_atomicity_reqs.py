@@ -15,6 +15,7 @@ import pytest
 
 def _make_conn(fetchval_return=None, fetch_return=None, fetchrow_return=None):
     conn = AsyncMock()
+    conn.is_in_transaction = MagicMock(return_value=True)
     conn.fetchval = AsyncMock(return_value=fetchval_return)
     conn.fetch    = AsyncMock(return_value=fetch_return or [])
     conn.fetchrow = AsyncMock(return_value=fetchrow_return)
@@ -63,7 +64,7 @@ class TestReq5IdempotentPreCheck:
         # fetchval called once for the pre-check
         conn.fetchval.assert_called_once()
         # no INSERT executed
-        conn.execute.assert_not_called()
+        assert not any("INSERT" in c.args[0] for c in conn.execute.call_args_list)
         # ledger_write_skipped emitted
         assert "ledger_write_skipped" in logged_events
 

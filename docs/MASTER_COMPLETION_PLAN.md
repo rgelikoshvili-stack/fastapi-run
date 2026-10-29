@@ -90,9 +90,9 @@ universal RS.ge submission, ავტომატური ფინანსუ
 
 | ID / Scope | არსებული საფუძველი და მდგომარეობა | შემდეგი სამუშაო / მიღების ტესტი |
 |---|---|---|
-| FIN-01 P0 V1-B | `posting_helpers.py`, `posting_service.py`; permissive parsing/rounding/skipped lines; REPAIR | validate stored lines before INSERT; finite amounts, both sides, balanced rounded totals, missing account/date/source and Decimal precision; real writer→PG |
+| FIN-01 P0 V1-B | `posted_ledger_validation.py`, `posting_service.py`; DRAFT-VERIFIED Chat180 for stored-line validation and Decimal precision | validate stored lines before INSERT; finite amounts, both sides, balanced rounded totals, missing account/date/source and Decimal precision; real writer→PG |
 | FIN-02 P0 V1-B | source pre-check is sequential only; FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
-| FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` posted trial builder lacks line tenant join/date normalization; REPAIR; broad-line RLS plus bounded-date PG tests |
+| FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
 | FIN-04 P0 V1 | actual writer now fills standard `account_type`; Chat179 | historical NULL/custom COA inventory, no silent omissions, unknown code handling; no automatic live backfill |
 | FIN-05 P0 V1 | FX rate lookup/write exists; reports aggregate raw debit/credit | non-GEL official totals vs GEL labels require verification/repair; mixed currencies, missing/stale FX, rounding and multiple rates; no guessed rate 1 |
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
@@ -152,7 +152,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | რიგი | ეტაპი | ფუნქციები / დასრულების მტკიცებულება | რეჟიმი |
 |---|---|---|---|
 | 0 | baseline + ეს გეგმა | source inventory, main/153/154 ancestry, current handoff, G0 preservation | READ-ONLY; COMPLETE for this checkpoint |
-| 1 | Ledger validation და sibling readers | FIN-01/03/04; failing-before + passing-after, actual PG15/16 writer/report tests | DRAFT; implementation prepared, CI pending |
+| 1 | Ledger validation და sibling readers | FIN-01/03/04; failing-before + passing-after, actual PG15/16 writer/report tests | DRAFT-VERIFIED at `af537f8`; PG15/16 432 each |
 | 2 | Retry/concurrency და import tenant | FIN-02, SEC-08/ING-08; simultaneous writers and A/B memory import | DRAFT |
 | 3 | Financial reconciliation | FIN-05/07/08/09/10/13; FX, complete balance, unknown cashflow and all AI/report readers | DRAFT |
 | 4 | Mutation boundaries | FIN-06/11/12, SEC-01/04/06/07; all direct/correction/export paths and rollback | DRAFT; DB candidates remain unapplied |
@@ -228,7 +228,8 @@ connectivity cannot be inferred from mocks. No P0 may remain open at release.
 |---|---|---|
 | Chat179 baseline | last confirmed full CI | 8,257 backend PASS / 3 SKIP; PG15/16 412 each; Chroma/ONNX 43; deploy/build SKIPPED |
 | Chat180 plan | source/roadmaps/main/PR ancestry reviewed; matrices and gates defined | baseline inventory; exact source SHA above |
-| Chat180 repair stages | IN PROGRESS | results appended here only after actual tests |
+| Chat180 stage 1 | stored-line validation, Decimal and trial tenant/date repaired | `af537f8917864120d347c87fcb1a6ef71dd52408`; backend 8,276 PASS / 3 SKIP; PG15/16 432 each; all 9 CI workflows PASS |
+| Chat180 stage 2 | concurrent source-write repair next | synthetic scheduled reproduction: two writers created two headers; actual PG proof required |
 
 ყოველი ეტაპი განაახლებს ამ ჟურნალს, ტექნიკურ ანგარიშსა და სრულ **პირად**
 Master Handoff-ს. GitHub-ში ინახება მხოლოდ სანიტიზებული გეგმა/კოდი/ანგარიში;

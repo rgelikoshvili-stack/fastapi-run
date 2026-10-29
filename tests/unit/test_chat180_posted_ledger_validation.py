@@ -41,6 +41,7 @@ async def test_invalid_writer_input_has_no_insert(changes, code):
     from app.api.services.posting_service import _write_ledger_entries
 
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchval.side_effect = [None, uuid4()]
     data = draft()
     data.update(changes)
@@ -55,6 +56,7 @@ async def test_decimal_precision_survives_header_line_and_gel_bindings():
     from app.api.services.posting_service import _write_ledger_entries
 
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchval.side_effect = [None, uuid4()]
     value = Decimal("9007199254740993.01")
     data = draft([{"account_code": "1120", "debit": str(value)},
@@ -66,3 +68,15 @@ async def test_decimal_precision_survives_header_line_and_gel_bindings():
     first_line = next(c for c in conn.execute.call_args_list if "INSERT INTO journal_entry_lines" in c.args[0])
     assert first_line.args[5] == value and isinstance(first_line.args[5], Decimal)
     assert first_line.args[9] == value and isinstance(first_line.args[9], Decimal)
+
+
+@pytest.mark.asyncio
+async def test_autocommit_is_rejected_before_any_database_operation():
+    from app.api.services.posting_service import _write_ledger_entries
+
+    conn = AsyncMock()
+    conn.is_in_transaction = lambda: False
+    with pytest.raises(ValueError, match="LEDGER_TRANSACTION_REQUIRED"):
+        await _write_ledger_entries(conn, draft(), {}, "t_alpha", "test", "hash")
+    conn.execute.assert_not_called()
+    conn.fetchval.assert_not_called()

@@ -1016,3 +1016,75 @@ async def test_chat180_actual_writer_stored_cents_precision_and_invalid_rollback
     with db.authenticated_tenant_context("t_beta"):
         async with db.get_conn() as conn:
             assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+
+
+@pytest.mark.asyncio
+async def test_chat180_concurrent_writers_share_one_tenant_source(auth_db, monkeypatch):
+    import asyncio
+    from app.api.services import posting_service as posting
+
+    await _chat179_prepare_ledger(auth_db)
+    monkeypatch.setattr(posting, "log_event", lambda *args, **kwargs: None)
+    barrier = asyncio.Barrier(8)
+    shared_id = "same-synthetic-draft-id-across-two-tenants"
+    async def worker(tenant):
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                await barrier.wait()
+                await posting._write_ledger_entries(conn, {
+                    "id": shared_id, "date": "2026-10-29", "currency": "GEL",
+                    "lines": [{"account_code": "1120", "debit": "100.01"},
+                              {"account_code": "6110", "credit": "100.01"}],
+                }, {}, tenant, "synthetic", "hash")
+    await asyncio.wait_for(asyncio.gather(*[
+        worker(tenant) for tenant in ("t_alpha", "t_beta") for _ in range(4)
+    ]), timeout=20)
+    for tenant in ("t_alpha", "t_beta"):
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 1
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 2
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 1
+
+
+@pytest.mark.asyncio
+async def test_chat180_ledger_transaction_rollback_releases_lock_and_rows(auth_db):
+    from app.api.services.posting_service import _write_ledger_entries
+
+    await _chat179_prepare_ledger(auth_db)
+    data = {"id": "retry-after-rollback", "date": "2026-10-29", "currency": "GEL",
+            "lines": [{"account_code": "1120", "debit": 50},
+                      {"account_code": "6110", "credit": 50}]}
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(RuntimeError, match="synthetic caller failure"):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn, data, {}, "t_alpha", "synthetic", "hash")
+                raise RuntimeError("synthetic caller failure")
+        async with db.get_conn() as conn:
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 0
+            await _write_ledger_entries(conn, data, {}, "t_alpha", "synthetic", "hash")
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 1
+    async with auth_db["runtime"].acquire() as conn:
+        assert conn.is_in_transaction() is False
+        with pytest.raises(ValueError, match="LEDGER_TRANSACTION_REQUIRED"):
+            await _write_ledger_entries(conn, data, {}, "t_alpha", "synthetic", "hash")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("isolation", ["repeatable_read", "serializable"])
+async def test_chat180_ledger_stale_snapshot_isolation_fails_before_writes(auth_db, isolation):
+    from app.api.services.posting_service import _write_ledger_entries
+
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["runtime"].acquire() as conn:
+        async with conn.transaction(isolation=isolation):
+            await conn.execute("SELECT set_config('app.current_tenant_id','t_alpha',true)")
+            data = {"id": "unsupported-isolation", "date": "2026-10-29", "currency": "GEL",
+                    "lines": [{"account_code": "1120", "debit": 50},
+                              {"account_code": "6110", "credit": 50}]}
+            with pytest.raises(ValueError, match="LEDGER_ISOLATION_UNSUPPORTED"):
+                await _write_ledger_entries(conn, data, {}, "t_alpha", "synthetic", "hash")
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 0

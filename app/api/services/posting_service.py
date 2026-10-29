@@ -605,22 +605,35 @@ async def _write_ledger_entries(
         raise ValueError("LEDGER_TENANT_MISMATCH: draft tenant differs")
     if draft.get("id") is None or isinstance(draft.get("id"), bool) or not str(draft["id"]).strip():
         raise ValueError("LEDGER_SOURCE_REQUIRED: stable draft ID required")
-    # REQ-5: idempotent pre-check — skip if source already written for this draft
     draft_id_str = str(draft["id"])
-    if draft_id_str:
-        existing = await conn.fetchval(_q("""
-            SELECT id FROM journal_entry_sources
+
+    # Serialize cooperating writers through COMMIT/ROLLBACK, not merely the
+    # pre-check. An autocommit advisory lock would be released too early.
+    if conn.is_in_transaction() is not True:
+        raise ValueError("LEDGER_TRANSACTION_REQUIRED: explicit transaction required")
+    lock_key = json.dumps(["posted-ledger-source-v1", tenant_id, draft_id_str], separators=(",", ":"))
+    await conn.execute(_q("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"), lock_key)
+    existing = await conn.fetchval(_q("""
+        SELECT CASE WHEN current_setting('transaction_isolation') = 'read committed'
+        THEN (
+            SELECT id::text FROM journal_entry_sources
             WHERE tenant_id = %s AND source_type = 'journal_draft' AND source_id = %s
             LIMIT 1
-        """), tenant_id, draft_id_str)
-        if existing is not None:
-            log_event("ledger_write_skipped", {
-                "entity_type": "journal_draft",
-                "entity_id": draft.get("id"),
-                "target": target,
-                "existing_source_id": str(existing),
-            }, tenant_id=tenant_id)
-            return
+        ) ELSE 'LEDGER_ISOLATION_UNSUPPORTED' END
+    """), tenant_id, draft_id_str)
+    if existing == "LEDGER_ISOLATION_UNSUPPORTED":
+        # A repeatable-read snapshot could predate the lock holder's commit.
+        # Fail before writes instead of treating that stale view as absent.
+        raise ValueError("LEDGER_ISOLATION_UNSUPPORTED: READ COMMITTED required")
+    if existing is not None:
+        log_event("ledger_write_skipped", {
+            "entity_type": "journal_draft",
+            "entity_id": draft.get("id"),
+            "target": target,
+            "existing_source_id": str(existing),
+        }, tenant_id=tenant_id)
+        return
+
 
     try:
         entry_date_val = _date.fromisoformat(str(draft.get("date") or "")[:10])

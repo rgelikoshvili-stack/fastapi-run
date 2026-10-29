@@ -14,6 +14,7 @@ async def test_writer_persists_canonical_classification_not_caller_hint(code, ex
     from app.api.services.posting_service import _write_ledger_entries
 
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchval.side_effect = [None, "synthetic-header"]
     draft = {
         "id": "synthetic-draft", "date": "2026-10-29", "currency": "GEL",

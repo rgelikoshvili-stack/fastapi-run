@@ -62,12 +62,34 @@ other-tenant line under both broad and strict synthetic line policies.
 - No new production migration, configuration/flag activation, cloud resource,
   live ERP/provider call or Windows original write. Existing source files,
   commits and historical reports retained.
-- Exact implementation CI: pending; record actual results after completion.
+- Exact stage-1 implementation `af537f8917864120d347c87fcb1a6ef71dd52408`: all 9 workflows PASS. Backend 8,276 PASS / 3 SKIP plus smoke 1 (40918165408); PG15/16 432 PASS each (40918165452); Chroma/ONNX 43 (40918165736); Redis 210 (40918165245); membership 45 (40918165359); vault 104 (40918165609); finance RLS 18 (40918165336); PR127 229 plus smoke 1 (40918165345); PR84 82/178 plus smoke 1 (40918165606). Actual deploy and frontend build SKIPPED. Final focused local suite 114 PASS; local full suite before the extra micro-credit case 8,275 PASS / 3 SKIP.
+
+## Stage 2: cooperating ledger writers and transaction lifetime
+
+A synthetic scheduled execution of the actual stage-1 writer reproduced two
+headers/source rows from two callers for the same tenant/draft. The pre-check
+was not sufficient to serialize concurrent attempts.
+
+The writer now requires an actual transaction and acquires a transaction-level
+PostgreSQL advisory lock on a stable JSON namespace/tenant/draft key before
+checking the source. The lock lasts through commit/rollback. The source check
+explicitly requires READ COMMITTED; an earlier repeatable-read snapshot could
+otherwise miss the preceding writer's commit even after waiting for the lock.
+Unsupported isolation fails before INSERT; the code does not change the caller's
+isolation or active database configuration. Existing valid retries remain no-ops.
+
+New disposable PG15/16 tests start eight simultaneous connections across two
+tenants with the same draft ID, require one header/two lines/one source per
+tenant, verify full caller rollback and successful retry, reject autocommit,
+and reject repeatable-read/serializable without rows. This is cooperative
+application idempotency, not a unique constraint against arbitrary SQL writers
+and not a guarantee that the external ERP receives a transaction only once.
+Stage-2 exact-SHA CI pending.
 
 ## Remaining work
 
-Concurrent writers still need a separate idempotency proof; a sequential
-pre-check is not concurrency safety. Historical/custom account classification,
+Arbitrary direct SQL still needs a reviewed source uniqueness invariant.
+Historical/custom account classification,
 complete non-GEL report conversion, balance retained-earnings reconciliation,
 unknown cashflow disclosure, immutable ledger constraints and all live
 RLS/backup/provider/UI gates remain explicitly open in the master plan.

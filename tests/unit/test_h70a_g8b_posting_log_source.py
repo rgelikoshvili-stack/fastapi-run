@@ -13,6 +13,7 @@ import pytest
 
 def _make_conn(fetchval_side=None, fetchval_return=None):
     conn = AsyncMock()
+    conn.is_in_transaction = MagicMock(return_value=True)
     if fetchval_side is not None:
         conn.fetchval = AsyncMock(side_effect=fetchval_side)
     else:
@@ -134,7 +135,7 @@ class TestPostingLogSourceTraceability:
                 conn, _make_draft(), payload, "t1", "mock", "hash5"
             )
         # No INSERTs at all — skipped before write
-        conn.execute.assert_not_called()
+        assert not any("INSERT" in c.args[0] for c in conn.execute.call_args_list)
         assert "ledger_write_skipped" in events
 
     @pytest.mark.asyncio

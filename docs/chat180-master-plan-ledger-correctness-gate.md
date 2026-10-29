@@ -84,7 +84,44 @@ tenant, verify full caller rollback and successful retry, reject autocommit,
 and reject repeatable-read/serializable without rows. This is cooperative
 application idempotency, not a unique constraint against arbitrary SQL writers
 and not a guarantee that the external ERP receives a transaction only once.
-Stage-2 exact-SHA CI pending.
+Stage-2 exact implementation `a91b50f60281600edc8c8d4a79f925e9369384ad`: all 9 CI workflows PASS. Backend 8,277 PASS / 3 SKIP plus smoke 1 (40920074538); PG15/16 437 EACH (40920074738); Chroma/ONNX 43 (40920074824); Redis 210 (40920074815); membership 45 (40920074648); vault 104 (40920074668); finance RLS 18 (40920074887); PR127 229 plus smoke 1 (40920074610); PR84 82/178 plus smoke 1 (40920074601). Actual deployment and frontend build SKIPPED. Local focused concurrency suite 88 PASS.
+
+## Stage 3: ERP learning-memory authority and permissions
+
+Confirmed routes omitted tenant propagation and fell back to shared `default`
+rows. The upsert route accepted `posting:read`. The connector factory ignored
+`mode=demo`; 1C could load global credentials. Generic live Balance history
+projects `erp_id/date/amount/description/status`, dropping source identity and
+account fields required by memory upsert; ORIS has no history adapter.
+
+All four routes now use the existing signed-tenant permission guard; upsert
+requires `posting:write`, GET list keeps `posting:read`. Services require the
+current authorized DB tenant before opening a connection or connector, and
+reject explicit mismatches/default. Body tenant hints are never authority.
+Optional classifier enrichment returns no ERP match if scope is absent or
+inconsistent. SQL operations always close/return connections, including errors.
+Per-row and route failures no longer echo raw SQL/exception text or raw financial
+rows; incomplete imports return outer `ok=false` with retained safe counts.
+
+Demo history is an empty, explicitly simulated, non-authoritative preview and
+never persists evidence or loads provider credentials. Generic live history
+fails closed with `ERP_HISTORY_LIVE_ADAPTER_UNVERIFIED` internally and a stable
+redacted route error until a tenant-bound source-row adapter is implemented and
+reviewed. This deliberately restricts the old incomplete history path; it does
+not change other Balance/1C posting routes or activate any feature flag. Signed
+JSON history imports remain learning evidence, not official ledger transactions.
+Concurrent memory-source deduplication, source revisions and real provider
+history remain open in ING-08; legacy/default rows are preserved, not claimed.
+
+New tests: 34 failed / 4 passed before the initial 38-case repair; 49 focused
+passed afterwards (38 new plus 11 existing connector tests), then four extra
+service/factory guard cases added (final focused suite 53 PASS). Local full suite
+before those last four cases: 8,324 PASS / 3 SKIP on Python 3.12; canonical CI
+Python 3.11 results must be read independently. Actual nonowner FORCE-RLS PG15/16 test uses
+real route/import/list/classifier and sync DB helper against a synthetic schema,
+seeds separate A/B/legacy rows, checks zero cross-tenant visibility, refuses
+mismatches before connection checkout and returns connections on SQL errors.
+Exact stage-3 implementation CI pending.
 
 ## Remaining work
 

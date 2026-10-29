@@ -91,7 +91,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | ID / Scope | არსებული საფუძველი და მდგომარეობა | შემდეგი სამუშაო / მიღების ტესტი |
 |---|---|---|
 | FIN-01 P0 V1-B | `posted_ledger_validation.py`, `posting_service.py`; DRAFT-VERIFIED Chat180 for stored-line validation and Decimal precision | validate stored lines before INSERT; finite amounts, both sides, balanced rounded totals, missing account/date/source and Decimal precision; real writer→PG |
-| FIN-02 P0 V1-B | source pre-check is sequential only; FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
+| FIN-02 P0 V1-B | cooperative transaction lock DRAFT-VERIFIED at `a91b50f`; direct-SQL uniqueness FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
 | FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
 | FIN-04 P0 V1 | actual writer now fills standard `account_type`; Chat179 | historical NULL/custom COA inventory, no silent omissions, unknown code handling; no automatic live backfill |
 | FIN-05 P0 V1 | FX rate lookup/write exists; reports aggregate raw debit/credit | non-GEL official totals vs GEL labels require verification/repair; mixed currencies, missing/stale FX, rounding and multiple rates; no guessed rate 1 |
@@ -229,7 +229,7 @@ connectivity cannot be inferred from mocks. No P0 may remain open at release.
 | Chat179 baseline | last confirmed full CI | 8,257 backend PASS / 3 SKIP; PG15/16 412 each; Chroma/ONNX 43; deploy/build SKIPPED |
 | Chat180 plan | source/roadmaps/main/PR ancestry reviewed; matrices and gates defined | baseline inventory; exact source SHA above |
 | Chat180 stage 1 | stored-line validation, Decimal and trial tenant/date repaired | `af537f8917864120d347c87fcb1a6ef71dd52408`; backend 8,276 PASS / 3 SKIP; PG15/16 432 each; all 9 CI workflows PASS |
-| Chat180 stage 2 | concurrent source-write repair next | synthetic scheduled reproduction: two writers created two headers; actual PG proof required |
+| Chat180 stage 2 | transaction-bound READ COMMITTED cooperative source lock; autocommit/stale snapshots refused | `a91b50f60281600edc8c8d4a79f925e9369384ad`; backend 8,277 PASS / 3 SKIP; PG15/16 437 EACH; all 9 CI PASS; DB uniqueness remains open |
 
 ყოველი ეტაპი განაახლებს ამ ჟურნალს, ტექნიკურ ანგარიშსა და სრულ **პირად**
 Master Handoff-ს. GitHub-ში ინახება მხოლოდ სანიტიზებული გეგმა/კოდი/ანგარიში;

@@ -1088,3 +1088,110 @@ async def test_chat180_ledger_stale_snapshot_isolation_fails_before_writes(auth_
                 await _write_ledger_entries(conn, data, {}, "t_alpha", "synthetic", "hash")
             assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
             assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 0
+
+
+@pytest.mark.asyncio
+async def test_chat180_erp_memory_routes_import_classifier_nonowner_force_rls(auth_db, monkeypatch):
+    """Actual sync DB helper and services, synthetic tenant schema only."""
+    import psycopg2
+    from app.api import routes_erp_memory, routes_erp_import
+    from app.api.services import erp_memory_service
+
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE erp_posting_memory (
+                id BIGSERIAL PRIMARY KEY, tenant_id TEXT NOT NULL,
+                source_system TEXT, external_entry_id TEXT, external_doc_id TEXT,
+                doc_type TEXT, description TEXT, normalized_description TEXT,
+                partner TEXT, normalized_partner TEXT, amount NUMERIC(18,2),
+                currency TEXT, debit_account TEXT, credit_account TEXT,
+                account_code TEXT, direction TEXT, posting_date DATE,
+                evidence_count INTEGER NOT NULL DEFAULT 1,
+                confidence NUMERIC NOT NULL DEFAULT 0.90,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            INSERT INTO erp_posting_memory(tenant_id, description, account_code)
+                VALUES ('default', 'legacy retained unclaimed', '9999');
+            ALTER TABLE erp_posting_memory ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE erp_posting_memory FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat180_strict_erp_memory_tenant ON erp_posting_memory
+                USING (tenant_id = nullif(current_setting('app.current_tenant_id',true),''))
+                WITH CHECK (tenant_id = nullif(current_setting('app.current_tenant_id',true),''));
+        """)
+        await conn.execute(f'GRANT SELECT,INSERT,UPDATE ON erp_posting_memory TO "{auth_db["role"]}"')
+        await conn.execute(f'GRANT USAGE,SELECT ON erp_posting_memory_id_seq TO "{auth_db["role"]}"')
+
+    class DisposableSyncPool:
+        opened = 0
+        returned = 0
+
+        def getconn(self):
+            self.opened += 1
+            return psycopg2.connect(
+                host="127.0.0.1", port=55442, dbname="bridge_hub_chat162_test",
+                user=auth_db["role"], password=_ROLE_PASSWORD,
+                options="-c search_path=" + auth_db["schema"],
+            )
+
+        def putconn(self, conn, close=False):
+            self.returned += 1
+            conn.close()
+
+    pool = DisposableSyncPool()
+    monkeypatch.setattr(db, "_get_sync_pool", lambda: pool)
+
+    def scoped_request(tenant, role="accountant"):
+        result = request("/erp-memory/import/json", "127.0.0.1")
+        result.state.authenticated = True
+        result.state.role = role
+        result.state.tenant_id = tenant
+        result.state.auth_tenant_id = tenant
+        return result
+
+    ids = {}
+    for tenant, account in [("t_alpha", "1110"), ("t_beta", "2110")]:
+        r = scoped_request(tenant)
+        data = routes_erp_import.ErpImportRequest(items=[routes_erp_import.ErpHistoryItem(
+            external_entry_id="same-external-id", description="shared invoice",
+            partner="shared partner", account_code=account, amount=12,
+        )])
+        with db.authenticated_tenant_context(tenant):
+            imported = routes_erp_import.import_erp_history_json(data, r)
+            assert imported["ok"] and imported["data"]["inserted_or_updated"] == 1
+            assert imported["data"]["authoritative"] is False
+            updated = routes_erp_memory.upsert_memory(routes_erp_memory.ErpMemoryUpsertRequest(
+                external_entry_id="same-external-id", description="shared invoice",
+                partner="shared partner", account_code=account, amount=34,
+            ), r)
+            assert updated["ok"] and updated["data"]["memory"]["evidence_count"] == 2
+            own = routes_erp_memory.list_memory(scoped_request(tenant, "viewer"), limit=100)
+            assert own["ok"] and own["data"]["count"] == 1
+            row = own["data"]["items"][0]
+            assert row["tenant_id"] == tenant and row["account_code"] == account
+            ids[tenant] = row["id"]
+            match = erp_memory_service.find_erp_memory_match(
+                description="shared invoice", partner="shared partner", tenant_id=tenant,
+            )
+            assert match["id"] == row["id"] and match["account_code"] == account
+            assert match["tenant_id"] == tenant
+            # A real SQL error is redacted and the failed connection is returned.
+            bad = routes_erp_memory.upsert_memory(routes_erp_memory.ErpMemoryUpsertRequest(
+                external_entry_id="invalid-date", account_code=account, posting_date="not-a-date",
+            ), r)
+            assert not bad["ok"] and bad["error"]["details"] is None
+    assert ids["t_alpha"] != ids["t_beta"]
+    assert pool.opened == pool.returned == 10
+    before = pool.opened
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(ValueError):
+            erp_memory_service.list_erp_posting_memory(tenant_id="t_beta")
+        with pytest.raises(__import__("fastapi").HTTPException):
+            routes_erp_memory.list_memory(scoped_request("t_beta"))
+    assert pool.opened == before
+    async with auth_db["admin"].acquire() as conn:
+        rows = await conn.fetch("SELECT tenant_id, count(*) AS n FROM erp_posting_memory GROUP BY tenant_id")
+        assert {row["tenant_id"]: row["n"] for row in rows} == {"default": 1, "t_alpha": 1, "t_beta": 1}
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM erp_posting_memory") == 0

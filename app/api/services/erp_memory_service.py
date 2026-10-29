@@ -1,6 +1,7 @@
+from contextlib import closing
 from typing import Optional, List, Dict, Any
 
-from app.api.db import get_db
+from app.api.db import get_db, require_current_tenant_id
 from app.api.services.normalization_service import normalize_text
 
 
@@ -18,117 +19,114 @@ def upsert_erp_posting_memory(
     account_code: Optional[str] = None,
     direction: Optional[str] = None,
     posting_date: Optional[str] = None,
-    tenant_id: str = "default",
+    tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    conn = get_db()
-    cur = conn.cursor()
+    tenant_id = require_current_tenant_id(tenant_id)
+    with closing(get_db()) as conn, closing(conn.cursor()) as cur:
+        normalized_description = normalize_text(description)
+        normalized_partner = normalize_text(partner)
 
-    normalized_description = normalize_text(description)
-    normalized_partner = normalize_text(partner)
-
-    cur.execute(
-        """
-        SELECT id, evidence_count
-        FROM erp_posting_memory
-        WHERE tenant_id = %s
-          AND source_system = %s
-          AND COALESCE(external_entry_id, '') = COALESCE(%s, '')
-          AND COALESCE(external_doc_id, '') = COALESCE(%s, '')
-          AND COALESCE(account_code, '') = COALESCE(%s, '')
-        LIMIT 1
-        """,
-        (tenant_id, source_system, external_entry_id, external_doc_id, account_code),
-    )
-    existing = cur.fetchone()
-
-    if existing:
-        row_id, evidence_count = existing
         cur.execute(
             """
-            UPDATE erp_posting_memory
-            SET description = %s,
-                normalized_description = %s,
-                partner = %s,
-                normalized_partner = %s,
-                amount = %s,
-                currency = %s,
-                debit_account = %s,
-                credit_account = %s,
-                doc_type = %s,
-                direction = %s,
-                posting_date = %s,
-                evidence_count = %s,
-                updated_at = NOW(),
-                last_seen_at = NOW()
-            WHERE id = %s
-              AND tenant_id = %s
-            RETURNING id, source_system, account_code, evidence_count
+            SELECT id, evidence_count
+            FROM erp_posting_memory
+            WHERE tenant_id = %s
+              AND source_system = %s
+              AND COALESCE(external_entry_id, '') = COALESCE(%s, '')
+              AND COALESCE(external_doc_id, '') = COALESCE(%s, '')
+              AND COALESCE(account_code, '') = COALESCE(%s, '')
+            LIMIT 1
             """,
-            (
-                description,
-                normalized_description,
-                partner,
-                normalized_partner,
-                amount,
-                currency,
-                debit_account,
-                credit_account,
-                doc_type,
-                direction,
-                posting_date,
-                int(evidence_count or 0) + 1,
-                row_id,
-                tenant_id,
-            ),
+            (tenant_id, source_system, external_entry_id, external_doc_id, account_code),
         )
-    else:
-        cur.execute(
-            """
-            INSERT INTO erp_posting_memory (
-                tenant_id,
-                source_system,
-                external_entry_id,
-                external_doc_id,
-                doc_type,
-                description,
-                normalized_description,
-                partner,
-                normalized_partner,
-                amount,
-                currency,
-                debit_account,
-                credit_account,
-                account_code,
-                direction,
-                posting_date
+        existing = cur.fetchone()
+
+        if existing:
+            row_id, evidence_count = existing
+            cur.execute(
+                """
+                UPDATE erp_posting_memory
+                SET description = %s,
+                    normalized_description = %s,
+                    partner = %s,
+                    normalized_partner = %s,
+                    amount = %s,
+                    currency = %s,
+                    debit_account = %s,
+                    credit_account = %s,
+                    doc_type = %s,
+                    direction = %s,
+                    posting_date = %s,
+                    evidence_count = %s,
+                    updated_at = NOW(),
+                    last_seen_at = NOW()
+                WHERE id = %s
+                  AND tenant_id = %s
+                RETURNING id, source_system, account_code, evidence_count
+                """,
+                (
+                    description,
+                    normalized_description,
+                    partner,
+                    normalized_partner,
+                    amount,
+                    currency,
+                    debit_account,
+                    credit_account,
+                    doc_type,
+                    direction,
+                    posting_date,
+                    int(evidence_count or 0) + 1,
+                    row_id,
+                    tenant_id,
+                ),
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, source_system, account_code, evidence_count
-            """,
-            (
-                tenant_id,
-                source_system,
-                external_entry_id,
-                external_doc_id,
-                doc_type,
-                description,
-                normalized_description,
-                partner,
-                normalized_partner,
-                amount,
-                currency,
-                debit_account,
-                credit_account,
-                account_code,
-                direction,
-                posting_date,
-            ),
-        )
+        else:
+            cur.execute(
+                """
+                INSERT INTO erp_posting_memory (
+                    tenant_id,
+                    source_system,
+                    external_entry_id,
+                    external_doc_id,
+                    doc_type,
+                    description,
+                    normalized_description,
+                    partner,
+                    normalized_partner,
+                    amount,
+                    currency,
+                    debit_account,
+                    credit_account,
+                    account_code,
+                    direction,
+                    posting_date
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, source_system, account_code, evidence_count
+                """,
+                (
+                    tenant_id,
+                    source_system,
+                    external_entry_id,
+                    external_doc_id,
+                    doc_type,
+                    description,
+                    normalized_description,
+                    partner,
+                    normalized_partner,
+                    amount,
+                    currency,
+                    debit_account,
+                    credit_account,
+                    account_code,
+                    direction,
+                    posting_date,
+                ),
+            )
 
-    row = cur.fetchone()
-    conn.commit()
-    cur.close()
-    conn.close()
+        row = cur.fetchone()
+        conn.commit()
 
     return {
         "ok": True,
@@ -147,45 +145,17 @@ def find_erp_memory_match(
     partner: Optional[str] = None,
     amount: Optional[float] = None,
     doc_type: Optional[str] = None,
-    tenant_id: str = "default",
+    tenant_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    conn = get_db()
-    cur = conn.cursor()
+    try:
+        tenant_id = require_current_tenant_id(tenant_id)
+    except ValueError:
+        # Optional enrichment must not query a legacy/default or another tenant.
+        return None
+    with closing(get_db()) as conn, closing(conn.cursor()) as cur:
+        normalized_description = normalize_text(description)
+        normalized_partner = normalize_text(partner)
 
-    normalized_description = normalize_text(description)
-    normalized_partner = normalize_text(partner)
-
-    cur.execute(
-        """
-        SELECT id, account_code, debit_account, credit_account,
-               description, partner, amount, doc_type, evidence_count, confidence
-        FROM erp_posting_memory
-        WHERE tenant_id = %s
-          AND normalized_partner = %s
-          AND normalized_description = %s
-        ORDER BY evidence_count DESC, updated_at DESC
-        LIMIT 1
-        """,
-        (tenant_id, normalized_partner, normalized_description),
-    )
-    row = cur.fetchone()
-
-    if not row and normalized_description:
-        cur.execute(
-            """
-            SELECT id, account_code, debit_account, credit_account,
-                   description, partner, amount, doc_type, evidence_count, confidence
-            FROM erp_posting_memory
-            WHERE tenant_id = %s
-              AND normalized_description = %s
-            ORDER BY evidence_count DESC, updated_at DESC
-            LIMIT 1
-            """,
-            (tenant_id, normalized_description),
-        )
-        row = cur.fetchone()
-
-    if not row and normalized_partner:
         cur.execute(
             """
             SELECT id, account_code, debit_account, credit_account,
@@ -193,15 +163,43 @@ def find_erp_memory_match(
             FROM erp_posting_memory
             WHERE tenant_id = %s
               AND normalized_partner = %s
+              AND normalized_description = %s
             ORDER BY evidence_count DESC, updated_at DESC
             LIMIT 1
             """,
-            (tenant_id, normalized_partner),
+            (tenant_id, normalized_partner, normalized_description),
         )
         row = cur.fetchone()
 
-    cur.close()
-    conn.close()
+        if not row and normalized_description:
+            cur.execute(
+                """
+                SELECT id, account_code, debit_account, credit_account,
+                       description, partner, amount, doc_type, evidence_count, confidence
+                FROM erp_posting_memory
+                WHERE tenant_id = %s
+                  AND normalized_description = %s
+                ORDER BY evidence_count DESC, updated_at DESC
+                LIMIT 1
+                """,
+                (tenant_id, normalized_description),
+            )
+            row = cur.fetchone()
+
+        if not row and normalized_partner:
+            cur.execute(
+                """
+                SELECT id, account_code, debit_account, credit_account,
+                       description, partner, amount, doc_type, evidence_count, confidence
+                FROM erp_posting_memory
+                WHERE tenant_id = %s
+                  AND normalized_partner = %s
+                ORDER BY evidence_count DESC, updated_at DESC
+                LIMIT 1
+                """,
+                (tenant_id, normalized_partner),
+            )
+            row = cur.fetchone()
 
     if not row:
         return None
@@ -222,25 +220,21 @@ def find_erp_memory_match(
     }
 
 
-def list_erp_posting_memory(limit: int = 100, tenant_id: str = "default") -> List[Dict[str, Any]]:
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT id, tenant_id, source_system, description, partner, amount, account_code,
-               debit_account, credit_account, evidence_count, last_seen_at
-        FROM erp_posting_memory
-        WHERE tenant_id = %s
-        ORDER BY id DESC
-        LIMIT %s
-        """,
-        (tenant_id, limit),
-    )
-    rows = cur.fetchall()
-
-    cur.close()
-    conn.close()
+def list_erp_posting_memory(limit: int = 100, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    tenant_id = require_current_tenant_id(tenant_id)
+    with closing(get_db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """
+            SELECT id, tenant_id, source_system, description, partner, amount, account_code,
+                   debit_account, credit_account, evidence_count, last_seen_at
+            FROM erp_posting_memory
+            WHERE tenant_id = %s
+            ORDER BY id DESC
+            LIMIT %s
+            """,
+            (tenant_id, limit),
+        )
+        rows = cur.fetchall()
 
     items = []
     for r in rows:

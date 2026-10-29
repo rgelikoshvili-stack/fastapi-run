@@ -1,4 +1,6 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+from app.api.db import require_current_tenant_id
 
 from app.api.services.erp_memory_service import upsert_erp_posting_memory
 
@@ -21,7 +23,11 @@ def map_erp_row(row: Dict[str, Any], default_source_system: str = "balance") -> 
     }
 
 
-def import_erp_history(items: List[Dict[str, Any]], default_source_system: str = "balance") -> Dict[str, Any]:
+def import_erp_history(
+    items: List[Dict[str, Any]], default_source_system: str = "balance",
+    tenant_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    tenant_id = require_current_tenant_id(tenant_id)
     processed = 0
     inserted_or_updated = 0
     errors = []
@@ -32,6 +38,7 @@ def import_erp_history(items: List[Dict[str, Any]], default_source_system: str =
 
             result = upsert_erp_posting_memory(
                 source_system=mapped["source_system"],
+                tenant_id=tenant_id,
                 external_entry_id=mapped["external_entry_id"],
                 external_doc_id=mapped["external_doc_id"],
                 doc_type=mapped["doc_type"],
@@ -50,13 +57,16 @@ def import_erp_history(items: List[Dict[str, Any]], default_source_system: str =
             if result.get("ok"):
                 inserted_or_updated += 1
             else:
-                errors.append({"index": idx, "error": "upsert failed", "item": item})
+                errors.append({"index": idx, "error": "ERP_MEMORY_UPSERT_FAILED"})
 
-        except Exception as e:
-            errors.append({"index": idx, "error": str(e), "item": item})
+        except Exception:
+            errors.append({"index": idx, "error": "ERP_MEMORY_UPSERT_FAILED"})
 
     return {
         "ok": len(errors) == 0,
+        "tenant_id": tenant_id,
+        "authoritative": False,
+        "purpose": "erp_learning_memory",
         "processed": processed,
         "inserted_or_updated": inserted_or_updated,
         "errors": errors,

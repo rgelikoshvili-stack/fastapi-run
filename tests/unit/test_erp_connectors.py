@@ -12,7 +12,9 @@ def test_erp_import_service_exists():
 
 def test_erp_import_history_returns_dict():
     from app.api.services.erp_import_service import import_erp_history
-    result = import_erp_history(items=[], default_source_system="balance")
+    from app.api.db import authenticated_tenant_context
+    with authenticated_tenant_context("t_test"):
+        result = import_erp_history(items=[], default_source_system="balance", tenant_id="t_test")
     assert isinstance(result, dict)
 
 

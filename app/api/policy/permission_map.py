@@ -15,6 +15,7 @@
     ("*",      "/invoice",            "posting:write"),
     ("*",      "/ai-journal",         "posting:write"),
     ("*",      "/decision-engine",    "posting:write"),
+    ("GET",    "/erp-memory",         "posting:read"),
     ("*",      "/erp-memory",         "posting:write"),
     ("*",      "/erp-connectors",     "posting:write"),
     ("*",      "/fx",                 "posting:write"),

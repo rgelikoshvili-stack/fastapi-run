@@ -291,11 +291,11 @@ async def prometheus_middleware(request: Request, call_next):
         _PROM_ACTIVE.dec()
 
 
-# Registered last so it is the outermost application HTTP middleware.
-# Disabled until the explicit production/staging Host and probe inventory is
-# approved. Never reflect Host, X-Forwarded-Host or guess Cloud Run domains.
-from app.api.trusted_host_guard import trusted_host_guard_middleware
-app.middleware("http")(trusted_host_guard_middleware)
+# Registered last, ASGI outermost, ahead of HTTP handlers and WebSocket
+# upgrades. Disabled until the actual Host, port and probe inventory is
+# approved. Never reflect Host/X-Forwarded-Host or guess Cloud Run domains.
+from app.api.trusted_host_guard import TrustedHostASGIMiddleware
+app.add_middleware(TrustedHostASGIMiddleware)
 
 
 

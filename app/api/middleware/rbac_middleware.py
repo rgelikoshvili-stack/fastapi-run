@@ -26,7 +26,6 @@ async def rbac_middleware(request: Request, call_next):
         "/static",
         "/app",
         "/favicon",
-        "/api/ai/",
         "/api/claude/",
         "/dashboard/",
         "/coa/",

@@ -194,7 +194,7 @@ textarea.form-control{resize:vertical;min-height:80px}
     <label id="btnSigUpload" class="btn btn-outline" title="ხელმოწერა / ბეჭედი სურათი" style="cursor:pointer;position:relative">
       <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
       <span id="sigLabel">ხელმოწერა</span>
-      <input type="file" id="sigFile" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="onSigUpload(event)">
+      <input type="file" id="sigFile" accept="image/png,image/jpeg,image/webp" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="onSigUpload(event)">
     </label>
     <span id="sigThumbWrap" style="display:none;align-items:center;gap:4px">
       <img id="sigThumb" style="height:30px;border-radius:4px;border:1px solid var(--line-strong)">
@@ -369,7 +369,7 @@ textarea.form-control{resize:vertical;min-height:80px}
                ondragover="event.preventDefault();this.classList.add('drag')"
                ondragleave="this.classList.remove('drag')"
                ondrop="onSigDrop(event)">
-            <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)">
+            <input type="file" id="sigFileZone" accept="image/png,image/jpeg,image/webp" onchange="onSigUpload(event)">
             <div id="sigZoneContent">
               <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
                 <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
@@ -386,7 +386,7 @@ textarea.form-control{resize:vertical;min-height:80px}
                ondragover="event.preventDefault();this.classList.add('drag')"
                ondragleave="this.classList.remove('drag')"
                ondrop="onStampDrop(event)">
-            <input type="file" id="stampFileZone" accept="image/*" onchange="onStampUpload(event)">
+            <input type="file" id="stampFileZone" accept="image/png,image/jpeg,image/webp" onchange="onStampUpload(event)">
             <div id="stampZoneContent">
               <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round">
                 <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
@@ -834,6 +834,13 @@ function downloadPDF(){
 }
 
 // ── Signature ────────────────────────────────────────────────────────────────
+// Never interpolate stored/API-returned image strings into HTML attributes.
+function _safeIdentityDataURL(value) {
+  return typeof value === 'string' && value.length <= 2000000 &&
+    /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)
+    ? value : '';
+}
+
 function onSigDrop(evt){
   evt.preventDefault();
   _q('sigZone').classList.remove('drag');
@@ -843,13 +850,13 @@ function onSigDrop(evt){
 function onSigUpload(evt){ const file=evt.target.files[0]; if(file) _processSigFile(file); }
 
 function _processSigFile(file){
-  if(!file.type.startsWith('image/')){ alert('გთხოვთ სურათი ატვირთოთ'); return; }
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 1500000){ alert('გთხოვთ JPG/PNG/WEBP სურათი (მაქს. 1.5 MB)'); return; }
   const reader=new FileReader();
   reader.onload=async function(e){
     const b64=e.target.result;
     _renderSigZone(b64);
     const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
-    if(tw&&ti){ti.src=b64;tw.style.display='inline-flex';}
+    if(tw&&ti){const safe=_safeIdentityDataURL(b64);if(safe){ti.src=safe;tw.style.display='inline-flex';}}
     if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     try{
       const r=await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),body:JSON.stringify({signature_b64:b64})});
@@ -864,16 +871,19 @@ function _renderSigZone(b64){
   const zone=_q('sigZone'); if(!zone) return;
   zone.innerHTML=`
     <button class="sig-clear" onclick="clearSig(event)" style="z-index:10">✕</button>
-    <img class="sig-preview" src="${b64}" alt="signature">
-    <input type="file" id="sigFileZone" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onSigUpload(event)">
+    <img class="sig-preview" alt="signature">
+    <input type="file" id="sigFileZone" accept="image/png,image/jpeg,image/webp" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onSigUpload(event)">
   `;
+  const image=zone.querySelector('img.sig-preview');
+  const safe=_safeIdentityDataURL(b64);
+  if(safe) image.src=safe; else image.remove();
 }
 
 async function clearSig(evt){
   if(evt) evt.stopPropagation();
   try{ await fetch(BASE+'/auth/signature',{method:'POST',headers:_authH(),body:JSON.stringify({signature_b64:''})}); }catch(e){}
   _q('sigZone').innerHTML=`
-    <input type="file" id="sigFileZone" accept="image/*" onchange="onSigUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+    <input type="file" id="sigFileZone" accept="image/png,image/jpeg,image/webp" onchange="onSigUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
     <div id="sigZoneContent">
       <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
       <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
@@ -893,7 +903,7 @@ function onStampDrop(evt){
 function onStampUpload(evt){ const file=evt.target.files[0]; if(file) _processStampFile(file); }
 
 function _processStampFile(file){
-  if(!file.type.startsWith('image/')){ alert('გთხოვთ სურათი ატვირთოთ'); return; }
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 1500000){ alert('გთხოვთ JPG/PNG/WEBP სურათი (მაქს. 1.5 MB)'); return; }
   const reader=new FileReader();
   reader.onload=async function(e){
     const b64=e.target.result;
@@ -911,16 +921,19 @@ function _renderStampZone(b64){
   const zone=_q('stampZone'); if(!zone) return;
   zone.innerHTML=`
     <button class="sig-clear" onclick="clearStamp(event)" style="z-index:10">✕</button>
-    <img class="sig-preview" src="${b64}" alt="stamp">
-    <input type="file" id="stampFileZone" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onStampUpload(event)">
+    <img class="sig-preview" alt="stamp">
+    <input type="file" id="stampFileZone" accept="image/png,image/jpeg,image/webp" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="onStampUpload(event)">
   `;
+  const image=zone.querySelector('img.sig-preview');
+  const safe=_safeIdentityDataURL(b64);
+  if(safe) image.src=safe; else image.remove();
 }
 
 async function clearStamp(evt){
   if(evt) evt.stopPropagation();
   try{ await fetch(BASE+'/auth/stamp',{method:'POST',headers:_authH(),body:JSON.stringify({stamp_b64:''})}); }catch(e){}
   _q('stampZone').innerHTML=`
-    <input type="file" id="stampFileZone" accept="image/*" onchange="onStampUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+    <input type="file" id="stampFileZone" accept="image/png,image/jpeg,image/webp" onchange="onStampUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
     <div id="stampZoneContent">
       <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:var(--ink-ghost);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
       <div class="sig-hint">ჩააგდეთ ან დააჭირეთ</div>
@@ -938,7 +951,7 @@ async function loadSavedSignature(){
     if(sd.ok && sd.data?.signature_b64){
       _renderSigZone(sd.data.signature_b64);
       const tw=_q('sigThumbWrap'),ti=_q('sigThumb');
-      if(tw&&ti){ti.src=sd.data.signature_b64;tw.style.display='inline-flex';}
+      if(tw&&ti){const safe=_safeIdentityDataURL(sd.data.signature_b64);if(safe){ti.src=safe;tw.style.display='inline-flex';}}
       if(_q('sigLabel')) _q('sigLabel').textContent='ხელმოწ. ✓';
     }
     if(stD.ok && stD.data?.stamp_b64) _renderStampZone(stD.data.stamp_b64);

@@ -9,6 +9,7 @@ on:
       - "Procfile"
       - "app/api/client_ip.py"
       - "app/api/trusted_request_origin.py"
+      - "app/api/trusted_host_guard.py"
       - "app/api/security.py"
       - "app/api/slowapi_shared_guard.py"
       - "app/api/middleware/rate_limit_middleware.py"
@@ -37,6 +38,7 @@ on:
       - "tests/unit/test_chat171_shared_rate_limit_fail_closed.py"
       - "tests/unit/test_chat172_slowapi_shared_guard.py"
       - "tests/unit/test_chat173_https_oauth_host_proxy.py"
+      - "tests/unit/test_chat174_trusted_host_guard.py"
       - "tests/unit/test_oauth_existing_tenant_membership.py"
       - ".github/workflows/chat162-oauth-state-postgres.yml"
 
@@ -96,5 +98,6 @@ jobs:
           tests/unit/test_chat171_shared_rate_limit_fail_closed.py
           tests/unit/test_chat172_slowapi_shared_guard.py
           tests/unit/test_chat173_https_oauth_host_proxy.py
+          tests/unit/test_chat174_trusted_host_guard.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

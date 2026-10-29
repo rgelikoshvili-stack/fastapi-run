@@ -8,6 +8,31 @@ from unittest.mock import MagicMock
 import pytest
 
 
+@pytest.fixture
+def vector_module(monkeypatch):
+    """Execute vector search code against stubbed optional Chroma imports.
+
+    Chat178 does not add ChromaDB to the production dependency set. The API
+    remains disabled; only the strict filtering logic is tested in CI.
+    """
+    import importlib.util
+    import sys
+    import types
+    from pathlib import Path
+
+    package = types.ModuleType("chromadb")
+    package.__path__ = []
+    config = types.ModuleType("chromadb.config")
+    config.Settings = object
+    monkeypatch.setitem(sys.modules, "chromadb", package)
+    monkeypatch.setitem(sys.modules, "chromadb.config", config)
+    filename = Path(__file__).resolve().parents[2] / "bridge_hub_vector_db.py"
+    spec = importlib.util.spec_from_file_location("chat178_vector_test_target", filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class FakeLearned:
     def __init__(self):
         self.called = []
@@ -36,8 +61,8 @@ class FakeLearned:
         return self.response
 
 
-def test_scoped_vector_only_queries_learned_collection_and_filters_twice(monkeypatch):
-    import bridge_hub_vector_db as vector
+def test_scoped_vector_only_queries_learned_collection_and_filters_twice(monkeypatch, vector_module):
+    vector = vector_module
 
     learned = FakeLearned()
     base = MagicMock()
@@ -62,8 +87,8 @@ def test_scoped_vector_only_queries_learned_collection_and_filters_twice(monkeyp
     None, "", " ", "global", "GLOBAL", "default", "public",
     "tenant:other", "tenant/other", "a" * 129, "foo\nbar",
 ])
-def test_missing_global_or_invalid_tenant_is_rejected_before_vector_io(monkeypatch, tenant):
-    import bridge_hub_vector_db as vector
+def test_missing_global_or_invalid_tenant_is_rejected_before_vector_io(monkeypatch, tenant, vector_module):
+    vector = vector_module
 
     monkeypatch.setattr(
         vector, "_get_client",
@@ -78,8 +103,8 @@ def test_missing_global_or_invalid_tenant_is_rejected_before_vector_io(monkeypat
     {"top_k": 0}, {"top_k": 21}, {"top_k": True},
     {"min_score": -1}, {"min_score": 1.1}, {"min_score": float("nan")},
 ])
-def test_invalid_vector_request_fails_before_io(monkeypatch, kwargs):
-    import bridge_hub_vector_db as vector
+def test_invalid_vector_request_fails_before_io(monkeypatch, kwargs, vector_module):
+    vector = vector_module
 
     monkeypatch.setattr(
         vector, "_get_client",
@@ -91,8 +116,8 @@ def test_invalid_vector_request_fails_before_io(monkeypatch, kwargs):
         vector.tenant_learned_search(**data)
 
 
-def test_vector_empty_collection_does_not_load_remote_embedding(monkeypatch):
-    import bridge_hub_vector_db as vector
+def test_vector_empty_collection_does_not_load_remote_embedding(monkeypatch, vector_module):
+    vector = vector_module
 
     learned = FakeLearned()
     learned.total = 0
@@ -110,8 +135,8 @@ def test_vector_empty_collection_does_not_load_remote_embedding(monkeypatch):
     {"documents": [[]], "metadatas": [], "distances": [[]]},
     {"documents": [], "metadatas": [[]], "distances": [[]]},
 ])
-def test_vector_malformed_result_is_never_returned(monkeypatch, bad):
-    import bridge_hub_vector_db as vector
+def test_vector_malformed_result_is_never_returned(monkeypatch, bad, vector_module):
+    vector = vector_module
 
     learned = FakeLearned()
     learned.response = bad
@@ -121,8 +146,8 @@ def test_vector_malformed_result_is_never_returned(monkeypatch, bad):
         vector.tenant_learned_search("income", "t_alpha")
 
 
-def test_vector_backend_query_errors_do_not_fallback_to_global_data(monkeypatch):
-    import bridge_hub_vector_db as vector
+def test_vector_backend_query_errors_do_not_fallback_to_global_data(monkeypatch, vector_module):
+    vector = vector_module
 
     learned = FakeLearned()
     learned.query = MagicMock(side_effect=RuntimeError("synthetic query error"))

@@ -55,6 +55,7 @@ INFLOW_CLASSIFICATION: dict[str, str] = {
 # Key = counterpart account code (debit side); Value = cashflow category
 OUTFLOW_CLASSIFICATION: dict[str, str] = {
     # Operating outflows
+    "7210": "operating",   # salary expense paid directly from cash/bank
     "3110": "operating",   # supplier payment (AP cleared)
     "7310": "operating",   # rent (paid directly without AP accrual)
     "3130": "operating",   # accrued expenses paid (salary payable, etc.)
@@ -96,7 +97,7 @@ _EXPECTED_ACCOUNT_TYPES: dict[str, frozenset[str]] = {
         for code in ("3120", "3110", "3130", "3360", "3320", "3330", "3335", "3340", "3350", "3380", "3420", "3410", "3510")
     },
     **{code: frozenset({"income"}) for code in ("6110", "6120", "6130")},
-    **{code: frozenset({"expense"}) for code in ("7310", "7520")},
+    **{code: frozenset({"expense"}) for code in ("7210", "7310", "7520")},
     **{code: frozenset({"equity"}) for code in ("4110", "4120")},
     "3370": frozenset({"equity", "liability"}),
 }

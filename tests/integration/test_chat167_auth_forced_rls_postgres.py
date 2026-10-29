@@ -803,3 +803,166 @@ async def test_chat178_migration011_posted_ledger_tenant_line_integrity(
         ) in (None, "")
         assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
         assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+
+
+async def _chat179_prepare_ledger(auth_db):
+    """Migration 011 + intentionally strict synthetic policies, not live RLS."""
+    from pathlib import Path
+
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(Path(
+            "app/storage/migrations/011_posted_journal_entries_schema.sql"
+        ).read_text(encoding="utf-8"))
+        for table in ("journal_entry_headers", "journal_entry_lines", "journal_entry_sources"):
+            await conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+            await conn.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+            await conn.execute(f'GRANT SELECT,INSERT,UPDATE ON {table} TO "{auth_db["role"]}"')
+            await conn.execute(f"""
+                CREATE POLICY chat179_exact_tenant ON {table} FOR ALL
+                USING (tenant_id = current_setting('app.current_tenant_id', true))
+                WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true))
+            """)
+
+
+@pytest.mark.asyncio
+async def test_chat179_actual_writer_to_reports_and_ai_parity(auth_db, monkeypatch):
+    """Actual writer SQL -> forced-RLS PG -> reports and both AI readers."""
+    from pathlib import Path
+    from app.api.services import financial_statements_service as finance
+    from app.api.services import chat_context_service as chat
+    from app.api.services.ai_tool_registry import run_tool
+    from app.api.services.posting_service import _write_ledger_entries
+
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
+    await _chat179_prepare_ledger(auth_db)
+    candidate = Path("docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql").read_text()
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(candidate)
+        await conn.execute(candidate)
+        await conn.execute("""
+            CREATE TABLE journal_drafts (
+                id SERIAL PRIMARY KEY, tenant_id TEXT, status TEXT,
+                confidence NUMERIC, amount NUMERIC
+            );
+            CREATE TABLE bank_accounts (
+                tenant_id TEXT, name TEXT, balance NUMERIC, currency TEXT
+            );
+            INSERT INTO journal_drafts(tenant_id,status,confidence,amount)
+                VALUES ('t_alpha','approved',1,999999), ('t_beta','approved',1,888888);
+        """)
+        for table in ("journal_drafts", "bank_accounts"):
+            await conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+            await conn.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+            await conn.execute(f'GRANT SELECT ON {table} TO "{auth_db["role"]}"')
+            await conn.execute(f"""CREATE POLICY chat179_exact_tenant ON {table}
+                USING (tenant_id = current_setting('app.current_tenant_id', true))""")
+
+    for tenant, revenue, expense in (("t_alpha", 1000, 400), ("t_beta", 9000, 200)):
+        with db.authenticated_tenant_context(tenant):
+            for debit, credit, amount in (("1120", "6110", revenue), ("7210", "1120", expense)):
+                draft = {"id": str(uuid4()), "date": "2026-10-15", "currency": "GEL",
+                         "lines": [{"account_code": debit, "debit": amount, "credit": 0},
+                                   {"account_code": credit, "debit": 0, "credit": amount}]}
+                async with db.get_conn() as conn:
+                    await _write_ledger_entries(conn, draft, {}, tenant, "synthetic", "test-hash")
+                    # Existing-source retry remains a no-op on the same real connection.
+                    await _write_ledger_entries(conn, draft, {}, tenant, "synthetic", "test-hash")
+            pnl = await finance.build_profit_and_loss(tenant)
+            balance = await finance.build_balance_sheet(tenant)
+            cashflow = await finance.build_cashflow_statement(tenant)
+            trial = await finance._get_posted_trial_balance_as_of(tenant, None)
+            context = await chat.build_chat_context(tenant, "P&L")
+            tool = await run_tool("financial_summary", {}, tenant)
+            assert pnl["ok"] is True, pnl
+            assert pnl["data"]["revenue"]["total"] == revenue
+            assert pnl["data"]["opex"]["total"] == expense
+            assert pnl["data"]["ebit"] == revenue - expense
+            assert balance["ok"] is True and balance["data"]["assets"]["total"] == revenue - expense
+            assert cashflow["ok"] is True and cashflow["data"]["net_change_in_cash"] == revenue - expense
+            assert trial["6110"] == -revenue and trial["7210"] == expense
+            assert trial["1120"] == revenue - expense
+            assert context["reports_summary"]["profit"] == revenue - expense
+            assert tool["preview"]["accounting_basis"] == "posted_ledger", tool
+            assert tool["preview"]["revenue"] == f"{revenue:,.2f} GEL"
+            assert tool["preview"]["expenses"] == f"{expense:,.2f} GEL"
+            assert tool["preview"]["profit"] == f"{revenue - expense:,.2f} GEL"
+            async with db.get_conn() as conn:
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 2
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 4
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 2
+                assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines WHERE account_type IS NULL") == 0
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval("SELECT current_setting('app.current_tenant_id',true)") in (None, "")
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_headers") == 0
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+        assert await conn.fetchval("SELECT count(*) FROM journal_entry_sources") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", ["journal_entry_lines", "journal_entry_sources"])
+async def test_chat179_candidate_fk_rejects_cross_tenant_writes_and_updates(auth_db, table):
+    from pathlib import Path
+
+    await _chat179_prepare_ledger(auth_db)
+    alpha, beta = uuid4(), uuid4()
+    if table == "journal_entry_lines":
+        insert = """INSERT INTO journal_entry_lines
+            (id,tenant_id,journal_entry_id,line_no,account_code,debit)
+            VALUES ($1,'t_alpha',$2,1,'1120',10)"""
+    else:
+        insert = """INSERT INTO journal_entry_sources
+            (id,tenant_id,journal_entry_id,source_type,source_id)
+            VALUES ($1,'t_alpha',$2,'synthetic','synthetic-source')"""
+    async with auth_db["admin"].acquire() as conn:
+        for entry, tenant in ((alpha, "t_alpha"), (beta, "t_beta")):
+            await conn.execute("""INSERT INTO journal_entry_headers
+                (id,tenant_id,entry_date,period,status,source_type)
+                VALUES ($1,$2,'2026-10-15','2026-10','posted','synthetic')""", entry, tenant)
+        # Show migration 011 alone permits a mismatched parent; rollback only this probe.
+        probe = conn.transaction()
+        await probe.start()
+        await conn.execute(insert, uuid4(), beta)
+        await probe.rollback()
+        candidate = Path("docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql").read_text()
+        await conn.execute(candidate)
+        await conn.execute(candidate)
+
+    row = uuid4()
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            async with db.get_conn() as conn:
+                await conn.execute(insert, uuid4(), beta)
+        async with db.get_conn() as conn:
+            await conn.execute(insert, row, alpha)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            async with db.get_conn() as conn:
+                await conn.execute(f"UPDATE {table} SET journal_entry_id=$1 WHERE id=$2", beta, row)
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await conn.execute("UPDATE journal_entry_headers SET tenant_id='t_other' WHERE id=$1", alpha)
+        assert await conn.fetchval(f"SELECT journal_entry_id FROM {table} WHERE id=$1", row) == alpha
+
+
+@pytest.mark.asyncio
+async def test_chat179_candidate_refuses_bad_legacy_rows_without_repair(auth_db):
+    from pathlib import Path
+
+    await _chat179_prepare_ledger(auth_db)
+    header, line = uuid4(), uuid4()
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""INSERT INTO journal_entry_headers
+            (id,tenant_id,entry_date,period,status,source_type)
+            VALUES ($1,'t_alpha','2026-10-15','2026-10','posted','synthetic')""", header)
+        await conn.execute("""INSERT INTO journal_entry_lines
+            (id,tenant_id,journal_entry_id,line_no,account_code,debit)
+            VALUES ($1,'t_beta',$2,1,'1120',10)""", line, header)
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="LEDGER_TENANT_INTEGRITY_PREFLIGHT_FAILED"):
+                await conn.execute(Path(
+                    "docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql"
+                ).read_text())
+        finally:
+            await conn.execute("ROLLBACK")
+        assert await conn.fetchval("SELECT tenant_id FROM journal_entry_lines WHERE id=$1", line) == "t_beta"
+        assert await conn.fetchval("""SELECT count(*) FROM pg_constraint
+            WHERE conrelid='journal_entry_headers'::regclass AND conname='uq_chat179_jeh_id_tenant'""") == 0

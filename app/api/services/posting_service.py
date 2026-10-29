@@ -11,6 +11,7 @@ from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.observability import structured_log
+from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -667,11 +668,19 @@ async def _write_ledger_entries(
         credit = _to_decimal(line.get("credit", 0) or 0)
         amount = debit if debit > 0 else credit
         amount_gel = (amount * exchange_rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        # The posted report queries use account_type, not just account_code.
+        # Derive it from the existing canonical COA, never caller hints.
+        # Ledger vocabulary uses income and asset for revenue/contra_asset.
+        account_type = CHART_OF_ACCOUNTS.get(account_code, {}).get("type")
+        account_type = {"revenue": "income", "contra_asset": "asset"}.get(
+            account_type, account_type
+        )
         await conn.execute(_q("""
             INSERT INTO journal_entry_lines (
                 tenant_id, journal_entry_id, line_no, account_code,
-                debit, credit, currency, exchange_rate, amount_gel, description
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                debit, credit, currency, exchange_rate, amount_gel, description,
+                account_type
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """),
             tenant_id, header_id, idx, account_code,
             float(debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
@@ -680,6 +689,7 @@ async def _write_ledger_entries(
             float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
             float(amount_gel),
             str(line.get("label", "") or draft.get("description", "") or ""),
+            account_type,
         )
 
     # Source row 1: journal_draft (always present — drives idempotency pre-check)

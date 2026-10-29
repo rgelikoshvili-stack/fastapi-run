@@ -651,7 +651,7 @@ async def test_chat176_ai_finance_parity_nonowner_force_rls(auth_db, monkeypatch
         with db.authenticated_tenant_context(tenant):
             canonical = await financial_statements_service.build_profit_and_loss(tenant)
             ctx = await chat_context_service.build_chat_context(
-                tenant, "ფინანსური ანგარიში მოგება P&L"
+                tenant, "ფინანსური ანგარიში P&L"
             )
         assert canonical["ok"] is True, canonical.get("error")
         assert ctx["reports_unavailable"] is False

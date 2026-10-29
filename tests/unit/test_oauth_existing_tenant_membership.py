@@ -36,6 +36,9 @@ class FakeConnection:
 
 
 def provider_setup(monkeypatch, row, *, state_tenant="t_alpha", info=None):
+    # OAuth callback URL must be explicitly configured, never request Host.
+    monkeypatch.setenv("APP_BASE_URL", "https://bridge.example.test")
+    monkeypatch.delenv("OAUTH_REDIRECT_BASE_URL", raising=False)
     if info is None:
         info = {"email": "person@example.test", "email_verified": True, "name": "Person"}
     conn = FakeConnection(row)

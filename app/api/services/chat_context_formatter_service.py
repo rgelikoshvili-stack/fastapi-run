@@ -166,18 +166,25 @@ def format_context_for_prompt(ctx: dict) -> str:
         t = ctx["tax_summary"]
         has_data = True
         lines.append(
-            f"\n[Tax Payable] VAT:{_fmt_amount(t['vat_payable'])} | "
+            f"\n[Posted Draft Tax-Account Credits — not a tax liability statement] VAT:{_fmt_amount(t['vat_payable'])} | "
             f"PIT:{_fmt_amount(t['pit_payable'])} | CIT:{_fmt_amount(t['cit_payable'])} GEL"
         )
 
-    # Reports
+    # Reports: authoritative same-service /reports/pnl accounting basis.
     if ctx.get("reports_summary"):
         r = ctx["reports_summary"]
         has_data = True
+        basis = "posted-ledger" if r.get("source") == "posted_ledger" else "posted-drafts"
         lines.append(
-            f"\n[P&L Summary] Revenue:{_fmt_amount(r['revenue'])} | "
-            f"Expenses:{_fmt_amount(r['expenses'])} | "
-            f"Profit:{_fmt_amount(r['profit'])} | Margin:{r['margin_pct']}%"
+            f"\n[Canonical P&L Summary / {basis}] Revenue:{_fmt_amount(r['revenue'])} | "
+            f"Expenses (COGS + OPEX):{_fmt_amount(r['expenses'])} | "
+            f"EBIT:{_fmt_amount(r['profit'])} | Margin:{r['margin_pct']}%"
+        )
+    elif ctx.get("reports_unavailable"):
+        has_data = True
+        lines.append(
+            "\n[P&L UNAVAILABLE — no verified accounting totals; "
+            "do not guess revenue, expenses or profit.]"
         )
 
     # Audit
@@ -185,7 +192,11 @@ def format_context_for_prompt(ctx: dict) -> str:
         has_data = True
         lines.append("\n[Recent Audit Events]")
         for a in ctx["audit_recent"][:5]:
-            lines.append(f"  {a.get('created_at')} | {a.get('event_type')} | {a.get('actor')} | {a.get('description')}")
+            lines.append(
+                f"  {a.get('created_at')} | {a.get('action')} | "
+                f"{a.get('actor')} | {a.get('resource')} "
+                f"#{a.get('resource_id')} | {a.get('details') or ''}"
+            )
 
     # Learning
     if ctx.get("learning_stats"):

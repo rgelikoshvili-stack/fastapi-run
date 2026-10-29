@@ -243,12 +243,17 @@ app.middleware("http")(tenant_middleware)
 
 @app.middleware("http")
 async def https_redirect(request: Request, call_next):
-    """Redirect HTTP → HTTPS when behind a proxy (Cloud Run / load balancer)."""
-    proto = request.headers.get("X-Forwarded-Proto", "")
-    if proto == "http" and request.url.path != "/health":
-        https_url = str(request.url).replace("http://", "https://", 1)
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=https_url, status_code=301)
+    """Optional HTTPS upgrade; never reflect an untrusted Host/proxy header.
+
+    The external ingress must enforce TLS by default. Application redirect
+    requires explicit, staging-verified proxy CIDRs and canonical HTTPS origin.
+    """
+    from app.api.trusted_request_origin import trusted_https_redirect_target
+    destination = trusted_https_redirect_target(request)
+    if destination is not None:
+        # Temporary 307 preserves the HTTP method if the real trusted edge
+        # sent an HTTP request, without caching a permanent redirect.
+        return RedirectResponse(url=destination, status_code=307)
     return await call_next(request)
 
 

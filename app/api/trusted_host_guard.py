@@ -54,11 +54,12 @@ def _parse_explicit_hosts(raw: str) -> frozenset[str]:
     return allowed
 
 
-def _request_authority(request: Request) -> str:
-    # Read raw ASGI headers. Do not rely on request.url (may be derived from
-    # the very Host header we are checking) or any forwarded Host headers.
+def _request_authority(request_or_scope) -> str:
+    # Read raw ASGI headers for BOTH HTTP and WebSocket. Do not use
+    # request.url, WebSocket.url or X-Forwarded-Host.
+    scope = getattr(request_or_scope, "scope", request_or_scope)
     values = []
-    for name, value in request.scope.get("headers", []):
+    for name, value in scope.get("headers", []):
         if name.lower() == b"host":
             values.append(value)
     if len(values) != 1:
@@ -70,8 +71,8 @@ def _request_authority(request: Request) -> str:
     return _canonical_authority(decoded)
 
 
-def trusted_host_decision(request: Request) -> tuple[bool, int, str]:
-    """Return allowed/status/code without revealing untrusted Host in logs."""
+def trusted_host_decision(request_or_scope) -> tuple[bool, int, str]:
+    """Return allowed/status/code for an HTTP or WebSocket ASGI scope."""
     setting = os.getenv("BRIDGE_TRUSTED_HOSTS_ENFORCE", "")
     if setting in ("", "0"):
         return True, 200, ""
@@ -87,7 +88,7 @@ def trusted_host_decision(request: Request) -> tuple[bool, int, str]:
         return False, 503, "HOST_POLICY_UNAVAILABLE"
 
     try:
-        host = _request_authority(request)
+        host = _request_authority(request_or_scope)
     except ValueError:
         return False, 400, "HOST_UNTRUSTED"
     if host not in allowed:
@@ -95,12 +96,8 @@ def trusted_host_decision(request: Request) -> tuple[bool, int, str]:
     return True, 200, ""
 
 
-async def trusted_host_guard_middleware(request: Request, call_next):
-    """Global ASGI HTTP guard, registered outermost in main.py."""
-    allowed, status, code = trusted_host_decision(request)
-    if allowed:
-        return await call_next(request)
-    result = JSONResponse(
+def _rejected_host_response(status: int, code: str) -> JSONResponse:
+    response = JSONResponse(
         status_code=status,
         content={
             "ok": False,
@@ -110,5 +107,40 @@ async def trusted_host_guard_middleware(request: Request, call_next):
             "error": {"code": code, "details": None},
         },
     )
-    result.headers["Cache-Control"] = "no-store"
-    return result
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+async def trusted_host_guard_middleware(request: Request, call_next):
+    """HTTP helper kept for isolated contract tests."""
+    allowed, status, code = trusted_host_decision(request)
+    if allowed:
+        return await call_next(request)
+    return _rejected_host_response(status, code)
+
+
+class TrustedHostASGIMiddleware:
+    """Outermost ASGI gate protects HTTP *and* WebSocket upgrade requests.
+
+    HTTP: 400 untrusted Host, 503 invalid configuration.
+    WebSocket: close 1008 on forbidden Host, 1013 on unavailable policy.
+    Rejects BEFORE any upgrade is accepted; no raw Host or secret is logged.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        allowed, status, code = trusted_host_decision(scope)
+        if allowed:
+            return await self.app(scope, receive, send)
+        if scope["type"] == "websocket":
+            await send({
+                "type": "websocket.close",
+                "code": 1008 if status == 400 else 1013,
+            })
+            return
+        response = _rejected_host_response(status, code)
+        await response(scope, receive, send)

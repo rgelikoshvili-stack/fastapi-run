@@ -85,7 +85,7 @@ async def _get_db_context(tenant_id: str) -> str:
             """), tenant_id)
         top_str = ", ".join([f"{row['account_code']}({row['cnt']})" for row in top])
         return (f"\nDB: {r['pending']} pending, {r['approved']} approved, {r['rejected']} rejected"
-                f"\nდამტკ. ჯამი: {round(float(r['total_approved']),2)} GEL"
+                f"\nდამტკიცებული Draft-ების ჯამი (არ არის გატარებული P&L): {round(float(r['total_approved']),2)} GEL"
                 f"\nActive patterns: {patterns}"
                 f"\nTop accounts: {top_str}")
     except Exception as e:

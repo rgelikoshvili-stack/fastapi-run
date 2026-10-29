@@ -324,3 +324,87 @@ async def test_export_loads_only_users_namespaced_session(monkeypatch):
     assert args[0].startswith("usr2_")
     assert args[1] == "t_alpha"
     assert "a-uuid" in response.headers["content-disposition"]
+
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_financial_tool_uses_canonical_pnl(monkeypatch):
+    """The separate AI tool must not contradict /reports/pnl."""
+    from app.api.services import ai_tool_registry as tools
+    from app.api.services import financial_statements_service as finance
+
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "total_drafts": 8, "approved": 3, "pending": 2,
+        "rejected": 1, "avg_confidence": 0.9,
+    }
+    conn.fetch.return_value = [{"name": "synthetic bank", "balance": 10, "currency": "GEL"}]
+    monkeypatch.setattr(tools, "get_conn", lambda: fake_conn(conn))
+    build = AsyncMock(return_value={
+        "ok": True, "data": {
+            "source": "posted_ledger", "revenue": {"total": 1700.0},
+            "cogs": {"total": 500.0}, "opex": {"total": 200.0},
+            "ebit": 1000.0,
+        },
+    })
+    monkeypatch.setattr(finance, "build_profit_and_loss", build)
+    output = await tools._financial_summary({}, "t_alpha")
+    preview = output["preview"]
+    assert preview["revenue"] == "1,700.00 GEL"
+    assert preview["expenses"] == "700.00 GEL"
+    assert preview["profit"] == "1,000.00 GEL"
+    assert preview["accounting_basis"] == "posted_ledger"
+    assert preview["approved"] == 3  # workflow KPI, never revenue source
+    build.assert_awaited_once_with("t_alpha")
+    sql = conn.fetchrow.await_args.args[0]
+    assert "credit_account LIKE" not in sql
+    assert "status IN ('approved','auto_approved')" in sql
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_finance_unavailable_never_guesses_totals(monkeypatch):
+    from app.api.services import ai_tool_registry as tools
+    from app.api.services import financial_statements_service as finance
+
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {"total_drafts": 1}
+    conn.fetch.return_value = []
+    monkeypatch.setattr(tools, "get_conn", lambda: fake_conn(conn))
+    monkeypatch.setattr(
+        finance, "build_profit_and_loss",
+        AsyncMock(return_value={"ok": False, "error": {"details": "SECRET"}}),
+    )
+    result = await tools._financial_summary({}, "t_alpha")
+    preview = result["preview"]
+    assert preview["pnl_unavailable"] is True
+    assert "revenue" not in preview
+    assert "expenses" not in preview
+    assert "profit" not in preview
+    assert "SECRET" not in str(preview)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_tax_tool_only_reads_posted_entries(monkeypatch):
+    from app.api.services import ai_tool_registry as tools
+
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {}
+    monkeypatch.setattr(tools, "get_conn", lambda: fake_conn(conn))
+    result = await tools._tax_summary({}, "t_alpha")
+    sql = conn.fetchrow.await_args.args[0]
+    assert "status = 'posted'" in sql
+    assert "approved','auto_approved" not in sql
+    assert "not reconciled tax liabilities" in result["preview"]["note"]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_return_raw_sql_or_token_errors(monkeypatch):
+    from app.api.services import ai_tool_registry as tools
+
+    async def broken(_params, _tenant):
+        raise RuntimeError("synthetic-password-do-not-leak")
+
+    monkeypatch.setitem(tools._TOOL_MAP, "financial_summary", broken)
+    result = await tools.run_tool("financial_summary", {}, "t_alpha")
+    assert result["error"] == "Tool temporarily unavailable"
+    assert "synthetic-password" not in str(result)

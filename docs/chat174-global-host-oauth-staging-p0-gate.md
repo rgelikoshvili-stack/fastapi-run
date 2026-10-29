@@ -44,6 +44,26 @@ This document describes Draft code and synthetic tests, not a live deployment.
 | Windows worktrees/index/ACL integrity | Preservation constraints | Authorized read-only inventory of originals before any mutation |
 | main/Production promotion | PR #154 OPEN/DRAFT | Explicit owner approval after all P0 gates pass |
 
+## E. Independently CI-verified Chat174 result
+
+**Fully verified code SHA:** 461c15457f4497bdccd8b3081f4b6980988fa7a4.
+**Report-only CI-verified PR HEAD before evidence update:** ac591a940b00c0ff47cf649ffcb6749cf925d133.
+
+- Redis 7 two-client workflow: 210 PASS:
+  https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40858609166
+- Disposable PostgreSQL 15/16 with forced users RLS and Host/WebSocket tests:
+  277 PASS on PG15, 277 PASS on PG16:
+  https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40858609175
+- Complete backend: 8,135 PASS, 3 SKIP; extra integration smoke: 1 PASS;
+  frontend build: PASS; Cloud Run deploy: explicitly SKIPPED:
+  https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40858609206
+- Finance fail-closed RLS and tenant membership CI both PASS:
+  https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40858609149
+  https://github.com/rgelikoshvili-stack/fastapi-run/actions/runs/40858609325
+
+These tests use synthetic/local CI infrastructure only. This is NOT proof of
+live Cloud Run Host/WS routing or real Google/Microsoft OAuth.
+
 **Decision:** Draft work only; Production HOLD. No Cloud SQL DDL, live Host
 configuration, OAuth provider action, Cloud Run deploy, PR merge or Windows
 original-file mutation without separate explicit approval.

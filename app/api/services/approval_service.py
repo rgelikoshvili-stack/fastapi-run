@@ -214,7 +214,7 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
             draft = dict(draft_row)
-            if draft.get("entry_type") in ("reversal", "adjustment"):
+            if draft.get("entry_type") in ("reversal", "adjustment") or draft.get("reversal_of_draft_id") is not None:
                 await tr.rollback()
                 return error_response(
                     "Independent maker/checker approval is not yet active",
@@ -780,6 +780,7 @@ def autopilot_approve_service(
             WHERE jd.status IN ('drafted', 'pending_approval')
               AND jd.tenant_id = %s
               AND COALESCE(jd.entry_type, 'normal') NOT IN ('reversal', 'adjustment')
+              AND jd.reversal_of_draft_id IS NULL
               AND jd.confidence >= %s
               AND (jd.review_required = false OR jd.confidence >= 0.85)
             ORDER BY jd.confidence DESC
@@ -886,6 +887,8 @@ def autopilot_approve_service(
                     updated_at = NOW()
                 WHERE id = %s AND tenant_id = %s
                   AND status IN ('drafted', 'pending_approval')
+                  AND entry_type IN ('normal', 'standard')
+                  AND reversal_of_draft_id IS NULL
                 RETURNING id
                 """,
                 (draft_id, tenant_id),

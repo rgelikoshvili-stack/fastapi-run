@@ -2106,40 +2106,33 @@ async def test_chat191_fin12_outbox_requires_append_only_verified_receipt_before
         await conn.execute(
             "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1", intent
         )
-        with pytest.raises(asyncpg.RaiseError, match="FIN12_VERIFIED_RECEIPT_REQUIRED"):
+        # Chat195 supersedes the older local-metadata-only acceptance check:
+        # authenticated vendor acceptance is unavailable; terminal states HOLD.
+        for state in ("confirmed", "rejected"):
+            with pytest.raises(asyncpg.RaiseError,
+                               match="FIN12_VENDOR_AUTHENTICATION_NOT_CONFIGURED"):
+                await conn.execute("""
+                    UPDATE posting_outbox_intents
+                    SET state=$1,provider_receipt_id=$2,provider_verified_at=$3
+                    WHERE id=$4
+                """, state, "fake-receipt" if state == "confirmed" else None,
+                    __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                    if state == "confirmed" else None, intent)
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN12_UNVERIFIED_PROVIDER_RECEIPT_HOLD"):
             await conn.execute("""
-                UPDATE posting_outbox_intents
-                SET state='confirmed', provider_receipt_id='synthetic-receipt-1',
-                    provider_verified_at=NOW()
-                WHERE id=$1
-            """, intent)
-        with pytest.raises(asyncpg.RaiseError, match="FIN12_VERIFIED_RECEIPT_REQUIRED"):
-            await conn.execute(
-                "UPDATE posting_outbox_intents SET state='rejected' WHERE id=$1", intent
-            )
+                INSERT INTO posting_outbox_receipts(
+                    outbox_id,tenant_id,outcome,provider_receipt_id,
+                    evidence_sha256,verified_by,verified_at
+                ) VALUES ($1,'t_alpha','accepted','synthetic-receipt-1',$2,
+                          'synthetic-reviewed-adapter',NOW())
+            """, intent, "c"*64)
         assert await conn.fetchval(
             "SELECT state FROM posting_outbox_intents WHERE id=$1", intent
         ) == "unknown"
-        await conn.execute("""
-            INSERT INTO posting_outbox_receipts(
-                outbox_id,tenant_id,outcome,provider_receipt_id,
-                evidence_sha256,verified_by,verified_at
-            ) VALUES ($1,'t_alpha','accepted','synthetic-receipt-1',$2,
-                      'synthetic-reviewed-adapter',NOW())
-        """, intent, "c"*64)
-        await conn.execute("""
-            UPDATE posting_outbox_intents
-            SET state='confirmed',provider_receipt_id='synthetic-receipt-1',
-                provider_verified_at=NOW() WHERE id=$1
-        """, intent)
         assert await conn.fetchval(
-            "SELECT state FROM posting_outbox_intents WHERE id=$1", intent
-        ) == "confirmed"
-        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_OR_INTENT_IMMUTABLE"):
-            await conn.execute("""
-                UPDATE posting_outbox_intents SET provider_receipt_id='forged'
-                WHERE id=$1
-            """, intent)
+            "SELECT count(*) FROM posting_outbox_receipts"
+        ) == 0
 
 
 # Chat192 FIN-11 maker/checker only in disposable PostgreSQL 15/16.
@@ -2380,7 +2373,7 @@ async def _chat193_setup_reconciliation(auth_db):
                 tenant_id,source_id,target_system,idempotency_key,
                 payload_sha256,payload_json,state
             ) VALUES ('t_alpha','synthetic-41','balance',$1,$2,
-                      '{"amount":100}'::jsonb,'unknown')
+                      '{"amount":100}'::jsonb,'prepared')
             RETURNING id
         """, "a"*64, "b"*64)
         beta = await conn.fetchval("""
@@ -2388,7 +2381,7 @@ async def _chat193_setup_reconciliation(auth_db):
                 tenant_id,source_id,target_system,idempotency_key,
                 payload_sha256,payload_json,state
             ) VALUES ('t_beta','synthetic-42','balance',$1,$2,
-                      '{"amount":20}'::jsonb,'unknown')
+                      '{"amount":20}'::jsonb,'prepared')
             RETURNING id
         """, "c"*64, "d"*64)
         prepared = await conn.fetchval("""
@@ -2399,6 +2392,11 @@ async def _chat193_setup_reconciliation(auth_db):
                       '{"amount":30}'::jsonb,'prepared')
             RETURNING id
         """, "e"*64, "f"*64)
+        # Test-only prepared -> unknown, never forge UNKNOWN at initial INSERT.
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id = ANY($1::uuid[])",
+            [alpha, beta],
+        )
         await conn.execute(
             f'GRANT SELECT ON posting_outbox_receipts TO "{auth_db["role"]}"'
         )
@@ -2551,7 +2549,7 @@ async def _chat194_setup_receipt_candidate(auth_db):
                 tenant_id,source_id,target_system,idempotency_key,
                 payload_sha256,payload_json,state
             ) VALUES ('t_alpha','draft41','balance',$1,$2,
-                      '{"amount":100}'::jsonb,'unknown')
+                      '{"amount":100}'::jsonb,'prepared')
             RETURNING id
         """, "a"*64, "b"*64)
         beta = await conn.fetchval("""
@@ -2559,7 +2557,7 @@ async def _chat194_setup_receipt_candidate(auth_db):
                 tenant_id,source_id,target_system,idempotency_key,
                 payload_sha256,payload_json,state
             ) VALUES ('t_beta','draft41','balance',$1,$2,
-                      '{"amount":100}'::jsonb,'unknown')
+                      '{"amount":100}'::jsonb,'prepared')
             RETURNING id
         """, "c"*64, "d"*64)
         prepared = await conn.fetchval("""
@@ -2570,6 +2568,11 @@ async def _chat194_setup_receipt_candidate(auth_db):
                       '{"amount":20}'::jsonb,'prepared')
             RETURNING id
         """, "e"*64, "f"*64)
+        # Test-only prepared -> unknown, never forge UNKNOWN at initial INSERT.
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id = ANY($1::uuid[])",
+            [alpha, beta],
+        )
         await conn.execute(
             f'GRANT SELECT ON posting_outbox_intents, posting_outbox_receipts '
             f'TO "{auth_db["role"]}"'

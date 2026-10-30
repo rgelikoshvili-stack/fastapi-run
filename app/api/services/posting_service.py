@@ -175,6 +175,18 @@ def _fetch_draft(cur, draft_id: int, tenant_id: str):
     }
 
 
+def _optional_posting_row_column(row, field):
+    """Read an explicitly selected DB column; legacy test-row doubles omit fields.
+
+    A real SQL schema missing the selected column fails the SELECT itself;
+    a missing field in a mock does not silently authorize a correction.
+    """
+    try:
+        return row[field]
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None
+
+
 def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
     if not draft:
         return error_response(
@@ -930,8 +942,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 "currency": draft_row["currency"],
                 "lines_json": draft_row["lines_json"],
                 "lines": _normalize_lines(draft_row["lines_json"]),
-                "entry_type": draft_row.get("entry_type"),
-                "reversal_of_draft_id": draft_row.get("reversal_of_draft_id"),
+                "entry_type": _optional_posting_row_column(draft_row, "entry_type"),
+                "reversal_of_draft_id": _optional_posting_row_column(draft_row, "reversal_of_draft_id"),
             }
 
             err = _validate_approved_draft(draft, draft_id, tenant_id)

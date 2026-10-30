@@ -1680,6 +1680,7 @@ async def test_chat185_candidate_refuses_legacy_unbalanced_header_without_repair
 async def test_chat186_posting_outbox_durable_intent_tenant_dedup_and_unknown_hold(auth_db):
     """Disposable PG15/16 nonowner FORCE-RLS, NO connector invocation."""
     from pathlib import Path
+    import uuid
     from app.api.services.posting_outbox_intent_service import (
         prepare_posting_intent, delivery_decision, PostingOutboxUnavailable,
     )

@@ -61,9 +61,9 @@ async def prepare_posting_intent(conn, *, tenant_id, source_id, target_system, p
     key = _ids(tenant_id, source_id, target_system)
     if conn.is_in_transaction() is not True:
         _deny("OUTBOX_TRANSACTION_REQUIRED")
+    canonical = _canonical_payload(payload)
     if payload.get("tenant_id") not in (None, tenant_id):
         _deny("OUTBOX_TENANT_UNAUTHORIZED")
-    canonical = _canonical_payload(payload)
     payload_sha = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     try:
         row = await conn.fetchrow(_q("""
@@ -81,7 +81,6 @@ async def prepare_posting_intent(conn, *, tenant_id, source_id, target_system, p
                 FROM posting_outbox_intents
                 WHERE tenant_id=%s AND source_type='journal_draft'
                   AND source_id=%s AND target_system=%s
-                FOR UPDATE
             """), tenant_id, source_id, target_system)
     except Exception:
         _deny("OUTBOX_STORAGE_UNAVAILABLE")

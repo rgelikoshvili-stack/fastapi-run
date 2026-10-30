@@ -85,7 +85,7 @@ RETURNS TRIGGER LANGUAGE plpgsql AS $fin12$
 DECLARE src posting_outbox_intents%ROWTYPE;
 BEGIN
     SELECT * INTO src FROM posting_outbox_intents
-     WHERE id=NEW.outbox_id AND tenant_id=NEW.tenant_id FOR UPDATE;
+     WHERE id=NEW.outbox_id AND tenant_id=NEW.tenant_id;
     IF NOT FOUND OR src.state IS DISTINCT FROM 'unknown' THEN
         RAISE EXCEPTION 'FIN12_RECON_SOURCE_NOT_UNKNOWN';
     END IF;

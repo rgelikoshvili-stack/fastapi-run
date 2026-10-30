@@ -676,6 +676,9 @@ async def cfo_approve(draft_id: int, request: Request):
                 """), draft_id, tenant_id)
                 if not draft:
                     return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
+                if draft["entry_type"] in ("reversal", "adjustment"):
+                    return http_error(409, "Independent maker/checker gate is not configured",
+                                      "FIN11_MAKER_CHECKER_NOT_CONFIGURED")
 
                 await conn.execute(_q("""
                     UPDATE journal_drafts

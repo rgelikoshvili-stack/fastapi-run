@@ -1519,3 +1519,158 @@ async def test_chat181_incomplete_classification_refuses_reports_and_ai(auth_db,
         context=await chat.build_chat_context("t_alpha","P&L");assert context["reports_unavailable"] is True
         tool=await run_tool("financial_summary",{},"t_alpha")
         assert tool["preview"]["accounting_basis"]=="unavailable" and "revenue" not in tool["preview"]
+
+
+@pytest.mark.asyncio
+async def test_chat185_direct_sql_uniqueness_immutability_and_deferred_totals(auth_db):
+    """Synthetic PG15/16 only: application lock is not a DB unique constraint."""
+    from pathlib import Path
+    from app.api.services.posting_service import _write_ledger_entries
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        old = Path("docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql").read_text()
+        await conn.execute(old)
+        candidate = Path("docs/sql/chat185_posted_ledger_integrity_DRAFT.sql").read_text()
+        await conn.execute(candidate)
+        await conn.execute(candidate)  # idempotent in disposable schema
+
+    source = "chat185-shared-across-tenants"
+    data = {"id": source, "date": "2026-10-30", "currency": "GEL",
+            "lines": [{"account_code": "1120", "debit": "100.01"},
+                      {"account_code": "6110", "credit": "100.01"}]}
+
+    for tenant in ("t_alpha", "t_beta"):
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn, data, {}, tenant, "synthetic", "chat185")
+            async with db.get_conn() as conn:
+                assert await conn.fetchval(
+                    "SELECT count(*) FROM journal_entry_headers WHERE tenant_id=$1", tenant
+                ) == 1
+                hdr = await conn.fetchval(
+                    "SELECT id FROM journal_entry_headers WHERE tenant_id=$1", tenant
+                )
+            # Direct SQL duplicates fail even though they do not use the
+            # cooperative application lock.
+            with pytest.raises(asyncpg.UniqueViolationError):
+                async with db.get_conn() as conn:
+                    await conn.execute("""
+                        INSERT INTO journal_entry_sources
+                            (tenant_id,journal_entry_id,source_type,source_id)
+                        VALUES ($1,$2,'journal_draft',$3)
+                    """, tenant, hdr, source)
+            with pytest.raises(asyncpg.RaiseError, match="LEDGER_IMMUTABLE"):
+                async with db.get_conn() as conn:
+                    await conn.execute("""
+                        UPDATE journal_entry_lines SET amount_gel=amount_gel+1
+                        WHERE tenant_id=$1 AND journal_entry_id=$2
+                    """, tenant, hdr)
+
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="LEDGER_IMMUTABLE"):
+            await conn.execute("DELETE FROM journal_entry_headers")
+        with pytest.raises(asyncpg.RaiseError, match="LEDGER_IMMUTABLE"):
+            await conn.execute("UPDATE journal_entry_sources SET source_id='tampered'")
+
+    invalid_header = uuid4()
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(asyncpg.RaiseError, match="LEDGER_HEADER_TOTAL_MISMATCH"):
+            async with db.get_conn() as conn:
+                await conn.execute("""
+                    INSERT INTO journal_entry_headers
+                        (id,tenant_id,entry_date,period,status,source_type,total_debit,total_credit)
+                    VALUES ($1,'t_alpha','2026-10-30','2026-10','posted','test',100,100)
+                """, invalid_header)
+                await conn.execute("""
+                    INSERT INTO journal_entry_lines
+                        (tenant_id,journal_entry_id,line_no,account_code,debit,credit,amount_gel)
+                    VALUES ('t_alpha',$1,1,'1120',100,0,100),
+                           ('t_alpha',$1,2,'6110',0,90,90)
+                """, invalid_header)
+                await conn.execute("""
+                    INSERT INTO journal_entry_sources
+                        (tenant_id,journal_entry_id,source_type,source_id)
+                    VALUES ('t_alpha',$1,'journal_draft','chat185-invalid-header')
+                """, invalid_header)
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers WHERE id=$1", invalid_header
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat185_candidate_refuses_duplicate_historical_sources_without_repair(auth_db):
+    """Never silently certify an RLS-filtered subset or delete past duplicates."""
+    from pathlib import Path
+    await _chat179_prepare_ledger(auth_db)
+    old = Path("docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql").read_text()
+    new = Path("docs/sql/chat185_posted_ledger_integrity_DRAFT.sql").read_text()
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(old)
+        h = uuid4()
+        await conn.execute("""
+            INSERT INTO journal_entry_headers
+                (id,tenant_id,entry_date,period,status,source_type,total_debit,total_credit)
+            VALUES ($1,'t_alpha','2026-10-30','2026-10','posted','test',10,10)
+        """, h)
+        await conn.execute("""
+            INSERT INTO journal_entry_lines
+                (tenant_id,journal_entry_id,line_no,account_code,debit,credit,amount_gel)
+            VALUES ('t_alpha',$1,1,'1120',10,0,10),
+                   ('t_alpha',$1,2,'6110',0,10,10)
+        """, h)
+        await conn.execute("""
+            INSERT INTO journal_entry_sources
+                (tenant_id,journal_entry_id,source_type,source_id)
+            VALUES ('t_alpha',$1,'journal_draft','historical-duplicate'),
+                   ('t_alpha',$1,'journal_draft','historical-duplicate')
+        """, h)
+        with pytest.raises(asyncpg.RaiseError, match="LEDGER_SOURCE_DUPLICATE_PREFLIGHT_FAILED"):
+            await conn.execute(new)
+        await conn.execute("ROLLBACK")
+        assert await conn.fetchval(
+            "SELECT count(*) FROM journal_entry_sources WHERE source_id='historical-duplicate'"
+        ) == 2
+        assert await conn.fetchval("""
+            SELECT count(*) FROM pg_indexes
+            WHERE tablename='journal_entry_sources'
+              AND indexname='uq_chat185_posted_source_identity'
+        """) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat185_candidate_refuses_legacy_unbalanced_header_without_repair(auth_db):
+    from pathlib import Path
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(Path(
+            "docs/sql/chat179_posted_ledger_tenant_constraints_DRAFT.sql"
+        ).read_text())
+        h = uuid4()
+        await conn.execute("""
+            INSERT INTO journal_entry_headers
+                (id,tenant_id,entry_date,period,status,source_type,total_debit,total_credit)
+            VALUES ($1,'t_alpha','2026-10-30','2026-10','posted','test',10,10)
+        """, h)
+        await conn.execute("""
+            INSERT INTO journal_entry_lines
+                (tenant_id,journal_entry_id,line_no,account_code,debit,credit,amount_gel)
+            VALUES ('t_alpha',$1,1,'1120',10,0,10),
+                   ('t_alpha',$1,2,'6110',0,5,5)
+        """, h)
+        await conn.execute("""
+            INSERT INTO journal_entry_sources
+                (tenant_id,journal_entry_id,source_type,source_id)
+            VALUES ('t_alpha',$1,'journal_draft','bad-historical')
+        """, h)
+        with pytest.raises(asyncpg.RaiseError, match="LEDGER_INTEGRITY_PREFLIGHT_FAILED"):
+            await conn.execute(Path(
+                "docs/sql/chat185_posted_ledger_integrity_DRAFT.sql"
+            ).read_text())
+        await conn.execute("ROLLBACK")
+        assert await conn.fetchval(
+            "SELECT count(*) FROM journal_entry_lines WHERE journal_entry_id=$1", h
+        ) == 2

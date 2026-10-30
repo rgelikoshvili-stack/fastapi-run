@@ -2140,3 +2140,196 @@ async def test_chat191_fin12_outbox_requires_append_only_verified_receipt_before
                 UPDATE posting_outbox_intents SET provider_receipt_id='forged'
                 WHERE id=$1
             """, intent)
+
+
+# Chat192 FIN-11 maker/checker only in disposable PostgreSQL 15/16.
+async def _chat192_setup_review_candidates(auth_db):
+    from pathlib import Path
+    await _chat189_prepare_reversal_drafts(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        candidate = Path(
+            "docs/sql/chat192_fin11_correction_reviews_DRAFT.sql"
+        ).read_text(encoding="utf-8")
+        await conn.execute(candidate)
+        await conn.execute(candidate)
+        await conn.execute("""
+            INSERT INTO journal_drafts
+               (id,tenant_id,date,description,amount,currency,status,
+                entry_type,reversal_of_draft_id,reversal_reason,lines_json)
+            VALUES
+               (71,'t_alpha','2026-10-30','synthetic reversal',100,'GEL',
+                'pending_approval','reversal',41,'source error',
+                '[{"account_code":"1120","debit":0,"credit":100},
+                  {"account_code":"6110","debit":100,"credit":0}]'::jsonb),
+               (72,'t_alpha','2026-10-30','synthetic adjustment',100,'GEL',
+                'pending_approval','adjustment',41,'correct amount',
+                '[{"account_code":"1120","debit":100,"credit":0},
+                  {"account_code":"6110","debit":0,"credit":100}]'::jsonb)
+        """)
+        await conn.execute(
+            f'GRANT SELECT,INSERT,UPDATE ON correction_review_intents '
+            f'TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON correction_review_events '
+            f'TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT USAGE,SELECT ON SEQUENCE correction_review_intents_id_seq,'
+            f'correction_review_events_id_seq TO "{auth_db["role"]}"'
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat192_independent_review_is_transactional_tenant_scoped_and_no_posting(auth_db):
+    from app.api.services.correction_review_service import (
+        CorrectionReviewUnavailable, submit_correction_review, decide_correction_review,
+    )
+    await _chat192_setup_review_candidates(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            submitted = await submit_correction_review(
+                conn, tenant_id="t_alpha", draft_id=71,
+                maker_subject="auth:maker-71", maker_role="accountant",
+            )
+            assert submitted["state"] == "awaiting_checker"
+            assert submitted["posted"] is False
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM correction_review_events WHERE tenant_id='t_alpha'"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM audit_log WHERE action='correction_review_submitted'"
+            ) == 1
+
+        # If a maker tries a CFO role or the checker uses the same subject,
+        # identity separation still blocks the decision.
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_SELF_APPROVAL_DENIED"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    checker_subject="auth:maker-71", checker_role="cfo",
+                    decision="approved",
+                )
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_ROLE_FORBIDDEN"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    checker_subject="auth:reviewer", checker_role="reviewer",
+                    decision="approved",
+                )
+
+    # A review cannot be applied to changed financial data.
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("UPDATE journal_drafts SET amount=101 WHERE id=71")
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_SOURCE_CHANGED"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    checker_subject="auth:cfo-2", checker_role="cfo",
+                    decision="approved",
+                )
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("UPDATE journal_drafts SET amount=100 WHERE id=71")
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            decision = await decide_correction_review(
+                conn, tenant_id="t_alpha", draft_id=71,
+                checker_subject="auth:cfo-2", checker_role="cfo",
+                decision="approved", reason="verified synthetic evidence",
+            )
+            assert decision["state"] == "approved"
+            assert decision["posted"] is False
+            assert await conn.fetchval(
+                "SELECT status FROM journal_drafts WHERE id=71"
+            ) == "pending_approval"
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM correction_review_events WHERE action='approved'"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM audit_log WHERE action='correction_review_approved'"
+            ) == 1
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_NOT_AWAITING_CHECKER"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    checker_subject="auth:cfo-3", checker_role="cfo",
+                    decision="approved",
+                )
+
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM correction_review_intents"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM correction_review_events"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM audit_log WHERE action LIKE 'correction_review_%'"
+            ) == 0
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_DRAFT_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await submit_correction_review(
+                    conn, tenant_id="t_beta", draft_id=71,
+                    maker_subject="auth:beta", maker_role="accountant",
+                )
+
+
+@pytest.mark.asyncio
+async def test_chat192_rejection_and_direct_sql_bypass_denied(auth_db):
+    from app.api.services.correction_review_service import (
+        CorrectionReviewUnavailable, submit_correction_review, decide_correction_review,
+    )
+    await _chat192_setup_review_candidates(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await submit_correction_review(
+                conn, tenant_id="t_alpha", draft_id=72,
+                maker_subject="auth:maker-72", maker_role="accountant",
+            )
+            review_id = await conn.fetchval(
+                "SELECT id FROM correction_review_intents WHERE draft_id=72"
+            )
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_REASON_REQUIRED"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=72,
+                    checker_subject="auth:cfo-1", checker_role="cfo",
+                    decision="rejected", reason="",
+                )
+
+    # Even an owner cannot flip the status without prior matching evidence.
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN11_REVIEW_CHECKER_EVIDENCE_REQUIRED"):
+            await conn.execute("""
+                UPDATE correction_review_intents
+                SET state='approved',checker_subject='auth:cfo-1',
+                    checker_role='cfo',decided_at=NOW() WHERE id=$1
+            """, review_id)
+
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            result = await decide_correction_review(
+                conn, tenant_id="t_alpha", draft_id=72,
+                checker_subject="auth:cfo-1", checker_role="cfo",
+                decision="rejected", reason="synthetic mismatch",
+            )
+            assert result["state"] == "rejected"
+            assert await conn.fetchval(
+                "SELECT status FROM journal_drafts WHERE id=72"
+            ) == "pending_approval"
+
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN11_REVIEW_EVIDENCE_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE correction_review_events
+                   SET actor_subject='forged' WHERE review_id=$1
+            """, review_id)
+        with pytest.raises(asyncpg.RaiseError, match="FIN11_REVIEW_EVIDENCE_IMMUTABLE"):
+            await conn.execute("""
+                DELETE FROM correction_review_intents WHERE id=$1
+            """, review_id)
+        assert await conn.fetchval(
+            "SELECT state FROM correction_review_intents WHERE id=$1", review_id
+        ) == "rejected"

@@ -82,6 +82,51 @@ BEGIN
 END;
 $fin11$;
 
+-- A review's "maker" is not a free text choice: bind it to one actual
+-- correction-draft creation audit event. Direct SQL impersonation is refused.
+CREATE OR REPLACE FUNCTION chat192_review_submit_requires_creator()
+RETURNS trigger LANGUAGE plpgsql AS $fin11$
+DECLARE
+    creation_count BIGINT;
+    recorded_actor TEXT;
+    recorded_source TEXT;
+    recorded_state TEXT;
+BEGIN
+    SELECT COUNT(*), MIN(actor),
+           MIN(new_value->>'source_id'), MIN(new_value->>'status')
+      INTO creation_count, recorded_actor, recorded_source, recorded_state
+      FROM audit_log
+     WHERE tenant_id=NEW.tenant_id AND resource='journal_drafts'
+       AND resource_id=NEW.draft_id::text
+       AND action=(CASE WHEN NEW.entry_type='reversal'
+                        THEN 'reversal_draft_created'
+                        ELSE 'adjustment_draft_created' END)
+       AND status='success';
+    IF creation_count <> 1
+       OR recorded_actor IS DISTINCT FROM NEW.maker_subject
+       OR recorded_source IS DISTINCT FROM NEW.source_id::text
+       OR recorded_state IS DISTINCT FROM 'pending_approval'
+    THEN
+        RAISE EXCEPTION 'FIN11_REVIEW_MAKER_SOURCE_MISMATCH';
+    END IF;
+    RETURN NEW;
+END;
+$fin11$;
+
+DO $fin11$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+         WHERE tgrelid='correction_review_intents'::regclass
+           AND tgname='chat192_review_source_guard'
+    ) THEN
+        CREATE TRIGGER chat192_review_source_guard
+            BEFORE INSERT ON correction_review_intents
+            FOR EACH ROW EXECUTE FUNCTION chat192_review_submit_requires_creator();
+    END IF;
+END;
+$fin11$;
+
 CREATE OR REPLACE FUNCTION chat192_review_immutable_or_require_event()
 RETURNS trigger LANGUAGE plpgsql AS $fin11$
 BEGIN

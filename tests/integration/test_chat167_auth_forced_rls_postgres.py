@@ -1674,3 +1674,78 @@ async def test_chat185_candidate_refuses_legacy_unbalanced_header_without_repair
         assert await conn.fetchval(
             "SELECT count(*) FROM journal_entry_lines WHERE journal_entry_id=$1", h
         ) == 2
+
+
+@pytest.mark.asyncio
+async def test_chat186_posting_outbox_durable_intent_tenant_dedup_and_unknown_hold(auth_db):
+    """Disposable PG15/16 nonowner FORCE-RLS, NO connector invocation."""
+    from pathlib import Path
+    from app.api.services.posting_outbox_intent_service import (
+        prepare_posting_intent, delivery_decision, PostingOutboxUnavailable,
+    )
+
+    sql = Path("docs/sql/chat186_posting_outbox_DRAFT.sql").read_text(encoding="utf-8")
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(sql)
+        await conn.execute(sql)
+        await conn.execute(f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"')
+        await conn.execute(f'GRANT SELECT ON posting_outbox_receipts TO "{auth_db["role"]}"')
+
+    ids={}
+    for tenant in ("t_alpha","t_beta"):
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                first=await prepare_posting_intent(conn,tenant_id=tenant,source_id="draft17",
+                    target_system="balance",payload={"tenant_id":tenant,"amount":"100.01","currency":"GEL"})
+                second=await prepare_posting_intent(conn,tenant_id=tenant,source_id="draft17",
+                    target_system="balance",payload={"currency":"GEL","amount":"100.01","tenant_id":tenant})
+                assert first==second and first["dispatch_allowed"] is False
+                assert delivery_decision(first["state"]) == "VENDOR_IDEMPOTENCY_APPROVAL_REQUIRED"
+                ids[tenant]=first["intent_id"]
+                assert await conn.fetchval(
+                    "SELECT count(*) FROM posting_outbox_intents"
+                ) == 1
+            with pytest.raises(PostingOutboxUnavailable,match="OUTBOX_INTENT_CONFLICT"):
+                async with db.get_conn() as conn:
+                    await prepare_posting_intent(conn,tenant_id=tenant,source_id="draft17",
+                        target_system="balance",payload={"tenant_id":tenant,"amount":"999.99"})
+    assert ids["t_alpha"]!=ids["t_beta"]
+
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with db.get_conn() as conn:
+                await conn.execute("""
+                    INSERT INTO posting_outbox_intents
+                        (tenant_id,source_id,target_system,idempotency_key,payload_sha256,payload_json)
+                    VALUES ('t_beta','forged','balance',$1,$2,'{}'::jsonb)
+                """, 'a'*64, 'b'*64)
+
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1",
+            uuid.UUID(ids["t_alpha"])
+        )
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_RECEIPT_OR_INTENT_IMMUTABLE"):
+            await conn.execute(
+                "UPDATE posting_outbox_intents SET state='in_flight' WHERE id=$1",
+                uuid.UUID(ids["t_alpha"])
+            )
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_RECEIPT_OR_INTENT_IMMUTABLE"):
+            await conn.execute("DELETE FROM posting_outbox_intents")
+
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            again=await prepare_posting_intent(conn,tenant_id="t_alpha",source_id="draft17",
+                target_system="balance",payload={"tenant_id":"t_alpha","amount":"100.01","currency":"GEL"})
+            assert again["state"]=="unknown"
+            assert delivery_decision(again["state"])=="RECONCILIATION_REQUIRED"
+            assert again["dispatch_allowed"] is False
+            assert await conn.fetchval("SELECT count(*) FROM posting_outbox_intents")==1
+
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await conn.execute("""
+                INSERT INTO posting_outbox_receipts (
+                    outbox_id,tenant_id,outcome
+                ) VALUES ($1,'t_beta','unknown')
+            """,uuid.UUID(ids["t_alpha"]))

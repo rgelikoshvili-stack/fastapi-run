@@ -1,0 +1,128 @@
+-- Chat186 FIN-12: durable ERP mutation intent / append-only receipts.
+-- DRAFT / DISPOSABLE PG15/16 TESTS ONLY. NEVER a startup migration.
+-- NO worker, webhook, route, live ERP write, or provider idempotency contract
+-- is activated by creating this schema. Production still EXTERNAL-HOLD.
+CREATE TABLE IF NOT EXISTS posting_outbox_intents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id TEXT NOT NULL CHECK (tenant_id <> '' AND tenant_id <> 'default'),
+    source_type TEXT NOT NULL DEFAULT 'journal_draft'
+        CHECK (source_type = 'journal_draft'),
+    source_id TEXT NOT NULL CHECK (length(source_id) BETWEEN 1 AND 256),
+    target_system TEXT NOT NULL CHECK (target_system IN ('balance','onec','oris')),
+    idempotency_key TEXT NOT NULL CHECK (idempotency_key ~ '^[0-9a-f]{64}$'),
+    payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    payload_json JSONB NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
+    state TEXT NOT NULL DEFAULT 'prepared' CHECK
+        (state IN ('prepared','in_flight','unknown','confirmed','rejected')),
+    provider_receipt_id TEXT NULL,
+    provider_verified_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(tenant_id,source_type,source_id,target_system),
+    UNIQUE(tenant_id,target_system,idempotency_key),
+    UNIQUE(id,tenant_id),
+    CONSTRAINT ck_fin12_receipt_consistency CHECK
+        ((state='confirmed' AND provider_receipt_id IS NOT NULL AND provider_verified_at IS NOT NULL)
+        OR (state<>'confirmed' AND provider_receipt_id IS NULL AND provider_verified_at IS NULL))
+);
+CREATE TABLE IF NOT EXISTS posting_outbox_receipts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    outbox_id UUID NOT NULL,
+    tenant_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('accepted','unknown','rejected')),
+    provider_receipt_id TEXT NULL,
+    evidence_sha256 TEXT NULL CHECK
+        (evidence_sha256 IS NULL OR evidence_sha256 ~ '^[0-9a-f]{64}$'),
+    verified_by TEXT NULL,
+    verified_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_fin12_acceptance_evidence CHECK
+        (outcome <> 'accepted' OR
+         (provider_receipt_id IS NOT NULL AND evidence_sha256 IS NOT NULL
+          AND verified_by IS NOT NULL AND verified_at IS NOT NULL)),
+    FOREIGN KEY (outbox_id,tenant_id)
+        REFERENCES posting_outbox_intents (id,tenant_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fin12_verified_provider_receipt
+    ON posting_outbox_receipts (tenant_id,provider_receipt_id)
+    WHERE outcome = 'accepted' AND provider_receipt_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fin12_accepted_intent
+    ON posting_outbox_receipts (outbox_id) WHERE outcome = 'accepted';
+
+ALTER TABLE posting_outbox_intents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posting_outbox_intents FORCE ROW LEVEL SECURITY;
+ALTER TABLE posting_outbox_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posting_outbox_receipts FORCE ROW LEVEL SECURITY;
+DO $fin12$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = current_schema()
+          AND tablename = 'posting_outbox_intents'
+          AND policyname = 'fin12_intent_tenant'
+    ) THEN
+        CREATE POLICY fin12_intent_tenant ON posting_outbox_intents FOR ALL
+            USING (tenant_id = nullif(current_setting('app.current_tenant_id',true),''))
+            WITH CHECK (tenant_id = nullif(current_setting('app.current_tenant_id',true),''));
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = current_schema()
+          AND tablename = 'posting_outbox_receipts'
+          AND policyname = 'fin12_receipt_tenant'
+    ) THEN
+        CREATE POLICY fin12_receipt_tenant ON posting_outbox_receipts FOR ALL
+            USING (tenant_id = nullif(current_setting('app.current_tenant_id',true),''))
+            WITH CHECK (tenant_id = nullif(current_setting('app.current_tenant_id',true),''));
+    END IF;
+END;
+$fin12$;
+
+CREATE OR REPLACE FUNCTION fin12_block_delete_or_identity_change()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
+    END IF;
+    IF TG_TABLE_NAME = 'posting_outbox_receipts' THEN
+        RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
+       OR NEW.source_type IS DISTINCT FROM OLD.source_type
+       OR NEW.source_id IS DISTINCT FROM OLD.source_id
+       OR NEW.target_system IS DISTINCT FROM OLD.target_system
+       OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+       OR NEW.payload_sha256 IS DISTINCT FROM OLD.payload_sha256
+       OR NEW.payload_json IS DISTINCT FROM OLD.payload_json
+       OR (OLD.state = 'unknown' AND NEW.state = 'in_flight')
+       OR (OLD.state = 'confirmed' AND NEW.state <> 'confirmed')
+    THEN
+        RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DO $fin12$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                   WHERE tgrelid='posting_outbox_intents'::regclass
+                     AND tgname='fin12_intent_guard') THEN
+        CREATE TRIGGER fin12_intent_guard
+            BEFORE UPDATE OR DELETE ON posting_outbox_intents
+            FOR EACH ROW EXECUTE FUNCTION fin12_block_delete_or_identity_change();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                   WHERE tgrelid='posting_outbox_receipts'::regclass
+                     AND tgname='fin12_receipt_guard') THEN
+        CREATE TRIGGER fin12_receipt_guard
+            BEFORE UPDATE OR DELETE ON posting_outbox_receipts
+            FOR EACH ROW EXECUTE FUNCTION fin12_block_delete_or_identity_change();
+    END IF;
+END;
+$fin12$;
+REVOKE ALL ON posting_outbox_intents, posting_outbox_receipts FROM PUBLIC;
+-- Runtime producer role may receive ONLY reviewed SELECT/INSERT rights;
+-- reconciliation/receipt writers need separate privileged service accounts.
+-- No proof of vendor idempotency, delivery, callback, external receipt validity
+-- or ledger/ERP atomicity is claimed by this local Draft schema.

@@ -383,3 +383,35 @@ atomicity. No provider dispatch or live migration was activated.
 Both tracks remain DRAFT; do not merge, alter main, deploy Production,
 change real DB/ERP, delete data or touch Windows originals. Update exact
 code/documentation SHA CI evidence separately after final runs conclude.
+
+
+## Chat192 — FIN-11 independent Maker/Checker evidence (2026-10-30)
+
+Chat191 accepted HEAD: `389801775df32f0ac95d3db8c7f04cbe80f9603a`,
+9/9 exact-SHA workflow SUCCESS. Chat192 extends rather than restarts.
+
+- Dedicated **unregistered** `correction_review_service.py` and **unapplied**
+  `docs/sql/chat192_fin11_correction_reviews_DRAFT.sql` now define
+  tenant-restricted, fingerprinted, append-only maker/checker review evidence.
+  No public route, live role grant, posted draft transition or ERP side effect.
+- Maker accountant/admin identity must match the single original correction
+  creation `audit_log` actor/source event (including direct-SQL trigger).
+  Checker CFO/admin must have a distinct subject; approval/rejection requires
+  unchanged source fingerprint, valid posted ordinary original, open period,
+  one DB transaction and mandatory audit. Invalid/duplicate/missing evidence
+  fails closed. Synthetic PG15/16 nonowner FORCE-RLS and unit regressions cover
+  spoofing, source drift, direct SQL bypass, replay and cross-tenant access.
+- Intermediate code SHA `92ec7e6adec94efefd31909123ee640d870e0fd9`
+  independently verified 9/9 CI with backend 8,448 PASS/3 SKIP+1 smoke
+  and PG15/16 **630 PASS EACH**; subsequent creator-origin hardening requires
+  its own final exact-HEAD CI confirmation.
+- **FIN-11 still OPEN:** JWT-to-legacy-actor identity mapping, production
+  audit append-only roles, approved tenant migration, full rejection/
+  cancellation/draft status/posted-ledger and report verification. No
+  Production activation permitted.
+- **FIN-12 next:** isolated manual `UNKNOWN` receipt reconciliation design
+  and signed provider evidence; forbid blind retry, worker or real ERP
+  mutation. Vendor idempotency/receipts and local ledger atomicity EXTERNAL-HOLD.
+
+Details: `docs/chat192-fin11-maker-checker-identity-stage.md`.
+Production HOLD, PR #154 remains Draft, all prior plans/files/commits preserved.

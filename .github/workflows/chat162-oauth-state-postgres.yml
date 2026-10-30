@@ -31,6 +31,10 @@ on:
       - "app/api/services/posting_service.py"
       - "app/api/services/posted_ledger_validation.py"
       - "app/api/services/posted_ledger_reporting.py"
+      - "app/api/services/tenant_coa_mapping_service.py"
+      - "docs/sql/chat183_tenant_coa_mappings_DRAFT.sql"
+      - "tests/unit/test_chat183_tenant_coa_mapping.py"
+      - "tests/integration/test_chat183_tenant_coa_postgres.py"
       - "app/api/services/currency_service.py"
       - "tests/unit/test_chat181_functional_currency.py"
       - "tests/unit/test_chat181_classification_completeness.py"
@@ -131,6 +135,7 @@ jobs:
           tests/integration/test_chat165_auth_staging_readiness_postgres.py
           tests/integration/test_chat166_session_version_postgres.py
           tests/integration/test_chat167_auth_forced_rls_postgres.py
+          tests/integration/test_chat183_tenant_coa_postgres.py
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py
@@ -151,6 +156,7 @@ jobs:
           tests/unit/test_chat180_cashflow_completeness.py
           tests/unit/test_chat181_functional_currency.py
           tests/unit/test_chat181_classification_completeness.py
+          tests/unit/test_chat183_tenant_coa_mapping.py
           tests/unit/test_p0_ai_action_confirm.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

@@ -14,6 +14,7 @@ from app.api.observability import structured_log
 from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
 from app.api.services.posted_ledger_validation import prepare_posted_ledger_lines, MAX_AMOUNT
 from app.api.services.posted_ledger_reporting import classify_ledger_lines, UnclassifiedLedgerAccount
+from app.api.services.tenant_coa_mapping_service import classify_tenant_ledger_lines
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -51,7 +52,7 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
     if _ledger_writes_enabled():
-        lines = classify_ledger_lines(lines)
+        lines = await classify_tenant_ledger_lines(lines, draft.get("tenant_id"), draft.get("date"))
     currency = (draft.get("currency") or "GEL").upper()
     amount   = _to_decimal(draft.get("amount") or _derive_amount_from_lines(lines))
 
@@ -680,7 +681,7 @@ async def _write_ledger_entries(
     if currency == "GEL" and exchange_rate != 1:
         raise ValueError("FX_RATE_INVALID: GEL posting exchange rate must equal 1")
     lines, total_debit, total_credit = prepare_posted_ledger_lines(draft.get("lines"))
-    lines = classify_ledger_lines(lines)
+    lines = await classify_tenant_ledger_lines(lines, tenant_id, entry_date_val, conn=conn)
     # Prepare all numeric values BEFORE any INSERT, using the same cents as
     # the stored debit/credit lines and never a binary float intermediary.
     with localcontext() as context:

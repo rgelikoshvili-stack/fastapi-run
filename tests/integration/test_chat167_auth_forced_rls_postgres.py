@@ -2642,11 +2642,23 @@ async def test_chat194_signed_receipt_candidates_never_set_real_vendor_state(aut
             assert await conn.fetchval(
                 "SELECT COUNT(*) FROM posting_outbox_receipt_candidates"
             ) == 0
-        with pytest.raises(SyntheticReceiptUntrusted, match="FIN12_RECEIPT_SOURCE_NOT_FOUND"):
+        with pytest.raises(SyntheticReceiptUntrusted, match="FIN12_RECEIPT_TENANT_UNAUTHORIZED"):
             async with db.get_conn() as conn:
                 await record_synthetic_receipt_candidate(
                     conn, tenant_id="t_beta", intent_id=alpha,
                     envelope=env, signature_b64=signature,
+                    trusted_key_id="synthetic-issuer-1",
+                    trusted_public_key=public, now=now,
+                )
+        cross_env = {**env, "tenant_id": "t_beta"}
+        cross_sig = base64.b64encode(
+            private.sign(canonical_synthetic_message(cross_env))
+        ).decode("ascii")
+        with pytest.raises(SyntheticReceiptUntrusted, match="FIN12_RECEIPT_SOURCE_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await record_synthetic_receipt_candidate(
+                    conn, tenant_id="t_beta", intent_id=alpha,
+                    envelope=cross_env, signature_b64=cross_sig,
                     trusted_key_id="synthetic-issuer-1",
                     trusted_public_key=public, now=now,
                 )

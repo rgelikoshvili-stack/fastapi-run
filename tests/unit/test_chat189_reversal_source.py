@@ -61,3 +61,68 @@ def test_service_checks_source_gate_before_duplicate_read_and_insert():
     b=src.index("await _reversal_already_exists(")
     c=src.index("INSERT INTO journal_drafts")
     assert a<b<c
+
+
+# Chat190 regressions: source authority and audit must fail closed.
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_type,source_ref", [
+    (None, None), ("legacy_unknown", None),
+    ("reversal", 41), ("normal", 41),
+])
+async def test_chat190_posted_correction_source_requires_unambiguous_normal_identity(
+    source_type, source_ref
+):
+    from app.api.services.reversal_service import _fetch_draft
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": 55, "tenant_id": "t_alpha", "date": "2026-10-15",
+        "description": "posted", "partner": "", "amount": 10,
+        "currency": "GEL", "status": "posted",
+        "lines_json": "[]", "entry_type": source_type,
+        "reversal_of_draft_id": source_ref,
+    }
+    with pytest.raises(ValueError, match="FIN11_SOURCE_CLASSIFICATION_UNVERIFIED"):
+        await _fetch_draft(conn, 55, "t_alpha")
+
+
+@pytest.mark.asyncio
+async def test_chat190_ambiguous_unrejected_prior_reference_denies_new_reversal():
+    from app.api.services.reversal_service import _reversal_already_exists
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [{"id": 19, "entry_type": None}, None]
+    with pytest.raises(ValueError, match="FIN11_AMBIGUOUS_CORRECTION_HISTORY"):
+        await _reversal_already_exists(conn, 41, "t_alpha")
+
+
+@pytest.mark.asyncio
+async def test_chat190_correction_creation_rolls_back_when_same_transaction_audit_fails():
+    from contextlib import asynccontextmanager
+    from unittest.mock import patch
+    from app.api.services import reversal_service as svc
+    conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
+    conn.fetchrow.return_value = {"id": 100}
+    conn.execute.side_effect = RuntimeError("synthetic audit storage unavailable")
+    @asynccontextmanager
+    async def scoped():
+        yield conn
+    original = {
+        "id": 41, "tenant_id": "t_alpha", "date": "2026-10-15",
+        "description": "normal posted", "partner": "", "amount": 10,
+        "currency": "GEL", "status": "posted", "entry_type": "normal",
+        "reversal_of_draft_id": None,
+        "lines": [
+            {"account_code": "1120", "debit": 10, "credit": 0},
+            {"account_code": "6110", "debit": 0, "credit": 10},
+        ],
+    }
+    with patch.object(svc, "get_conn", scoped), \
+         patch.object(svc, "_fetch_draft", new_callable=AsyncMock, return_value=original), \
+         patch.object(svc, "acquire_posting_gate", new_callable=AsyncMock), \
+         patch.object(svc, "assert_period_open", new_callable=AsyncMock), \
+         patch.object(svc, "log_event"):
+        with pytest.raises(RuntimeError, match="synthetic audit storage unavailable"):
+            await svc.create_adjustment_draft(
+                "t_alpha", 41, "2026-10-30", "correction",
+                "maker-alpha", original["lines"],
+            )

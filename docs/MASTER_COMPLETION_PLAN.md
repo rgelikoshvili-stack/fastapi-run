@@ -1,6 +1,6 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
-განახლება: 2026-10-30, Chat181 (Chat180 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
+განახლება: 2026-10-30, Chat183 (Chat180–182 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
 
@@ -93,7 +93,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-01 P0 V1-B | `posted_ledger_validation.py`, `posting_service.py`; DRAFT-VERIFIED Chat180 for stored-line validation and Decimal precision | validate stored lines before INSERT; finite amounts, both sides, balanced rounded totals, missing account/date/source and Decimal precision; real writer→PG |
 | FIN-02 P0 V1-B | cooperative transaction lock DRAFT-VERIFIED at `a91b50f`; direct-SQL uniqueness FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
 | FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
-| FIN-04 P0 V1 | canonical historical read types, alias normalization, whole-basis unknown/contradiction guard and writer mapping preflight implemented; CI pending | no historical backfill; typed custom history preserved; complete tenant COA import/mapping and live inventory remain |
+| FIN-04 P0 V1 | Chat183 Draft: tenant-scoped reviewed custom mappings, fail-closed posting preflight/writer, standalone candidate schema and PG15/16 regressions; exact-SHA CI pending | mapping disabled by default; vendor source approval, live historical inventory, controlled import and migration EXTERNAL-HOLD; no historical backfill |
 | FIN-05 P0 V1 | stored functional GEL reports and rounded-balance guards DRAFT-VERIFIED `547ba51`; legacy foreign totals fail closed | posting static fallback repair in progress; quote source/effective date/freshness, exact output precision, real schema/provider acceptance remain |
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
@@ -333,3 +333,5 @@ ledger DB uniqueness/immutability, source receipt and unknown-outcome retry
 verified. Actual Production Cloud SQL RLS/backup/PITR clone restore,
 provider/OAuth/SMTP, UI E2E, Cloud Run/Redis and Windows inventory remain
 unverified. **Production HOLD; PR #154 stays OPEN/DRAFT.**
+
+| Chat183 FIN-04 tenant-specific mapping | Draft commits `5d24ce1` / `ccd8314`: explicit reviewed tenant custom COA, no caller hints, authenticated tenant context, fail-closed overlap/missing/foreign provenance; isolated PG migration candidate, tests; not activated | Full exact-SHA CI pending; actual source approval/import and runtime mapping rollout EXTERNAL-HOLD; FIN-05 source-date freshness and FIN-06/12 remain OPEN |

@@ -307,3 +307,29 @@ canonical COA-ს runtime ინტერპრეტაციას, unknown/co
 ისტორიული rows არ იცვლება. Writer და Bridge-authority preflight unregistered
 account-ს აჩერებს. სრული tenant custom COA mapping ჯერ დასასრულებელია.
 Exact candidate CI pending; production/V1 acceptance HOLD.
+
+
+## Chat182 — FIN-04 CI regression compatibility (2026-10-30)
+
+Current Draft PR #154 already contains Chat178–181. No earlier source or
+handoff was rewritten. The Chat181 classification guard correctly refused
+unregistered account 3100 in an older posting-source traceability test,
+causing 8 backend CI failures (source SHA `4d1119f`). **Only the test
+fixture** was changed from unknown 3100 to canonical liability 3110;
+ledger writer classification/FX/RLS safeguards were not weakened.
+
+**Fully verified implementation SHA `15d4781eb06f19c8f3440b3957e0fd9afc61c363`:**
+all 9 GitHub workflows SUCCESS. Backend 8,360 PASS / 3 SKIP, PG15/16
+537 EACH, real Chroma/ONNX 43, Redis 210, PR127 270+smoke1, PR84
+82/219+smoke1, membership, vault and finance RLS PASS. Cloud Run deploy
+SKIPPED and React compilation SKIPPED (no source in this tree). Exact run
+links, error reproduction and remaining HOLD gates are recorded in
+`docs/chat182-fin04-ci-compatibility-and-next-gates.md`.
+
+**Priority next:** tenant-specific COA mapping/approval before custom ledger
+posting (FIN-04); FX quote effective-date and provenance policy (FIN-05);
+ledger DB uniqueness/immutability, source receipt and unknown-outcome retry
+(FIN-06/12). Keep global vector HTTP search/indexing OFF until provenance
+verified. Actual Production Cloud SQL RLS/backup/PITR clone restore,
+provider/OAuth/SMTP, UI E2E, Cloud Run/Redis and Windows inventory remain
+unverified. **Production HOLD; PR #154 stays OPEN/DRAFT.**

@@ -113,9 +113,7 @@ async def _reversal_already_exists(conn, original_draft_id: int, tenant_id: str)
             WHERE tenant_id = %s
               AND reversal_of_draft_id = %s
               AND status IS DISTINCT FROM 'rejected'
-              AND (entry_type = 'reversal'
-                   OR entry_type IS NULL
-                   OR entry_type NOT IN ('normal', 'standard', 'adjustment', 'reversal'))
+              AND (entry_type IS NULL OR entry_type <> 'adjustment')
             ORDER BY CASE WHEN entry_type = 'reversal' THEN 1 ELSE 0 END, id
             LIMIT 1
         """),

@@ -93,7 +93,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-01 P0 V1-B | `posted_ledger_validation.py`, `posting_service.py`; DRAFT-VERIFIED Chat180 for stored-line validation and Decimal precision | validate stored lines before INSERT; finite amounts, both sides, balanced rounded totals, missing account/date/source and Decimal precision; real writer→PG |
 | FIN-02 P0 V1-B | cooperative transaction lock DRAFT-VERIFIED at `a91b50f`; direct-SQL uniqueness FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
 | FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
-| FIN-04 P0 V1 | actual writer now fills standard `account_type`; Chat179 | historical NULL/custom COA inventory, no silent omissions, unknown code handling; no automatic live backfill |
+| FIN-04 P0 V1 | canonical historical read types, alias normalization, whole-basis unknown/contradiction guard and writer mapping preflight implemented; CI pending | no historical backfill; typed custom history preserved; complete tenant COA import/mapping and live inventory remain |
 | FIN-05 P0 V1 | stored functional GEL reports and rounded-balance guards DRAFT-VERIFIED `547ba51`; legacy foreign totals fail closed | posting static fallback repair in progress; quote source/effective date/freshness, exact output precision, real schema/provider acceptance remain |
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
@@ -293,6 +293,17 @@ lookup-ში static fallback/source/date provenance, შემდეგ FIN-04 
 შემდეგი ნაბიჯი ეს Chat181 ჩანაწერია. Stage1 უკვე დადასტურებულია. Stage2
 კეტავს posting-ის hardcoded FX fallback-ს (3 failing-before რეგრესია),
 ასწორებს DATE binding-ს და ინარჩუნებს ზუსტ8decimal posting rate-ს.
-მისი exact CI მიმდინარეობს; შემდეგი დამოუკიდებელი საკითხია FIN-04:
+Stage2 `5ef73cddcc1e3bea85d522dd7de76113d6ea01eb`: all9CI PASS; backend8351/3SKIP; PG15/16 522EACH. შემდეგი დამოუკიდებელი საკითხია FIN-04:
 NULL/unknown/contradictory account_type-მა ოფიციალური თანხები არ უნდა დამალოს.
 FX quote provenance/freshness და report-output precision ჯერ ღიაა.
+
+
+### FIN-04 candidate
+
+Test-only `12eac81133761adf27c036c1528a89a2756fc334`: PG15/16 12FAIL/523PASS
+EACH; NULL/alias შემოსავალი ნულად ჩანდა. Candidate იყენებს მხოლოდ არსებულ
+canonical COA-ს runtime ინტერპრეტაციას, unknown/contradictory metadata-ს
+არ მალავს, ყველა ოფიციალურ reader/AI/CFO-ს unavailable-ს აძლევს.
+ისტორიული rows არ იცვლება. Writer და Bridge-authority preflight unregistered
+account-ს აჩერებს. სრული tenant custom COA mapping ჯერ დასასრულებელია.
+Exact candidate CI pending; production/V1 acceptance HOLD.

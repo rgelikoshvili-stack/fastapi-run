@@ -11,6 +11,7 @@ from app.api.db import get_conn, _q
 from app.api.services.posted_ledger_reporting import (
     functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
     LEGACY_FX_INVALID_LINE, LEGACY_FX_INVALID_HEADER, LEGACY_FX_ERROR, legacy_fx_unavailable,
+    basis_error_code,
 )
 from app.api.services.financial_statements_service import (
     _posted_ledger_reports_enabled,
@@ -43,7 +44,8 @@ def _build_trial_balance_posted_ledger_query(
         SELECT jel.account_code,
                SUM(jel.gel_debit)  AS total_debit,
                SUM(jel.gel_credit) AS total_credit,
-               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count,
+               MAX(jel.classification_invalid_count) AS classification_invalid_count
         FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
                                      AND jel.tenant_id = jeh.tenant_id
@@ -215,8 +217,8 @@ async def _get_trial_balance_from_posted_ledger(
 
     try:
         assert_functional_basis(rows)
-    except ValueError:
-        return {"error": POSTED_FX_ERROR, "date_from": date_from, "date_to": date_to,
+    except ValueError as exc:
+        return {"error": basis_error_code(exc), "date_from": date_from, "date_to": date_to,
                 "accounts": [], "count": 0}
 
     items = []

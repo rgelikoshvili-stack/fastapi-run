@@ -1372,6 +1372,11 @@ async def test_chat181_legacy_currency_guard_preserves_raw_journal_and_own_gel(a
         assert "error" not in opening and opening["total_debit"]==opening["total_credit"]==0
         bank=next(row for row in opening["accounts"] if row["account_code"]=="1120")
         assert bank["opening_balance"]==bank["closing_balance"]==1000
+        async with auth_db["admin"].acquire() as conn:
+            await conn.execute("UPDATE journal_drafts SET journal_entries=jsonb_set(journal_entries,'{1,cr}',$1::jsonb) WHERE tenant_id='t_beta'",json.dumps("CUSTOM_UNKNOWN"))
+        unmapped=await finance.build_profit_and_loss("t_beta")
+        assert not unmapped["ok"] and unmapped["error"]["code"]=="LEDGER_CLASSIFICATION_INCOMPLETE"
+
 
 
 @pytest.mark.asyncio

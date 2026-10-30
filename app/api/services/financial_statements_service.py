@@ -12,6 +12,7 @@ from app.api.response_utils import ok_response, error_response
 from app.api.services.posted_ledger_reporting import (
     functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
     LEGACY_FX_INVALID_LINE, LEGACY_FX_ERROR, legacy_fx_unavailable,
+    POSTED_CLASS_ERROR, basis_error_code, canonical_account_type,
 )
 
 log = logging.getLogger(__name__)
@@ -70,10 +71,11 @@ def _build_pnl_posted_ledger_query(
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
     sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.account_code,
-               jel.account_type,
+               jel.report_account_type AS account_type,
                SUM(jel.gel_debit)  AS total_debit,
                SUM(jel.gel_credit) AS total_credit,
                SUM({FX_INVALID_LINE}) AS fx_invalid_count,
+               MAX(jel.classification_invalid_count) AS classification_invalid_count,
                CASE WHEN COUNT(*) = COUNT(jeh.source_draft_id)
                           AND COUNT(DISTINCT jeh.source_draft_id) = 1
                     THEN (ARRAY_AGG(jeh.source_draft_id))[1]
@@ -92,9 +94,9 @@ def _build_pnl_posted_ledger_query(
          AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
-          AND jel.account_type IN ('income', 'expense')
+          AND (jel.report_account_type IN ('income', 'expense') OR jel.classification_invalid_count > 0)
           {date_filter}
-        GROUP BY jel.account_code, jel.account_type
+        GROUP BY jel.account_code, jel.report_account_type
         ORDER BY jel.account_code
     """
     _assert_no_silent_fallback(sql)
@@ -114,19 +116,20 @@ def _build_balance_sheet_posted_ledger_query(
         as_of_filter = f" AND jeh.entry_date <= ${len(params)}"
     sql = functional_ledger_cte(as_of_filter) + f"""
         SELECT jel.account_code,
-               jel.account_type,
+               jel.report_account_type AS account_type,
                SUM(jel.gel_debit)  AS total_debit,
                SUM(jel.gel_credit) AS total_credit,
-               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count,
+               MAX(jel.classification_invalid_count) AS classification_invalid_count
         FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
          AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
-          AND jel.account_type IN ('asset', 'liability', 'equity')
+          AND (jel.report_account_type IN ('asset', 'liability', 'equity') OR jel.classification_invalid_count > 0)
           {as_of_filter}
-        GROUP BY jel.account_code, jel.account_type
+        GROUP BY jel.account_code, jel.report_account_type
         ORDER BY jel.account_code
     """
     _assert_no_silent_fallback(sql)
@@ -151,11 +154,12 @@ def _build_cashflow_posted_ledger_query(
     sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.id AS line_id,
                jel.account_code,
-               jel.account_type,
+               jel.report_account_type AS account_type,
                jel.cashflow_category,
                jel.gel_debit AS debit,
                jel.gel_credit AS credit,
                {FX_INVALID_LINE} AS fx_invalid_count,
+               jel.classification_invalid_count,
                jel.description,
                jeh.id AS header_id
         FROM functional_ledger_lines jel
@@ -185,7 +189,8 @@ def _build_posted_trial_balance_as_of_query(
     sql = functional_ledger_cte(as_of_filter) + f"""
         SELECT jel.account_code, SUM(jel.gel_debit) AS total_debit,
                SUM(jel.gel_credit) AS total_credit,
-               SUM({FX_INVALID_LINE}) AS fx_invalid_count
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count,
+               MAX(jel.classification_invalid_count) AS classification_invalid_count
         FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh
           ON jeh.id = jel.journal_entry_id
@@ -335,8 +340,8 @@ async def _get_trial_balance(
     balances: dict[str, float] = {}
     for row in rows:
         code = row["account_code"]
-        if not code:
-            continue
+        if not canonical_account_type(code) and code not in _PNL and code not in _BALANCE_SHEET:
+            raise ValueError(POSTED_CLASS_ERROR)
         val = float(row["total"] or 0)
         if code not in balances:
             balances[code] = 0.0
@@ -364,8 +369,8 @@ async def _build_pnl_from_posted_ledger(
 
     try:
         assert_functional_basis(rows)
-    except ValueError:
-        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
+    except ValueError as exc:
+        return error_response("Posted-ledger financial basis is incomplete", basis_error_code(exc))
 
     revenue_lines, cogs_lines, opex_lines = [], [], []
     for row in rows:
@@ -420,6 +425,8 @@ async def build_profit_and_loss(
     try:
         tb = await _get_trial_balance(tenant_id, date_from, date_to)
     except Exception as e:
+        if str(e) == POSTED_CLASS_ERROR:
+            return error_response("Legacy account classification is incomplete", POSTED_CLASS_ERROR)
         if str(e) == LEGACY_FX_ERROR:
             return error_response("Legacy foreign-currency report requires verified booked FX", LEGACY_FX_ERROR)
         log.error("P&L trial balance failed: %s", e)
@@ -474,8 +481,8 @@ async def _build_balance_sheet_from_posted_ledger(
 
     try:
         assert_functional_basis(rows)
-    except ValueError:
-        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
+    except ValueError as exc:
+        return error_response("Posted-ledger financial basis is incomplete", basis_error_code(exc))
 
     sections: dict = {
         "assets":      {"current": [], "non_current": []},
@@ -559,8 +566,8 @@ async def build_cashflow_statement(
 
     try:
         assert_functional_basis(rows)
-    except ValueError:
-        return error_response("Posted-ledger functional currency is invalid", POSTED_FX_ERROR)
+    except ValueError as exc:
+        return error_response("Posted-ledger financial basis is incomplete", basis_error_code(exc))
 
     result = build_cashflow_from_posted_ledger_rows([dict(row) for row in rows])
     unclassified = result["unknown"]["lines"]
@@ -594,6 +601,8 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
     try:
         tb = await _get_trial_balance(tenant_id, None, as_of)
     except Exception as e:
+        if str(e) == POSTED_CLASS_ERROR:
+            return error_response("Legacy account classification is incomplete", POSTED_CLASS_ERROR)
         if str(e) == LEGACY_FX_ERROR:
             return error_response("Legacy foreign-currency report requires verified booked FX", LEGACY_FX_ERROR)
         log.error("Balance Sheet trial balance failed: %s", e)

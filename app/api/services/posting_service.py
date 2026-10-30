@@ -13,6 +13,7 @@ from app.api.audit_service import log_event
 from app.api.observability import structured_log
 from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
 from app.api.services.posted_ledger_validation import prepare_posted_ledger_lines, MAX_AMOUNT
+from app.api.services.posted_ledger_reporting import classify_ledger_lines, UnclassifiedLedgerAccount
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -49,6 +50,8 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
     lines = _normalize_lines(
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
+    if _ledger_writes_enabled():
+        lines = classify_ledger_lines(lines)
     currency = (draft.get("currency") or "GEL").upper()
     amount   = _to_decimal(draft.get("amount") or _derive_amount_from_lines(lines))
 
@@ -452,7 +455,10 @@ async def get_posting_payload_service(draft_id: int, tenant_id: str = "default")
     err = _validate_approved_draft(draft, draft_id, tenant_id)
     if err:
         return err
-    payload = await _draft_to_posting_payload(draft)
+    try:
+        payload = await _draft_to_posting_payload(draft)
+    except UnclassifiedLedgerAccount:
+        return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
     return ok_response("posting payload ready", payload)
 
 
@@ -674,6 +680,7 @@ async def _write_ledger_entries(
     if currency == "GEL" and exchange_rate != 1:
         raise ValueError("FX_RATE_INVALID: GEL posting exchange rate must equal 1")
     lines, total_debit, total_credit = prepare_posted_ledger_lines(draft.get("lines"))
+    lines = classify_ledger_lines(lines)
     # Prepare all numeric values BEFORE any INSERT, using the same cents as
     # the stored debit/credit lines and never a binary float intermediary.
     with localcontext() as context:
@@ -722,10 +729,7 @@ async def _write_ledger_entries(
         # The posted report queries use account_type, not just account_code.
         # Derive it from the existing canonical COA, never caller hints.
         # Ledger vocabulary uses income and asset for revenue/contra_asset.
-        account_type = CHART_OF_ACCOUNTS.get(account_code, {}).get("type")
-        account_type = {"revenue": "income", "contra_asset": "asset"}.get(
-            account_type, account_type
-        )
+        account_type = line["account_type"]
         await conn.execute(_q("""
             INSERT INTO journal_entry_lines (
                 tenant_id, journal_entry_id, line_no, account_code,
@@ -1108,6 +1112,9 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
 
             try:
                 payload = await _draft_to_posting_payload(draft)
+            except UnclassifiedLedgerAccount:
+                await tr.rollback()
+                return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
             except FxRateMissingError as _fx_missing:
                 await tr.rollback()
                 structured_log(log, logging.ERROR, "posting_attempt_failed",
@@ -1329,6 +1336,8 @@ async def dry_run_posting_service(
 
         try:
             payload = await _draft_to_posting_payload(draft)
+        except UnclassifiedLedgerAccount:
+            return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
         except FxRateMissingError as _fx_missing:
             return error_response(str(_fx_missing), code="FX_RATE_MISSING",
                 details={"currency": draft.get("currency"), "draft_date": draft.get("date"),

@@ -123,10 +123,10 @@ async def _seed_posted_rows(pool):
             ("6110", "income", None, 0, 35, "revenue one"),
             ("6120", "income", None, 0, 25, "revenue two"),
         ]),
-        # Invalid legacy fallback metadata must remain unclassified, not financing.
+        # A typed custom revenue has no approved IAS7 counterpart mapping.
         ("tenant-a", "posted", "2026-09-20", [
             ("1120", "asset", None, 7, 0, "guarded fallback"),
-            ("3410", "income", None, 0, 7, "incorrect account type"),
+            ("CUSTOM_CF", "income", None, 0, 7, "unmapped cashflow counterpart"),
         ]),
         ("tenant-a", "posted", "2026-10-02", [
             ("1120", "asset", "financing", 50, 0, "loan receipt"),
@@ -186,7 +186,7 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert all_data["data"]["operating"]["inflows"] == 160
     assert all_data["data"]["investing"]["outflows"] == 30
     assert all_data["data"]["financing"]["inflows"] == 0
-    # The invalid account-type fallback must not leak into financing/operating
+    # The unmapped custom counterpart must not leak into financing/operating
     # totals; the incomplete unbounded report is explicitly unavailable.
     # The compound journal has one cash line for 60, not a multiplied 120.
     compound_lines = [

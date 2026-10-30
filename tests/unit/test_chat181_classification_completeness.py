@@ -49,3 +49,16 @@ async def test_incomplete_classification_is_unavailable_not_partial(monkeypatch,
         result=await {"pnl":finance.build_profit_and_loss,"balance":finance.build_balance_sheet,
                       "cashflow":finance.build_cashflow_statement,"trial":ledger.get_trial_balance}[reader]("t_alpha")
         assert (result.get("error") if reader=="trial" else (result.get("error") or {}).get("code"))==CODE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reader",["pnl","balance"])
+async def test_unmapped_legacy_account_cannot_disappear_from_statements(monkeypatch,reader):
+    from app.api.services import financial_statements_service as finance
+    monkeypatch.delenv("POSTED_LEDGER_REPORTS_ENABLED",raising=False)
+    @asynccontextmanager
+    async def connection():
+        conn=AsyncMock();conn.fetch.return_value=[{"account_code":"CUSTOM_UNKNOWN","side":"credit","total":100}];yield conn
+    monkeypatch.setattr(finance,"get_conn",connection)
+    result=await {"pnl":finance.build_profit_and_loss,"balance":finance.build_balance_sheet}[reader]("t_alpha")
+    assert not result["ok"] and result["error"]["code"]==CODE

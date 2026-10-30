@@ -22,6 +22,11 @@ async def test_writer_persists_canonical_classification_not_caller_hint(code, ex
                    "account_type": "caller-forged"},
                   {"account_code": "1120", "debit": 0, "credit": 10}],
     }
+    if expected is None:
+        with pytest.raises(ValueError, match="LEDGER_ACCOUNT_UNCLASSIFIED"):
+            await _write_ledger_entries(conn, draft, {}, "t_alpha", "test", "synthetic")
+        assert not any("INSERT" in c.args[0] for c in conn.fetchval.call_args_list + conn.execute.call_args_list)
+        return
     await _write_ledger_entries(conn, draft, {}, "t_alpha", "test", "synthetic")
     calls = [c for c in conn.execute.call_args_list
              if "INSERT INTO journal_entry_lines" in c.args[0]]

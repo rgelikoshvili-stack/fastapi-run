@@ -104,3 +104,33 @@ aliases, typed custom history, unmapped NULL, unknown and contradictory types,
 and unregistered new ledger accounts. Seven local unit cases fail before the
 repair. The following test-only Draft commit intentionally records the real
 PostgreSQL before state. No historical financial row is repaired automatically.
+
+
+### Classification repair
+
+Test-only `12eac81133761adf27c036c1528a89a2756fc334` reproduced real zero
+revenue from historical NULL/alias types and acceptance of contradictory types.
+PG15/16 each12FAIL/523PASS (41029251830). Seven unit cases and two additional
+legacy statement cases failed before their repairs.
+
+A repository-owned canonical COA supplies missing types for known account codes
+at read time, with revenue/contra-asset aliases normalized. No historical row
+is updated. Valid explicitly typed custom historical accounts remain readable;
+unmapped NULL, unknown type or contradiction with the canonical COA makes the
+whole scoped official basis unavailable. A global scoped flag is retained even
+when ordinary P&L/BS account filters would otherwise remove the bad line.
+Both AI readers/CFO inherit the same unavailable result. Legacy P&L/BS also
+refuse unknown account codes instead of silently skipping their balances.
+
+New Bridge-ledger writes require a registered canonical classification before
+INSERT, and the Bridge-authority payload preflight checks it before connector
+dispatch. Caller account_type hints cannot supply authority. Stable review
+errors cover normal, preview and dry-run paths. ERP-authority custom account
+posting is not newly restricted when ledger writes are disabled. Full tenant
+COA import/validation and registering new custom ledger accounts remain FINISH.
+
+The old custom-unmapped writer case now asserts no INSERT rather than NULL
+persistence. PR127's unknown-cashflow fixture uses a valid typed custom account;
+contradictory canonical metadata has its own new real-PG negative test. This
+keeps incomplete IAS7 classification separate from a corrupt account type.
+Local focused262PASS. Exact classification implementation CI pending.

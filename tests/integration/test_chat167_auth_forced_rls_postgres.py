@@ -2685,3 +2685,68 @@ async def test_chat194_signed_receipt_candidates_never_set_real_vendor_state(aut
         assert await conn.fetchval(
             "SELECT count(*) FROM posting_outbox_receipt_candidates"
         ) == 1
+
+
+# Chat195 FIN-12: local receipt metadata is not vendor authentication.
+@pytest.mark.asyncio
+async def test_chat195_untrusted_receipts_cannot_create_terminal_intents_or_backfill_acceptance(auth_db):
+    from pathlib import Path
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(Path(
+            "docs/sql/chat186_posting_outbox_DRAFT.sql"
+        ).read_text(encoding="utf-8"))
+        # BEFORE INSERT must not bypass the state-machine and vendor trust hold.
+        for initial in ("unknown", "in_flight", "rejected"):
+            with pytest.raises(asyncpg.RaiseError, match="FIN12_INITIAL_STATE_NOT_PREPARED"):
+                await conn.execute("""
+                    INSERT INTO posting_outbox_intents
+                        (tenant_id,source_id,target_system,idempotency_key,
+                         payload_sha256,payload_json,state)
+                    VALUES ('t_alpha',$1,'balance',$2,$3,'{}'::jsonb,$4)
+                """, "initial-"+initial, "a"*64, "b"*64, initial)
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_INITIAL_STATE_NOT_PREPARED"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_intents
+                    (tenant_id,source_id,target_system,idempotency_key,
+                     payload_sha256,payload_json,state,
+                     provider_receipt_id,provider_verified_at)
+                VALUES ('t_alpha','initial-confirmed','balance',$1,$2,
+                        '{}'::jsonb,'confirmed','forged-erp-ack',NOW())
+            """, "c"*64, "d"*64)
+
+        intent = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents
+                (tenant_id,source_id,target_system,idempotency_key,
+                 payload_sha256,payload_json)
+            VALUES ('t_alpha','chat195-test','balance',$1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "e"*64, "f"*64)
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1", intent
+        )
+        for outcome in ("accepted", "rejected"):
+            with pytest.raises(asyncpg.RaiseError, match="FIN12_UNVERIFIED_PROVIDER_RECEIPT_HOLD"):
+                await conn.execute("""
+                    INSERT INTO posting_outbox_receipts(
+                       outbox_id,tenant_id,outcome,provider_receipt_id,
+                       evidence_sha256,verified_by,verified_at)
+                    VALUES ($1,'t_alpha',$2,'fake-erp-receipt',$3,
+                            'manual-actor-pretending-vendor',NOW())
+                """, intent, outcome, "f"*64)
+
+        for new_state in ("confirmed", "rejected"):
+            with pytest.raises(asyncpg.RaiseError, match="FIN12_VENDOR_AUTHENTICATION_NOT_CONFIGURED"):
+                await conn.execute("""
+                    UPDATE posting_outbox_intents
+                    SET state=$1,provider_receipt_id=$2,provider_verified_at=$3
+                    WHERE id=$4
+                """, new_state,
+                     "fake-erp-receipt" if new_state == "confirmed" else None,
+                     __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                     if new_state == "confirmed" else None, intent)
+        assert await conn.fetchval(
+            "SELECT state FROM posting_outbox_intents WHERE id=$1", intent
+        ) == "unknown"
+        assert await conn.fetchval(
+            "SELECT count(*) FROM posting_outbox_receipts"
+        ) == 0

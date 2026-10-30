@@ -1851,3 +1851,199 @@ async def test_chat187_missing_period_table_is_not_open_period(auth_db):
                 await conn.fetchval("""
                     SELECT 1 FROM period_locks WHERE tenant_id='t_alpha'
                 """)
+
+
+# Chat189 FIN-11. Entire suite scoped to synthetic disposable Chat162 PG15/16.
+async def _chat189_prepare_reversal_drafts(auth_db):
+    from pathlib import Path
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE journal_drafts (
+                id BIGSERIAL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                date DATE NOT NULL,
+                description TEXT,
+                partner TEXT,
+                amount NUMERIC,
+                currency TEXT,
+                status TEXT NOT NULL,
+                lines_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                reversal_of_draft_id BIGINT,
+                reversal_reason TEXT,
+                entry_type TEXT NOT NULL DEFAULT 'standard'
+            );
+            CREATE TABLE period_locks (
+                tenant_id TEXT NOT NULL,
+                period_year INT NOT NULL,
+                period_month INT NOT NULL,
+                unlocked_at TIMESTAMPTZ
+            );
+            INSERT INTO journal_drafts
+                (id, tenant_id, date, description, partner,
+                 amount, currency, status, lines_json, entry_type)
+            VALUES
+                (41,'t_alpha','2026-10-15','synthetic-alpha','',
+                 10,'GEL','posted',
+                 '[{"account_code":"1120","debit":10,"credit":0},
+                   {"account_code":"6110","debit":0,"credit":10}]'::jsonb,'standard'),
+                (42,'t_beta','2026-10-15','synthetic-beta','',
+                 10,'GEL','posted',
+                 '[{"account_code":"1120","debit":10,"credit":0},
+                   {"account_code":"6110","debit":0,"credit":10}]'::jsonb,'standard')
+        """)
+        await conn.execute("""
+            ALTER TABLE journal_drafts ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE journal_drafts FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat189_tenant_drafts ON journal_drafts FOR ALL
+              USING (tenant_id=current_setting('app.current_tenant_id',true))
+              WITH CHECK (tenant_id=current_setting('app.current_tenant_id',true));
+            ALTER TABLE period_locks ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE period_locks FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat189_tenant_period ON period_locks FOR ALL
+              USING (tenant_id=current_setting('app.current_tenant_id',true))
+              WITH CHECK (tenant_id=current_setting('app.current_tenant_id',true));
+        """)
+        for table in ("journal_drafts","period_locks"):
+            await conn.execute(
+                f'GRANT SELECT,INSERT,UPDATE ON {table} TO "{auth_db["role"]}"'
+            )
+        await conn.execute(
+            f'GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA "{auth_db["schema"]}"'
+            f' TO "{auth_db["role"]}"'
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat189_adjustment_does_not_block_reversal_and_duplicate_is_db_unique(
+    auth_db, monkeypatch
+):
+    """Actual reversal service with nonowner FORCE-RLS, index and period locks."""
+    from pathlib import Path
+    import asyncpg as _asyncpg
+    from app.api.services import reversal_service as reversal
+    await _chat189_prepare_reversal_drafts(auth_db)
+    candidate=Path("docs/sql/chat189_reversal_source_unique_DRAFT.sql").read_text()
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(candidate)
+        await conn.execute(candidate)
+        await conn.execute("""
+            INSERT INTO journal_drafts
+              (tenant_id,date,status,entry_type,reversal_of_draft_id)
+            VALUES ('t_alpha','2026-10-20','approved','adjustment',41)
+        """)
+    monkeypatch.setattr(reversal,"log_event",lambda *a,**kw: None)
+    with db.authenticated_tenant_context("t_alpha"):
+        made=await reversal.create_reversal_draft(
+            "t_alpha",41,"2026-10-30","correct synthetic alpha","maker-a"
+        )
+        assert made["status"]=="pending_approval"
+        with pytest.raises(ValueError,match="already exists"):
+            await reversal.create_reversal_draft(
+                "t_alpha",41,"2026-10-30","duplicate","maker-a"
+            )
+        async with db.get_conn() as conn:
+            entries=await conn.fetch("""
+                SELECT entry_type, status, reversal_of_draft_id
+                  FROM journal_drafts WHERE reversal_of_draft_id=41
+                 ORDER BY id
+            """)
+            assert [r["entry_type"] for r in entries]==["adjustment","reversal"]
+            assert await conn.fetchval("SELECT count(*) FROM journal_drafts") == 3
+            with pytest.raises(_asyncpg.UniqueViolationError):
+                await conn.execute("""
+                    INSERT INTO journal_drafts
+                      (tenant_id,date,status,entry_type,reversal_of_draft_id)
+                    VALUES ('t_alpha','2026-10-30','pending_approval','reversal',41)
+                """)
+    with db.authenticated_tenant_context("t_beta"):
+        made=await reversal.create_reversal_draft(
+            "t_beta",42,"2026-10-30","other tenant","maker-b"
+        )
+        assert made["reversal_of_draft_id"]==42
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_drafts WHERE tenant_id='t_alpha'"
+            ) == 0
+            assert await conn.fetchval("SELECT count(*) FROM journal_drafts") == 2
+
+
+@pytest.mark.asyncio
+async def test_chat189_concurrent_reversal_requests_produce_one_intent(
+    auth_db, monkeypatch
+):
+    import asyncio
+    from app.api.services import reversal_service as reversal
+    from pathlib import Path
+    await _chat189_prepare_reversal_drafts(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(Path("docs/sql/chat189_reversal_source_unique_DRAFT.sql").read_text())
+    monkeypatch.setattr(reversal,"log_event",lambda *a,**kw: None)
+    entered=asyncio.Event()
+    release=asyncio.Event()
+    original_check=reversal._reversal_already_exists
+    gate_count=[0]
+
+    async def holding_check(conn,original_id,tenant):
+        gate_count[0]+=1
+        if gate_count[0]==1:
+            entered.set()
+            await asyncio.wait_for(release.wait(),timeout=10)
+        return await original_check(conn,original_id,tenant)
+
+    monkeypatch.setattr(reversal,"_reversal_already_exists",holding_check)
+    async def attempt(maker):
+        with db.authenticated_tenant_context("t_alpha"):
+            return await reversal.create_reversal_draft(
+                "t_alpha",41,"2026-10-30","synthetic concurrent",maker
+            )
+
+    first=asyncio.create_task(attempt("maker-a"))
+    try:
+        await asyncio.wait_for(entered.wait(),timeout=10)
+        second=asyncio.create_task(attempt("maker-b"))
+        # The second request MUST wait for the first committed source lock.
+        await asyncio.sleep(0.1)
+        assert not second.done()
+    finally:
+        release.set()
+    results=await asyncio.wait_for(
+        asyncio.gather(first,second,return_exceptions=True),timeout=15
+    )
+    assert sum(isinstance(x,dict) for x in results)==1
+    assert sum(isinstance(x,ValueError) and "already exists" in str(x)
+               for x in results)==1
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval("""
+                SELECT count(*) FROM journal_drafts
+                WHERE tenant_id='t_alpha' AND reversal_of_draft_id=41
+                  AND entry_type='reversal'
+            """)==1
+
+
+@pytest.mark.asyncio
+async def test_chat189_migration_refuses_legacy_duplicate_sources_without_deletion(
+    auth_db
+):
+    """No automatic repair/backfill; safe migration preflight refuses dirty history."""
+    from pathlib import Path
+    await _chat189_prepare_reversal_drafts(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            INSERT INTO journal_drafts
+              (tenant_id,date,status,entry_type,reversal_of_draft_id)
+            VALUES ('t_alpha','2026-10-25','pending_approval','reversal',41),
+                   ('t_alpha','2026-10-25','approved','reversal',41)
+        """)
+        with pytest.raises(asyncpg.RaiseError,match="FIN11_REVERSAL_DUPLICATE_PREFLIGHT"):
+            await conn.execute(Path(
+                "docs/sql/chat189_reversal_source_unique_DRAFT.sql"
+            ).read_text())
+        assert await conn.fetchval("""
+            SELECT count(*) FROM journal_drafts
+            WHERE tenant_id='t_alpha' AND entry_type='reversal'
+        """)==2
+        assert await conn.fetchval("""
+            SELECT count(*) FROM pg_indexes WHERE tablename='journal_drafts'
+              AND indexname='uq_chat189_tenant_active_reversal'
+        """)==0

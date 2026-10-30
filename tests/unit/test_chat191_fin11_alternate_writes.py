@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Request, HTTPException
+from fastapi import Request
 
 
 def _request():
@@ -52,9 +52,8 @@ async def test_delete_route_sql_refuses_posted_and_correction_drafts():
     with patch.object(routes, "require_permission"), \
          patch.object(routes, "resolve_tenant_id", return_value="t_alpha"), \
          patch.object(routes, "get_conn", _conn_scope(conn)):
-        with pytest.raises(HTTPException) as caught:
-            await routes.delete_draft(101, _request())
-    assert caught.value.status_code in (404, 409)
+        response = await routes.delete_draft(101, _request())
+    assert response.status_code in (404, 409)
     statement = str(conn.fetchrow.call_args.args[0])
     assert "status IN" in statement
     assert "reversal_of_draft_id IS NULL" in statement
@@ -117,9 +116,8 @@ async def test_cfo_cannot_approve_legacy_linked_normal_reference():
     with patch.object(routes, "require_permission"), \
          patch.object(routes, "resolve_tenant_id", return_value="t_alpha"), \
          patch.object(routes, "get_conn", _conn_scope(conn)):
-        with pytest.raises(HTTPException) as raised:
-            await routes.cfo_approve(101, _request())
-    assert raised.value.status_code == 409
+        response = await routes.cfo_approve(101, _request())
+    assert response.status_code == 409
     conn.execute.assert_not_awaited()
 
 

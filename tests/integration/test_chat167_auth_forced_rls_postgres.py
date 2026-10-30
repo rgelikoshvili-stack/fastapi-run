@@ -2753,3 +2753,110 @@ async def test_chat195_untrusted_receipts_cannot_create_terminal_intents_or_back
         assert await conn.fetchval(
             "SELECT count(*) FROM posting_outbox_receipts"
         ) == 0
+
+
+# Chat196 FIN-12: dispatch is forbidden; crash recovery only quarantines UNKNOWN.
+@pytest.mark.asyncio
+async def test_chat196_no_dispatch_without_provider_contract_and_durable_crash_hold(auth_db):
+    from pathlib import Path
+    import uuid
+    from app.api.services.posting_outbox_crash_hold_service import (
+        record_outcome_hold, CrashHoldUnavailable,
+    )
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat186_posting_outbox_DRAFT.sql",
+                     "chat196_fin12_crash_hold_DRAFT.sql"):
+            sql=Path("docs/sql",name).read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)
+        alpha=await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+               tenant_id,source_id,target_system,idempotency_key,payload_sha256,payload_json
+            ) VALUES ('t_alpha','chat196-src','balance',$1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "a"*64, "b"*64)
+        prepared=await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+               tenant_id,source_id,target_system,idempotency_key,payload_sha256,payload_json
+            ) VALUES ('t_alpha','chat196-not-sent','balance',$1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "c"*64, "d"*64)
+
+        # Direct SQL cannot declare vendor dispatch in an unactivated system.
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_DISPATCH_CONTRACT_UNVERIFIED"):
+            await conn.execute("""
+                UPDATE posting_outbox_intents SET state='in_flight' WHERE id=$1
+            """,alpha)
+        await conn.execute("""
+            UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1
+        """,alpha)
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_CRASH_SOURCE_NOT_AMBIGUOUS"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_crash_holds(
+                   tenant_id,outbox_id,source_id,target_system,idempotency_key,
+                   payload_sha256,observed_state,reason,opener_subject,opener_role)
+                VALUES ('t_alpha',$1,'chat196-not-sent','balance',$2,$3,
+                        'prepared','worker_crash','acct-1','accountant')
+            """,prepared,"c"*64,"d"*64)
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_crash_holds TO "{auth_db["role"]}"'
+        )
+
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            result=await record_outcome_hold(
+                conn,tenant_id="t_alpha",outbox_id=str(alpha),
+                opener_subject="acct:1",opener_role="accountant",
+                reason="missing_lease",
+            )
+            assert result["state"]=="manual_hold"
+            assert result["provider_verified"] is False
+            assert result["retry_allowed"] is False
+            assert result["dispatch_allowed"] is False
+            assert result["confirm_allowed"] is False
+            assert await conn.fetchval("""
+                SELECT state FROM posting_outbox_intents WHERE id=$1
+            """,alpha)=="unknown"
+            assert await conn.fetchval("""
+                SELECT count(*) FROM posting_outbox_crash_holds
+            """)==1
+        with pytest.raises(CrashHoldUnavailable,match="FIN12_CRASH_ALREADY_HELD"):
+            async with db.get_conn() as conn:
+                await record_outcome_hold(
+                    conn,tenant_id="t_alpha",outbox_id=str(alpha),
+                    opener_subject="acct:2",opener_role="accountant",
+                    reason="worker_crash",
+                )
+
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval("""
+                SELECT count(*) FROM posting_outbox_crash_holds
+            """)==0
+        with pytest.raises(CrashHoldUnavailable,match="FIN12_CRASH_SOURCE_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await record_outcome_hold(
+                    conn,tenant_id="t_beta",outbox_id=str(alpha),
+                    opener_subject="acct:beta",opener_role="accountant",
+                    reason="worker_crash",
+                )
+
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_CRASH_HOLD_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE posting_outbox_crash_holds
+                SET opener_subject='forged' WHERE outbox_id=$1
+            """,alpha)
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_CRASH_HOLD_IMMUTABLE"):
+            await conn.execute("""
+                DELETE FROM posting_outbox_crash_holds WHERE outbox_id=$1
+            """,alpha)
+        assert await conn.fetchval("""
+            SELECT count(*) FROM posting_outbox_crash_holds
+        """)==1
+        assert await conn.fetchval("""
+            SELECT count(*) FROM posting_outbox_receipts
+        """)==0

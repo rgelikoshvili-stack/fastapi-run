@@ -67,12 +67,20 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
     if currency != "GEL":
         try:
             from app.api.services.currency_service import get_rate_async
-            rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date")))
+            rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date"), allow_fallback=False))
             if not rate.is_finite() or rate <= 0:
                 raise ValueError("FX_RATE_MISSING: exchange rate must be positive and finite")
-            amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
-            payload["amount_gel"]    = float(amount_gel)
-            payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
+            with localcontext() as context:
+                context.prec = 50
+                rate = rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)
+                if rate <= 0 or rate > Decimal("9999999999.99999999"):
+                    raise ValueError("FX_RATE_INVALID: posting rate exceeds numeric range")
+                amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            payload["amount_gel"] = float(amount_gel)
+            # Keep the existing connector numeric field, with an exact internal
+            # rate for ledger persistence so a float cannot change booked FX.
+            payload["exchange_rate"] = float(rate)
+            payload["exchange_rate_exact"] = str(rate)
         except Exception as _fx_exc:
             # P0-4 FIX: Block non-GEL posting when FX rate is unavailable.
             # Falling back to 1.0 is financially wrong and causes incorrect ledger entries.
@@ -651,11 +659,11 @@ async def _write_ledger_entries(
             pass
 
     currency = (draft.get("currency") or "GEL").upper()
-    if currency != "GEL" and "exchange_rate" not in payload:
+    if currency != "GEL" and "exchange_rate" not in payload and "exchange_rate_exact" not in payload:
         # Recovery must supply the original verified posting FX, never guess 1.
         raise ValueError("FX_RATE_INVALID: explicit posting exchange rate required")
     try:
-        exchange_rate = Decimal(str(payload.get("exchange_rate", 1)))
+        exchange_rate = Decimal(str(payload.get("exchange_rate_exact", payload.get("exchange_rate", 1))))
         if not exchange_rate.is_finite() or exchange_rate <= 0:
             raise ValueError
         exchange_rate = exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)

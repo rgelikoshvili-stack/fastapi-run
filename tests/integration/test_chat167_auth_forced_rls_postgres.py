@@ -1372,3 +1372,46 @@ async def test_chat181_legacy_currency_guard_preserves_raw_journal_and_own_gel(a
         assert "error" not in opening and opening["total_debit"]==opening["total_credit"]==0
         bank=next(row for row in opening["accounts"] if row["account_code"]=="1120")
         assert bank["opening_balance"]==bank["closing_balance"]==1000
+
+
+@pytest.mark.asyncio
+async def test_chat181_stored_posting_rate_no_estimate_native_date_and_exact_writer(auth_db, monkeypatch):
+    from decimal import Decimal
+    from app.api.services import currency_service as currency
+    from app.api.services import posting_service as posting
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""CREATE TABLE exchange_rates (
+            currency TEXT PRIMARY KEY,from_code TEXT,to_code TEXT,rate NUMERIC,
+            fetched_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
+            INSERT INTO exchange_rates VALUES
+            ('USD','USD','GEL',2.12345678,'2026-10-10T12:00:00Z','2026-10-10T12:00:00Z');
+        """)
+        await conn.execute(f'GRANT SELECT ON exchange_rates TO "{auth_db["role"]}"')
+    with db.authenticated_tenant_context("t_alpha"):
+        rate=await currency.get_rate_async("USD","GEL","2026-10-15",allow_fallback=False)
+        assert rate==Decimal("2.12345678")
+        draft={"id":str(uuid4()),"date":"2026-10-15","currency":"USD","amount":"100",
+               "lines":[{"account_code":"1120","debit":"100"},{"account_code":"6110","credit":"100"}]}
+        payload=await posting._draft_to_posting_payload(draft)
+        assert payload["exchange_rate_exact"]=="2.12345678" and payload["amount_gel"]==212.35
+        # An old six-decimal connector representation cannot alter booked FX.
+        payload["exchange_rate"]=2.123457
+        async with db.get_conn() as conn:
+            await posting._write_ledger_entries(conn,draft,payload,"t_alpha","synthetic","fx181")
+            assert await conn.fetchval("SELECT exchange_rate FROM journal_entry_headers")==rate
+            assert await conn.fetchval("SELECT max(amount_gel) FROM journal_entry_lines")==Decimal("212.35")
+        with pytest.raises(currency.CurrencyRateNotFound):
+            await currency.get_rate_async("USD","GEL","2026-10-09",allow_fallback=False)
+        for pair in [("EUR","GEL"),("GEL","EUR"),("USD","EUR")]:
+            with pytest.raises(currency.CurrencyRateNotFound):
+                await currency.get_rate_async(*pair,"2026-10-15",allow_fallback=False)
+        with pytest.raises(posting.FxRateMissingError):
+            await posting._draft_to_posting_payload(dict(draft,currency="EUR"))
+        # Existing estimates remain available to the explicitly separate helper.
+        assert await currency.get_rate_async("EUR","GEL","2026-10-15")==Decimal(str(currency._DEFAULT_RATES["EUR"]))
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("UPDATE exchange_rates SET rate='NaN'::numeric")
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(posting.FxRateMissingError):
+            await posting._draft_to_posting_payload(draft)

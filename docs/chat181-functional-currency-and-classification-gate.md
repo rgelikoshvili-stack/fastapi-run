@@ -49,7 +49,7 @@ and exposes currency/source. This does not activate the posted-report flag.
 The minimal PR127 synthetic schema now includes migration011 currency/rate/
 amount_gel columns; no production schema or startup registration changed.
 Local focused suite:250 PASS. Local full suite before the six legacy additions:
-8347 PASS /3SKIP on Python3.12. Exact implementation CI pending.
+8347 PASS /3SKIP on Python3.12. Exact implementation plus follow-up `547ba514cd1a60a48453df58d06b7ba4545f3673`: all nine workflows PASS. Backend8344/3SKIP+smoke1 (40929065402), PG15/16 514EACH (40929065506), Chroma43 (40929065466), Redis210 (40929065550), membership45 (40929065529), vault104 (40929065488), RLS18 (40929065399), PR127254+1 (40929065536), PR8482/203+1 (40929065404). Actual deploy and frontend build SKIPPED.
 
 A separate confirmed issue remains in rate acquisition: currency_service's
 preview lookup can return a static fallback and accepts rates without a proved
@@ -71,3 +71,27 @@ Real tests also cover opening-only foreign rejection and GEL-only period/
 opening balances. The separate H84 snapshot fixture, like PR127, needed the
 migration011 currency fields; its synthetic schema is now updated. No test
 assertion or FX validation was weakened. Full isolated CI is rerun below.
+
+
+## Stage 2 — stored-rate-only financial posting (2026-10-30)
+
+A further regression reproduced static USD fallback on missing DB rows,
+database outage and invalid stored rate:3 FAIL before the repair. Posting now
+passes `allow_fallback=false`; async conversion propagates this policy through
+both legs of cross conversions. Missing/invalid rates fail before a connector
+call. Native DATE binding fixes valid ISO-date lookups rather than accidentally
+falling back after an asyncpg type error. A strict lookup requires a valid date.
+
+Posting preserves an exact eight-decimal rate beside the connector numeric
+field, and ledger bindings prefer that exact value. Functional amounts use the
+same quantized rate; no connector float can change stored booked FX. Existing
+standalone estimate helpers remain separate and are not used for posting.
+New real PG coverage verifies date cutoff, missing/cross rates, invalid rate,
+exact payload→writer persistence and unchanged standalone estimate behavior.
+Exact stage2 CI pending.
+
+This is not a complete NBG publication/effective-date or stale-quote policy.
+The existing stored on-or-before lookup is retained; trusted ingestion,
+immutability/history, effective date/source attestation, freshness limits and
+explicit estimate labels on every preview consumer remain acceptance gates.
+No live fetch, schema/config change or migration was performed.

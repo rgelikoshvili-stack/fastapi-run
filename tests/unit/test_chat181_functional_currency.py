@@ -69,3 +69,45 @@ async def test_legacy_foreign_amounts_are_unavailable_without_booked_fx(monkeypa
                     "counterparty": ledger.get_counterparty_ledger, "payroll": ledger.get_payroll_ledger}[reader](*args)
     code = result["error"]["code"] if reader in {"pnl", "balance"} else result["error"]
     assert code == "LEGACY_FX_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing", "outage", "invalid"])
+async def test_posting_payload_never_uses_static_rate_fallback(monkeypatch, failure):
+    from app.api.services import currency_service as currency, posting_service as posting
+    @asynccontextmanager
+    async def connection():
+        if failure == "outage":
+            raise RuntimeError("synthetic DB unavailable")
+        conn = AsyncMock()
+        conn.fetchrow.return_value = {"rate": "NaN"} if failure == "invalid" else None
+        yield conn
+    monkeypatch.setattr(currency, "get_conn", connection)
+    draft={"id": "synthetic-fx", "currency":"USD", "amount":"100", "date":"2026-10-29", "lines":[]}
+    with pytest.raises(posting.FxRateMissingError):
+        await posting._draft_to_posting_payload(draft)
+
+
+@pytest.mark.asyncio
+async def test_payload_requests_nonestimated_rate_and_preserves_eight_decimal_places(monkeypatch):
+    from decimal import Decimal
+    from app.api.services import currency_service as currency, posting_service as posting
+    quote=AsyncMock(return_value=Decimal("2.12345678"))
+    monkeypatch.setattr(currency,"get_rate_async",quote)
+    payload=await posting._draft_to_posting_payload({"id":"fx181","date":"2026-10-29",
+        "currency":"USD","amount":"100","lines":[]})
+    quote.assert_awaited_once_with("USD","GEL","2026-10-29",allow_fallback=False)
+    assert payload["exchange_rate_exact"]=="2.12345678"
+    assert payload["exchange_rate"]==2.12345678 and payload["amount_gel"]==212.35
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("day", [None,"not-a-date","2026-02-30"])
+async def test_strict_quote_rejects_missing_or_invalid_date_before_io(monkeypatch,day):
+    from unittest.mock import Mock
+    from app.api.services import currency_service as currency
+    opened=Mock(side_effect=AssertionError("must validate date before DB"))
+    monkeypatch.setattr(currency,"get_conn",opened)
+    with pytest.raises(currency.CurrencyRateNotFound):
+        await currency.get_rate_async("USD","GEL",day,allow_fallback=False)
+    opened.assert_not_called()

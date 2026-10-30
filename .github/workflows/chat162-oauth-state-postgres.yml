@@ -31,6 +31,7 @@ on:
       - "app/api/services/posting_service.py"
       - "app/api/services/posted_ledger_validation.py"
       - "app/api/services/posted_ledger_reporting.py"
+      - "app/api/services/currency_service.py"
       - "tests/unit/test_chat181_functional_currency.py"
       - "app/api/routes_erp_memory.py"
       - "app/api/routes_erp_import.py"

@@ -1,6 +1,6 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
-განახლება: 2026-10-29, Chat181 (Chat180 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
+განახლება: 2026-10-30, Chat181 (Chat180 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
 
@@ -94,7 +94,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-02 P0 V1-B | cooperative transaction lock DRAFT-VERIFIED at `a91b50f`; direct-SQL uniqueness FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
 | FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
 | FIN-04 P0 V1 | actual writer now fills standard `account_type`; Chat179 | historical NULL/custom COA inventory, no silent omissions, unknown code handling; no automatic live backfill |
-| FIN-05 P0 V1 | FX rate lookup/write exists; reports aggregate raw debit/credit | non-GEL official totals vs GEL labels require verification/repair; mixed currencies, missing/stale FX, rounding and multiple rates; no guessed rate 1 |
+| FIN-05 P0 V1 | stored functional GEL reports and rounded-balance guards DRAFT-VERIFIED `547ba51`; legacy foreign totals fail closed | posting static fallback repair in progress; quote source/effective date/freshness, exact output precision, real schema/provider acceptance remain |
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
 | FIN-08 P1 V1 | balance sheet assets/liabilities/equity read path | current profit/retained earnings, opening balances, period close and FX; trial equation and complete equity reconciliation, not just asset totals |
@@ -282,6 +282,17 @@ Review-ის bounded source ranges, ყოველგვარი ისტო
 Draft candidate უკვე ერთ stored functional basis-ს იყენებს P&L/BS/CF/TB-ში;
 unknown/invalid FX და legacy foreign totals unavailable-ია, არა guessed GEL.
 GEL-rate1 და functional-rounded balance ინვარიანტები writer-ზე დგას.
-Exact-SHA CI ჯერ გადასამოწმებელია. შემდეგ დამოუკიდებელი P0 არის posting-rate
+Stage1 exact-SHA `547ba514cd1a60a48453df58d06b7ba4545f3673`: all9CI PASS; backend8344/3SKIP; PG15/16 514EACH. შემდეგ დამოუკიდებელი P0 არის posting-rate
 lookup-ში static fallback/source/date provenance, შემდეგ FIN-04 unknown COA.
 მთავარი გეგმის ზემოთ მოცემული ისტორიული ჩანაწერები არ წაშლილა.
+
+
+### მიმდინარე ნაბიჯი — 2026-10-30
+
+ზემოთ Chat180 section8 ინახება როგორც ისტორიული checkpoint; მიმდინარე
+შემდეგი ნაბიჯი ეს Chat181 ჩანაწერია. Stage1 უკვე დადასტურებულია. Stage2
+კეტავს posting-ის hardcoded FX fallback-ს (3 failing-before რეგრესია),
+ასწორებს DATE binding-ს და ინარჩუნებს ზუსტ8decimal posting rate-ს.
+მისი exact CI მიმდინარეობს; შემდეგი დამოუკიდებელი საკითხია FIN-04:
+NULL/unknown/contradictory account_type-მა ოფიციალური თანხები არ უნდა დამალოს.
+FX quote provenance/freshness და report-output precision ჯერ ღიაა.

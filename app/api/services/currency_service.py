@@ -112,10 +112,22 @@ def _rate_to_gel(currency: str, for_date: Optional[str] = None) -> Decimal:
     raise CurrencyRateNotFound(f"FX_RATE_MISSING: no GEL rate for {currency}")
 
 
-async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> Decimal:
-    """Async asyncpg version of _rate_to_gel."""
+async def _rate_to_gel_async(
+    currency: str, for_date: Optional[str] = None, *, allow_fallback: bool = True,
+) -> Decimal:
+    """Stored-rate lookup; financial posting explicitly forbids estimates.
+
+    The existing on-or-before snapshot policy is retained. NBG effective-date
+    provenance and quote freshness remain a separate acceptance requirement.
+    """
     if currency == "GEL":
         return Decimal("1.0")
+    if not allow_fallback and not for_date:
+        raise CurrencyRateNotFound("FX_DATE_REQUIRED: posting date is required")
+    try:
+        requested_date = _date.fromisoformat(str(for_date)) if for_date else None
+    except (ValueError, TypeError):
+        raise CurrencyRateNotFound("FX_DATE_INVALID: a valid ISO date is required") from None
     try:
         async with get_conn() as conn:
             if for_date:
@@ -125,7 +137,7 @@ async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> D
                       AND (to_code = 'GEL' OR to_code IS NULL)
                       AND DATE(fetched_at) <= %s
                     ORDER BY fetched_at DESC LIMIT 1
-                """), currency, currency, for_date)
+                """), currency, currency, requested_date)
             else:
                 row = await conn.fetchrow(_q("""
                     SELECT rate FROM exchange_rates
@@ -136,7 +148,11 @@ async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> D
         if row:
             return _validated_rate(currency, row["rate"])
     except Exception as e:
-        log.warning("currency_service._rate_to_gel_async db error: %s", e)
+        log.warning("currency_service._rate_to_gel_async db error type=%s", type(e).__name__)
+        if not allow_fallback:
+            raise CurrencyRateNotFound(f"FX_RATE_MISSING: stored GEL rate unavailable for {currency}") from None
+    if not allow_fallback:
+        raise CurrencyRateNotFound(f"FX_RATE_MISSING: no stored GEL rate for {currency}")
     fallback = _DEFAULT_RATES.get(currency)
     if fallback:
         log.warning(
@@ -148,21 +164,23 @@ async def _rate_to_gel_async(currency: str, for_date: Optional[str] = None) -> D
     raise CurrencyRateNotFound(f"FX_RATE_MISSING: no GEL rate for {currency}")
 
 
-async def get_rate_async(from_code: str, to_code: str, for_date: Optional[str] = None) -> Decimal:
-    """Async version of get_rate for use in async contexts."""
+async def get_rate_async(
+    from_code: str, to_code: str, for_date: Optional[str] = None, *, allow_fallback: bool = True,
+) -> Decimal:
+    """Async lookup; allow_fallback=False is required for financial posting."""
     from_code = from_code.upper()
     to_code   = to_code.upper()
     if from_code == to_code:
         return Decimal("1.0")
     if to_code == "GEL":
-        return await _rate_to_gel_async(from_code, for_date)
+        return await _rate_to_gel_async(from_code, for_date, allow_fallback=allow_fallback)
     if from_code == "GEL":
-        r = await _rate_to_gel_async(to_code, for_date)
+        r = await _rate_to_gel_async(to_code, for_date, allow_fallback=allow_fallback)
         if r == Decimal("0"):
             return Decimal("0")
         return (Decimal("1.0") / r).quantize(Decimal("0.000001"), ROUND_HALF_UP)
-    gel_from = await _rate_to_gel_async(from_code, for_date)
-    gel_to   = await _rate_to_gel_async(to_code,   for_date)
+    gel_from = await _rate_to_gel_async(from_code, for_date, allow_fallback=allow_fallback)
+    gel_to   = await _rate_to_gel_async(to_code, for_date, allow_fallback=allow_fallback)
     if gel_to == Decimal("0"):
         return Decimal("0")
     return (gel_from / gel_to).quantize(Decimal("0.000001"), ROUND_HALF_UP)

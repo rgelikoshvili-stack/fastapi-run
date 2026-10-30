@@ -81,8 +81,19 @@ END;
 $fin12$;
 
 CREATE OR REPLACE FUNCTION fin12_block_delete_or_identity_change()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $
 BEGIN
+    -- Chat195: a direct SQL INSERT must not forge an already-finished or
+    -- already-in-flight vendor mutation. Only a fresh prepared intent is safe.
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.state IS DISTINCT FROM 'prepared'
+           OR NEW.provider_receipt_id IS NOT NULL
+           OR NEW.provider_verified_at IS NOT NULL
+        THEN
+            RAISE EXCEPTION 'FIN12_INITIAL_STATE_NOT_PREPARED';
+        END IF;
+        RETURN NEW;
+    END IF;
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
     END IF;
@@ -107,9 +118,17 @@ BEGIN
         RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
     END IF;
 
-    -- A write attempt is not proof of provider acceptance. Terminal states
-    -- need an earlier append-only, tenant-matched observation in this SAME
-    -- local transaction. This proves DB consistency, NOT provider truth.
+    -- Chat195: no real provider authentication, independently attested
+    -- receipt format or certified idempotency contract has been established.
+    -- The older metadata-only gate is NOT a safe finalization authority.
+    -- All synthetic receipts and operator observations remain HOLD.
+    IF NEW.state IN ('confirmed','rejected')
+       AND NEW.state IS DISTINCT FROM OLD.state THEN
+        RAISE EXCEPTION 'FIN12_VENDOR_AUTHENTICATION_NOT_CONFIGURED';
+    END IF;
+
+    -- Existing local consistency conditions are defense-in-depth ONLY.
+    -- They must not be interpreted as external provider verification.
     IF (OLD.state = 'prepared' AND NEW.state NOT IN ('prepared','in_flight','unknown'))
         OR (OLD.state = 'in_flight' AND NEW.state NOT IN
             ('in_flight','unknown','confirmed','rejected'))
@@ -143,7 +162,7 @@ BEGIN
                    WHERE tgrelid='posting_outbox_intents'::regclass
                      AND tgname='fin12_intent_guard') THEN
         CREATE TRIGGER fin12_intent_guard
-            BEFORE UPDATE OR DELETE ON posting_outbox_intents
+            BEFORE INSERT OR UPDATE OR DELETE ON posting_outbox_intents
             FOR EACH ROW EXECUTE FUNCTION fin12_block_delete_or_identity_change();
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -155,6 +174,32 @@ BEGIN
     END IF;
 END;
 $fin12$;
+-- Chat195: receipt metadata provided by any human or local adapter is NOT
+-- authenticated vendor evidence. Until a separately reviewed real provider
+-- contract/key-custody protocol exists, deny insertion of terminal receipts.
+CREATE OR REPLACE FUNCTION fin12_hold_unverified_provider_receipt()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+    IF NEW.outcome IN ('accepted','rejected') THEN
+        RAISE EXCEPTION 'FIN12_UNVERIFIED_PROVIDER_RECEIPT_HOLD';
+    END IF;
+    RETURN NEW;
+END;
+$;
+DO $fin12$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+         WHERE tgrelid='posting_outbox_receipts'::regclass
+           AND tgname='fin12_unverified_vendor_receipt_guard'
+    ) THEN
+        CREATE TRIGGER fin12_unverified_vendor_receipt_guard
+            BEFORE INSERT ON posting_outbox_receipts
+            FOR EACH ROW EXECUTE FUNCTION fin12_hold_unverified_provider_receipt();
+    END IF;
+END;
+$fin12$;
+
 REVOKE ALL ON posting_outbox_intents, posting_outbox_receipts FROM PUBLIC;
 -- Runtime producer role may receive ONLY reviewed SELECT/INSERT rights;
 -- reconciliation/receipt writers need separate privileged service accounts.

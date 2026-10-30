@@ -118,6 +118,15 @@ BEGIN
         RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
     END IF;
 
+    -- Chat196: a prepared intent may be stored but MUST NOT enter the
+    -- vendor-dispatch state until a certified provider idempotency/lease
+    -- protocol exists. Otherwise a privileged direct SQL UPDATE bypasses
+    -- the inactive worker/API gates and could be misread as a sent request.
+    IF NEW.state = 'in_flight'
+       AND OLD.state IS DISTINCT FROM NEW.state THEN
+        RAISE EXCEPTION 'FIN12_DISPATCH_CONTRACT_UNVERIFIED';
+    END IF;
+
     -- Chat195: no real provider authentication, independently attested
     -- receipt format or certified idempotency contract has been established.
     -- The older metadata-only gate is NOT a safe finalization authority.

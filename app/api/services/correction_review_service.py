@@ -157,6 +157,39 @@ async def _audit(conn, *, tenant_id: str, draft_id: int, subject: str,
         "FIN11 correction review evidence only; no posting", tenant_id)
 
 
+async def _require_original_maker(conn, tenant_id: str, draft: dict,
+                                  maker_subject: str) -> None:
+    """Bind the claimed maker to the single transactionally created source audit.
+
+    This proves linkage to recorded creation actor, not that Production audit
+    roles are append-only. Enabling any public path needs signed JWT actor
+    mapping and read-only audit grants independently reviewed.
+    """
+    action = ("reversal_draft_created" if draft["entry_type"] == "reversal"
+              else "adjustment_draft_created")
+    events = await conn.fetch(_q("""
+        SELECT actor,new_value FROM audit_log
+         WHERE tenant_id=%s AND resource='journal_drafts' AND resource_id=%s
+           AND action=%s AND status='success'
+         ORDER BY id LIMIT 2
+    """), tenant_id, str(draft["id"]), action)
+    if len(events) != 1:
+        _deny("FIN11_REVIEW_CREATOR_EVIDENCE_UNAVAILABLE")
+    event = dict(events[0])
+    try:
+        evidence = event["new_value"]
+        if isinstance(evidence, str):
+            evidence = json.loads(evidence)
+        source_id = evidence["source_id"]
+        state = evidence["status"]
+    except (TypeError, ValueError, KeyError):
+        _deny("FIN11_REVIEW_CREATOR_EVIDENCE_UNAVAILABLE")
+    if (event["actor"] != maker_subject
+            or source_id != draft["reversal_of_draft_id"]
+            or state != "pending_approval"):
+        _deny("FIN11_REVIEW_MAKER_NOT_CREATOR")
+
+
 async def submit_correction_review(conn, *, tenant_id: str, draft_id: int,
                                    maker_subject: str, maker_role: str) -> dict:
     """Submit reviewer evidence on an existing correction draft; no status change.
@@ -167,6 +200,7 @@ async def submit_correction_review(conn, *, tenant_id: str, draft_id: int,
     _scope(conn, tenant_id, draft_id)
     maker = _checked_actor(maker_subject, maker_role, "maker")
     draft = await _verified_correction(conn, tenant_id, draft_id)
+    await _require_original_maker(conn, tenant_id, draft, maker)
     row = await conn.fetchrow(_q("""
         INSERT INTO correction_review_intents
             (tenant_id,draft_id,source_id,entry_type,maker_subject,maker_role,

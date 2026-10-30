@@ -63,6 +63,7 @@ def _async_cm(conn):
 
 def _make_conn(draft=None, execute_result="UPDATE 1", fetchval_result=None):
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchrow = AsyncMock(return_value=draft)
     conn.fetch    = AsyncMock(return_value=[draft] if draft else [])
     conn.fetchval = AsyncMock(return_value=fetchval_result)

@@ -79,6 +79,7 @@ def _mock_conn_ctx(draft_row):
     all other fetchrow calls (dup-check, posting_logs) return None.
     """
     mock_conn = AsyncMock()
+    mock_conn.is_in_transaction = lambda: True
     _call_count = [0]
 
     async def _smart_fetchrow(query, *args, **kwargs):

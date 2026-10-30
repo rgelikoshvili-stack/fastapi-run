@@ -42,7 +42,7 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
 
             try:
                 draft_row = await conn.fetchrow(_q("""
-                    SELECT id, entry_type, reversal_of_draft_id, description, partner, account_code, reason,
+                    SELECT id, entry_type, reversal_of_draft_id, status, description, partner, account_code, reason,
                            debit_account, credit_account, amount, classification_source
                     FROM journal_drafts
                     WHERE id = %s AND tenant_id = %s
@@ -70,6 +70,15 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
                     "ok": False, "message": "Independent maker/checker is required",
                     "error": {"code": "FIN11_MAKER_CHECKER_NOT_CONFIGURED"},
                 }
+            if row.get("status") not in (
+                "drafted", "pending_approval", "pending_human_review",
+                "auto_approved", "needs_correction",
+            ):
+                await tr.rollback()
+                return {
+                    "ok": False, "message": "Posted or terminal entries are immutable",
+                    "error": {"code": "DRAFT_MUTATION_BLOCKED"},
+                }
             original = {
                 "account_code": row["account_code"],
                 "reason": row["reason"],
@@ -95,6 +104,10 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
                 SET account_code = %s, reason = %s, debit_account = %s, credit_account = %s,
                     status = 'approved', approved_by_mode = 'human_correction', updated_at = NOW()
                 WHERE id = %s AND tenant_id = %s
+                  AND status IN ('drafted', 'pending_approval', 'pending_human_review',
+                                 'auto_approved', 'needs_correction')
+                  AND entry_type IN ('normal', 'standard')
+                  AND reversal_of_draft_id IS NULL
             """), final["account_code"], final["reason"], final["debit_account"],
                 final["credit_account"], draft_id, tenant_id)
 

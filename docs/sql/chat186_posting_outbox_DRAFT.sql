@@ -81,7 +81,7 @@ END;
 $fin12$;
 
 CREATE OR REPLACE FUNCTION fin12_block_delete_or_identity_change()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $fin12_lock$
 BEGIN
     -- Chat195: a direct SQL INSERT must not forge an already-finished or
     -- already-in-flight vendor mutation. Only a fresh prepared intent is safe.
@@ -155,7 +155,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$;
+$fin12_lock$;
 DO $fin12$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -178,14 +178,14 @@ $fin12$;
 -- authenticated vendor evidence. Until a separately reviewed real provider
 -- contract/key-custody protocol exists, deny insertion of terminal receipts.
 CREATE OR REPLACE FUNCTION fin12_hold_unverified_provider_receipt()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $fin12_receipt$
 BEGIN
     IF NEW.outcome IN ('accepted','rejected') THEN
         RAISE EXCEPTION 'FIN12_UNVERIFIED_PROVIDER_RECEIPT_HOLD';
     END IF;
     RETURN NEW;
 END;
-$;
+$fin12_receipt$;
 DO $fin12$
 BEGIN
     IF NOT EXISTS (

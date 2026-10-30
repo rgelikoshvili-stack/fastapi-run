@@ -2084,3 +2084,59 @@ async def test_chat191_unclassified_linked_history_blocks_partial_reversal_index
             SELECT COUNT(*) FROM journal_drafts
             WHERE tenant_id = 't_alpha' AND reversal_of_draft_id = 41
         """) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat191_fin12_outbox_requires_append_only_verified_receipt_before_terminal_state(auth_db):
+    """Isolated PostgreSQL15/16 proof: statuses must match append-only evidence.
+
+    No real provider call, no dispatch, no live migrations or ledger mutation.
+    """
+    from pathlib import Path
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(
+            Path("docs/sql/chat186_posting_outbox_DRAFT.sql").read_text(encoding="utf-8")
+        )
+        intent = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+              tenant_id,source_id,target_system,idempotency_key,payload_sha256,payload_json
+            ) VALUES ('t_alpha','chat191-synthetic','balance',$1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "a"*64, "b"*64)
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1", intent
+        )
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_VERIFIED_RECEIPT_REQUIRED"):
+            await conn.execute("""
+                UPDATE posting_outbox_intents
+                SET state='confirmed', provider_receipt_id='synthetic-receipt-1',
+                    provider_verified_at=NOW()
+                WHERE id=$1
+            """, intent)
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_VERIFIED_RECEIPT_REQUIRED"):
+            await conn.execute(
+                "UPDATE posting_outbox_intents SET state='rejected' WHERE id=$1", intent
+            )
+        assert await conn.fetchval(
+            "SELECT state FROM posting_outbox_intents WHERE id=$1", intent
+        ) == "unknown"
+        await conn.execute("""
+            INSERT INTO posting_outbox_receipts(
+                outbox_id,tenant_id,outcome,provider_receipt_id,
+                evidence_sha256,verified_by,verified_at
+            ) VALUES ($1,'t_alpha','accepted','synthetic-receipt-1',$2,
+                      'synthetic-reviewed-adapter',NOW())
+        """, intent, "c"*64)
+        await conn.execute("""
+            UPDATE posting_outbox_intents
+            SET state='confirmed',provider_receipt_id='synthetic-receipt-1',
+                provider_verified_at=NOW() WHERE id=$1
+        """, intent)
+        assert await conn.fetchval(
+            "SELECT state FROM posting_outbox_intents WHERE id=$1", intent
+        ) == "confirmed"
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_OR_INTENT_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE posting_outbox_intents SET provider_receipt_id='forged'
+                WHERE id=$1
+            """, intent)

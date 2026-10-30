@@ -118,3 +118,41 @@ async def test_route_rejects_closed_period_override_before_service(endpoint,payl
     assert result["error"]["code"] == "CLOSED_PERIOD_OVERRIDE_DISABLED"
     reverser.assert_not_called()
     adjuster.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,source_date", [
+    ("create_reversal_draft", "reversal_date"),
+    ("create_adjustment_draft", "adjustment_date"),
+])
+async def test_correction_uses_shared_transaction_gate_before_insert(method,source_date):
+    """Neither reversal nor adjustment can race a period close."""
+    original={
+        "id": 41, "tenant_id": "tenant-a", "status": "posted",
+        "date": "2026-10-15", "description": "original",
+        "partner": "", "amount": 10, "currency": "GEL",
+        "lines": [{"account_code": "1120", "debit": 10, "credit": 0},
+                  {"account_code": "6110", "debit": 0, "credit": 10}],
+    }
+    conn=AsyncMock()
+    conn.fetchrow.return_value={"id": 188}
+    @asynccontextmanager
+    async def scoped():
+        yield conn
+    async def check_gate(*_args):
+        return None
+    with patch.object(reversal, "get_conn",scoped), \
+         patch.object(reversal, "_fetch_draft",new_callable=AsyncMock,return_value=original), \
+         patch.object(reversal, "_reversal_already_exists",new_callable=AsyncMock,return_value=False), \
+         patch.object(reversal, "acquire_posting_gate",new_callable=AsyncMock) as gate, \
+         patch.object(reversal, "assert_period_open",new_callable=AsyncMock) as checker, \
+         patch.object(reversal,"log_event"):
+        kwargs=dict(tenant_id="tenant-a",original_draft_id=41,reason="reason",
+                    actor="accountant")
+        kwargs[source_date]="2026-10-30"
+        if method=="create_adjustment_draft":
+            kwargs["lines"]=original["lines"]
+        result=await getattr(reversal,method)(**kwargs)
+    assert result["status"]=="pending_approval"
+    gate.assert_awaited_once_with(conn,"tenant-a",reversal._strict_entry_date("2026-10-30"))
+    checker.assert_awaited_once()

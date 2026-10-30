@@ -259,6 +259,7 @@ class TestReversalIntoClosedPeriod:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
 
@@ -291,58 +292,18 @@ class TestReversalIntoClosedPeriod:
                     )
         run(_run())
 
-    def test_reversal_with_admin_override_bypasses_period_check(self):
-        """allow_closed_period=True means assert_period_open is never called.
-
-        We test this by verifying that is_period_closed is never called on the
-        period_locks table when allow_closed_period=True.
-        """
-        from app.api.services.period_lock_service import assert_period_open as _real_apo
-        calls = []
-
-        async def _spy_assert_period_open(conn, tenant_id, posting_date, action_type="posting"):
-            calls.append(action_type)
-            return await _real_apo(conn, tenant_id, posting_date, action_type)
-
-        with patch("app.api.services.reversal_service.assert_period_open", _spy_assert_period_open):
-            async def _run():
-                # reversal with allow_closed_period=True → assert_period_open not called
-                with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
-                    conn = AsyncMock()
-                    conn.__aenter__ = AsyncMock(return_value=conn)
-                    conn.__aexit__  = AsyncMock(return_value=False)
-                    # Return proper rows for each fetchrow call in order
-                    conn.fetchrow = AsyncMock(side_effect=[
-                        # 1. _fetch_draft SELECT
-                        {
-                            "id": 42, "tenant_id": "geotrade_test",
-                            "date": "2026-08-15", "description": "Rent",
-                            "partner": "", "amount": 1180.0, "currency": "GEL",
-                            "status": "posted",
-                            "lines_json": json.dumps(POSTED_DRAFT["lines"]),
-                        },
-                        # 2. _reversal_already_exists
-                        None,
-                        # 3. INSERT RETURNING
-                        {
-                            "id": 99, "tenant_id": "geotrade_test",
-                            "date": "2026-08-31", "description": "[REVERSAL of #42]",
-                            "amount": 1180.0, "currency": "GEL", "status": "pending_approval",
-                        },
-                    ])
-                    mock_get_conn.return_value = conn
-
-                    with patch("app.api.services.reversal_service.log_event"):
-                        result = await create_reversal_draft(
-                            "geotrade_test", 42, "2026-08-31",
-                            "Admin override reversal", "admin@test.com",
-                            allow_closed_period=True,
-                        )
-                    assert result["entry_type"] == "reversal"
-                    assert result["reversal_of_draft_id"] == 42
-                    # assert_period_open was NOT called (because allow_closed_period=True)
-                    assert calls == [], f"assert_period_open must not be called with allow_closed_period=True, but got calls: {calls}"
-            run(_run())
+    def test_reversal_with_unapproved_override_is_rejected(self):
+        """Even an alleged admin may not bypass the close lock via raw body."""
+        async def _run():
+            with patch("app.api.services.reversal_service.get_conn") as conn:
+                with pytest.raises(ValueError, match="CLOSED_PERIOD_OVERRIDE_DISABLED"):
+                    await create_reversal_draft(
+                        "geotrade_test", 42, "2026-08-31",
+                        "Unsafe historic override", "admin@test.com",
+                        allow_closed_period=True,
+                    )
+                conn.assert_not_called()
+        run(_run())
 
 
 class TestDuplicateReversal:
@@ -352,6 +313,7 @@ class TestDuplicateReversal:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
 
@@ -389,6 +351,7 @@ class TestAdjustmentDraftValidation:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
                 mock_get_conn.return_value = conn
@@ -404,6 +367,7 @@ class TestAdjustmentDraftValidation:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
                 mock_get_conn.return_value = conn
@@ -418,6 +382,7 @@ class TestAdjustmentDraftValidation:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
                 mock_get_conn.return_value = conn
@@ -445,6 +410,7 @@ class TestAdjustmentDraftValidation:
         async def _run():
             with patch("app.api.services.reversal_service.get_conn") as mock_get_conn:
                 conn = AsyncMock()
+                conn.is_in_transaction = lambda: True
                 conn.__aenter__ = AsyncMock(return_value=conn)
                 conn.__aexit__  = AsyncMock(return_value=False)
 

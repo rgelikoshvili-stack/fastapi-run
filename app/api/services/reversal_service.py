@@ -4,7 +4,7 @@ Accounting safety rules:
   - Original posted entries are NEVER modified or deleted.
   - Reversal flips every line's debit/credit; DR=CR must hold.
   - Reversal references original via reversal_of_draft_id.
-  - Reversal date must be in an open period (unless admin override).
+  - Closed-period override is refused until distinct maker/checker approval is implemented.
   - Adjustment is a new balanced journal entry referencing the original.
   - Both create drafts in 'pending_approval' status (normal approval flow applies).
   - Duplicate reversal protection: second reversal raises ValueError.
@@ -25,6 +25,7 @@ from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.services.period_lock_service import assert_period_open, PeriodLockedError
+from app.api.services.period_transaction_gate import acquire_posting_gate
 from app.api.services.posting_helpers import (
     _normalize_lines,
     _validate_lines,
@@ -32,6 +33,16 @@ from app.api.services.posting_helpers import (
 )
 
 log = logging.getLogger(__name__)
+
+def _strict_entry_date(value: str) -> _date:
+    """Reject timestamp suffixes, missing days or coerced non-string dates."""
+    if not isinstance(value, str) or len(value) != 10:
+        raise ValueError("YYYY-MM-DD accounting date is required")
+    try:
+        return _date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("YYYY-MM-DD accounting date is required") from None
+
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +131,12 @@ async def create_reversal_draft(
 
     RBAC: caller must verify actor has approval:write permission before calling.
     """
+    if allow_closed_period is not False:
+        raise ValueError("CLOSED_PERIOD_OVERRIDE_DISABLED: open-period adjustment required")
     if not reason or not reason.strip():
         raise ValueError("reversal_reason is required and cannot be blank")
 
-    reversal_date_obj = _date.fromisoformat(str(reversal_date)[:10])
+    reversal_date_obj = _strict_entry_date(reversal_date)
 
     async with get_conn() as conn:
         # 1. Fetch and validate original
@@ -132,7 +145,7 @@ async def create_reversal_draft(
             raise ValueError(
                 f"draft {original_draft_id} not found for tenant {tenant_id}"
             )
-        if original["status"] not in ("posted", "simulated_success"):
+        if original["status"] != "posted":
             raise ValueError(
                 f"draft {original_draft_id} has status={original['status']}; "
                 "only posted entries can be reversed"
@@ -145,9 +158,10 @@ async def create_reversal_draft(
                 "Post a second correcting adjustment entry instead."
             )
 
-        # 3. Period check — reversal date must be in an open period
-        if not allow_closed_period:
-            await assert_period_open(conn, tenant_id, reversal_date_obj, "reversal")
+        # 3. Serialize with period close/reopen before checking or drafting.
+        # This preserves the period lock check through transaction commit.
+        await acquire_posting_gate(conn, tenant_id, reversal_date_obj)
+        await assert_period_open(conn, tenant_id, reversal_date_obj, "reversal")
 
         # 4. Build reversed lines
         reversed_lines = flip_lines(original["lines"])
@@ -240,18 +254,20 @@ async def create_adjustment_draft(
     """Create an adjustment (correcting) journal entry referencing the original.
 
     The original draft is never touched.
-    Adjustment date must be in an open period unless allow_closed_period=True.
+    Adjustment date must be in an open period; unsupported overrides are refused.
     Lines must be DR=CR balanced and non-empty.
     Returns the new adjustment draft dict (status=pending_approval).
 
     RBAC: caller must verify actor has approval:write permission before calling.
     """
+    if allow_closed_period is not False:
+        raise ValueError("CLOSED_PERIOD_OVERRIDE_DISABLED: open-period adjustment required")
     if not reason or not reason.strip():
         raise ValueError("adjustment_reason is required and cannot be blank")
     if not lines:
         raise ValueError("adjustment lines are required")
 
-    adjustment_date_obj = _date.fromisoformat(str(adjustment_date)[:10])
+    adjustment_date_obj = _strict_entry_date(adjustment_date)
     normalized = _normalize_lines(lines)
 
     if not lines_balanced(normalized):
@@ -272,9 +288,12 @@ async def create_adjustment_draft(
                 f"draft {original_draft_id} not found for tenant {tenant_id}"
             )
 
-        # 2. Period check — adjustment date must be in an open period
-        if not allow_closed_period:
-            await assert_period_open(conn, tenant_id, adjustment_date_obj, "adjustment")
+        # 2. Only previously posted financial transactions may be corrected.
+        if original["status"] != "posted":
+            raise ValueError("only posted entries can be adjusted")
+        # 3. Hold shared month/year locks until the correction draft commits.
+        await acquire_posting_gate(conn, tenant_id, adjustment_date_obj)
+        await assert_period_open(conn, tenant_id, adjustment_date_obj, "adjustment")
 
         amount = _derive_amount_from_lines(normalized)
         description = f"[ADJUSTMENT of #{original_draft_id}] {reason.strip()}"

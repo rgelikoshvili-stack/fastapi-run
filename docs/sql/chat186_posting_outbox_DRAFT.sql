@@ -37,9 +37,11 @@ CREATE TABLE IF NOT EXISTS posting_outbox_receipts (
     verified_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_fin12_acceptance_evidence CHECK
-        (outcome <> 'accepted' OR
-         (provider_receipt_id IS NOT NULL AND evidence_sha256 IS NOT NULL
-          AND verified_by IS NOT NULL AND verified_at IS NOT NULL)),
+        (outcome = 'unknown' OR
+         (evidence_sha256 IS NOT NULL AND verified_by IS NOT NULL
+          AND btrim(verified_by) <> '' AND verified_at IS NOT NULL
+          AND (outcome <> 'accepted' OR
+               (provider_receipt_id IS NOT NULL AND btrim(provider_receipt_id) <> '')))),
     FOREIGN KEY (outbox_id,tenant_id)
         REFERENCES posting_outbox_intents (id,tenant_id)
 );
@@ -97,8 +99,40 @@ BEGIN
        OR NEW.payload_json IS DISTINCT FROM OLD.payload_json
        OR (OLD.state = 'unknown' AND NEW.state = 'in_flight')
        OR (OLD.state = 'confirmed' AND NEW.state <> 'confirmed')
+       OR (OLD.state = 'confirmed' AND
+           (NEW.provider_receipt_id IS DISTINCT FROM OLD.provider_receipt_id OR
+            NEW.provider_verified_at IS DISTINCT FROM OLD.provider_verified_at))
+       OR (OLD.state = 'rejected' AND NEW IS DISTINCT FROM OLD)
     THEN
         RAISE EXCEPTION 'FIN12_RECEIPT_OR_INTENT_IMMUTABLE';
+    END IF;
+
+    -- A write attempt is not proof of provider acceptance. Terminal states
+    -- need an earlier append-only, tenant-matched observation in this SAME
+    -- local transaction. This proves DB consistency, NOT provider truth.
+    IF (OLD.state = 'prepared' AND NEW.state NOT IN ('prepared','in_flight','unknown'))
+        OR (OLD.state = 'in_flight' AND NEW.state NOT IN
+            ('in_flight','unknown','confirmed','rejected'))
+        OR (OLD.state = 'unknown' AND NEW.state NOT IN
+            ('unknown','confirmed','rejected'))
+    THEN
+        RAISE EXCEPTION 'FIN12_INVALID_STATE_TRANSITION';
+    END IF;
+    IF NEW.state IN ('confirmed','rejected')
+       AND NEW.state IS DISTINCT FROM OLD.state
+       AND NOT EXISTS (
+            SELECT 1 FROM posting_outbox_receipts r
+             WHERE r.outbox_id = NEW.id AND r.tenant_id = NEW.tenant_id
+               AND r.outcome = CASE WHEN NEW.state = 'confirmed'
+                                    THEN 'accepted' ELSE 'rejected' END
+               AND r.evidence_sha256 IS NOT NULL
+               AND r.verified_by IS NOT NULL AND btrim(r.verified_by) <> ''
+               AND r.verified_at IS NOT NULL
+               AND (NEW.state <> 'confirmed'
+                    OR r.provider_receipt_id = NEW.provider_receipt_id)
+       )
+    THEN
+        RAISE EXCEPTION 'FIN12_VERIFIED_RECEIPT_REQUIRED';
     END IF;
     RETURN NEW;
 END;

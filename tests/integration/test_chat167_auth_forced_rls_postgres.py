@@ -1750,3 +1750,104 @@ async def test_chat186_posting_outbox_durable_intent_tenant_dedup_and_unknown_ho
                     outbox_id,tenant_id,outcome
                 ) VALUES ($1,'t_beta','unknown')
             """,uuid.UUID(ids["t_alpha"]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_month,post_month", [(10, 10), (0, 10)])
+async def test_chat187_month_or_year_close_serializes_with_active_posting(
+    auth_db, close_month, post_month
+):
+    """Use the real disposable DB, never mock advisory lock serialization."""
+    import asyncio
+    from datetime import date
+    from app.api.services.period_transaction_gate import (
+        acquire_posting_gate, acquire_close_gate,
+    )
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE period_locks (
+              tenant_id TEXT NOT NULL,
+              period_year INT NOT NULL,
+              period_month INT NOT NULL,
+              unlocked_at TIMESTAMPTZ,
+              PRIMARY KEY(tenant_id,period_year,period_month)
+            );
+            ALTER TABLE period_locks ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE period_locks FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat187_period_tenant ON period_locks
+              FOR ALL
+              USING(tenant_id = current_setting('app.current_tenant_id',true))
+              WITH CHECK(tenant_id = current_setting('app.current_tenant_id',true));
+        """)
+        await conn.execute(f'GRANT SELECT,INSERT,UPDATE ON period_locks TO "{auth_db["role"]}"')
+
+    posting_entered = asyncio.Event()
+    allow_post_commit = asyncio.Event()
+    close_attempted = asyncio.Event()
+    close_finished = asyncio.Event()
+    async def active_post():
+        with db.authenticated_tenant_context("t_alpha"):
+            async with db.get_conn() as conn:
+                await acquire_posting_gate(conn, "t_alpha", date(2026, post_month, 30))
+                assert await conn.fetchval("""
+                    SELECT 1 FROM period_locks
+                    WHERE tenant_id='t_alpha' AND unlocked_at IS NULL
+                      AND period_year=2026
+                      AND (period_month=0 OR period_month=$1)
+                """, post_month) is None
+                posting_entered.set()
+                await asyncio.wait_for(allow_post_commit.wait(), timeout=10)
+
+    async def close():
+        with db.authenticated_tenant_context("t_alpha"):
+            async with db.get_conn() as conn:
+                close_attempted.set()
+                await acquire_close_gate(conn, "t_alpha", 2026, close_month)
+                await conn.execute("""
+                    INSERT INTO period_locks(tenant_id,period_year,period_month)
+                    VALUES ('t_alpha',2026,$1)
+                """, close_month)
+        close_finished.set()
+
+    posting_task = asyncio.create_task(active_post())
+    await asyncio.wait_for(posting_entered.wait(), timeout=10)
+    close_task = asyncio.create_task(close())
+    await asyncio.wait_for(close_attempted.wait(), timeout=10)
+    try:
+        # An unrelated tenant must not inherit alpha's lock or its closed rows.
+        with db.authenticated_tenant_context("t_beta"):
+            async with db.get_conn() as conn:
+                await asyncio.wait_for(
+                    acquire_posting_gate(conn, "t_beta", date(2026, post_month, 30)),
+                    timeout=2,
+                )
+                assert await conn.fetchval(
+                    "SELECT count(*) FROM period_locks"
+                ) == 0
+        await asyncio.sleep(.075)
+        assert not close_finished.is_set(), "close committed ahead of active posting"
+    finally:
+        allow_post_commit.set()
+    await asyncio.wait_for(asyncio.gather(posting_task,close_task), timeout=15)
+    assert close_finished.is_set()
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await acquire_posting_gate(conn, "t_alpha", date(2026, post_month, 30))
+            assert await conn.fetchval("""
+                SELECT 1 FROM period_locks
+                WHERE tenant_id='t_alpha' AND unlocked_at IS NULL
+                  AND period_year=2026
+                  AND (period_month=0 OR period_month=$1)
+            """, post_month) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat187_missing_period_table_is_not_open_period(auth_db):
+    from app.api.services.period_transaction_gate import acquire_posting_gate
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(asyncpg.UndefinedTableError):
+            async with db.get_conn() as conn:
+                await acquire_posting_gate(conn, "t_alpha", "2026-10-30")
+                await conn.fetchval("""
+                    SELECT 1 FROM period_locks WHERE tenant_id='t_alpha'
+                """)

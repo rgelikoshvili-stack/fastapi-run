@@ -199,7 +199,7 @@ async def create_reversal_draft(
                 RETURNING id, tenant_id, date, description, amount, currency, status
             """),
             tenant_id,
-            str(reversal_date_obj),
+            reversal_date_obj,
             description,
             original.get("partner") or "",
             amount,
@@ -315,7 +315,7 @@ async def create_adjustment_draft(
                 RETURNING id, tenant_id, date, description, amount, currency, status
             """),
             tenant_id,
-            str(adjustment_date_obj),
+            adjustment_date_obj,
             description,
             original.get("partner") or "",
             amount,

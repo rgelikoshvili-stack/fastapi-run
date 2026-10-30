@@ -350,3 +350,36 @@ unverified. **Production HOLD; PR #154 stays OPEN/DRAFT.**
 
 
 | Chat190 FIN-11 fail-closed classification/audit | Red-first `a6d5662584b8c83f646656865115f08ec8f43afc`; source linked/untyped records held; correction INSERT+audit transaction-local; generic approval/CFO/autopilot/direct correct blocked for reversal/adjustment until independent maker/checker authorization | Current FIN-11 Maker/Checker full approval state machine and actual immutable posted-ledger reversal **OPEN**; Chat190 CI acceptance must be verified separately on exact HEAD. Read `docs/chat190-fin11-source-approval-audit.md`. |
+
+
+## Chat191 — FIN-11 / FIN-12 independent Draft safety stage (2026-10-30)
+
+Inherited Chat180–190 history and all source/CI evidence remain preserved. Starting
+Chat190 HEAD `d2358e763acc5ea14ec626fe9ce5995b4d1274b8`; an isolated legacy
+fixture correction `88c381921edcd3661d45dca247dc631b5754a43e` verified
+all 9 CI workflows SUCCESS, with 8,426+ unit tests, PostgreSQL 15/16 and the
+other specialized suites. The bounded subsequent Chat191 code HEAD
+`747e95bd5faca64213c4b8a758fbf04c83f2382d` has its own CI. See
+`docs/chat191-fin11-alternate-writes-fin12-receipt-gate.md` for the scoped
+regression-first changes and the status of exact-SHA verification.
+
+**FIN-11:** ordinary draft edit/delete/batch updates and generic, CFO,
+autopilot, direct-correct approval routes now fail closed for linked correction
+history and protected statuses; direct ERP posting refuses linked/reversal/
+adjustment entries even if marked approved. Source classification and
+unapplied index preflight hold ambiguous linked legacy entries. **OPEN:**
+independently signed maker/checker identity and transition journal,
+rejection/cancellation policy, immutable posted-ledger correction, ledger/
+report parity, real source/role/audit history inventory and approved DDL.
+
+**FIN-12:** unregistered standalone Chat186 candidate now requires tenant/
+intent-matched append-only evidence receipt before `confirmed`/`rejected`
+local state changes; transition and terminal metadata checks strengthened.
+Synthetic PG15/16 regressions added. **OPEN/EXTERNAL-HOLD:** real provider
+acceptance/receipt authenticity, certified idempotency, safe reconciliation
+of `unknown`, lease/dispatch, crash consistency and local ledger/outbox
+atomicity. No provider dispatch or live migration was activated.
+
+Both tracks remain DRAFT; do not merge, alter main, deploy Production,
+change real DB/ERP, delete data or touch Windows originals. Update exact
+code/documentation SHA CI evidence separately after final runs conclude.

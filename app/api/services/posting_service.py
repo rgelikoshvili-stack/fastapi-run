@@ -182,6 +182,15 @@ def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
             code="NOT_FOUND",
         )
 
+    # FIN-11: a forged 'approved' status cannot bypass independent
+    # correction maker/checker and immutable posted-ledger sign-off.
+    if (draft.get("entry_type") in ("reversal", "adjustment")
+            or draft.get("reversal_of_draft_id") is not None):
+        return error_response(
+            "Correction posting requires independently verified maker/checker",
+            code="FIN11_CORRECTION_POSTING_HOLD",
+        )
+
     if draft["status"] != "approved":
         return error_response(
             f"journal_drafts id={draft_id} has status={draft['status']} for tenant {tenant_id}",
@@ -867,7 +876,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                             COALESCE(amount, 0) AS amount,
                             COALESCE(status, '') AS status,
                             COALESCE(currency, 'GEL') AS currency,
-                            COALESCE(lines_json, '[]'::jsonb) AS lines_json
+                            COALESCE(lines_json, '[]'::jsonb) AS lines_json,
+                            entry_type, reversal_of_draft_id
                         FROM journal_drafts
                         WHERE id = %s AND tenant_id = %s
                         FOR UPDATE NOWAIT
@@ -920,6 +930,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 "currency": draft_row["currency"],
                 "lines_json": draft_row["lines_json"],
                 "lines": _normalize_lines(draft_row["lines_json"]),
+                "entry_type": draft_row.get("entry_type"),
+                "reversal_of_draft_id": draft_row.get("reversal_of_draft_id"),
             }
 
             err = _validate_approved_draft(draft, draft_id, tenant_id)

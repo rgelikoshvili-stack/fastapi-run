@@ -2166,6 +2166,19 @@ async def _chat192_setup_review_candidates(auth_db):
                 '[{"account_code":"1120","debit":100,"credit":0},
                   {"account_code":"6110","debit":0,"credit":100}]'::jsonb)
         """)
+        await conn.execute("""
+            INSERT INTO audit_log
+                (actor,role,action,resource,resource_id,new_value,status,tenant_id)
+            VALUES
+                ('auth:maker-71','maker','reversal_draft_created',
+                 'journal_drafts','71',
+                 '{"source_id":41,"status":"pending_approval"}'::jsonb,
+                 'success','t_alpha'),
+                ('auth:maker-72','maker','adjustment_draft_created',
+                 'journal_drafts','72',
+                 '{"source_id":41,"status":"pending_approval"}'::jsonb,
+                 'success','t_alpha')
+        """)
         await conn.execute(
             f'GRANT SELECT,INSERT,UPDATE ON correction_review_intents '
             f'TO "{auth_db["role"]}"'
@@ -2187,6 +2200,12 @@ async def test_chat192_independent_review_is_transactional_tenant_scoped_and_no_
     )
     await _chat192_setup_review_candidates(auth_db)
     with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(CorrectionReviewUnavailable, match="FIN11_REVIEW_MAKER_NOT_CREATOR"):
+            async with db.get_conn() as conn:
+                await submit_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    maker_subject="auth:impersonator", maker_role="accountant",
+                )
         async with db.get_conn() as conn:
             submitted = await submit_correction_review(
                 conn, tenant_id="t_alpha", draft_id=71,
@@ -2298,6 +2317,17 @@ async def test_chat192_rejection_and_direct_sql_bypass_denied(auth_db):
                     checker_subject="auth:cfo-1", checker_role="cfo",
                     decision="rejected", reason="",
                 )
+
+    # An unverified maker may not fabricate a review even via raw SQL.
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN11_REVIEW_MAKER_SOURCE_MISMATCH"):
+            await conn.execute("""
+                INSERT INTO correction_review_intents
+                    (tenant_id,draft_id,source_id,entry_type,maker_subject,
+                     maker_role,source_fingerprint)
+                VALUES ('t_alpha',71,41,'reversal','auth:attacker',
+                        'accountant',$1)
+            """, 'a'*64)
 
     # Even an owner cannot flip the status without prior matching evidence.
     async with auth_db["admin"].acquire() as conn:

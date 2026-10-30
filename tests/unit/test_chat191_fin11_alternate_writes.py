@@ -121,3 +121,37 @@ async def test_cfo_cannot_approve_legacy_linked_normal_reference():
             await routes.cfo_approve(101, _request())
     assert raised.value.status_code == 409
     conn.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_posted_original_cannot_be_corrected_in_place():
+    from app.api.services import correct_draft_service as svc
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": 101, "entry_type": "normal", "reversal_of_draft_id": None,
+        "status": "posted", "account_code": "1120", "reason": "",
+        "debit_account": "1120", "credit_account": "6110",
+        "description": "posted", "partner": "", "amount": 100,
+        "classification_source": "human",
+    }
+    tr = AsyncMock()
+    conn.transaction = MagicMock(return_value=tr)
+    with patch.object(svc, "get_conn", _conn_scope(conn)):
+        result = await svc.correct_draft(
+            101, {"account_code": "1110"}, user="checker", tenant_id="t_alpha"
+        )
+    assert result["ok"] is False
+    assert result["error"]["code"] == "DRAFT_MUTATION_BLOCKED"
+    tr.rollback.assert_awaited_once()
+    conn.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_linked_normal_reference_is_ambiguous_not_ordinary_adjustment():
+    from app.api.services.reversal_service import _reversal_already_exists
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {"id": 71, "entry_type": "normal"}
+    with pytest.raises(ValueError, match="FIN11_AMBIGUOUS_CORRECTION_HISTORY"):
+        await _reversal_already_exists(conn, 41, "t_alpha")
+    sql = str(conn.fetchrow.call_args.args[0])
+    assert "entry_type <> 'adjustment'" in sql or "entry_type NOT IN ('adjustment')" in sql

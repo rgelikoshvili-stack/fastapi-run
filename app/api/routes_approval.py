@@ -204,12 +204,16 @@ async def correct_draft_route(draft_id: int, req: CorrectRequest, request: Reque
 async def delete_draft(draft_id: int, request: Request):
     """Permanently delete a journal draft (tenant-scoped)."""
     require_permission(request, "approval:write")
-    user_id = resolve_tenant_id(getattr(request.state, "user_id", "anon") if request else "anon")
+    user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(
-                _q("DELETE FROM journal_drafts WHERE id = %s AND tenant_id = %s RETURNING id"),
+                _q("""DELETE FROM journal_drafts
+                    WHERE id = %s AND tenant_id = %s
+                      AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL RETURNING id"""),
                 draft_id, tenant_id,
             )
         if not row:
@@ -252,10 +256,16 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
     vals += [draft_id, tenant_id]
     try:
         async with get_conn() as conn:
-            await conn.execute(
-                _q(f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s"),
+            changed = await conn.fetchrow(
+                _q(f"""UPDATE journal_drafts SET {', '.join(fields)}
+                    WHERE id = %s AND tenant_id = %s
+                      AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL RETURNING id"""),
                 *vals,
             )
+        if not changed:
+            return error_response("Draft is not safely editable", "DRAFT_MUTATION_BLOCKED")
         return ok_response("Draft updated", {"draft_id": draft_id})
     except Exception as e:
         structured_log(
@@ -464,6 +474,8 @@ async def batch_action(body: BatchActionRequest, request: Request):
                     WHERE id = ANY(%s)
                       AND tenant_id = %s
                       AND status NOT IN ('approved', 'rejected', 'posted')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL
                     RETURNING id
                 """), new_status, body.draft_ids, tenant_id)
             updated_ids = {int(r["id"]) for r in rows}
@@ -676,7 +688,7 @@ async def cfo_approve(draft_id: int, request: Request):
                 """), draft_id, tenant_id)
                 if not draft:
                     return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
-                if draft["entry_type"] in ("reversal", "adjustment"):
+                if draft["entry_type"] in ("reversal", "adjustment") or draft["reversal_of_draft_id"] is not None:
                     return http_error(409, "Independent maker/checker gate is not configured",
                                       "FIN11_MAKER_CHECKER_NOT_CONFIGURED")
 

@@ -2535,3 +2535,141 @@ async def test_chat193_direct_sql_cannot_open_prepared_or_mutate_case_history(au
         assert await conn.fetchval(
             "SELECT count(*) FROM posting_outbox_reconciliation_events"
         ) == 1
+
+
+# FIN-12 Chat194: synthetically signed receipt *candidates* only.
+async def _chat194_setup_receipt_candidate(auth_db):
+    from pathlib import Path
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat186_posting_outbox_DRAFT.sql",
+                     "chat194_fin12_signed_receipt_candidates_DRAFT.sql"):
+            sql = Path("docs/sql", name).read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)
+        alpha = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_alpha','draft41','balance',$1,$2,
+                      '{"amount":100}'::jsonb,'unknown')
+            RETURNING id
+        """, "a"*64, "b"*64)
+        beta = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_beta','draft41','balance',$1,$2,
+                      '{"amount":100}'::jsonb,'unknown')
+            RETURNING id
+        """, "c"*64, "d"*64)
+        prepared = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_alpha','draft43','balance',$1,$2,
+                      '{"amount":20}'::jsonb,'prepared')
+            RETURNING id
+        """, "e"*64, "f"*64)
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_intents, posting_outbox_receipts '
+            f'TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_receipt_candidates '
+            f'TO "{auth_db["role"]}"'
+        )
+    return str(alpha), str(beta), str(prepared)
+
+
+@pytest.mark.asyncio
+async def test_chat194_signed_receipt_candidates_never_set_real_vendor_state(auth_db):
+    import base64
+    from datetime import datetime, timezone
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from app.api.services.signed_receipt_candidate_service import (
+        SyntheticReceiptUntrusted, canonical_synthetic_message,
+        record_synthetic_receipt_candidate,
+    )
+    alpha, beta, prepared = await _chat194_setup_receipt_candidate(auth_db)
+    private = Ed25519PrivateKey.from_private_bytes(bytes(range(1, 33)))
+    public = private.public_key().public_bytes_raw()
+    now = datetime(2026, 10, 30, 17, 0, tzinfo=timezone.utc)
+    env = {
+        "version": 1, "key_id": "synthetic-issuer-1",
+        "issued_at": "2026-10-30T17:00:00Z",
+        "tenant_id": "t_alpha", "outbox_id": alpha,
+        "source_id": "draft41", "target_system": "balance",
+        "idempotency_key": "a"*64, "payload_sha256": "b"*64,
+        "provider_receipt_id": "synthetic-receipt-41",
+        "outcome": "accepted",
+    }
+    signature = base64.b64encode(
+        private.sign(canonical_synthetic_message(env))
+    ).decode("ascii")
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            recorded = await record_synthetic_receipt_candidate(
+                conn, tenant_id="t_alpha", intent_id=alpha,
+                envelope=env, signature_b64=signature,
+                trusted_key_id="synthetic-issuer-1",
+                trusted_public_key=public, now=now,
+            )
+            assert recorded["synthetic_integrity_ok"] is True
+            assert recorded["vendor_authenticated"] is False
+            assert recorded["provider_verified"] is False
+            assert recorded["confirm_allowed"] is False
+            assert recorded["retry_allowed"] is False
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_receipt_candidates"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_receipts"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE id=$1",
+                __import__("uuid").UUID(alpha),
+            ) == "unknown"
+        with pytest.raises(SyntheticReceiptUntrusted, match="FIN12_RECEIPT_CANDIDATE_STORAGE_CONFLICT"):
+            async with db.get_conn() as conn:
+                await record_synthetic_receipt_candidate(
+                    conn, tenant_id="t_alpha", intent_id=alpha,
+                    envelope=env, signature_b64=signature,
+                    trusted_key_id="synthetic-issuer-1",
+                    trusted_public_key=public, now=now,
+                )
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_receipt_candidates"
+            ) == 0
+        with pytest.raises(SyntheticReceiptUntrusted, match="FIN12_RECEIPT_SOURCE_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await record_synthetic_receipt_candidate(
+                    conn, tenant_id="t_beta", intent_id=alpha,
+                    envelope=env, signature_b64=signature,
+                    trusted_key_id="synthetic-issuer-1",
+                    trusted_public_key=public, now=now,
+                )
+
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_CANDIDATE_SOURCE_INVALID"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_receipt_candidates
+                  (tenant_id,outbox_id,source_id,target_system,idempotency_key,
+                   payload_sha256,provider_receipt_id,outcome,signer_key_id,
+                   envelope_sha256,signature_sha256)
+                VALUES ('t_alpha',$1,'draft43','balance',$2,$3,
+                        'fake-receipt-43','accepted','synthetic-issuer-1',$4,$5)
+            """, __import__("uuid").UUID(prepared), "e"*64,"f"*64,"1"*64,"2"*64)
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_CANDIDATE_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE posting_outbox_receipt_candidates
+                SET provider_receipt_id='forged' WHERE tenant_id='t_alpha'
+            """)
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_CANDIDATE_IMMUTABLE"):
+            await conn.execute("""
+                DELETE FROM posting_outbox_receipt_candidates WHERE tenant_id='t_alpha'
+            """)
+        assert await conn.fetchval(
+            "SELECT count(*) FROM posting_outbox_receipt_candidates"
+        ) == 1

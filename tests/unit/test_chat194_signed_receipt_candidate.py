@@ -50,10 +50,12 @@ def _sign(envelope, key=_TEST_SIGNER):
 
 
 def _verify(envelope, signature, *, source=None, tenant="t_alpha", **kwargs):
+    key_id = kwargs.pop("trusted_key_id", "synthetic-issuer-1")
+    key_data = kwargs.pop("trusted_public_key", _PIN)
     with authenticated_tenant_context(tenant):
         return verify_synthetic_receipt_candidate(
             envelope=envelope, signature_b64=signature,
-            trusted_key_id="synthetic-issuer-1", trusted_public_key=_PIN,
+            trusted_key_id=key_id, trusted_public_key=key_data,
             source=source if source is not None else _source(),
             now=_NOW, **kwargs,
         )

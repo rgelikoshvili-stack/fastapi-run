@@ -175,7 +175,7 @@ def _make_conn_for_reversal(original=None, duplicate=False):
     def _fetchrow_side_effect(sql, *args):
         """Route fetchrow calls by SQL content."""
         sql_str = str(sql)
-        if "reversal_of_draft_id" in sql_str:
+        if "AND reversal_of_draft_id =" in sql_str:
             return AsyncMock(return_value={"id": 99, "entry_type": "reversal"} if duplicate else None)()
         if "period_locks" in sql_str:
             return AsyncMock(return_value=None)()  # open period
@@ -269,7 +269,7 @@ class TestReversalIntoClosedPeriod:
                 def _fetchrow(sql, *args):
                     sql_str = str(sql)
                     _call_idx[0] += 1
-                    if "reversal_of_draft_id" in sql_str:
+                    if "AND reversal_of_draft_id =" in sql_str:
                         return AsyncMock(return_value=None)()   # no duplicate
                     if "period_locks" in sql_str:
                         return AsyncMock(return_value={"1": 1})()  # locked
@@ -320,7 +320,7 @@ class TestDuplicateReversal:
 
                 def _fetchrow(sql, *args):
                     sql_str = str(sql)
-                    if "reversal_of_draft_id" in sql_str:
+                    if "AND reversal_of_draft_id =" in sql_str:
                         return AsyncMock(return_value={"id": 55, "entry_type": "reversal"})()  # duplicate exists
                     if "period_locks" in sql_str:
                         return AsyncMock(return_value=None)()

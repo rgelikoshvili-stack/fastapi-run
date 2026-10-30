@@ -42,7 +42,7 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
 
             try:
                 draft_row = await conn.fetchrow(_q("""
-                    SELECT id, description, partner, account_code, reason,
+                    SELECT id, entry_type, description, partner, account_code, reason,
                            debit_account, credit_account, amount, classification_source
                     FROM journal_drafts
                     WHERE id = %s AND tenant_id = %s
@@ -64,6 +64,12 @@ async def correct_draft(draft_id: int, payload: dict, user: str = "human", tenan
                 }
 
             row = dict(draft_row)
+            if row.get("entry_type") in ("reversal", "adjustment"):
+                await tr.rollback()
+                return {
+                    "ok": False, "message": "Independent maker/checker is required",
+                    "error": {"code": "FIN11_MAKER_CHECKER_NOT_CONFIGURED"},
+                }
             original = {
                 "account_code": row["account_code"],
                 "reason": row["reason"],

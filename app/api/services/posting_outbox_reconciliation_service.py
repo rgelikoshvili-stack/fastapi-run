@@ -63,7 +63,7 @@ def _actor(subject: str, role: str, phase: str) -> str:
 
 def _evidence(claimed_outcome: str, evidence_sha256: str) -> dict:
     """An unverified manual claim and digest, NOT a vendor-signed receipt."""
-    if claimed_outcome not in _CLAIMS:
+    if not isinstance(claimed_outcome, str) or claimed_outcome not in _CLAIMS:
         _deny("FIN12_RECON_CLAIM_INVALID")
     if not isinstance(evidence_sha256, str) or not _SHA.fullmatch(evidence_sha256):
         _deny("FIN12_RECON_EVIDENCE_DIGEST_INVALID")
@@ -99,7 +99,6 @@ async def _source(conn, *, tenant_id: str, intent_uuid: UUID) -> dict:
                provider_receipt_id,provider_verified_at
           FROM posting_outbox_intents
          WHERE id=%s AND tenant_id=%s
-         FOR UPDATE
     """), intent_uuid, tenant_id)
     if row is None:
         _deny("FIN12_RECON_SOURCE_NOT_FOUND")

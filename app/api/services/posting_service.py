@@ -15,6 +15,7 @@ from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
 from app.api.services.posted_ledger_validation import prepare_posted_ledger_lines, MAX_AMOUNT
 from app.api.services.posted_ledger_reporting import classify_ledger_lines, UnclassifiedLedgerAccount
 from app.api.services.tenant_coa_mapping_service import classify_tenant_ledger_lines
+from app.api.services.period_transaction_gate import acquire_posting_gate, _date as parse_posting_date
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -926,49 +927,42 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 await tr.rollback()
                 return err
 
-            # period lock check
+            # FIN-11: the gate MUST cover this check and subsequent writes.
+            # A DB failure/invalid date is NEVER a licence to post.
             entry_date_raw = draft.get("date")
-            if entry_date_raw:
-                try:
-                    d = _date.fromisoformat(str(entry_date_raw)[:10])
-                    lock_val = await conn.fetchval(
-                        _q("""
-                            SELECT 1 FROM period_locks
-                            WHERE tenant_id = %s
-                              AND unlocked_at IS NULL
-                              AND period_year = %s
-                              AND (period_month = 0 OR period_month = %s)
-                            LIMIT 1
-                        """),
-                        tenant_id, d.year, d.month,
-                    )
-                    if lock_val is not None:
-                        await tr.rollback()
-                        structured_log(
-                            log,
-                            logging.WARNING,
-                            "posting_attempt_failed",
-                            draft_id=draft_id,
-                            tenant_id=tenant_id,
-                            target=target_normalized,
-                            result="error",
-                            error_code="PERIOD_LOCKED",
-                        )
-                        return error_response(
-                            "accounting period is locked",
-                            code="PERIOD_LOCKED",
-                            details={"date": str(entry_date_raw), "tenant_id": tenant_id},
-                        )
-                except Exception as _pl_exc:
-                    # Period-lock query failed unexpectedly; log and continue so a
-                    # broken lock-check does not block all postings.  Operator must
-                    # investigate — a silent pass here could permit posting to a
-                    # locked period without anyone knowing.
-                    log.warning(
-                        "period_lock query raised an unexpected exception for draft %s "
-                        "(posting proceeding — investigate period_lock table): %s",
-                        draft.get("id"), _pl_exc,
-                    )
+            try:
+                posting_date = parse_posting_date(entry_date_raw)
+                await acquire_posting_gate(conn, tenant_id, posting_date)
+                lock_val = await conn.fetchval(_q("""
+                    SELECT 1 FROM period_locks
+                    WHERE tenant_id = %s AND unlocked_at IS NULL
+                      AND period_year = %s
+                      AND (period_month = 0 OR period_month = %s)
+                    LIMIT 1
+                """), tenant_id, posting_date.year, posting_date.month)
+            except Exception as _period_exc:
+                await tr.rollback()
+                structured_log(
+                    log, logging.ERROR, "posting_attempt_failed",
+                    draft_id=draft_id, tenant_id=tenant_id, target=target_normalized,
+                    result="error", error_code="PERIOD_LOCK_UNAVAILABLE",
+                    error_type=type(_period_exc).__name__,
+                )
+                return error_response(
+                    "Accounting period lock unavailable; posting blocked",
+                    code="PERIOD_LOCK_UNAVAILABLE",
+                )
+            if lock_val is not None:
+                await tr.rollback()
+                structured_log(
+                    log, logging.WARNING, "posting_attempt_failed",
+                    draft_id=draft_id, tenant_id=tenant_id, target=target_normalized,
+                    result="error", error_code="PERIOD_LOCKED",
+                )
+                return error_response(
+                    "accounting period is locked", code="PERIOD_LOCKED",
+                    details={"date": str(entry_date_raw), "tenant_id": tenant_id},
+                )
 
             # duplicate invoice check
             if not force:

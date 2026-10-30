@@ -1386,13 +1386,31 @@ async def test_chat181_stored_posting_rate_no_estimate_native_date_and_exact_wri
     from app.api.services import posting_service as posting
     await _chat179_prepare_ledger(auth_db)
     async with auth_db["admin"].acquire() as conn:
+        # Legacy latest snapshot is intentionally UNTRUSTED for financial posting.
         await conn.execute("""CREATE TABLE exchange_rates (
             currency TEXT PRIMARY KEY,from_code TEXT,to_code TEXT,rate NUMERIC,
             fetched_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
             INSERT INTO exchange_rates VALUES
-            ('USD','USD','GEL',2.12345678,'2026-10-10T12:00:00Z','2026-10-10T12:00:00Z');
+            ('USD','USD','GEL',2.99999999,'2026-10-10T12:00:00Z','2026-10-10T12:00:00Z');
+        """)
+        from pathlib import Path
+        quote_schema = Path("docs/sql/chat184_verified_fx_quotes_DRAFT.sql").read_text(encoding="utf-8")
+        await conn.execute(quote_schema)
+        await conn.execute(quote_schema)
+        await conn.execute("""
+            INSERT INTO fx_verified_quotes (
+                currency, base_currency, source_provider, source_revision,
+                source_payload_sha256, published_date, effective_date, retrieved_at,
+                approved_by, approved_at, raw_rate, quantity, rate_to_gel
+            ) VALUES (
+                'USD', 'GEL', 'NBG', 'synthetic-pub-20261014',
+                repeat('a',64), '2026-10-13', '2026-10-14',
+                '2026-10-14T08:00:00Z', 'independent-reviewer',
+                '2026-10-14T09:00:00Z', 2.12345678, 1, 2.12345678
+            )
         """)
         await conn.execute(f'GRANT SELECT ON exchange_rates TO "{auth_db["role"]}"')
+        await conn.execute(f'GRANT SELECT ON fx_verified_quotes TO "{auth_db["role"]}"')
     with db.authenticated_tenant_context("t_alpha"):
         rate=await currency.get_rate_async("USD","GEL","2026-10-15",allow_fallback=False)
         assert rate==Decimal("2.12345678")
@@ -1415,8 +1433,22 @@ async def test_chat181_stored_posting_rate_no_estimate_native_date_and_exact_wri
             await posting._draft_to_posting_payload(dict(draft,currency="EUR"))
         # Existing estimates remain available to the explicitly separate helper.
         assert await currency.get_rate_async("EUR","GEL","2026-10-15")==Decimal(str(currency._DEFAULT_RATES["EUR"]))
+    # A second effective-day revision is ambiguous; don't guess which quote.
     async with auth_db["admin"].acquire() as conn:
-        await conn.execute("UPDATE exchange_rates SET rate='NaN'::numeric")
+        await conn.execute("""
+            INSERT INTO fx_verified_quotes (
+                currency, base_currency, source_provider, source_revision,
+                source_payload_sha256, published_date, effective_date, retrieved_at,
+                approved_by, approved_at, raw_rate, quantity, rate_to_gel
+            ) VALUES (
+                'USD', 'GEL', 'NBG', 'another-synthetic-revision',
+                repeat('b',64), '2026-10-13', '2026-10-14',
+                '2026-10-14T08:00:00Z', 'independent-reviewer',
+                '2026-10-14T09:00:00Z', 2.12345679, 1, 2.12345679
+            )
+        """)
+        with pytest.raises(asyncpg.PostgresError, match="FX_VERIFIED_QUOTES_IMMUTABLE"):
+            await conn.execute("DELETE FROM fx_verified_quotes")
     with db.authenticated_tenant_context("t_alpha"):
         with pytest.raises(posting.FxRateMissingError):
             await posting._draft_to_posting_payload(draft)

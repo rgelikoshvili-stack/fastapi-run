@@ -122,6 +122,18 @@ async def _rate_to_gel_async(
     """
     if currency == "GEL":
         return Decimal("1.0")
+    if not allow_fallback:
+        # The mutable legacy exchange_rates cache is preview evidence ONLY.
+        # A stored numeric rate is not proof of source/publication date.
+        from app.api.services.verified_fx_quote_service import (
+            get_verified_quote_async, FxQuoteUnverified,
+        )
+        try:
+            return (await get_verified_quote_async(currency, for_date))["rate"]
+        except FxQuoteUnverified:
+            raise CurrencyRateNotFound(
+                "FX_QUOTE_UNVERIFIED: approved source/date evidence unavailable"
+            ) from None
     if not allow_fallback and not for_date:
         raise CurrencyRateNotFound("FX_DATE_REQUIRED: posting date is required")
     try:

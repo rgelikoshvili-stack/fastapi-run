@@ -155,3 +155,23 @@ async def test_legacy_linked_normal_reference_is_ambiguous_not_ordinary_adjustme
         await _reversal_already_exists(conn, 41, "t_alpha")
     sql = str(conn.fetchrow.call_args.args[0])
     assert "entry_type <> 'adjustment'" in sql or "entry_type NOT IN ('adjustment')" in sql
+
+
+@pytest.mark.parametrize("entry_type,source_ref", [
+    ("reversal", 41), ("adjustment", 41), ("normal", 41),
+])
+def test_posting_service_refuses_correction_even_when_status_forged_approved(
+    entry_type, source_ref
+):
+    from app.api.services.posting_service import _validate_approved_draft
+    draft = {
+        "status": "approved", "entry_type": entry_type,
+        "reversal_of_draft_id": source_ref,
+        "lines": [
+            {"account_code": "1120", "debit": 10, "credit": 0},
+            {"account_code": "6110", "debit": 0, "credit": 10},
+        ],
+    }
+    result = _validate_approved_draft(draft, 99, "t_alpha")
+    assert result is not None and result["ok"] is False
+    assert result["error"]["code"] == "FIN11_CORRECTION_POSTING_HOLD"

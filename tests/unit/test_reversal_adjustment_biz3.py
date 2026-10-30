@@ -164,6 +164,7 @@ def _make_conn_for_reversal(original=None, duplicate=False):
     """Build an AsyncMock conn for create_reversal_draft tests."""
     from unittest.mock import AsyncMock
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
 
     # Context manager support: `async with get_conn() as conn`
     conn.__aenter__ = AsyncMock(return_value=conn)

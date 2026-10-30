@@ -135,6 +135,7 @@ async def test_correction_uses_shared_transaction_gate_before_insert(method,sour
                   {"account_code": "6110", "debit": 0, "credit": 10}],
     }
     conn=AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchrow.return_value={"id": 188}
     @asynccontextmanager
     async def scoped():

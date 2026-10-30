@@ -26,6 +26,7 @@ from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.services.period_lock_service import assert_period_open, PeriodLockedError
 from app.api.services.period_transaction_gate import acquire_posting_gate
+from app.api.services.reversal_source_gate import acquire_reversal_source_gate
 from app.api.services.posting_helpers import (
     _normalize_lines,
     _validate_lines,
@@ -97,13 +98,14 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
 
 
 async def _reversal_already_exists(conn, original_draft_id: int, tenant_id: str) -> bool:
-    """Return True if a non-rejected reversal draft for original_draft_id exists."""
+    """Ignore adjustments; only an unrejected REVERSAL holds the identity."""
     row = await conn.fetchrow(
         _q("""
             SELECT id FROM journal_drafts
             WHERE tenant_id = %s
               AND reversal_of_draft_id = %s
-              AND status NOT IN ('rejected')
+              AND entry_type = 'reversal'
+              AND status IS DISTINCT FROM 'rejected'
             LIMIT 1
         """),
         tenant_id, original_draft_id,
@@ -151,7 +153,10 @@ async def create_reversal_draft(
                 "only posted entries can be reversed"
             )
 
-        # 2. Duplicate reversal protection
+        # 2. Lock the TENANT+ORIGINAL reversal identity, then re-read under
+        # the same PostgreSQL transaction. Separate workers must not both
+        # pass the preflight before either reversal has committed.
+        await acquire_reversal_source_gate(conn, tenant_id, original_draft_id)
         if await _reversal_already_exists(conn, original_draft_id, tenant_id):
             raise ValueError(
                 f"A non-rejected reversal for draft {original_draft_id} already exists. "

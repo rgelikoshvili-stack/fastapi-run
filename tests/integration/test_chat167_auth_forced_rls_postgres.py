@@ -2039,6 +2039,9 @@ async def test_chat189_migration_refuses_legacy_duplicate_sources_without_deleti
             await conn.execute(Path(
                 "docs/sql/chat189_reversal_source_unique_DRAFT.sql"
             ).read_text())
+        # A failed explicit BEGIN in the Draft candidate leaves the session
+        # aborted; restore the disposable fixture transaction before evidence.
+        await conn.execute("ROLLBACK")
         assert await conn.fetchval("""
             SELECT count(*) FROM journal_drafts
             WHERE tenant_id='t_alpha' AND entry_type='reversal'

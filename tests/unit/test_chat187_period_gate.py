@@ -66,3 +66,43 @@ def test_mutation_call_sites_must_share_the_gate_and_fail_closed():
     assert "await acquire_close_gate(" in reopening
     assert "PERIOD_LOCK_UNAVAILABLE" in posting
     assert "posting proceeding" not in posting
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("day,period_failure", [
+    ("2026-10-30", True), (None, False), ("not-a-date", False),
+])
+async def test_real_posting_aborts_when_period_lookup_fails(day, period_failure):
+    """Actual apply_posting_service must NOT call any ERP on period errors."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock, patch
+    from app.api.services.posting_service import apply_posting_service
+
+    conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
+    conn.transaction = MagicMock(return_value=AsyncMock())
+    conn.fetchrow.return_value = {
+        "id": 187, "tenant_id": "t_alpha", "date": day,
+        "description": "synthetic-only", "partner": "", "amount": 25,
+        "status": "approved", "currency": "GEL",
+        "lines_json": [{"account_code": "1120", "debit": 25, "credit": 0},
+                       {"account_code": "6110", "debit": 0, "credit": 25}],
+    }
+    conn.fetchval.side_effect = (
+        RuntimeError("synthetic period lock table outage") if period_failure else None
+    )
+    @asynccontextmanager
+    async def scoped():
+        yield conn
+
+    with patch("app.api.services.posting_service.get_conn", scoped), \
+         patch("app.api.services.posting_service._post_via_connector") as outbound, \
+         patch("app.api.services.posting_service.log_event") as audit:
+        response = await apply_posting_service(187, "mock", "t_alpha", force=True)
+
+    assert response["error"]["code"] == "PERIOD_LOCK_UNAVAILABLE"
+    outbound.assert_not_called()
+    assert not any("INSERT INTO posting_logs" in str(c.args[0])
+                   for c in conn.fetchval.await_args_list)
+    assert not any("UPDATE journal_drafts" in str(c.args[0])
+                   for c in conn.execute.await_args_list)

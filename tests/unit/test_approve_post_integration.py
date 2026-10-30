@@ -324,5 +324,8 @@ def test_oris_connector_not_ready_does_not_mark_draft_posted():
     assert result["ok"] is False
     assert result["error"]["code"] == "CONNECTOR_NOT_READY"
     assert "not implemented" in result["error"]["details"]["message"].lower()
-    conn.execute.assert_not_awaited()
+    # FIN-11 correctly acquires read-only advisory locks before readiness.
+    assert conn.execute.await_count == 2
+    assert all("pg_advisory_xact_lock_shared" in c.args[0]
+               for c in conn.execute.await_args_list)
 

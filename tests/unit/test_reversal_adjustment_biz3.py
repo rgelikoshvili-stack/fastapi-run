@@ -151,7 +151,7 @@ POSTED_DRAFT = {
     "partner": "LandlordCo",
     "amount": 1180.0,
     "currency": "GEL",
-    "status": "posted",
+    "status": "posted", "entry_type": "normal", "reversal_of_draft_id": None,
     "lines": [
         {"account_code": "7310", "debit": 1000.0, "credit": 0.0,    "label": "Rent"},
         {"account_code": "3311", "debit": 180.0,  "credit": 0.0,    "label": "VAT"},
@@ -278,7 +278,7 @@ class TestReversalIntoClosedPeriod:
                         "id": 42, "tenant_id": "geotrade_test",
                         "date": "2026-08-15", "description": "Rent",
                         "partner": "", "amount": 1180.0, "currency": "GEL",
-                        "status": "posted",
+                        "status": "posted", "entry_type": "normal", "reversal_of_draft_id": None,
                         "lines_json": json.dumps(POSTED_DRAFT["lines"]),
                     })()
 
@@ -328,7 +328,7 @@ class TestDuplicateReversal:
                         "id": 42, "tenant_id": "geotrade_test",
                         "date": "2026-08-15", "description": "Rent",
                         "partner": "", "amount": 1180.0, "currency": "GEL",
-                        "status": "posted",
+                        "status": "posted", "entry_type": "normal", "reversal_of_draft_id": None,
                         "lines_json": json.dumps(POSTED_DRAFT["lines"]),
                     })()
                 conn.fetchrow = _fetchrow
@@ -423,7 +423,7 @@ class TestAdjustmentDraftValidation:
                         "id": 42, "tenant_id": "geotrade_test",
                         "date": "2026-08-15", "description": "Rent",
                         "partner": "", "amount": 1180.0, "currency": "GEL",
-                        "status": "posted",
+                        "status": "posted", "entry_type": "normal", "reversal_of_draft_id": None,
                         "lines_json": "[]",
                     })()
                 conn.fetchrow = _fetchrow

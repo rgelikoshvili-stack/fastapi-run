@@ -415,3 +415,37 @@ Chat191 accepted HEAD: `389801775df32f0ac95d3db8c7f04cbe80f9603a`,
 
 Details: `docs/chat192-fin11-maker-checker-identity-stage.md`.
 Production HOLD, PR #154 remains Draft, all prior plans/files/commits preserved.
+
+
+## Chat193 — FIN-12 UNKNOWN manual reconciliation evidence (2026-10-30)
+
+Chat192 accepted HEAD: `51b11db0ad366dd56daf82338938e8175748d509`
+(9/9 workflow SUCCESS; backend 8448 PASS/3 SKIP plus smoke1; disposable
+PG15/16 630 PASS each). All Chat180–192 history, previous Draft candidates
+and release holds remain unchanged.
+
+- FIN-12 **new, unregistered** `app/api/services/posting_outbox_reconciliation_service.py`.
+  Only existing `unknown` tenant-specific intents can have one local manual
+  investigation; an independently identified checker marks `reviewed_hold`.
+  Claims/digests are deliberately **unverified**, never a real provider receipt.
+- The separate **unapplied** `docs/sql/chat193_fin12_unknown_reconciliation_DRAFT.sql`
+  defines immutable case/events, source-consistency triggers, one-way HOLD
+  reviews and tenant FORCE-RLS. Runtime retains SELECT-only outbox access.
+- Added Chat193 unit and synthetic nonowner PostgreSQL15/16 regression tests
+  for cross-tenant denial, bogus source state, self-review, replay/duplicate
+  and direct SQL evidence tampering; extended isolated CI workflow.
+- This module does NOT register a public route, worker, ERP mutation, provider
+  callback, ledger post, `unknown -> confirmed` state change, dispatch, retry
+  or Production migration. Existing FIN-11 Maker/Checker and FIN-12 accepted
+  receipt/outbox foundations are preserved.
+- **FIN-12 FINISH / EXTERNAL-HOLD:** actual vendor-authenticated acceptance,
+  certified idempotency, signed/verified provider receipt correlation, immutable
+  verified-source history, identity-backed reconciliation roles, safe
+  crash/replay protocol, ledger and outbox single-transaction finalization,
+  role/migration review and complete financial report parity.
+- This step's final exact-SHA 9-CI evidence MUST be separately checked
+  before marking the synthetic Draft test stage verified. See
+  `docs/chat193-fin12-unknown-manual-reconciliation.md`.
+
+**Never auto-retry UNKNOWN; never treat an operator claim as provider proof.**
+PR #154 remains OPEN/DRAFT. Production HOLD. No main/merge/live DB/ERP/Windows-original changes.

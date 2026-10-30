@@ -103,7 +103,9 @@ async def credential_db(monkeypatch):
                     amount NUMERIC,
                     status TEXT,
                     currency TEXT,
-                    lines_json JSONB NOT NULL DEFAULT '[]'::jsonb
+                    lines_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    entry_type TEXT NOT NULL DEFAULT 'normal',
+                    reversal_of_draft_id BIGINT
                 );
                 CREATE TABLE period_locks (
                     tenant_id TEXT NOT NULL,

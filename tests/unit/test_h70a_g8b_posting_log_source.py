@@ -32,7 +32,7 @@ def _make_draft(draft_id=42, lines=None):
     if lines is None:
         lines = [
             {"account_code": "1110", "debit": 500.0, "credit": 0.0,   "label": "DR"},
-            {"account_code": "3100", "debit": 0.0,   "credit": 500.0, "label": "CR"},
+            {"account_code": "3110", "debit": 0.0,   "credit": 500.0, "label": "CR"},
         ]
     return {
         "id": draft_id,

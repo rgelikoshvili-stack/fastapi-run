@@ -48,6 +48,9 @@ on:
       - "tests/unit/test_chat189_reversal_source.py"
       - "tests/unit/test_chat192_maker_checker.py"
       - "tests/unit/test_chat193_fin12_unknown_reconciliation.py"
+      - "tests/unit/test_chat194_signed_receipt_candidate.py"
+      - "app/api/services/signed_receipt_candidate_service.py"
+      - "docs/sql/chat194_fin12_signed_receipt_candidates_DRAFT.sql"
       - "app/api/services/posting_outbox_reconciliation_service.py"
       - "docs/sql/chat193_fin12_unknown_reconciliation_DRAFT.sql"
       - "app/api/services/correction_review_service.py"
@@ -188,6 +191,7 @@ jobs:
           tests/unit/test_chat189_reversal_source.py
           tests/unit/test_chat192_maker_checker.py
           tests/unit/test_chat193_fin12_unknown_reconciliation.py
+          tests/unit/test_chat194_signed_receipt_candidate.py
           tests/unit/test_p0_ai_action_confirm.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

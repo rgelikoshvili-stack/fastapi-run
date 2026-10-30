@@ -75,7 +75,7 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
             SELECT id, tenant_id, date, description, partner,
                    COALESCE(amount, 0) AS amount,
                    COALESCE(currency, 'GEL') AS currency,
-                   status,
+                   status, entry_type, reversal_of_draft_id,
                    COALESCE(lines_json, '[]'::jsonb) AS lines_json
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
@@ -84,7 +84,15 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
     )
     if not row:
         return None
+    # Legacy linked records or unknown entry types cannot be treated as
+    # an unambiguous original posting. No historical backfill is performed.
+    entry_type = row["entry_type"]
+    source_ref = row["reversal_of_draft_id"]
+    if entry_type not in ("normal", "standard") or source_ref is not None:
+        raise ValueError("FIN11_SOURCE_CLASSIFICATION_UNVERIFIED")
     return {
+        "entry_type": entry_type,
+        "reversal_of_draft_id": source_ref,
         "id":          row["id"],
         "tenant_id":   row["tenant_id"],
         "date":        str(row["date"]) if row["date"] else None,
@@ -98,19 +106,43 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
 
 
 async def _reversal_already_exists(conn, original_draft_id: int, tenant_id: str) -> bool:
-    """Ignore adjustments; only an unrejected REVERSAL holds the identity."""
+    """Refuse ambiguous active legacy references, never infer their category."""
     row = await conn.fetchrow(
         _q("""
-            SELECT id FROM journal_drafts
+            SELECT id, entry_type FROM journal_drafts
             WHERE tenant_id = %s
               AND reversal_of_draft_id = %s
-              AND entry_type = 'reversal'
               AND status IS DISTINCT FROM 'rejected'
+              AND (entry_type = 'reversal'
+                   OR entry_type IS NULL
+                   OR entry_type NOT IN ('normal', 'standard', 'adjustment', 'reversal'))
+            ORDER BY CASE WHEN entry_type = 'reversal' THEN 1 ELSE 0 END, id
             LIMIT 1
         """),
         tenant_id, original_draft_id,
     )
-    return row is not None
+    if row is None:
+        return False
+    if row["entry_type"] != "reversal":
+        raise ValueError("FIN11_AMBIGUOUS_CORRECTION_HISTORY")
+    return True
+
+
+async def _write_correction_audit(conn, *, tenant_id: str, draft_id: int,
+                                  original_id: int, actor: str, action: str) -> None:
+    """Audit and draft creation succeed or roll back in ONE DB transaction."""
+    from app.api.db import _validate_tenant_id
+    _validate_tenant_id(tenant_id)
+    if conn.is_in_transaction() is not True or not isinstance(actor, str) or not actor.strip():
+        raise ValueError("FIN11_AUDIT_TRANSACTION_OR_ACTOR_REQUIRED")
+    await conn.execute(_q("""
+        INSERT INTO audit_log
+            (actor, role, action, resource, resource_id,
+             old_value, new_value, status, details, tenant_id)
+        VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s)
+    """), actor, "maker", action, "journal_drafts", str(draft_id),
+        json.dumps({"source_id": original_id, "status": "pending_approval"}),
+        "success", "FIN11 correction draft created; not posted", tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -211,20 +243,11 @@ async def create_reversal_draft(
 
         reversal_id = row["id"]
 
-        # 6. Audit event
-        log_event(
-            "reversal_draft_created",
-            {
-                "entity_type":         "journal_draft",
-                "entity_id":           reversal_id,
-                "original_draft_id":   original_draft_id,
-                "reversal_date":       str(reversal_date_obj),
-                "reason":              reason.strip(),
-                "actor":               actor,
-                "lines_count":         len(reversed_lines),
-            },
-            actor=actor,
-            tenant_id=tenant_id,
+        # Same transaction as INSERT: no independent best-effort connection.
+        await _write_correction_audit(
+            conn, tenant_id=tenant_id, draft_id=reversal_id,
+            original_id=original_draft_id, actor=actor,
+            action="reversal_draft_created",
         )
 
     log.info(
@@ -327,20 +350,10 @@ async def create_adjustment_draft(
 
         adj_id = row["id"]
 
-        # 4. Audit event
-        log_event(
-            "adjustment_draft_created",
-            {
-                "entity_type":       "journal_draft",
-                "entity_id":         adj_id,
-                "original_draft_id": original_draft_id,
-                "adjustment_date":   str(adjustment_date_obj),
-                "reason":            reason.strip(),
-                "actor":             actor,
-                "lines_count":       len(normalized),
-            },
-            actor=actor,
-            tenant_id=tenant_id,
+        await _write_correction_audit(
+            conn, tenant_id=tenant_id, draft_id=adj_id,
+            original_id=original_draft_id, actor=actor,
+            action="adjustment_draft_created",
         )
 
     log.info(

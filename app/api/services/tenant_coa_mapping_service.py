@@ -130,4 +130,11 @@ async def classify_tenant_ledger_lines(lines, tenant_id, entry_date, *, conn=Non
             raise
         except Exception:
             _deny()
-    return classify_ledger_lines(lines, approved)
+    result = []
+    for line in lines:
+        code = str(line.get("account_code", "")).strip()
+        kind = canonical_account_type(code) or approved.get(code)
+        if kind is None:
+            _deny()
+        result.append(dict(line, account_type=kind))
+    return result

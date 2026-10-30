@@ -449,3 +449,34 @@ and release holds remain unchanged.
 
 **Never auto-retry UNKNOWN; never treat an operator claim as provider proof.**
 PR #154 remains OPEN/DRAFT. Production HOLD. No main/merge/live DB/ERP/Windows-original changes.
+
+
+## Chat194 — FIN-12 synthetic receipt integrity (2026-10-30)
+
+Continues Chat193 exact accepted HEAD `989861c9db14344a69a67758a68833b8a2124a86`
+(9/9 CI SUCCESS; Backend 8,475 PASS / 3 SKIP plus smoke1; disposable
+PostgreSQL15/16 659 PASS each). All prior assets, holds, and work preserved.
+
+- **FIN-12 receipt trust gap confirmed:** `verified_by`, a SHA digest or an
+  operator claim is NOT authenticated vendor acceptance and does not prove
+  Balance.ge/1C/Oris semantics. Real vendor trust anchors and idempotency
+  contracts have NOT been established.
+- Added **unregistered** `signed_receipt_candidate_service.py` with
+  test-only pinned Ed25519 envelope integrity and strict tenant/outbox,
+  source/target, idempotency/payload SHA, timestamp and signer validation.
+  ALWAYS returns `provider_verified=false`, no retry, dispatch, ledger,
+  confirm or actual receipt write. No real provider signing claim.
+- Added **unapplied** `docs/sql/chat194_fin12_signed_receipt_candidates_DRAFT.sql`
+  with append-only, tenant FORCE-RLS, immutable synthetic evidence and
+  source-state preflight. Runtime live grants: NONE. Real `UNKNOWN` remains
+  untouched. Red-first unit + disposable PG15/16 regressions and CI paths
+  added for forged/replayed/incorrect signatures, stale evidence, tenant
+  leaks and tampering. Detailed stage: `docs/chat194-fin12-signed-receipt-candidate-hold.md`.
+- **OPEN/EXTERNAL-HOLD:** actual provider-authenticated response and
+  custody/rotation, sandbox/vendor support, independent idempotency guarantee,
+  durable timeouts, reconciliation leases, cross-system ledger/outbox
+  consistency, nonowner role approval, signed JWT binding, live schema audit.
+  No provider calls, Production DDL, merger, ERP write or main changes.
+- Exact final post-documentation HEAD CI 9/9 must be independently verified
+  before Chat194 is marked Draft-verified. A synthetic green test does not
+  waive provider acceptance or Production HOLD.

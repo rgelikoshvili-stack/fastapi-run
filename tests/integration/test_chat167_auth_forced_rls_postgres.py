@@ -1872,6 +1872,13 @@ async def _chat189_prepare_reversal_drafts(auth_db):
                 reversal_reason TEXT,
                 entry_type TEXT NOT NULL DEFAULT 'standard'
             );
+            CREATE TABLE audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                actor TEXT NOT NULL, role TEXT, action TEXT NOT NULL,
+                resource TEXT, resource_id TEXT,
+                old_value JSONB, new_value JSONB, status TEXT,
+                details TEXT, tenant_id TEXT NOT NULL
+            );
             CREATE TABLE period_locks (
                 tenant_id TEXT NOT NULL,
                 period_year INT NOT NULL,
@@ -1897,13 +1904,18 @@ async def _chat189_prepare_reversal_drafts(auth_db):
             CREATE POLICY chat189_tenant_drafts ON journal_drafts FOR ALL
               USING (tenant_id=current_setting('app.current_tenant_id',true))
               WITH CHECK (tenant_id=current_setting('app.current_tenant_id',true));
+            ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat190_tenant_audit ON audit_log FOR ALL
+              USING (tenant_id=current_setting('app.current_tenant_id',true))
+              WITH CHECK (tenant_id=current_setting('app.current_tenant_id',true));
             ALTER TABLE period_locks ENABLE ROW LEVEL SECURITY;
             ALTER TABLE period_locks FORCE ROW LEVEL SECURITY;
             CREATE POLICY chat189_tenant_period ON period_locks FOR ALL
               USING (tenant_id=current_setting('app.current_tenant_id',true))
               WITH CHECK (tenant_id=current_setting('app.current_tenant_id',true));
         """)
-        for table in ("journal_drafts","period_locks"):
+        for table in ("journal_drafts","period_locks","audit_log"):
             await conn.execute(
                 f'GRANT SELECT,INSERT,UPDATE ON {table} TO "{auth_db["role"]}"'
             )

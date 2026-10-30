@@ -2062,3 +2062,25 @@ async def test_chat189_migration_refuses_legacy_duplicate_sources_without_deleti
             SELECT count(*) FROM pg_indexes WHERE tablename='journal_drafts'
               AND indexname='uq_chat189_tenant_active_reversal'
         """)==0
+
+
+@pytest.mark.asyncio
+async def test_chat191_unclassified_linked_history_blocks_partial_reversal_index(auth_db):
+    """Migration preflight must refuse ambiguous original references; no backfill."""
+    from pathlib import Path
+    await _chat189_prepare_reversal_drafts(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            INSERT INTO journal_drafts
+                (tenant_id, date, status, entry_type, reversal_of_draft_id)
+            VALUES ('t_alpha', '2026-10-23', 'pending_approval', 'standard', 41)
+        """)
+        with pytest.raises(asyncpg.RaiseError, match="FIN11_AMBIGUOUS_CORRECTION_HISTORY_PREFLIGHT"):
+            await conn.execute(
+                Path("docs/sql/chat189_reversal_source_unique_DRAFT.sql").read_text()
+            )
+        await conn.execute("ROLLBACK")
+        assert await conn.fetchval("""
+            SELECT COUNT(*) FROM journal_drafts
+            WHERE tenant_id = 't_alpha' AND reversal_of_draft_id = 41
+        """) == 1

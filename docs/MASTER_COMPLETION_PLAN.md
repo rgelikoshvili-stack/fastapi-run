@@ -1,6 +1,6 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
-განახლება: 2026-10-30, Chat185 (Chat180–184 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
+განახლება: 2026-10-30, Chat186 (Chat180–185 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
 
@@ -101,7 +101,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-09 P1 V1 | unknown periods fail closed; unavailable CFO cashflow is null; DRAFT-VERIFIED at `2381108` | complete classification-review workflow and actual cash reconciliation; FX/compound/noncash/reversals and UI unavailable-state acceptance remain |
 | FIN-10 P1 V1 | trial/account/counterparty ledgers have legacy posted-draft paths | consistent source flag/labels, opening/period/closing balances and statement parity; no silent fallback |
 | FIN-11 P0 V1-B | approval/correction/period-lock services, historical guarded candidates | actual route→transaction→audit; maker/checker, concurrent close vs posting, locked dates, immutable reversal; preserve candidate provenance |
-| FIN-12 P0 V1-B writes | posting/ERP success and local ledger are separate transactions | durable receipt/outbox/reconciliation; timeout and unknown result, commit failure, duplicate importer; never retry external mutation blindly |
+| FIN-12 P0 V1-B writes | Chat186 DRAFT-VERIFIED foundation at `7d768270`: inert durable tenant-scoped intents, stable source/idempotency fingerprints, append-only candidate receipts, UNKNOWN manual-reconciliation hold | no live dispatch worker, no verified provider response/idempotency, no ledger receipt atomicity; actual integration, crash/replay/commit-failure, approved runtime role/schema and vendor reconciliation EXTERNAL-HOLD |
 | FIN-13 P1 V1 | payroll/tax/VAT services and rules exist | posted-only authoritative basis, current policy pack/SME sign-off, payroll history, declaration preview vs filed status; no live submission |
 | FIN-14 P1 V1 | monthly/year close, opening balances, reconciliation modules | end-to-end checklist, unmet evidence, period lock, closing entries, rollback/no partial mutation |
 | FIN-15 P1 optional V1 | AR/AP/aging/budget/cost centers/fixed assets/inventory exist | narrow pilot-critical reports; provenance, units, valuation and double-entry controls. Full ERP expansion P2; do not duplicate existing systems |
@@ -339,3 +339,5 @@ unverified. **Production HOLD; PR #154 stays OPEN/DRAFT.**
 | Chat184 FIN-05 approved dated FX quotes | before regression `70bc7d54` (15 failures PG15/16); repair `55ebd684e7d98bf229dd795e5eb95afe47a685b9`: mutable latest snapshot no longer source for financial posting and official FX revaluation; exact 9/9 CI PASS | backend 8389PASS/3SKIP +smoke1; PG15/16 567 each, Chroma43, Redis210, membership45, vault104, RLS18, PR127270+1, PR8482/219+1; actual deploy/build SKIPPED. Quote ingestion/evidence approval and real provider EXTERNAL-HOLD. FIN-06/12 next. |
 
 | Chat185 FIN-06 integrity candidate | `afdf8cc7d20ca8f34005b77160789e07600d2e9c`: migration 011 + Chat179 FK required; safe preflight for historical duplicates/mismatches; unique draft/posting-log source, immutable header/line/source and deferred exact totals at COMMIT. PG15/16 570PASS EACH, all 9 CI PASS | backend 8389PASS/3SKIP+smoke1, Chroma/ONNX, Redis, membership, vault, RLS, PR127/PR84 green; actual deploy and frontend build SKIPPED. Candidate NOT live, FIN11/FIN12 OPEN. |
+
+| Chat186 FIN-12 durable intent/receipt foundation | `4ac31f4` initial + `7d7682703b50bbc5657b74bcd3a8137d7424cc4a` scoped source fix; outbox idempotency and A/B tenant FORCE-RLS, immutable fingerprints, unknown-outcome no blind retry, candidate append-only receipts | 9/9 CI PASS at exact code SHA. Backend8397/3SKIP+1smoke; PG15/16 579 EACH. No actual vendor dispatch, provider receipt proof, ledger/ERP transactional atomicity or live migration. These remain EXTERNAL-HOLD / FINISH. |

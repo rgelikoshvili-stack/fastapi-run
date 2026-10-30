@@ -12,6 +12,18 @@ SET LOCAL row_security = off;
 
 DO $fin11$
 BEGIN
+    -- An active linked legacy row labelled normal/standard/unknown could
+    -- actually be an older reversal. Do not certify a misleading clean index.
+    IF EXISTS (
+        SELECT 1 FROM journal_drafts
+         WHERE reversal_of_draft_id IS NOT NULL
+           AND status IS DISTINCT FROM 'rejected'
+           AND (entry_type IS NULL OR entry_type NOT IN ('reversal','adjustment'))
+    ) THEN
+        RAISE EXCEPTION 'FIN11_AMBIGUOUS_CORRECTION_HISTORY_PREFLIGHT'
+            USING HINT = 'Classify each linked legacy entry with separate evidence; do not auto-rewrite.';
+    END IF;
+
     IF EXISTS (
         SELECT 1 FROM journal_drafts
          WHERE entry_type = 'reversal'

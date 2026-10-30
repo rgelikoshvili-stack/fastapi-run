@@ -2363,3 +2363,172 @@ async def test_chat192_rejection_and_direct_sql_bypass_denied(auth_db):
         assert await conn.fetchval(
             "SELECT state FROM correction_review_intents WHERE id=$1", review_id
         ) == "rejected"
+
+
+# FIN-12 Chat193: all tests run ONLY in temporary PG15/16 schema/nonowner role.
+async def _chat193_setup_reconciliation(auth_db):
+    from pathlib import Path
+    import uuid
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat186_posting_outbox_DRAFT.sql",
+                     "chat193_fin12_unknown_reconciliation_DRAFT.sql"):
+            sql = Path("docs/sql", name).read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)
+        alpha = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_alpha','synthetic-41','balance',$1,$2,
+                      '{"amount":100}'::jsonb,'unknown')
+            RETURNING id
+        """, "a"*64, "b"*64)
+        beta = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_beta','synthetic-42','balance',$1,$2,
+                      '{"amount":20}'::jsonb,'unknown')
+            RETURNING id
+        """, "c"*64, "d"*64)
+        prepared = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents(
+                tenant_id,source_id,target_system,idempotency_key,
+                payload_sha256,payload_json,state
+            ) VALUES ('t_alpha','synthetic-43','balance',$1,$2,
+                      '{"amount":30}'::jsonb,'prepared')
+            RETURNING id
+        """, "e"*64, "f"*64)
+        for tbl in ("posting_outbox_intents",
+                    "posting_outbox_reconciliation_cases",
+                    "posting_outbox_reconciliation_events"):
+            rights = ("SELECT,INSERT,UPDATE" if tbl.endswith("_cases")
+                      else "SELECT,INSERT" if tbl.endswith("_events")
+                      else "SELECT")
+            await conn.execute(f'GRANT {rights} ON {tbl} TO "{auth_db["role"]}"')
+        await conn.execute(
+            f'GRANT USAGE,SELECT ON posting_outbox_reconciliation_cases_id_seq,'
+            f'posting_outbox_reconciliation_events_id_seq TO "{auth_db["role"]}"'
+        )
+    return str(alpha), str(beta), str(prepared)
+
+
+@pytest.mark.asyncio
+async def test_chat193_unknown_manual_review_never_confirms_posts_or_retries(auth_db):
+    from app.api.services.posting_outbox_reconciliation_service import (
+        ManualReconciliationUnavailable,
+        open_unknown_reconciliation, review_unknown_reconciliation,
+    )
+    alpha, beta, prepared = await _chat193_setup_reconciliation(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            result = await open_unknown_reconciliation(
+                conn, tenant_id="t_alpha", intent_id=alpha,
+                opener_subject="auth:accountant-1", opener_role="accountant",
+                claimed_outcome="claimed_accepted", evidence_sha256="1"*64,
+            )
+            assert result["state"] == "open"
+            assert result["dispatch_allowed"] is False
+            assert result["provider_verified"] is False
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE id=$1",
+                __import__("uuid").UUID(alpha)
+            ) == "unknown"
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_receipts"
+            ) == 0
+
+        with pytest.raises(ManualReconciliationUnavailable, match="FIN12_RECON_ALREADY_OPEN"):
+            async with db.get_conn() as conn:
+                await open_unknown_reconciliation(
+                    conn, tenant_id="t_alpha", intent_id=alpha,
+                    opener_subject="auth:accountant-1", opener_role="accountant",
+                    claimed_outcome="claimed_accepted", evidence_sha256="1"*64,
+                )
+        with pytest.raises(ManualReconciliationUnavailable, match="FIN12_RECON_SELF_REVIEW_DENIED"):
+            async with db.get_conn() as conn:
+                await review_unknown_reconciliation(
+                    conn, tenant_id="t_alpha", intent_id=alpha,
+                    reviewer_subject="auth:accountant-1", reviewer_role="cfo",
+                )
+        async with db.get_conn() as conn:
+            reviewed = await review_unknown_reconciliation(
+                conn, tenant_id="t_alpha", intent_id=alpha,
+                reviewer_subject="auth:cfo-2", reviewer_role="cfo",
+            )
+            assert reviewed["state"] == "reviewed_hold"
+            assert reviewed["dispatch_allowed"] is False
+            assert reviewed["provider_verified"] is False
+            assert reviewed["retry_allowed"] is False
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_reconciliation_events"
+            ) == 2
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE id=$1",
+                __import__("uuid").UUID(alpha)
+            ) == "unknown"
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_receipts"
+            ) == 0
+        with pytest.raises(ManualReconciliationUnavailable, match="FIN12_RECON_ALREADY_REVIEWED"):
+            async with db.get_conn() as conn:
+                await review_unknown_reconciliation(
+                    conn, tenant_id="t_alpha", intent_id=alpha,
+                    reviewer_subject="auth:cfo-3", reviewer_role="cfo",
+                )
+
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_reconciliation_cases"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_reconciliation_events"
+            ) == 0
+        with pytest.raises(ManualReconciliationUnavailable, match="FIN12_RECON_SOURCE_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await open_unknown_reconciliation(
+                    conn, tenant_id="t_beta", intent_id=alpha,
+                    opener_subject="auth:beta-accountant", opener_role="accountant",
+                    claimed_outcome="undetermined", evidence_sha256="2"*64,
+                )
+
+
+@pytest.mark.asyncio
+async def test_chat193_direct_sql_cannot_open_prepared_or_mutate_case_history(auth_db):
+    import uuid
+    from app.api.services.posting_outbox_reconciliation_service import (
+        open_unknown_reconciliation,
+    )
+    alpha, _, prepared = await _chat193_setup_reconciliation(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECON_SOURCE_NOT_UNKNOWN"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_reconciliation_cases
+                  (tenant_id,outbox_id,source_id,target_system,
+                   idempotency_key,payload_sha256,opener_subject,opener_role,
+                   claimed_outcome,evidence_sha256)
+                VALUES ('t_alpha',$1,'synthetic-43','balance',$2,$3,
+                        'auth:malicious','accountant','undetermined',$4)
+            """, uuid.UUID(prepared), "e"*64, "f"*64, "3"*64)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await open_unknown_reconciliation(
+                conn, tenant_id="t_alpha", intent_id=alpha,
+                opener_subject="auth:accountant-1", opener_role="accountant",
+                claimed_outcome="undetermined", evidence_sha256="1"*64,
+            )
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECON_HISTORY_IMMUTABLE"):
+            await conn.execute("""
+                DELETE FROM posting_outbox_reconciliation_events
+                 WHERE tenant_id='t_alpha'
+            """)
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECON_HISTORY_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE posting_outbox_reconciliation_cases
+                   SET opener_subject='forged' WHERE tenant_id='t_alpha'
+            """)
+        assert await conn.fetchval(
+            "SELECT count(*) FROM posting_outbox_reconciliation_events"
+        ) == 1

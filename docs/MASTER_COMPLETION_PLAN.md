@@ -1,6 +1,6 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
-განახლება: 2026-10-30, Chat183 (Chat180–182 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
+განახლება: 2026-10-30, Chat184 (Chat180–183 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
 
@@ -94,7 +94,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-02 P0 V1-B | cooperative transaction lock DRAFT-VERIFIED at `a91b50f`; direct-SQL uniqueness FINISH | concurrent same-draft writers, same/different tenant, retry/rollback, no duplicate header/source; DB uniqueness vs cooperative lock distinguished |
 | FIN-03 P0 V1 | `financial_statements_service.py` guards; main four joins fixed | sibling `ledger_service.py` tenant join/date normalization repaired and verified in Chat180; broad-line RLS + bounded-date PG PASS; retain JWT/UI retest |
 | FIN-04 P0 V1 | Chat183 Draft: tenant-scoped reviewed custom mappings, fail-closed posting preflight/writer, standalone candidate schema and PG15/16 regressions; exact-SHA CI pending | mapping disabled by default; vendor source approval, live historical inventory, controlled import and migration EXTERNAL-HOLD; no historical backfill |
-| FIN-05 P0 V1 | stored functional GEL reports and rounded-balance guards DRAFT-VERIFIED `547ba51`; legacy foreign totals fail closed | posting static fallback repair in progress; quote source/effective date/freshness, exact output precision, real schema/provider acceptance remain |
+| FIN-05 P0 V1 | Chat184 reviewed NBG quote source/approved provenance/as-of 7-day bound for foreign posting and revaluation DRAFT-VERIFIED at `55ebd684`; mutable legacy rate cache excluded | quote provenance import and authoritative provider calendar/source proof, production schema/grants, writer receipt linkage, holiday policy, exact historical UI parity EXTERNAL-HOLD |
 | FIN-06 P0 V1-B | migration 011 ledger + Chat179 composite FK candidate | append-only UPDATE/DELETE, header/line totals, source links and correction states; candidate SQL tested only; live rollout EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
 | FIN-08 P1 V1 | balance sheet assets/liabilities/equity read path | current profit/retained earnings, opening balances, period close and FX; trial equation and complete equity reconciliation, not just asset totals |
@@ -335,3 +335,5 @@ provider/OAuth/SMTP, UI E2E, Cloud Run/Redis and Windows inventory remain
 unverified. **Production HOLD; PR #154 stays OPEN/DRAFT.**
 
 | Chat183 FIN-04 tenant-specific mapping | Draft commits `5d24ce1` / `ccd8314`: explicit reviewed tenant custom COA, no caller hints, authenticated tenant context, fail-closed overlap/missing/foreign provenance; isolated PG migration candidate, tests; not activated | Full exact-SHA CI pending; actual source approval/import and runtime mapping rollout EXTERNAL-HOLD; FIN-05 source-date freshness and FIN-06/12 remain OPEN |
+
+| Chat184 FIN-05 approved dated FX quotes | before regression `70bc7d54` (15 failures PG15/16); repair `55ebd684e7d98bf229dd795e5eb95afe47a685b9`: mutable latest snapshot no longer source for financial posting and official FX revaluation; exact 9/9 CI PASS | backend 8389PASS/3SKIP +smoke1; PG15/16 567 each, Chroma43, Redis210, membership45, vault104, RLS18, PR127270+1, PR8482/219+1; actual deploy/build SKIPPED. Quote ingestion/evidence approval and real provider EXTERNAL-HOLD. FIN-06/12 next. |

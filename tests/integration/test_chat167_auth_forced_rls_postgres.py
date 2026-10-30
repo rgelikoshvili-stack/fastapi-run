@@ -2399,6 +2399,9 @@ async def _chat193_setup_reconciliation(auth_db):
                       '{"amount":30}'::jsonb,'prepared')
             RETURNING id
         """, "e"*64, "f"*64)
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_receipts TO "{auth_db["role"]}"'
+        )
         for tbl in ("posting_outbox_intents",
                     "posting_outbox_reconciliation_cases",
                     "posting_outbox_reconciliation_events"):

@@ -480,3 +480,33 @@ PostgreSQL15/16 659 PASS each). All prior assets, holds, and work preserved.
 - Exact final post-documentation HEAD CI 9/9 must be independently verified
   before Chat194 is marked Draft-verified. A synthetic green test does not
   waive provider acceptance or Production HOLD.
+
+
+## Chat195 — FIN-12 vendor-authentication HOLD closes local receipt spoofing (2026-10-30)
+
+Starting Chat194 source HEAD `05aea2dadb5e1c5ad9f6809b9b98008604b28f19`:
+9/9 workflow SUCCESS (Backend 8,499 PASS / 3 SKIP + smoke1; disposable
+PostgreSQL15/16 684 PASS each). Previous plans, source and reports unchanged.
+
+- Red-first disposable PostgreSQL regression `bb412c16b314658265de1f38e472ce0d3b8255d6`
+  proves the old DRAFT outbox SQL permitted unverified local receipt metadata
+  and initially inserted terminal/UNKNOWN states without the UPDATE guard.
+- New security HOLD in **unapplied** `docs/sql/chat186_posting_outbox_DRAFT.sql`:
+  initial intent is `prepared` only, signed vendor-proof is NOT assumed;
+  no `confirmed` or `rejected` transition is allowed before a REAL
+  externally accepted provider receipt/authentication contract, even if
+  a local `verified_by`/hash field appears valid. Unverified `accepted`
+  or `rejected` receipt INSERTs now fail closed. No provider fake success.
+- Existing Chat191/193/194 PG fixtures adapted to stricter safe state creation.
+  Previously documented local receipt consistency is retained only as
+  defense-in-depth and explicitly **not** provider authorization.
+- No public worker/router, registered migration, live ERP call, Production
+  deployment, main edit, Merge, Windows original mutation or deletion.
+- **FIN-12 unfinished EXTERNAL-HOLD:** verified vendor cryptographic/status
+  response, tenant account association, trusted key custody, idempotency
+  certification, dispatch lease/crash recovery, durable `unknown` status
+  readback, exactly-once LOCAL ledger/outbox finalization, live tenant
+  grants/schema/release sign-off. See
+  `docs/chat195-fin12-vendor-authentication-fail-closed.md`.
+- Chat195 acceptance is contingent on exact FINAL HEAD 9 CI outcomes
+  (including PG15 and PG16), not a prior intermediate SHA.

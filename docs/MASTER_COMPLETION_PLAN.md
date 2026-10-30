@@ -510,3 +510,40 @@ PostgreSQL15/16 684 PASS each). Previous plans, source and reports unchanged.
   `docs/chat195-fin12-vendor-authentication-fail-closed.md`.
 - Chat195 acceptance is contingent on exact FINAL HEAD 9 CI outcomes
   (including PG15 and PG16), not a prior intermediate SHA.
+
+
+## Chat196 — FIN-12 dispatch gate and crash-recovery quarantine (2026-10-31)
+
+Starting Chat195 accepted HEAD `54a3db9c57d08c5033cc746843191e9d74f43cbc`,
+CI 9/9 SUCCESS, backend 8,499 PASS/3 SKIP and disposable PG15/16
+685 PASS each. All earlier files, security holds and decisions preserved.
+
+- **P0 safety gap identified:** earlier Chat195 prevented unverified terminal
+  states but still allowed direct SQL `prepared -> in_flight` without a
+  vendor-certified idempotency contract, authenticated sender, dispatch
+  lease/fencing or worker. Chat196 changes only standalone/unapplied
+  `docs/sql/chat186_posting_outbox_DRAFT.sql` to refuse new
+  `in_flight` transitions with `FIN12_DISPATCH_CONTRACT_UNVERIFIED`.
+  Other receipt, initial-state and no-retry holds stay intact.
+- An **unregistered** `posting_outbox_crash_hold_service.py` records
+  tenant-scoped, caller-transactional, unverified-outcome quarantine
+  evidence only for existing ambiguous `in_flight`/`unknown` states.
+  The separate **unapplied** `docs/sql/chat196_fin12_crash_hold_DRAFT.sql`
+  has FORCE RLS, immutable observations, unique intent identity and
+  direct SQL source/tenant/hash checks. No outbox status, vendor,
+  ledger or receipt write.
+- Red-first `tests/unit/test_chat196_dispatch_crash_hold.py` and
+  synthetic PG15/16 tests in
+  `tests/integration/test_chat167_auth_forced_rls_postgres.py`
+  added to existing CI. `UNKNOWN` and missing lease are always
+  manual HOLD; no timeout implies that ERP did not commit.
+- **Still FIN-12 OPEN/EXTERNAL-HOLD:** real provider acknowledgment and
+  key/tenant mapping; certified idempotency and status query; lease
+  ownership/expiry/fencing; deterministic crash-after-send protocol;
+  trustworthy signed receipt and local DB ledger/outbox atomicity.
+  This stage deliberately does **not** implement or activate a dispatcher.
+  See `docs/chat196-fin12-dispatch-crash-hold.md`.
+- No Production, main, merge, live migration, ERP mutation, original
+  Windows file changes or publication of private handoff evidence.
+  Exact final Chat196 HEAD and all nine CI results need independent
+  post-commit verification before claiming Draft testing complete.

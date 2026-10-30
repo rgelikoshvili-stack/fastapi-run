@@ -34,6 +34,11 @@ on:
       - "app/api/services/tenant_coa_mapping_service.py"
       - "docs/sql/chat183_tenant_coa_mappings_DRAFT.sql"
       - "tests/unit/test_chat183_tenant_coa_mapping.py"
+      - "tests/unit/test_chat184_verified_fx_quote.py"
+      - "app/api/services/verified_fx_quote_service.py"
+      - "app/api/services/fx_service.py"
+      - "app/api/routes_fx.py"
+      - "docs/sql/chat184_verified_fx_quotes_DRAFT.sql"
       - "tests/integration/test_chat183_tenant_coa_postgres.py"
       - "app/api/services/currency_service.py"
       - "tests/unit/test_chat181_functional_currency.py"
@@ -157,6 +162,7 @@ jobs:
           tests/unit/test_chat181_functional_currency.py
           tests/unit/test_chat181_classification_completeness.py
           tests/unit/test_chat183_tenant_coa_mapping.py
+          tests/unit/test_chat184_verified_fx_quote.py
           tests/unit/test_p0_ai_action_confirm.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

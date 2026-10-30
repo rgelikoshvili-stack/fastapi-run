@@ -1415,3 +1415,70 @@ async def test_chat181_stored_posting_rate_no_estimate_native_date_and_exact_wri
     with db.authenticated_tenant_context("t_alpha"):
         with pytest.raises(posting.FxRateMissingError):
             await posting._draft_to_posting_payload(draft)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata",["missing","aliases","typed_custom"])
+async def test_chat181_historical_classification_resolves_without_rewriting_rows(auth_db,monkeypatch,metadata):
+    from app.api.services import financial_statements_service as finance,chat_context_service as chat
+    from app.api.services.posting_service import _write_ledger_entries
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED","1")
+    await _chat179_prepare_ledger(auth_db);await _chat181_report_inputs(auth_db)
+    for tenant,amount in [("t_alpha",100),("t_beta",9000)]:
+        with db.authenticated_tenant_context(tenant):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn,{"id":str(uuid4()),"date":"2026-10-15","currency":"GEL",
+                    "lines":[{"account_code":"1120","debit":amount},{"account_code":"6110","credit":amount}]},
+                    {},tenant,"synthetic","coa181")
+    async with auth_db["admin"].acquire() as conn:
+        if metadata=="missing":await conn.execute("UPDATE journal_entry_lines SET account_type=NULL WHERE tenant_id='t_alpha'")
+        elif metadata=="aliases":await conn.execute("UPDATE journal_entry_lines SET account_type='revenue' WHERE tenant_id='t_alpha' AND account_code='6110'")
+        else:await conn.execute("UPDATE journal_entry_lines SET account_code='CUSTOM_REV' WHERE tenant_id='t_alpha' AND account_code='6110'")
+        before=[tuple(r) for r in await conn.fetch("SELECT id,account_code,account_type FROM journal_entry_lines ORDER BY id")]
+    for tenant,amount in [("t_alpha",100),("t_beta",9000)]:
+        with db.authenticated_tenant_context(tenant):
+            pnl=await finance.build_profit_and_loss(tenant)
+            assert pnl["ok"] and pnl["data"]["revenue"]["total"]==amount,pnl
+            balance=await finance.build_balance_sheet(tenant)
+            assert balance["ok"] and balance["data"]["assets"]["total"]==amount
+            cash=await finance.build_cashflow_statement(tenant)
+            # Typed custom revenue lacks an IAS7 counterpart policy; keep that
+            # independent cashflow gate rather than inventing a category.
+            if metadata!="typed_custom" or tenant=="t_beta":assert cash["ok"] and cash["data"]["net_change_in_cash"]==amount
+            context=await chat.build_chat_context(tenant,"P&L")
+            assert context["reports_summary"]["revenue"]==amount
+    async with auth_db["admin"].acquire() as conn:
+        after=[tuple(r) for r in await conn.fetch("SELECT id,account_code,account_type FROM journal_entry_lines ORDER BY id")]
+        assert after==before  # runtime interpretation, no historical backfill
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad",["unmapped_null","unknown_type","contradictory_type"])
+async def test_chat181_incomplete_classification_refuses_reports_and_ai(auth_db,monkeypatch,bad):
+    from app.api.services import financial_statements_service as finance,ledger_service as ledger
+    from app.api.services import chat_context_service as chat,cfo_dashboard_service as cfo
+    from app.api.services.ai_tool_registry import run_tool
+    from app.api.services.posting_service import _write_ledger_entries
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED","1")
+    await _chat179_prepare_ledger(auth_db);await _chat181_report_inputs(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await _write_ledger_entries(conn,{"id":str(uuid4()),"date":"2026-10-15","currency":"GEL",
+                "lines":[{"account_code":"1120","debit":100},{"account_code":"6110","credit":100}]},
+                {},"t_alpha","synthetic","coa181")
+    async with auth_db["admin"].acquire() as conn:
+        if bad=="unmapped_null":await conn.execute("UPDATE journal_entry_lines SET account_code='CUSTOM_UNKNOWN',account_type=NULL WHERE account_code='6110'")
+        elif bad=="unknown_type":await conn.execute("UPDATE journal_entry_lines SET account_type='unclassified' WHERE account_code='6110'")
+        else:await conn.execute("UPDATE journal_entry_lines SET account_code='3410',account_type='income' WHERE account_code='6110'")
+    with db.authenticated_tenant_context("t_alpha"):
+        for build in (finance.build_profit_and_loss,finance.build_balance_sheet,finance.build_cashflow_statement):
+            result=await build("t_alpha")
+            assert not result["ok"] and result["error"]["code"]=="LEDGER_CLASSIFICATION_INCOMPLETE",result
+        trial=await ledger.get_trial_balance("t_alpha");assert trial["error"]=="LEDGER_CLASSIFICATION_INCOMPLETE"
+        with pytest.raises(ValueError,match="LEDGER_CLASSIFICATION_INCOMPLETE"):
+            await finance._get_posted_trial_balance_as_of("t_alpha",None)
+        dashboard=await cfo.build_cfo_dashboard("t_alpha")
+        assert dashboard["cash_position"]["available"] is False and dashboard["profitability"]["revenue"] is None
+        context=await chat.build_chat_context("t_alpha","P&L");assert context["reports_unavailable"] is True
+        tool=await run_tool("financial_summary",{},"t_alpha")
+        assert tool["preview"]["accounting_basis"]=="unavailable" and "revenue" not in tool["preview"]

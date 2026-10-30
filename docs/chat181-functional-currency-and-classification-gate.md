@@ -88,10 +88,19 @@ same quantized rate; no connector float can change stored booked FX. Existing
 standalone estimate helpers remain separate and are not used for posting.
 New real PG coverage verifies date cutoff, missing/cross rates, invalid rate,
 exact payload→writer persistence and unchanged standalone estimate behavior.
-Exact stage2 CI pending.
+Exact stage2 `5ef73cddcc1e3bea85d522dd7de76113d6ea01eb`: all9 workflows PASS. Backend8351/3SKIP+1 (41028220880), PG15/16 522EACH (41028220726), Chroma43 (41028220683), Redis210 (41028220621), membership45 (41028220626), vault104 (41028220633), RLS18 (41028220624), PR127261+1 (41028220671), PR8482/210+1 (41028220682). Actual deploy/frontend build SKIPPED. Final focused local78PASS.
 
 This is not a complete NBG publication/effective-date or stale-quote policy.
 The existing stored on-or-before lookup is retained; trusted ingestion,
 immutability/history, effective date/source attestation, freshness limits and
 explicit estimate labels on every preview consumer remain acceptance gates.
 No live fetch, schema/config change or migration was performed.
+
+
+## Stage 3 — classification-completeness reproduction
+
+FIN-04 regression tests now cover historical NULL canonical types and revenue
+aliases, typed custom history, unmapped NULL, unknown and contradictory types,
+and unregistered new ledger accounts. Seven local unit cases fail before the
+repair. The following test-only Draft commit intentionally records the real
+PostgreSQL before state. No historical financial row is repaired automatically.

@@ -3548,3 +3548,101 @@ async def test_chat206_creator_audit_is_locked_during_checker_decision(auth_db):
                 "WHERE tenant_id='t_alpha' "
                 "AND action='correction_review_approved'"
             ) == 1
+
+
+# Chat207 FIN-11: creator-audit global uniqueness and immutability.
+# RED baseline: the standalone candidate does not exist, and these direct
+# disposable-PG invariants fail. Once candidate DDL is introduced, it is
+# applied ONLY inside this localhost synthetic schema, never to Production.
+async def _chat207_creator_audit_fixture(auth_db):
+    from pathlib import Path
+    await _chat192_setup_review_candidates(auth_db)
+    candidate = Path("docs/sql/chat207_fin11_creator_audit_guard_DRAFT.sql")
+    if candidate.is_file():
+        async with auth_db["admin"].acquire() as conn:
+            sql = candidate.read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)  # candidate must be idempotent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_action", [
+    "reversal_draft_created",
+    "adjustment_draft_created",
+])
+async def test_chat207_duplicate_creator_identity_is_rejected_including_other_type(
+    auth_db, new_action
+):
+    """No second successful creator audit for a tenant+draft, even cross type."""
+    await _chat207_creator_audit_fixture(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await conn.execute("""
+                INSERT INTO audit_log
+                  (tenant_id,actor,role,action,resource,resource_id,new_value,status)
+                VALUES ('t_alpha','auth:forged','maker',$1,'journal_drafts','71',
+                        '{"source_id":41,"status":"pending_approval"}'::jsonb,
+                        'success')
+            """, new_action)
+        assert await conn.fetchval("""
+            SELECT count(*) FROM audit_log WHERE tenant_id='t_alpha'
+              AND resource='journal_drafts' AND resource_id='71'
+              AND action IN ('reversal_draft_created','adjustment_draft_created')
+        """) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["UPDATE", "DELETE"])
+async def test_chat207_creator_audit_cannot_be_rewritten_or_deleted(
+    auth_db, operation
+):
+    """Even the disposable DB owner is refused creator-audit mutations."""
+    await _chat207_creator_audit_fixture(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        if operation == "UPDATE":
+            statement = """
+                UPDATE audit_log SET actor='auth:forged-after-creation'
+                 WHERE tenant_id='t_alpha' AND resource='journal_drafts'
+                   AND resource_id='71' AND action='reversal_draft_created'
+            """
+        else:
+            statement = """
+                DELETE FROM audit_log WHERE tenant_id='t_alpha'
+                  AND resource='journal_drafts' AND resource_id='71'
+                  AND action='reversal_draft_created'
+            """
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN11_CREATOR_AUDIT_IMMUTABLE"):
+            await conn.execute(statement)
+        assert await conn.fetchval("""
+            SELECT actor FROM audit_log WHERE tenant_id='t_alpha'
+              AND resource='journal_drafts' AND resource_id='71'
+              AND action='reversal_draft_created'
+        """) == "auth:maker-71"
+
+
+@pytest.mark.asyncio
+async def test_chat207_unrelated_audit_still_mutable_and_other_tenant_independent(
+    auth_db,
+):
+    """Candidate guard is narrow and does not block unrelated audit events."""
+    await _chat207_creator_audit_fixture(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            INSERT INTO audit_log
+              (tenant_id,actor,role,action,resource,resource_id,new_value,status)
+            VALUES
+              ('t_alpha','auth:worker','system','unrelated_test_event',
+               'journal_drafts','71','{}'::jsonb,'success'),
+              ('t_beta','auth:beta','maker','reversal_draft_created',
+               'journal_drafts','71',
+               '{"source_id":42,"status":"pending_approval"}'::jsonb,'success')
+        """)
+        assert await conn.execute("""
+            UPDATE audit_log SET actor='auth:worker-2'
+              WHERE tenant_id='t_alpha' AND action='unrelated_test_event'
+        """) == "UPDATE 1"
+        assert await conn.fetchval("""
+            SELECT count(*) FROM audit_log WHERE tenant_id='t_beta'
+              AND resource_id='71' AND action='reversal_draft_created'
+        """) == 1

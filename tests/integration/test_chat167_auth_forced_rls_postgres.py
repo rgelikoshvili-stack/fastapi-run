@@ -3646,3 +3646,83 @@ async def test_chat207_unrelated_audit_still_mutable_and_other_tenant_independen
             SELECT count(*) FROM audit_log WHERE tenant_id='t_beta'
               AND resource_id='71' AND action='reversal_draft_created'
         """) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat207_existing_duplicate_history_fails_preflight_without_repair(
+    auth_db,
+):
+    """Candidate DDL refuses historical duplicates; preserves every source row."""
+    from pathlib import Path
+    await _chat192_setup_review_candidates(auth_db)
+    sql = Path("docs/sql/chat207_fin11_creator_audit_guard_DRAFT.sql").read_text(
+        encoding="utf-8",
+    )
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            INSERT INTO audit_log
+              (tenant_id,actor,role,action,resource,resource_id,new_value,status)
+            VALUES ('t_alpha','auth:historical-duplicate','maker',
+                    'adjustment_draft_created','journal_drafts','71',
+                    '{"source_id":41,"status":"pending_approval"}'::jsonb,
+                    'success')
+        """)
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN11_CREATOR_AUDIT_DUPLICATE_PREFLIGHT_FAILED"):
+            await conn.execute(sql)
+        assert await conn.fetchval("""
+            SELECT count(*) FROM audit_log
+             WHERE tenant_id='t_alpha' AND resource_id='71'
+               AND action IN ('reversal_draft_created','adjustment_draft_created')
+        """) == 2
+        assert await conn.fetchval(
+            "SELECT to_regclass('uq_chat207_fin11_creator_event_per_draft')"
+        ) is None
+
+
+@pytest.mark.asyncio
+async def test_chat207_invalid_creator_identity_and_audit_relabel_denied(auth_db):
+    """Cannot bypass the unique index via NULL identity or UPDATE relabel."""
+    await _chat207_creator_audit_fixture(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN11_CREATOR_AUDIT_INVALID_IDENTITY"):
+            await conn.execute("""
+                INSERT INTO audit_log
+                  (tenant_id,actor,role,action,resource,resource_id,
+                   new_value,status)
+                VALUES ('t_alpha','auth:missing-id','maker',
+                        'reversal_draft_created','journal_drafts',NULL,
+                        '{}'::jsonb,'success')
+            """)
+        await conn.execute("""
+            INSERT INTO audit_log
+              (tenant_id,actor,role,action,resource,resource_id,new_value,status)
+            VALUES ('t_alpha','auth:ordinary','system','unrelated_test_event',
+                    'journal_drafts','104','{}'::jsonb,'success')
+        """)
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN11_CREATOR_AUDIT_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE audit_log SET action='adjustment_draft_created'
+                 WHERE tenant_id='t_alpha' AND resource_id='104'
+                   AND action='unrelated_test_event'
+            """)
+
+
+@pytest.mark.asyncio
+async def test_chat207_nonowner_direct_sql_duplicate_creator_fails(auth_db):
+    """Unique creation provenance holds under the tenant-scoped runtime role."""
+    await _chat207_creator_audit_fixture(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(asyncpg.UniqueViolationError):
+            async with db.get_conn() as conn:
+                await conn.execute("""
+                    INSERT INTO audit_log
+                      (tenant_id,actor,role,action,resource,resource_id,
+                       new_value,status)
+                    VALUES ('t_alpha','auth:other-maker','maker',
+                            'reversal_draft_created','journal_drafts','71',
+                            '{"source_id":41,"status":"pending_approval"}'::jsonb,
+                            'success')
+                """)

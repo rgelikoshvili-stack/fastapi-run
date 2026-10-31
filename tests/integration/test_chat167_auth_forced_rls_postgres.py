@@ -3390,7 +3390,7 @@ async def test_chat201_parallel_source_inserts_are_locked_across_transactions(au
             f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
         )
     inserted=asyncio.Event()
-    finish=asyncio.Event()
+    writer_started=asyncio.Event()
     async def prepared_owner():
         with db.authenticated_tenant_context("t_alpha"):
             async with db.get_conn() as conn:
@@ -3399,21 +3399,22 @@ async def test_chat201_parallel_source_inserts_are_locked_across_transactions(au
                     target_system="balance",payload={"amount":"9.00"},
                 )
                 inserted.set()
-                await asyncio.wait_for(finish.wait(),timeout=12)
+                await asyncio.wait_for(writer_started.wait(),timeout=12)
+                # The other writer has begun but cannot see/override this
+                # uncommitted intent. Release it by normal COMMIT on exit.
+                await asyncio.sleep(0.15)
     async def conflicting_ledger_writer():
         await asyncio.wait_for(inserted.wait(),timeout=12)
         with db.authenticated_tenant_context("t_alpha"):
-            try:
-                with pytest.raises(asyncpg.RaiseError,
-                                   match="FIN12_LOCAL_UNVERIFIED_OUTBOX_LEDGER_HOLD"):
-                    async with db.get_conn() as conn:
-                        await _write_ledger_entries(conn,{
-                            "id":"chat201-parallel","date":"2026-10-31","currency":"GEL",
-                            "lines":[{"account_code":"1120","debit":9,"credit":0},
-                                     {"account_code":"6110","debit":0,"credit":9}],
-                        },{},"t_alpha","balance","synthetic-concurrent")
-            finally:
-                finish.set()
+            with pytest.raises(asyncpg.RaiseError,
+                               match="FIN12_LOCAL_UNVERIFIED_OUTBOX_LEDGER_HOLD"):
+                async with db.get_conn() as conn:
+                    writer_started.set()
+                    await _write_ledger_entries(conn,{
+                        "id":"chat201-parallel","date":"2026-10-31","currency":"GEL",
+                        "lines":[{"account_code":"1120","debit":9,"credit":0},
+                                 {"account_code":"6110","debit":0,"credit":9}],
+                    },{},"t_alpha","balance","synthetic-concurrent")
     # Deadlock-free completion: the expected writer collision must not
     # be hidden by a timeout or a falsely successful independent commit.
     await asyncio.wait_for(

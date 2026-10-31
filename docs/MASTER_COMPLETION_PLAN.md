@@ -747,3 +747,21 @@ Preserve all previous FIN-11/12, FIN-08 work, docs and test history.
 - Verify exact final HEAD 9 CI (backend and PG15/16) independently before
   accepting this bounded Draft safety milestone. Green synthetic evidence
   never implies real ERP exactly-once behavior.
+
+## Finance precision continuation alongside Chat200 (2026-10-31)
+
+- Preserved Chat199 `620d2dd`, concurrent Chat200 `479af36`, all prior plan
+  sections, files and commits. No restart, history rewrite or live action.
+- FIN-05/07/08/10 stage 1: large offsetting NUMERIC turnovers previously
+  lost small net balances through premature float conversion. RED `c87d25f`
+  (13 unit +2 real PG failures) -> repair `c7d13dc` (9/9 CI SUCCESS;
+  backend8595/3SKIP+smoke1; PG15/16 790 each).
+- P&L, BS, trial balance and CFO cash-position input retain Decimal through
+  calculations; same stored-data fixtures verify both AI P&L readers,
+  no source mutation and tenant isolation. Existing JSON numbers retained.
+- Stage 2: independently confirmed direct cashflow precision/internal-transfer
+  defect; regression-first tests added, repair/CI acceptance pending.
+- Exact large final JSON amounts, UI/client contract, indirect/other readers,
+  opening/multiyear/source completeness remain OPEN. FIN-11/12 external
+  authentication/dispatch/production gates remain HOLD. See
+  `docs/finance-decimal-netting-gate.md`. G0–G8 and R01–R10 remain mandatory.

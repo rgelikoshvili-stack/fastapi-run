@@ -78,3 +78,24 @@ async def test_large_offsetting_turnovers_keep_one_cent_across_reports_and_ai(au
         assert await conn.fetch(f"SELECT * FROM {source_table} ORDER BY id") == before
     async with auth_db["runtime"].acquire() as conn:
         assert await conn.fetchval(f"SELECT count(*) FROM {source_table}") == 0
+
+
+async def test_large_cashflows_agree_with_cash_position_and_profit(auth_db, monkeypatch):
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
+    await _chat179_prepare_ledger(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        for dr, cr, amount in [("1120", "6110", "9007199254740992.01"),
+                               ("7210", "1120", "9007199254740992.00")]:
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(conn, {
+                    "id": str(uuid4()), "date": "2026-10-15", "currency": "GEL",
+                    "lines": [{"account_code": dr, "debit": amount},
+                              {"account_code": cr, "credit": amount}],
+                }, {}, "t_alpha", "synthetic", "decimal-cashflow")
+        cashflow = await finance.build_cashflow_statement("t_alpha", None, "2026-10-31")
+        pnl = await finance.build_profit_and_loss("t_alpha", None, "2026-10-31")
+        balances = await finance._get_posted_trial_balance_as_of("t_alpha", "2026-10-31")
+        assert cashflow["ok"] and cashflow["data"]["complete"] is True, cashflow
+        assert cashflow["data"]["net_change_in_cash"] == 0.01
+        assert cashflow["data"]["operating"]["net"] == 0.01
+        assert pnl["ok"] and pnl["data"]["ebit"] == balances["1120"] == 0.01

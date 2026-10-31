@@ -112,3 +112,29 @@ async def test_offsetting_asset_lines_sum_without_float_or_context_loss(monkeypa
     assert result["ok"]
     assert result["data"]["assets"]["total"] == 0.01
     assert result["data"]["balanced"] is True
+
+
+@pytest.mark.parametrize("expense_account", ["7210", "1510"])
+@pytest.mark.parametrize("net", ["0.01", "-0.01"])
+def test_direct_cashflow_retains_net_across_categories(expense_account, net):
+    from app.api.services.cashflow_classification_service import build_cashflow_direct
+
+    base = Decimal("9007199254740992.00")
+    result = build_cashflow_direct([
+        {"dr": "1120", "cr": "6110", "amount": base + Decimal(net)},
+        {"dr": expense_account, "cr": "1120", "amount": base},
+    ])
+    assert result["net_change_in_cash"] == float(net)
+
+
+def test_posted_cashflow_does_not_hide_a_cent_as_internal_transfer():
+    from app.api.services.cashflow_classification_service import build_cashflow_from_posted_ledger_rows
+
+    result = build_cashflow_from_posted_ledger_rows([
+        dict(header_id="a", account_code="1110", account_type="asset",
+             debit=Decimal("9007199254740992.01"), credit=0),
+        dict(header_id="a", account_code="1120", account_type="asset",
+             debit=0, credit=Decimal("9007199254740992.00")),
+    ])
+    assert result["unknown"]["lines"]
+    assert result["internal_transfers"]["amount"] == 0

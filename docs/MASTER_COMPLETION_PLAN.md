@@ -765,3 +765,46 @@ Preserve all previous FIN-11/12, FIN-08 work, docs and test history.
   opening/multiyear/source completeness remain OPEN. FIN-11/12 external
   authentication/dispatch/production gates remain HOLD. See
   `docs/finance-decimal-netting-gate.md`. G0–G8 and R01–R10 remain mandatory.
+
+
+## Chat201 — FIN-12 unverified local ledger/outbox insert interlock (2026-10-31)
+
+Continues Chat200 safe accepted code HEAD `479af36938cc3f8fd257e6e1d78dbd02d60549ca`
+(9/9 CI SUCCESS: 8,582 backend PASS/3 SKIP and disposable PG15/16
+775 PASS each) and later independently authored FIN-05/07/08/10 Decimal
+fixes; no history loss or reset. At Chat201 start PR `a22c6724d4f9fd69eef37e8769b037ba7260d2ad`
+had 7/9 CI SUCCESS with two ongoing precision-test failures; those
+changes were preserved without overwriting the finance workstream.
+
+- **P0 design gap:** Chat200 could read-detect a premature posted-ledger
+  source paired with an unverified outbox, but direct/cooperating SQL
+  writes in separate transactions could still *create* such a pair.
+- **Regression first:** real disposable PG15/16 tests
+  `test_chat201_local_outbox_ledger_interlock_never_posts_without_real_receipt`,
+  `test_chat201_preflight_refuses_historical_pair_without_migration_or_repair`,
+  and `test_chat201_parallel_source_inserts_are_locked_across_transactions`
+  were introduced at `19f382c6780614acee3e8455b331bd876612462f`.
+- **Standalone UNAPPLIED DRAFT only:**
+  `docs/sql/chat201_fin12_local_ledger_outbox_interlock_DRAFT.sql`
+  adds a prerequisite/full-history preflight, transaction-scoped common
+  tenant/source advisory lock and paired INSERT triggers that reject
+  unverified outbox-vs-posted-ledger source coexistence (both write orders).
+  Unsafe transaction isolation fails closed. Requires migration 011,
+  Chat179/185 immutable source guards and Chat186 outbox; no real migration
+  or production role grant was made. RLS-filtered history preflights
+  must never falsely pass; prior records are never rewritten or deleted.
+- The deliberate HOLD-only trigger must be replaced/reviewed as part of
+  **future real vendor-authenticated, locally atomic finalization**;
+  the local lock is NOT a provider fence and does not allow dispatch/retry.
+  Complete design: `docs/chat201-fin12-unverified-ledger-outbox-interlock.md`.
+- **FIN-11/12 still OPEN / EXTERNAL-HOLD:** authenticated vendor receipt
+  and guaranteed idempotency, tenant-provider proof, crash/lease fencing,
+  local ledger/outbox/receipt atomic commit, operator identities, production
+  schema/RLS/roles, financial report parity and authorized migration.
+  No ERP writes, main, Merge, Production deploy or Windows-original edits.
+- Synthetic code/DDL completion must be accepted only after the final
+  exact HEAD passes 9 CI workflows, with PG15 and PG16 evidence. Concurrent
+  finance precision tests are an independent workstream and may affect
+  overall PR CI; always report their actual status, never mask them.
+
+All private Handoff/Technical Report/Evidence archives remain OFF GitHub.

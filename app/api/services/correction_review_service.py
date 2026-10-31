@@ -254,6 +254,15 @@ async def decide_correction_review(conn, *, tenant_id: str, draft_id: int,
             or row["source_id"] != draft["reversal_of_draft_id"]):
         _deny("FIN11_REVIEW_SOURCE_CHANGED")
 
+    # Do not trust maker_subject copied into the review intent alone. The
+    # original creation audit may have disappeared, duplicated or drifted
+    # since submission (production audit immutability is not yet certified).
+    # Recheck under this same caller-owned transaction, before any decision
+    # event, status UPDATE or mandatory audit write. No posting is enabled.
+    await _require_original_maker(
+        conn, tenant_id, draft, row["maker_subject"],
+    )
+
     await conn.execute(_q("""
         INSERT INTO correction_review_events
           (review_id,tenant_id,action,actor_subject,actor_role,

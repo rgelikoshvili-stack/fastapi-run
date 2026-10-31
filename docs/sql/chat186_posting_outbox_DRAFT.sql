@@ -186,13 +186,34 @@ $fin12$;
 -- Chat195: receipt metadata provided by any human or local adapter is NOT
 -- authenticated vendor evidence. Until a separately reviewed real provider
 -- contract/key-custody protocol exists, deny insertion of terminal receipts.
+-- Chat197: no outcome, including `unknown`, may be inserted into the
+-- provider-receipt table without an approved vendor-authentication contract.
+-- Untrusted observations belong ONLY in the separate immutable HOLD tables.
+-- A spoofed `unknown` row with fake verified_by/provider_receipt_id must not
+-- become a misleading receipt for any future component.
 CREATE OR REPLACE FUNCTION fin12_hold_unverified_provider_receipt()
 RETURNS trigger LANGUAGE plpgsql AS $fin12_receipt$
 BEGIN
+    -- Chat197: verify even syntactically unknown observations do not bind
+    -- across tenant boundaries. A matching FK by itself is not provider proof.
+    IF NOT EXISTS (
+        SELECT 1 FROM posting_outbox_intents i
+        WHERE i.id=NEW.outbox_id AND i.tenant_id=NEW.tenant_id
+    ) THEN
+        RAISE EXCEPTION 'FIN12_RECEIPT_SOURCE_TENANT_MISMATCH';
+    END IF;
+
+    -- A local UNKNOWN observation is not a vendor-issued receipt, whether
+    -- or not it carries forged receipt ID / verified_by / timestamp fields.
+    -- Record manual uncertainty in the separate Chat193/196 HOLD model,
+    -- never in a table that could later be mistaken for provider evidence.
+    IF NEW.outcome = 'unknown' THEN
+        RAISE EXCEPTION 'FIN12_UNKNOWN_PROVIDER_RECEIPT_HOLD';
+    END IF;
     IF NEW.outcome IN ('accepted','rejected') THEN
         RAISE EXCEPTION 'FIN12_UNVERIFIED_PROVIDER_RECEIPT_HOLD';
     END IF;
-    RETURN NEW;
+    RAISE EXCEPTION 'FIN12_UNRECOGNIZED_PROVIDER_RECEIPT_HOLD';
 END;
 $fin12_receipt$;
 DO $fin12$

@@ -672,3 +672,41 @@ are preserved; no history was reset/rebased or force-pushed.
 All G0–G8, R01–R10 and V1-versus-later feature scopes above remain. No
 main, merge, Production/config, live DB migration, real ERP, Windows-original
 or private-evidence-publication permission is implied by green CI.
+
+
+## Chat199 — FIN-12 persisted identity/payload attestation (2026-10-31)
+
+Continue Chat198 verified exact-head `b8ed88fbb72f672bae1e12bdc7d05aaab3116c61`
+(9/9 CI SUCCESS). Retain the concurrent FIN-08 financial-statement
+work, the Chat198 offline one-shot fence proposal, and all earlier stages.
+No rebase, reset, deletion or production change.
+
+- **P0 local integrity gap:** an earlier direct-SQL outbox record could
+  hold an arbitrary JSONB payload while claiming a valid-looking expected
+  `payload_sha256` and idempotency key. The former producer conflict
+  readback trusted those columns without attesting the actual stored JSONB.
+- **Regression-first:** Chat199 unit tests at `081568804314a75881798ddab9ec76e3e2a1270a`
+  and synthetic PostgreSQL15/16 source/hash spoof tests at
+  `da9dbb3177998e85c6e8bb587c96e801ffdf332d`.
+- **Fix (Draft only):** `app/api/services/posting_outbox_intent_service.py`
+  now fetches persisted source identity and JSONB, recomputes its canonical
+  hash and the deterministic tenant/source/target key, validates UUID,
+  source type, status and caller payload, and fails closed on mismatches.
+  Reordered JSON keys converge safely; changed legitimate payloads keep
+  the explicit conflict behavior. CI path/test wiring extended.
+- Every returned receipt/dispatch/ledger/vendor-certification permission
+  stays FALSE. **This is a local check, NOT a provider-certified idempotency
+  contract or DB-wide guard against privileged direct SQL**. Other FUTURE
+  writer paths must be audited before activation.
+- **FIN-12 OPEN/EXTERNAL-HOLD:** certified real provider idempotency,
+  signed receipts/status readback, lease/fencing/unknown crash recovery,
+  tenant provider identity, local atomic posted ledger/outbox/receipt
+  write, privileged DB integrity, Production schema/roles and financial
+  report parity. FIN-11 immutable corrections and real JWT checker roles
+  remain OPEN.
+- Details: `docs/chat199-fin12-outbox-local-integrity-gate.md`.
+  Exact post-documentation final SHA requires independent 9-CI verification
+  (PG15/PG16 and backend), no inferred green status.
+
+No main, Merge, Production deployment, live DB migration, ERP mutation,
+Windows original file edits or public upload of private Handoff/Evidence.

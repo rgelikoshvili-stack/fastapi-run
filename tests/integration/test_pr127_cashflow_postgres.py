@@ -54,7 +54,9 @@ async def posted_ledger_db(monkeypatch):
                     entry_date DATE NOT NULL,
                     source_draft_id UUID,
                     posting_log_id UUID,
-                    evidence_bundle_id UUID
+                    evidence_bundle_id UUID,
+                    currency TEXT NOT NULL DEFAULT 'GEL',
+                    exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1
                 );
                 CREATE TABLE journal_entry_lines (
                     id UUID PRIMARY KEY,
@@ -65,7 +67,10 @@ async def posted_ledger_db(monkeypatch):
                     cashflow_category TEXT,
                     debit NUMERIC(18,2) NOT NULL DEFAULT 0,
                     credit NUMERIC(18,2) NOT NULL DEFAULT 0,
-                    description TEXT
+                    description TEXT,
+                    currency TEXT NOT NULL DEFAULT 'GEL',
+                    exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1,
+                    amount_gel NUMERIC(18,2) NOT NULL DEFAULT 0
                 );
                 CREATE TABLE journal_drafts (
                     tenant_id TEXT NOT NULL,
@@ -118,10 +123,10 @@ async def _seed_posted_rows(pool):
             ("6110", "income", None, 0, 35, "revenue one"),
             ("6120", "income", None, 0, 25, "revenue two"),
         ]),
-        # Invalid legacy fallback metadata must remain unclassified, not financing.
+        # A typed custom revenue has no approved IAS7 counterpart mapping.
         ("tenant-a", "posted", "2026-09-20", [
             ("1120", "asset", None, 7, 0, "guarded fallback"),
-            ("3410", "income", None, 0, 7, "incorrect account type"),
+            ("CUSTOM_CF", "income", None, 0, 7, "unmapped cashflow counterpart"),
         ]),
         ("tenant-a", "posted", "2026-10-02", [
             ("1120", "asset", "financing", 50, 0, "loan receipt"),
@@ -171,13 +176,18 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
 
     monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "1")
 
-    all_data = await statements.build_cashflow_statement("tenant-a")
-    assert all_data["ok"] is True
+    incomplete = await statements.build_cashflow_statement("tenant-a")
+    assert incomplete["ok"] is False
+    assert incomplete["error"]["code"] == "CASHFLOW_CLASSIFICATION_INCOMPLETE"
+    assert incomplete["error"]["details"]["unclassified_cash_movements"] == 1
+    # A bounded period excluding the bad movement remains usable.
+    all_data = await statements.build_cashflow_statement("tenant-a", date_to="2026-09-19")
+    assert all_data["ok"] is True and all_data["data"]["complete"] is True
     assert all_data["data"]["operating"]["inflows"] == 160
     assert all_data["data"]["investing"]["outflows"] == 30
-    assert all_data["data"]["financing"]["inflows"] == 50
-    # The invalid account-type fallback must not leak into financing/operating
-    # totals; the response contract intentionally omits unclassified lines.
+    assert all_data["data"]["financing"]["inflows"] == 0
+    # The unmapped custom counterpart must not leak into financing/operating
+    # totals; the incomplete unbounded report is explicitly unavailable.
     # The compound journal has one cash line for 60, not a multiplied 120.
     compound_lines = [
         row for section in ("operating", "investing", "financing")
@@ -205,7 +215,7 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert tenant_b_data["data"]["operating"]["inflows"] == 0
 
     bounded = await statements.build_cashflow_statement(
-        "tenant-a", date_from="2026-09-10", date_to="2026-09-30"
+        "tenant-a", date_from="2026-09-10", date_to="2026-09-19"
     )
     assert bounded["data"]["operating"]["inflows"] == 60
     assert bounded["data"]["investing"]["outflows"] == 30
@@ -224,6 +234,8 @@ async def test_pr127_cashflow_and_cfo_against_disposable_postgres(
     assert cash["as_of"] == "2026-09-30"
     assert cash["bank_1120"] == 137
     assert cash["total_liquid"] == 137
+    assert cash["cashflow_available"] is False
+    assert cash["net_cashflow"] is None
 
     # Force a genuine PostgreSQL query error inside this disposable schema.
     async with posted_ledger_db.acquire() as conn:

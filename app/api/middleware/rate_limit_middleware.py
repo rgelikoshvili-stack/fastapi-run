@@ -22,6 +22,7 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from app.api.client_ip import client_ip_for_rate_limit
 
 from app.api.services.rate_limit_policy_service import (
     RateLimitCategory,
@@ -67,10 +68,8 @@ def _is_always_safe(path: str) -> bool:
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # Share the exact same trusted-proxy logic as the SlowAPI limiter.
+    return client_ip_for_rate_limit(request)
 
 
 async def rate_limit_middleware(request: Request, call_next: Any):
@@ -96,9 +95,15 @@ async def rate_limit_middleware(request: Request, call_next: Any):
     if category == RateLimitCategory.SAFE or not is_rate_limited_category(category):
         return await call_next(request)
 
-    # Build rate-limit key from non-secret request context
-    tenant_id = getattr(request.state, "tenant_id", None)
-    user_id = getattr(request.state, "user_id", None)
+    # AUTH endpoints never use unsigned tenant hints or a client-spoofable
+    # forwarded IP. Only explicit trusted socket proxies may supply XFF,
+    # resolved right-to-left; otherwise the socket peer is the quota key.
+    if category == RateLimitCategory.AUTH:
+        tenant_id = None
+        user_id = None
+    else:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        user_id = getattr(request.state, "user_id", None)
     client_ip = _get_client_ip(request)
 
     key = build_rate_limit_key(tenant_id, user_id, client_ip, category)
@@ -106,6 +111,26 @@ async def rate_limit_middleware(request: Request, call_next: Any):
 
     limiter = get_rate_limiter_service()
     result = limiter.check_limit(key, rule)
+
+    if result.error_code == "RATE_LIMIT_BACKEND_UNAVAILABLE":
+        # A missing shared Redis store is an infrastructure outage, not
+        # a user quota violation. Never fall through to a local silo.
+        log.error("rate_limit_shared_storage_unavailable category=%s", category)
+        response = JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "message": "Service temporarily unavailable",
+                "data": None,
+                "error": {
+                    "code": "RATE_LIMIT_BACKEND_UNAVAILABLE",
+                    "details": None,
+                },
+            },
+        )
+        response.headers["Retry-After"] = str(result.retry_after_seconds)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     if not result.allowed:
         log.warning(

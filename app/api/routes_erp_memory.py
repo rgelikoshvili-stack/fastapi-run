@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.api.response_utils import ok_response, error_response
-from app.api.authz import require_permission
+from app.api.authz import require_signed_tenant_permission
 from app.api.services.erp_memory_service import (
     upsert_erp_posting_memory,
     list_erp_posting_memory,
@@ -30,10 +30,11 @@ class ErpMemoryUpsertRequest(BaseModel):
 
 @router.post("/upsert")
 def upsert_memory(data: ErpMemoryUpsertRequest, request: Request):
-    require_permission(request, "posting:read")
+    tenant_id = require_signed_tenant_permission(request, "posting:write")
     try:
         result = upsert_erp_posting_memory(
             source_system=data.source_system,
+            tenant_id=tenant_id,
             external_entry_id=data.external_entry_id,
             external_doc_id=data.external_doc_id,
             doc_type=data.doc_type,
@@ -48,15 +49,15 @@ def upsert_memory(data: ErpMemoryUpsertRequest, request: Request):
             posting_date=data.posting_date,
         )
         return ok_response("ERP posting memory upserted", result)
-    except Exception as e:
-        return error_response("ERP posting memory upsert failed", "ERP_MEMORY_UPSERT_ERROR", str(e))
+    except Exception:
+        return error_response("ERP posting memory upsert failed", "ERP_MEMORY_UPSERT_ERROR")
 
 
 @router.get("/list")
 def list_memory(request: Request, limit: int = 100):
-    require_permission(request, "posting:read")
+    tenant_id = require_signed_tenant_permission(request, "posting:read")
     try:
-        items = list_erp_posting_memory(limit=limit)
+        items = list_erp_posting_memory(limit=limit, tenant_id=tenant_id)
         return ok_response("ERP posting memory list", {"items": items, "count": len(items)})
-    except Exception as e:
-        return error_response("ERP posting memory list failed", "ERP_MEMORY_LIST_ERROR", str(e))
+    except Exception:
+        return error_response("ERP posting memory list failed", "ERP_MEMORY_LIST_ERROR")

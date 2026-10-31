@@ -8,10 +8,16 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 from app.api.db import get_conn, _q
+from app.api.services.posted_ledger_reporting import (
+    functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
+    LEGACY_FX_INVALID_LINE, LEGACY_FX_INVALID_HEADER, LEGACY_FX_ERROR, legacy_fx_unavailable,
+    basis_error_code, report_money_sum, report_money_net, report_json_numbers,
+)
 from app.api.services.financial_statements_service import (
     _posted_ledger_reports_enabled,
     _require_tenant_id,
     _assert_no_silent_fallback,
+    _pg_date,
     STANDARD_NET_STATUSES,
 )
 
@@ -29,17 +35,20 @@ def _build_trial_balance_posted_ledger_query(
     params: list = [tenant_id, list(STANDARD_NET_STATUSES)]
     date_filter = ""
     if date_from:
-        params.append(date_from)
+        params.append(_pg_date(date_from))
         date_filter += f" AND jeh.entry_date >= ${len(params)}"
     if date_to:
-        params.append(date_to)
+        params.append(_pg_date(date_to))
         date_filter += f" AND jeh.entry_date <= ${len(params)}"
-    sql = f"""
+    sql = functional_ledger_cte(date_filter) + f"""
         SELECT jel.account_code,
-               SUM(jel.debit)  AS total_debit,
-               SUM(jel.credit) AS total_credit
-        FROM journal_entry_lines jel
+               SUM(jel.gel_debit)  AS total_debit,
+               SUM(jel.gel_credit) AS total_credit,
+               SUM({FX_INVALID_LINE}) AS fx_invalid_count,
+               MAX(jel.classification_invalid_count) AS classification_invalid_count
+        FROM functional_ledger_lines jel
         JOIN journal_entry_headers jeh ON jeh.id = jel.journal_entry_id
+                                     AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
           {date_filter}
@@ -54,10 +63,10 @@ def _period_conditions(date_from: Optional[str], date_to: Optional[str], params:
     parts = []
     if date_from:
         parts.append("(jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND jd.date::date >= %s)")
-        params.append(date_from)
+        params.append(_pg_date(date_from))
     if date_to:
         parts.append("(jd.date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND jd.date::date <= %s)")
-        params.append(date_to)
+        params.append(_pg_date(date_to))
     return (" AND " + " AND ".join(parts)) if parts else ""
 
 
@@ -83,7 +92,7 @@ async def get_account_ledger(
 
     opening = Decimal("0")
     if date_from:
-        opening_params: list = [tenant_id, account_code, account_code, date_from]
+        opening_params: list = [tenant_id, account_code, account_code, _pg_date(date_from)]
         opening_counterparty = ""
         if counterparty_inn:
             opening_counterparty = " AND jd.counterparty_inn = %s"
@@ -92,7 +101,8 @@ async def get_account_ledger(
             SELECT
                 entry->>'dr' AS dr,
                 entry->>'cr' AS cr,
-                COALESCE(SUM((entry->>'amount')::numeric), 0) AS total
+                COALESCE(SUM((entry->>'amount')::numeric), 0) AS total,
+                SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
             FROM journal_drafts jd
             CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
             WHERE jd.tenant_id = %s
@@ -105,6 +115,8 @@ async def get_account_ledger(
         """)
         async with get_conn() as conn:
             opening_rows = await conn.fetch(opening_sql, *opening_params)
+        if legacy_fx_unavailable(opening_rows):
+            return {"error": LEGACY_FX_ERROR, "account_code": account_code, "lines": [], "count": 0}
         for r in opening_rows:
             amt = Decimal(str(r["total"] or 0))
             opening += amt if r["dr"] == account_code else -amt
@@ -118,7 +130,8 @@ async def get_account_ledger(
             entry->>'dr'                   AS dr,
             entry->>'cr'                   AS cr,
             (entry->>'amount')::numeric    AS amount,
-            entry->>'note'                 AS note
+            entry->>'note'                 AS note,
+            {LEGACY_FX_INVALID_LINE} AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -134,6 +147,9 @@ async def get_account_ledger(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "account_code": account_code, "lines": [], "count": 0}
 
     lines = []
     running = opening
@@ -161,6 +177,8 @@ async def get_account_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "account_code": account_code,
         "counterparty_inn": counterparty_inn,
         "date_from": date_from,
@@ -197,35 +215,42 @@ async def _get_trial_balance_from_posted_ledger(
             "count": 0,
         }
 
+    try:
+        assert_functional_basis(rows)
+    except ValueError as exc:
+        return {"error": basis_error_code(exc), "date_from": date_from, "date_to": date_to,
+                "accounts": [], "count": 0}
+
     items = []
     for row in rows:
-        dr = float(row["total_debit"] or 0)
-        cr = float(row["total_credit"] or 0)
+        dr = report_money_sum((row["total_debit"],))
+        cr = report_money_sum((row["total_credit"],))
         items.append({
             "account_code": row["account_code"],
             "opening_balance": 0.0,
-            "debit_turnover": round(dr, 2),
-            "credit_turnover": round(cr, 2),
-            "closing_balance": round(dr - cr, 2),
-            "debit": round(dr, 2),
-            "credit": round(cr, 2),
-            "net": round(dr - cr, 2),
+            "debit_turnover": dr,
+            "credit_turnover": cr,
+            "closing_balance": report_money_net(dr, cr),
+            "debit": dr,
+            "credit": cr,
+            "net": report_money_net(dr, cr),
         })
 
-    grand_dr = round(sum(i["debit_turnover"] for i in items), 2)
-    grand_cr = round(sum(i["credit_turnover"] for i in items), 2)
-    return {
+    grand_dr = report_money_sum(i["debit_turnover"] for i in items)
+    grand_cr = report_money_sum(i["credit_turnover"] for i in items)
+    return report_json_numbers({
         "source": "posted_ledger",
+        "currency": "GEL",
         "date_from": date_from,
         "date_to": date_to,
         "total_debit": grand_dr,
         "total_credit": grand_cr,
         "balanced": grand_dr == grand_cr,
         "opening_total": 0.0,
-        "closing_total": round(grand_dr - grand_cr, 2),
+        "closing_total": report_money_net(grand_dr, grand_cr),
         "accounts": items,
         "count": len(items),
-    }
+    })
 
 
 async def get_trial_balance(
@@ -244,7 +269,7 @@ async def get_trial_balance(
     date_to_filter = ""
     if date_to:
         date_to_filter = " AND jd.date::date <= %s"
-        where_params.append(date_to)
+        where_params.append(_pg_date(date_to))
 
     sql = _q(f"""
         SELECT
@@ -255,19 +280,16 @@ async def get_trial_balance(
                 THEN 'opening'
                 ELSE 'period'
             END                              AS bucket,
-            SUM((entry->>'amount')::numeric) AS total
+            SUM((entry->>'amount')::numeric) AS total,
+            SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
           AND jd.status = 'posted'
           AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
           {date_to_filter}
-        GROUP BY entry->>'dr'
-               , CASE
-                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
-                    THEN 'opening'
-                    ELSE 'period'
-                 END
+        AND entry->>'dr' IS NOT NULL
+        GROUP BY 1, 3
 
         UNION ALL
 
@@ -279,27 +301,27 @@ async def get_trial_balance(
                 THEN 'opening'
                 ELSE 'period'
             END                              AS bucket,
-            SUM((entry->>'amount')::numeric) AS total
+            SUM((entry->>'amount')::numeric) AS total,
+            SUM({LEGACY_FX_INVALID_LINE}) AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
           AND jd.status = 'posted'
           AND jd.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
           {date_to_filter}
-        GROUP BY entry->>'cr'
-               , CASE
-                    WHEN %s::date IS NOT NULL AND jd.date::date < %s::date
-                    THEN 'opening'
-                    ELSE 'period'
-                 END
+        AND entry->>'cr' IS NOT NULL
+        GROUP BY 1, 3
         ORDER BY account_code, side
     """)
 
-    branch_params = [date_from, date_from, *where_params, date_from, date_from]
+    branch_params = [_pg_date(date_from), _pg_date(date_from), *where_params]
     params_full = branch_params + branch_params
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params_full)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "accounts": [], "count": 0}
 
     accounts: dict[str, dict] = {}
     for r in rows:
@@ -307,52 +329,54 @@ async def get_trial_balance(
         if code not in accounts:
             accounts[code] = {
                 "account_code": code,
-                "opening_debit": 0.0,
-                "opening_credit": 0.0,
-                "debit_turnover": 0.0,
-                "credit_turnover": 0.0,
+                "opening_debit": Decimal(0),
+                "opening_credit": Decimal(0),
+                "debit_turnover": Decimal(0),
+                "credit_turnover": Decimal(0),
             }
         bucket = "opening" if r["bucket"] == "opening" else "period"
         if bucket == "opening" and r["side"] == "debit":
-            accounts[code]["opening_debit"] += float(r["total"] or 0)
+            accounts[code]["opening_debit"] = report_money_sum((accounts[code]["opening_debit"], r["total"]), rounded=False)
         elif bucket == "opening":
-            accounts[code]["opening_credit"] += float(r["total"] or 0)
+            accounts[code]["opening_credit"] = report_money_sum((accounts[code]["opening_credit"], r["total"]), rounded=False)
         elif r["side"] == "debit":
-            accounts[code]["debit_turnover"] += float(r["total"] or 0)
+            accounts[code]["debit_turnover"] = report_money_sum((accounts[code]["debit_turnover"], r["total"]), rounded=False)
         else:
-            accounts[code]["credit_turnover"] += float(r["total"] or 0)
+            accounts[code]["credit_turnover"] = report_money_sum((accounts[code]["credit_turnover"], r["total"]), rounded=False)
 
     items = []
     for raw in sorted(accounts.values(), key=lambda x: x["account_code"]):
-        opening_balance = raw["opening_debit"] - raw["opening_credit"]
-        closing_balance = opening_balance + raw["debit_turnover"] - raw["credit_turnover"]
+        opening_balance = report_money_net(raw["opening_debit"], raw["opening_credit"], rounded=False)
+        closing_balance = report_money_sum((opening_balance, raw["debit_turnover"], raw["credit_turnover"].copy_negate()))
         items.append({
             "account_code": raw["account_code"],
-            "opening_balance": round(opening_balance, 2),
-            "debit_turnover": round(raw["debit_turnover"], 2),
-            "credit_turnover": round(raw["credit_turnover"], 2),
-            "closing_balance": round(closing_balance, 2),
-            "debit": round(raw["debit_turnover"], 2),
-            "credit": round(raw["credit_turnover"], 2),
-            "net": round(closing_balance, 2),
+            "opening_balance": report_money_sum((opening_balance,)),
+            "debit_turnover": report_money_sum((raw["debit_turnover"],)),
+            "credit_turnover": report_money_sum((raw["credit_turnover"],)),
+            "closing_balance": report_money_sum((closing_balance,)),
+            "debit": report_money_sum((raw["debit_turnover"],)),
+            "credit": report_money_sum((raw["credit_turnover"],)),
+            "net": report_money_sum((closing_balance,)),
         })
 
-    grand_dr = sum(i["debit_turnover"] for i in items)
-    grand_cr = sum(i["credit_turnover"] for i in items)
-    opening_total = sum(i["opening_balance"] for i in items)
-    closing_total = sum(i["closing_balance"] for i in items)
+    grand_dr = report_money_sum(i["debit_turnover"] for i in items)
+    grand_cr = report_money_sum(i["credit_turnover"] for i in items)
+    opening_total = report_money_sum(i["opening_balance"] for i in items)
+    closing_total = report_money_sum(i["closing_balance"] for i in items)
 
-    return {
+    return report_json_numbers({
+        "source": "posted_drafts",
+        "currency": "GEL",
         "date_from": date_from,
         "date_to": date_to,
-        "total_debit": round(grand_dr, 2),
-        "total_credit": round(grand_cr, 2),
-        "balanced": round(grand_dr, 2) == round(grand_cr, 2),
-        "opening_total": round(opening_total, 2),
-        "closing_total": round(closing_total, 2),
+        "total_debit": grand_dr,
+        "total_credit": grand_cr,
+        "balanced": grand_dr == grand_cr,
+        "opening_total": opening_total,
+        "closing_total": closing_total,
         "accounts": items,
         "count": len(items),
-    }
+    })
 
 
 # ── 3. Counterparty Ledger ──────────────────────────────────────────────────
@@ -381,7 +405,8 @@ async def get_counterparty_ledger(
             jd.account_code,
             jd.reason,
             jd.status,
-            jd.journal_entries
+            jd.journal_entries,
+            {LEGACY_FX_INVALID_HEADER} AS fx_invalid_count
         FROM journal_drafts jd
         WHERE jd.tenant_id = %s
           AND jd.counterparty_inn = %s
@@ -395,6 +420,9 @@ async def get_counterparty_ledger(
 
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params)
+
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "counterparty_inn": counterparty_inn, "lines": [], "count": 0}
 
     lines = []
     total = Decimal("0")
@@ -414,6 +442,8 @@ async def get_counterparty_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "counterparty_inn": counterparty_inn,
         "date_from": date_from,
         "date_to": date_to,
@@ -457,7 +487,8 @@ async def get_payroll_ledger(
             entry->>'dr'                    AS dr,
             entry->>'cr'                    AS cr,
             (entry->>'amount')::numeric     AS amount,
-            entry->>'note'                  AS note
+            entry->>'note'                  AS note,
+            {LEGACY_FX_INVALID_LINE} AS fx_invalid_count
         FROM journal_drafts jd
         CROSS JOIN LATERAL jsonb_array_elements(jd.journal_entries) AS entry
         WHERE jd.tenant_id = %s
@@ -477,6 +508,9 @@ async def get_payroll_ledger(
     async with get_conn() as conn:
         rows = await conn.fetch(sql, *params_full)
 
+    if legacy_fx_unavailable(rows):
+        return {"error": LEGACY_FX_ERROR, "employee_id": employee_id, "lines": [], "count": 0}
+
     lines = []
     total_wages = Decimal("0")
     for r in rows:
@@ -495,6 +529,8 @@ async def get_payroll_ledger(
         })
 
     return {
+        "source": "posted_drafts",
+        "currency": "GEL",
         "employee_id": employee_id,
         "year": year,
         "total_wages": float(total_wages),
@@ -533,6 +569,7 @@ async def get_journal_entries(
             jd.counterparty_inn,
             jd.counterparty_name,
             jd.amount,
+            COALESCE(to_jsonb(jd)->>'currency','GEL') AS currency,
             jd.account_code,
             jd.debit_account,
             jd.credit_account,
@@ -572,6 +609,7 @@ async def get_journal_entries(
             "counterparty_inn": r["counterparty_inn"],
             "counterparty_name": r["counterparty_name"],
             "amount": float(r["amount"] or 0),
+            "currency": r.get("currency", "GEL"),
             "account_code": r["account_code"],
             "debit_account": r["debit_account"],
             "credit_account": r["credit_account"],
@@ -581,6 +619,7 @@ async def get_journal_entries(
         })
 
     return {
+        "source": "posted_drafts",
         "date": date,
         "total": total,
         "limit": limit,

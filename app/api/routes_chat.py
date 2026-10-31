@@ -1,13 +1,29 @@
 from fastapi import APIRouter, Request, File, UploadFile, Form
 from typing import Optional
-from app.api.response_utils import ok_response, error_response
-from app.api.tenant_context import resolve_tenant_id
+from app.api.response_utils import ok_response, http_error
+from app.api.authz import require_signed_tenant_permission
+from fastapi import HTTPException
+import logging
 import os, anthropic, base64, json
 from app.api.db import get_conn, _q
-from app.api.authz import require_permission
-
 router = APIRouter(prefix="/chat", tags=["chat"])
-_sessions: dict = {}
+log = logging.getLogger(__name__)
+
+# Ephemeral, per-process history. Never share across tenants or users.
+_sessions: dict[tuple[str, str, str], list] = {}
+
+
+def _authorized_session(request: Request, session_id: str) -> tuple[str, tuple[str, str, str]]:
+    tenant_id = require_signed_tenant_permission(request, "chat:use")
+    user_id = getattr(request.state, "user_id", None)
+    if not isinstance(user_id, (str, int)) or not str(user_id).strip():
+        raise HTTPException(status_code=403, detail="Signed user identity required")
+    if (
+        not isinstance(session_id, str) or not session_id or len(session_id) > 128
+        or session_id != session_id.strip() or any(ord(c) < 32 for c in session_id)
+    ):
+        raise HTTPException(status_code=422, detail="Invalid chat session ID")
+    return tenant_id, (tenant_id, str(user_id), session_id)
 
 SYSTEM_PROMPT = """შენ ხარ Bridge Hub-ის სუპერ AI ასისტენტი — ქართული AI საბუღალტრო სისტემა.
 
@@ -69,7 +85,7 @@ async def _get_db_context(tenant_id: str) -> str:
             """), tenant_id)
         top_str = ", ".join([f"{row['account_code']}({row['cnt']})" for row in top])
         return (f"\nDB: {r['pending']} pending, {r['approved']} approved, {r['rejected']} rejected"
-                f"\nდამტკ. ჯამი: {round(float(r['total_approved']),2)} GEL"
+                f"\nდამტკიცებული Draft-ების ჯამი (არ არის გატარებული P&L): {round(float(r['total_approved']),2)} GEL"
                 f"\nActive patterns: {patterns}"
                 f"\nTop accounts: {top_str}")
     except Exception as e:
@@ -116,15 +132,11 @@ async def send_message(
     session_id: str = Form("default"),
     file: Optional[UploadFile] = File(None)
 ):
-    require_permission(request, "chat:use")
+    tenant_id, key = _authorized_session(request, session_id)
     try:
-        tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-        if session_id not in _sessions:
-            _sessions[session_id] = []
-
-        history = _sessions[session_id]
+        # Build a provisional request, commit only after provider success.
+        history = list(_sessions.get(key, []))
         db_ctx = await _get_db_context(tenant_id)
         system = SYSTEM_PROMPT + db_ctx + f"\nTenant: {tenant_id}"
 
@@ -148,7 +160,7 @@ async def send_message(
         )
         reply = resp.content[0].text
         history.append({"role":"assistant","content":reply})
-        _sessions[session_id] = history
+        _sessions[key] = history[-30:]
 
         return ok_response("Chat response", {
             "reply": reply,
@@ -157,21 +169,25 @@ async def send_message(
             "tokens": resp.usage.input_tokens + resp.usage.output_tokens,
             "has_file": bool(file and file.filename)
         })
-    except Exception as e:
-        return error_response("Chat failed", "CHAT_ERROR", str(e))
+    except Exception as exc:
+        # Provider/DB exceptions may contain account data or secret context.
+        log.error("chat_message_unavailable error_type=%s", type(exc).__name__)
+        return http_error(503, "Chat temporarily unavailable", "CHAT_UNAVAILABLE")
 
 
 @router.delete("/session/{session_id}")
 def clear_session(session_id: str, request: Request):
-    require_permission(request, "chat:use")
-    _sessions.pop(session_id, None)
+    _, key = _authorized_session(request, session_id)
+    _sessions.pop(key, None)
     return ok_response("Session cleared", {"session_id": session_id})
 
 
 @router.get("/history")
-def chat_history(session_id: str = "default"):
+def chat_history(request: Request, session_id: str = "default"):
+    _, key = _authorized_session(request, session_id)
+    messages = _sessions.get(key, [])
     return ok_response("Chat history", {
         "session_id": session_id,
-        "count": len(_sessions.get(session_id, [])),
-        "messages": _sessions.get(session_id, [])
+        "count": len(messages),
+        "messages": messages,
     })

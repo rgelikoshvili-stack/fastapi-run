@@ -3,14 +3,19 @@ import json
 import logging
 import os
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 from datetime import date as _date
 from typing import Any, List, Optional
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, _validate_tenant_id
 from app.api.response_utils import ok_response, error_response
 from app.api.audit_service import log_event
 from app.api.observability import structured_log
+from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
+from app.api.services.posted_ledger_validation import prepare_posted_ledger_lines, MAX_AMOUNT
+from app.api.services.posted_ledger_reporting import classify_ledger_lines, UnclassifiedLedgerAccount
+from app.api.services.tenant_coa_mapping_service import classify_tenant_ledger_lines
+from app.api.services.period_transaction_gate import acquire_posting_gate, _date as parse_posting_date
 from app.api.services.posting_helpers import (
     _to_decimal,
     _sum_debits,
@@ -47,6 +52,8 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
     lines = _normalize_lines(
         draft.get("lines_json") if draft.get("lines_json") is not None else draft.get("lines", [])
     )
+    if _ledger_writes_enabled():
+        lines = await classify_tenant_ledger_lines(lines, draft.get("tenant_id"), draft.get("date"))
     currency = (draft.get("currency") or "GEL").upper()
     amount   = _to_decimal(draft.get("amount") or _derive_amount_from_lines(lines))
 
@@ -65,12 +72,20 @@ async def _draft_to_posting_payload(draft: dict) -> dict:
     if currency != "GEL":
         try:
             from app.api.services.currency_service import get_rate_async
-            rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date")))
+            rate = _to_decimal(await get_rate_async(currency, "GEL", draft.get("date"), allow_fallback=False))
             if not rate.is_finite() or rate <= 0:
                 raise ValueError("FX_RATE_MISSING: exchange rate must be positive and finite")
-            amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
-            payload["amount_gel"]    = float(amount_gel)
-            payload["exchange_rate"] = float(rate.quantize(Decimal("0.000001"), ROUND_HALF_UP))
+            with localcontext() as context:
+                context.prec = 50
+                rate = rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)
+                if rate <= 0 or rate > Decimal("9999999999.99999999"):
+                    raise ValueError("FX_RATE_INVALID: posting rate exceeds numeric range")
+                amount_gel = (amount * rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            payload["amount_gel"] = float(amount_gel)
+            # Keep the existing connector numeric field, with an exact internal
+            # rate for ledger persistence so a float cannot change booked FX.
+            payload["exchange_rate"] = float(rate)
+            payload["exchange_rate_exact"] = str(rate)
         except Exception as _fx_exc:
             # P0-4 FIX: Block non-GEL posting when FX rate is unavailable.
             # Falling back to 1.0 is financially wrong and causes incorrect ledger entries.
@@ -160,11 +175,32 @@ def _fetch_draft(cur, draft_id: int, tenant_id: str):
     }
 
 
+def _optional_posting_row_column(row, field):
+    """Read an explicitly selected DB column; legacy test-row doubles omit fields.
+
+    A real SQL schema missing the selected column fails the SELECT itself;
+    a missing field in a mock does not silently authorize a correction.
+    """
+    try:
+        return row[field]
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None
+
+
 def _validate_approved_draft(draft, draft_id: int, tenant_id: str):
     if not draft:
         return error_response(
             f"journal_drafts id={draft_id} does not exist for tenant {tenant_id}",
             code="NOT_FOUND",
+        )
+
+    # FIN-11: a forged 'approved' status cannot bypass independent
+    # correction maker/checker and immutable posted-ledger sign-off.
+    if (draft.get("entry_type") in ("reversal", "adjustment")
+            or draft.get("reversal_of_draft_id") is not None):
+        return error_response(
+            "Correction posting requires independently verified maker/checker",
+            code="FIN11_CORRECTION_POSTING_HOLD",
         )
 
     if draft["status"] != "approved":
@@ -442,7 +478,10 @@ async def get_posting_payload_service(draft_id: int, tenant_id: str = "default")
     err = _validate_approved_draft(draft, draft_id, tenant_id)
     if err:
         return err
-    payload = await _draft_to_posting_payload(draft)
+    try:
+        payload = await _draft_to_posting_payload(draft)
+    except UnclassifiedLedgerAccount:
+        return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
     return ok_response("posting payload ready", payload)
 
 
@@ -595,31 +634,49 @@ async def _write_ledger_entries(
     Runs inside the caller's transaction (separate from the main posting tx).
     Tables created by migration 011; only reached when POSTED_LEDGER_WRITES_ENABLED=true.
     """
-    # REQ-5: idempotent pre-check — skip if source already written for this draft
-    draft_id_str = str(draft.get("id", ""))
-    if draft_id_str:
-        existing = await conn.fetchval(_q("""
-            SELECT id FROM journal_entry_sources
+    try:
+        _validate_tenant_id(tenant_id)
+    except ValueError as exc:
+        raise ValueError("LEDGER_TENANT_MISMATCH: canonical tenant required") from exc
+    if draft.get("tenant_id") is not None and draft["tenant_id"] != tenant_id:
+        raise ValueError("LEDGER_TENANT_MISMATCH: draft tenant differs")
+    if draft.get("id") is None or isinstance(draft.get("id"), bool) or not str(draft["id"]).strip():
+        raise ValueError("LEDGER_SOURCE_REQUIRED: stable draft ID required")
+    draft_id_str = str(draft["id"])
+
+    # Serialize cooperating writers through COMMIT/ROLLBACK, not merely the
+    # pre-check. An autocommit advisory lock would be released too early.
+    if conn.is_in_transaction() is not True:
+        raise ValueError("LEDGER_TRANSACTION_REQUIRED: explicit transaction required")
+    lock_key = json.dumps(["posted-ledger-source-v1", tenant_id, draft_id_str], separators=(",", ":"))
+    await conn.execute(_q("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"), lock_key)
+    existing = await conn.fetchval(_q("""
+        SELECT CASE WHEN current_setting('transaction_isolation') = 'read committed'
+        THEN (
+            SELECT id::text FROM journal_entry_sources
             WHERE tenant_id = %s AND source_type = 'journal_draft' AND source_id = %s
             LIMIT 1
-        """), tenant_id, draft_id_str)
-        if existing is not None:
-            log_event("ledger_write_skipped", {
-                "entity_type": "journal_draft",
-                "entity_id": draft.get("id"),
-                "target": target,
-                "existing_source_id": str(existing),
-            }, tenant_id=tenant_id)
-            return
+        ) ELSE 'LEDGER_ISOLATION_UNSUPPORTED' END
+    """), tenant_id, draft_id_str)
+    if existing == "LEDGER_ISOLATION_UNSUPPORTED":
+        # A repeatable-read snapshot could predate the lock holder's commit.
+        # Fail before writes instead of treating that stale view as absent.
+        raise ValueError("LEDGER_ISOLATION_UNSUPPORTED: READ COMMITTED required")
+    if existing is not None:
+        log_event("ledger_write_skipped", {
+            "entity_type": "journal_draft",
+            "entity_id": draft.get("id"),
+            "target": target,
+            "existing_source_id": str(existing),
+        }, tenant_id=tenant_id)
+        return
 
-    lines = draft.get("lines", [])
-    total_debit  = sum(_to_decimal(ln.get("debit",  0) or 0) for ln in lines)
-    total_credit = sum(_to_decimal(ln.get("credit", 0) or 0) for ln in lines)
 
-    entry_date_str = (draft.get("date") or "")[:10] or None
-    period = entry_date_str[:7] if entry_date_str and len(entry_date_str) >= 7 else "1970-01"
-    # asyncpg requires a datetime.date object for date columns
-    entry_date_val = _date.fromisoformat(entry_date_str) if entry_date_str else None
+    try:
+        entry_date_val = _date.fromisoformat(str(draft.get("date") or "")[:10])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("LEDGER_DATE_INVALID: valid entry date required") from exc
+    period = entry_date_val.isoformat()[:7]
 
     # posting_log_id linkage: schema column is UUID; accept string or uuid.UUID from payload
     posting_log_id: Optional[uuid.UUID] = None
@@ -630,13 +687,41 @@ async def _write_ledger_entries(
         except (ValueError, AttributeError):
             pass
 
+    currency = (draft.get("currency") or "GEL").upper()
+    if currency != "GEL" and "exchange_rate" not in payload and "exchange_rate_exact" not in payload:
+        # Recovery must supply the original verified posting FX, never guess 1.
+        raise ValueError("FX_RATE_INVALID: explicit posting exchange rate required")
     try:
-        exchange_rate = Decimal(str(payload.get("exchange_rate", 1)))
+        exchange_rate = Decimal(str(payload.get("exchange_rate_exact", payload.get("exchange_rate", 1))))
+        if not exchange_rate.is_finite() or exchange_rate <= 0:
+            raise ValueError
+        exchange_rate = exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)
+        if exchange_rate <= 0 or exchange_rate > Decimal("9999999999.99999999"):
+            raise ValueError
     except Exception as exc:
         raise ValueError("FX_RATE_INVALID: ledger exchange rate is invalid") from exc
-    if not exchange_rate.is_finite() or exchange_rate <= 0:
-        raise ValueError("FX_RATE_INVALID: ledger exchange rate must be positive and finite")
-    currency = (draft.get("currency") or "GEL").upper()
+    if currency == "GEL" and exchange_rate != 1:
+        raise ValueError("FX_RATE_INVALID: GEL posting exchange rate must equal 1")
+    lines, total_debit, total_credit = prepare_posted_ledger_lines(draft.get("lines"))
+    lines = await classify_tenant_ledger_lines(lines, tenant_id, entry_date_val, conn=conn)
+    # Prepare all numeric values BEFORE any INSERT, using the same cents as
+    # the stored debit/credit lines and never a binary float intermediary.
+    with localcontext() as context:
+        context.prec = 50
+        for line in lines:
+            try:
+                line["amount_gel"] = (max(line["debit"], line["credit"]) * exchange_rate).quantize(
+                    Decimal("0.01"), ROUND_HALF_UP
+                )
+                if line["amount_gel"] > MAX_AMOUNT:
+                    raise ValueError
+            except (ValueError, DecimalException) as exc:
+                raise ValueError("LEDGER_LINES_INVALID: GEL amount exceeds numeric range") from exc
+
+        gel_debit = sum((line["amount_gel"] for line in lines if line["debit"] > 0), Decimal(0))
+        gel_credit = sum((line["amount_gel"] for line in lines if line["credit"] > 0), Decimal(0))
+        if gel_debit != gel_credit:
+            raise ValueError("LEDGER_FUNCTIONAL_UNBALANCED: stored GEL lines must balance")
 
     header_id = await conn.fetchval(_q("""
         INSERT INTO journal_entry_headers (
@@ -652,34 +737,37 @@ async def _write_ledger_entries(
         period,
         entry_hash,
         currency,
-        float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
-        float(total_debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-        float(total_credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+        exchange_rate,
+        total_debit,
+        total_credit,
         json.dumps({"target_system": target, "source_hash": entry_hash}, ensure_ascii=False),
         posting_log_id,
     )
 
     for idx, line in enumerate(lines, start=1):
         account_code = str(line.get("account_code", "") or "").strip()
-        if not account_code:
-            continue
-        debit  = _to_decimal(line.get("debit",  0) or 0)
-        credit = _to_decimal(line.get("credit", 0) or 0)
-        amount = debit if debit > 0 else credit
-        amount_gel = (amount * exchange_rate).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        debit = line["debit"]
+        credit = line["credit"]
+        amount_gel = line["amount_gel"]
+        # The posted report queries use account_type, not just account_code.
+        # Derive it from the existing canonical COA, never caller hints.
+        # Ledger vocabulary uses income and asset for revenue/contra_asset.
+        account_type = line["account_type"]
         await conn.execute(_q("""
             INSERT INTO journal_entry_lines (
                 tenant_id, journal_entry_id, line_no, account_code,
-                debit, credit, currency, exchange_rate, amount_gel, description
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                debit, credit, currency, exchange_rate, amount_gel, description,
+                account_type
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """),
             tenant_id, header_id, idx, account_code,
-            float(debit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-            float(credit.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+            debit,
+            credit,
             currency,
-            float(exchange_rate.quantize(Decimal("0.00000001"), ROUND_HALF_UP)),
-            float(amount_gel),
+            exchange_rate,
+            amount_gel,
             str(line.get("label", "") or draft.get("description", "") or ""),
+            account_type,
         )
 
     # Source row 1: journal_draft (always present — drives idempotency pre-check)
@@ -800,7 +888,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                             COALESCE(amount, 0) AS amount,
                             COALESCE(status, '') AS status,
                             COALESCE(currency, 'GEL') AS currency,
-                            COALESCE(lines_json, '[]'::jsonb) AS lines_json
+                            COALESCE(lines_json, '[]'::jsonb) AS lines_json,
+                            entry_type, reversal_of_draft_id
                         FROM journal_drafts
                         WHERE id = %s AND tenant_id = %s
                         FOR UPDATE NOWAIT
@@ -853,6 +942,8 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 "currency": draft_row["currency"],
                 "lines_json": draft_row["lines_json"],
                 "lines": _normalize_lines(draft_row["lines_json"]),
+                "entry_type": _optional_posting_row_column(draft_row, "entry_type"),
+                "reversal_of_draft_id": _optional_posting_row_column(draft_row, "reversal_of_draft_id"),
             }
 
             err = _validate_approved_draft(draft, draft_id, tenant_id)
@@ -860,49 +951,42 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
                 await tr.rollback()
                 return err
 
-            # period lock check
+            # FIN-11: the gate MUST cover this check and subsequent writes.
+            # A DB failure/invalid date is NEVER a licence to post.
             entry_date_raw = draft.get("date")
-            if entry_date_raw:
-                try:
-                    d = _date.fromisoformat(str(entry_date_raw)[:10])
-                    lock_val = await conn.fetchval(
-                        _q("""
-                            SELECT 1 FROM period_locks
-                            WHERE tenant_id = %s
-                              AND unlocked_at IS NULL
-                              AND period_year = %s
-                              AND (period_month = 0 OR period_month = %s)
-                            LIMIT 1
-                        """),
-                        tenant_id, d.year, d.month,
-                    )
-                    if lock_val is not None:
-                        await tr.rollback()
-                        structured_log(
-                            log,
-                            logging.WARNING,
-                            "posting_attempt_failed",
-                            draft_id=draft_id,
-                            tenant_id=tenant_id,
-                            target=target_normalized,
-                            result="error",
-                            error_code="PERIOD_LOCKED",
-                        )
-                        return error_response(
-                            "accounting period is locked",
-                            code="PERIOD_LOCKED",
-                            details={"date": str(entry_date_raw), "tenant_id": tenant_id},
-                        )
-                except Exception as _pl_exc:
-                    # Period-lock query failed unexpectedly; log and continue so a
-                    # broken lock-check does not block all postings.  Operator must
-                    # investigate — a silent pass here could permit posting to a
-                    # locked period without anyone knowing.
-                    log.warning(
-                        "period_lock query raised an unexpected exception for draft %s "
-                        "(posting proceeding — investigate period_lock table): %s",
-                        draft.get("id"), _pl_exc,
-                    )
+            try:
+                posting_date = parse_posting_date(entry_date_raw)
+                await acquire_posting_gate(conn, tenant_id, posting_date)
+                lock_val = await conn.fetchval(_q("""
+                    SELECT 1 FROM period_locks
+                    WHERE tenant_id = %s AND unlocked_at IS NULL
+                      AND period_year = %s
+                      AND (period_month = 0 OR period_month = %s)
+                    LIMIT 1
+                """), tenant_id, posting_date.year, posting_date.month)
+            except Exception as _period_exc:
+                await tr.rollback()
+                structured_log(
+                    log, logging.ERROR, "posting_attempt_failed",
+                    draft_id=draft_id, tenant_id=tenant_id, target=target_normalized,
+                    result="error", error_code="PERIOD_LOCK_UNAVAILABLE",
+                    error_type=type(_period_exc).__name__,
+                )
+                return error_response(
+                    "Accounting period lock unavailable; posting blocked",
+                    code="PERIOD_LOCK_UNAVAILABLE",
+                )
+            if lock_val is not None:
+                await tr.rollback()
+                structured_log(
+                    log, logging.WARNING, "posting_attempt_failed",
+                    draft_id=draft_id, tenant_id=tenant_id, target=target_normalized,
+                    result="error", error_code="PERIOD_LOCKED",
+                )
+                return error_response(
+                    "accounting period is locked", code="PERIOD_LOCKED",
+                    details={"date": str(entry_date_raw), "tenant_id": tenant_id},
+                )
 
             # duplicate invoice check
             if not force:
@@ -1047,6 +1131,9 @@ async def apply_posting_service(draft_id: int, target: str, tenant_id: str = "de
 
             try:
                 payload = await _draft_to_posting_payload(draft)
+            except UnclassifiedLedgerAccount:
+                await tr.rollback()
+                return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
             except FxRateMissingError as _fx_missing:
                 await tr.rollback()
                 structured_log(log, logging.ERROR, "posting_attempt_failed",
@@ -1268,6 +1355,8 @@ async def dry_run_posting_service(
 
         try:
             payload = await _draft_to_posting_payload(draft)
+        except UnclassifiedLedgerAccount:
+            return error_response("Ledger account mapping required", code="LEDGER_ACCOUNT_UNCLASSIFIED")
         except FxRateMissingError as _fx_missing:
             return error_response(str(_fx_missing), code="FX_RATE_MISSING",
                 details={"currency": draft.get("currency"), "draft_date": draft.get("date"),

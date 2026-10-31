@@ -46,14 +46,19 @@ def _schema_sql() -> str:
         CREATE TABLE journal_entry_headers (
             id UUID PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL,
             entry_date DATE NOT NULL, source_draft_id UUID,
-            posting_log_id UUID, evidence_bundle_id UUID
+            posting_log_id UUID, evidence_bundle_id UUID,
+            currency TEXT NOT NULL DEFAULT 'GEL',
+            exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1
         );
         CREATE TABLE journal_entry_lines (
             id UUID PRIMARY KEY, journal_entry_id UUID NOT NULL,
             tenant_id TEXT NOT NULL, account_code TEXT NOT NULL,
             account_type TEXT, cashflow_category TEXT,
             debit NUMERIC(18,2) NOT NULL DEFAULT 0,
-            credit NUMERIC(18,2) NOT NULL DEFAULT 0, description TEXT
+            credit NUMERIC(18,2) NOT NULL DEFAULT 0, description TEXT,
+            currency TEXT NOT NULL DEFAULT 'GEL',
+            exchange_rate NUMERIC(18,8) NOT NULL DEFAULT 1,
+            amount_gel NUMERIC(18,2) NOT NULL DEFAULT 0
         );
         CREATE TABLE journal_drafts (
             id BIGSERIAL PRIMARY KEY, tenant_id TEXT NOT NULL,

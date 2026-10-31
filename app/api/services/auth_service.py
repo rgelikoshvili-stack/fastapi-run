@@ -64,6 +64,22 @@ def _now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
+def jwt_session_version_enabled() -> bool:
+    """Controlled rollout. Requires migration 015 before activation.
+
+    Must be consistently enabled on all serving replicas. Default is OFF.
+    """
+    return os.environ.get("JWT_SESSION_VERSION_ENABLED", "0") == "1"
+
+
+def _required_auth_version(user) -> int:
+    """Fail closed: never mint a non-revocable JWT with the flag enabled."""
+    version = user["auth_version"]
+    if type(version) is not int or version < 1:
+        raise ValueError("valid database auth_version required")
+    return version
+
+
 def _create_access_token(user: dict) -> str:
     payload = {
         "sub": str(user["id"]),
@@ -74,6 +90,8 @@ def _create_access_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)).timestamp()),
     }
+    if jwt_session_version_enabled():
+        payload["auth_version"] = _required_auth_version(user)
     return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
@@ -87,10 +105,14 @@ def _create_refresh_token(user: dict) -> str:
         "iat": _now_ts(),
         "exp": int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
+    if jwt_session_version_enabled():
+        payload["auth_version"] = _required_auth_version(user)
     return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def create_access_token(payload_extra: dict) -> str:
+    if jwt_session_version_enabled():
+        _required_auth_version(payload_extra)
     now = datetime.now(timezone.utc)
     payload = {
         "type": "access",
@@ -102,6 +124,8 @@ def create_access_token(payload_extra: dict) -> str:
 
 
 def create_refresh_token(payload_extra: dict) -> str:
+    if jwt_session_version_enabled():
+        _required_auth_version(payload_extra)
     now = datetime.now(timezone.utc)
     payload = {
         "type": "refresh",
@@ -128,10 +152,25 @@ async def _resolve_tenant_id(tenant_id: str) -> str:
 
 
 async def login(email: str, password: str, tenant_id: str = "default") -> dict:
+    # Public password authentication has no pre-existing JWT tenant context.
+    # Scope only the credential lookup to the selected canonical tenant.
+    # User identity is established only after a successful password check.
+    from app.api.db import tenant_db_context
+
+    async def _credential_lookup(candidate: str):
+        if (
+            isinstance(candidate, str) and candidate
+            and candidate == candidate.strip()
+            and candidate.casefold() != "default"
+        ):
+            async with tenant_db_context(candidate):
+                return await get_user(email, candidate)
+        return await get_user(email, candidate)  # legacy default tenant path
+
     resolved = await _resolve_tenant_id(tenant_id)
-    user = await get_user(email, resolved)
+    user = await _credential_lookup(resolved)
     if not user and resolved != tenant_id:
-        user = await get_user(email, tenant_id)
+        user = await _credential_lookup(tenant_id)
     if not user:
         return {"ok": False, "error": "მომხმარებელი ვერ მოიძებნა"}
 
@@ -140,7 +179,18 @@ async def login(email: str, password: str, tenant_id: str = "default") -> dict:
 
     access_token = _create_access_token(user)
     refresh_token = _create_refresh_token(user)
-    await update_last_login(user["id"])
+    # With tenant RLS enabled, last_login must use the authenticated row's
+    # actual tenant rather than the public request's original tenant hint.
+    verified_tenant = user["tenant_id"]
+    if (
+        isinstance(verified_tenant, str) and verified_tenant
+        and verified_tenant == verified_tenant.strip()
+        and verified_tenant.casefold() != "default"
+    ):
+        async with tenant_db_context(verified_tenant):
+            await update_last_login(user["id"])
+    else:
+        await update_last_login(user["id"])
 
     return {
         "ok": True,
@@ -167,24 +217,161 @@ def verify_token(token: str, expected_type: str = "access") -> dict | None:
         return None
 
 
-def refresh_token(refresh_token_value: str) -> dict | None:
+def access_membership_check_enabled() -> bool:
+    """Explicit release gate for per-request JWT revocation validation.
+
+    Keep disabled until the real DB schema, throughput and failure behavior
+    have passed staging. A release MUST deliberately set this to '1'.
+    """
+    return (
+        os.environ.get("ACCESS_TOKEN_LIVE_MEMBERSHIP_CHECK", "0") == "1"
+        or jwt_session_version_enabled()
+    )
+
+
+async def verify_live_access_membership(payload: dict) -> bool:
+    """Verify a signed access claim still matches an active tenant member.
+
+    Called only after signature/type/expiration verification. Database errors
+    propagate so callers can respond 503 (fail closed), not accept a token
+    whose current membership cannot be established.
+    """
+    if not isinstance(payload, dict):
+        return False
+    subject = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    email = payload.get("email")
+    role = payload.get("role")
+    if (
+        not isinstance(subject, str)
+        or not subject.isascii()
+        or not subject.isdecimal()
+        or not 0 < len(subject) <= 18
+        or int(subject) <= 0
+        or not isinstance(tenant_id, str)
+        or not tenant_id
+        or tenant_id != tenant_id.strip()
+        or tenant_id.casefold() == "default"
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(role, str)
+        or not role.strip()
+    ):
+        return False
+
+    version_enabled = jwt_session_version_enabled()
+    if version_enabled:
+        claim_version = payload.get("auth_version")
+        if type(claim_version) is not int or claim_version < 1:
+            return False
+
+    from app.api.db import _q, get_conn, tenant_db_context
+
+    columns = "id, email, role, tenant_id, auth_version" if version_enabled else "id, email, role, tenant_id"
+    async with tenant_db_context(tenant_id):
+        async with get_conn() as conn:
+            current = await conn.fetchrow(
+                _q(
+                    f"SELECT {columns} FROM users "
+                    "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
+                ),
+                int(subject),
+                tenant_id,
+            )
+    if not current:
+        return False
+    return (
+        str(current["id"]) == subject
+        and current["tenant_id"] == tenant_id
+        and current["role"] == role
+        and isinstance(current["email"], str)
+        and current["email"].casefold() == email.casefold()
+        and (
+            not version_enabled
+            or current["auth_version"] == claim_version
+        )
+    )
+
+
+async def refresh_token(refresh_token_value: str) -> dict | None:
+    """Renew tokens only while the signed user's tenant membership is active.
+
+    Refresh requests are public endpoints, so explicitly bind the verified
+    tenant context for this DB read. Never trust role/email claims after the
+    membership has been disabled or edited in the database.
+    """
     payload = verify_token(refresh_token_value, expected_type="refresh")
     if not payload:
         return None
 
+    subject = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    email = payload.get("email")
+    role = payload.get("role")
+    if (
+        not isinstance(subject, str)
+        or not subject.isascii()
+        or not subject.isdecimal()
+        or not 0 < len(subject) <= 18
+        or int(subject) <= 0
+        or not isinstance(tenant_id, str)
+        or not tenant_id
+        or tenant_id != tenant_id.strip()
+        or tenant_id.casefold() == "default"
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(role, str)
+        or not role
+    ):
+        return None
+
+    version_enabled = jwt_session_version_enabled()
+    if version_enabled:
+        claim_version = payload.get("auth_version")
+        if type(claim_version) is not int or claim_version < 1:
+            return None
+
+    try:
+        from app.api.db import _q, get_conn, tenant_db_context
+        columns = "id, email, role, tenant_id, auth_version" if version_enabled else "id, email, role, tenant_id"
+
+        async with tenant_db_context(tenant_id):
+            async with get_conn() as conn:
+                current = await conn.fetchrow(
+                    _q(
+                        f"SELECT {columns} FROM users "
+                        "WHERE id=%s AND tenant_id=%s AND is_active=TRUE"
+                    ),
+                    int(subject),
+                    tenant_id,
+                )
+    except Exception:
+        log.exception("refresh_membership_lookup_failed")
+        return None
+
+    if not current:
+        return None
+    if (
+        str(current["id"]) != subject
+        or current["tenant_id"] != tenant_id
+        or current["role"] != role
+        or not isinstance(current["email"], str)
+        or current["email"].casefold() != email.casefold()
+        or (version_enabled and current["auth_version"] != claim_version)
+    ):
+        return None
+
     user = {
-        "id": int(payload["sub"]),
-        "email": payload["email"],
-        "role": payload["role"],
-        "tenant_id": payload["tenant_id"],
+        "id": current["id"],
+        "email": current["email"],
+        "role": current["role"],
+        "tenant_id": current["tenant_id"],
     }
-
-    new_access_token = _create_access_token(user)
-    new_refresh_token = _create_refresh_token(user)
-
+    if version_enabled:
+        user["auth_version"] = current["auth_version"]
     return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
+        "access_token": _create_access_token(user),
+        "refresh_token": _create_refresh_token(user),
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_EXPIRE_HOURS * 3600,
     }

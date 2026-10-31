@@ -205,3 +205,29 @@ RBAC/audit tests: `tests/unit/test_period_lock_rbac_audit_biz3.py`
 - `TestAuditNoSecrets` — 4 tests (no credentials in audit payload)
 - `TestDeniedActionLogging` — 2 tests
 - `TestBIZ3ServiceImports` — 4 import smoke tests
+
+
+---
+
+## Chat188 (2026-10-30): Superseding FIN-11 safety gate — Draft only
+
+The historical **Admin Override** section above describes prior BIZ-3 behavior,
+not currently accepted V1 safety policy. Review of the original implementation
+found that `allow_closed_period=True` required only `approval:write`, which
+was insufficient evidence of independent administrator/CFO authority.
+Current Draft PR #154 now refuses *all* closed-period override flags at
+both the HTTP route and direct service entry point. Corrections must be dated
+into an open period; any true reopening will require separately designed
+maker/checker approval and audited release gate. No live reopening permission
+is granted. Route and service refuse simulated-success originals for financial
+reversal and non-posted originals for financial adjustment. Correction drafts
+acquire the same transaction-scoped posting period gate as FIN-11; this protects
+them against concurrent close/unlock. Accepted corrections still only produce
+`pending_approval` drafts, **not** immutable posted-ledger correction entries.
+
+**Regression proof:** `2dae703` expected red (PG15/16: 10 failures per run)
+and `8dde6735847f30ab53855039f87224b761abfb87` 9/9 CI green.
+The older quoted override behavior above is preserved as historical context
+but is **no longer a supported behavior of the Draft code**. Real maker/checker,
+source-level reversal uniqueness, durable audit, full posted-ledger reversal,
+period-close production migrations and live auth/ERP proof remain OPEN/HOLD.

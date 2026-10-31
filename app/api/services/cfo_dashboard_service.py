@@ -23,6 +23,7 @@ Dashboard sections:
 """
 from __future__ import annotations
 
+import math
 import logging
 import os
 from typing import Any, Optional
@@ -121,15 +122,24 @@ def build_cfo_dashboard_from_data(
     bank_1120 = round(float(tb.get("1120", 0.0)), 2) if cash_balance_available else None
     total_liquid = round(cash_1110 + bank_1120, 2) if cash_balance_available else None
 
-    cf_operating  = 0.0
-    cf_investing  = 0.0
-    cf_financing  = 0.0
-    cf_net_change = 0.0
-    if cashflow:
-        cf_operating  = round(float(_safe(cashflow, "operating",  "net") or 0), 2)
-        cf_investing  = round(float(_safe(cashflow, "investing",  "net") or 0), 2)
-        cf_financing  = round(float(_safe(cashflow, "financing",  "net") or 0), 2)
-        cf_net_change = round(float(cashflow.get("net_change_in_cash") or 0), 2)
+    cf_operating = cf_investing = cf_financing = cf_net_change = None
+    cashflow_available = False
+    if cashflow and cashflow.get("complete", True) is not False:
+        raw_values = [
+            _safe(cashflow, "operating", "net"),
+            _safe(cashflow, "investing", "net"),
+            _safe(cashflow, "financing", "net"),
+            cashflow.get("net_change_in_cash"),
+        ]
+        try:
+            values = [float(value) for value in raw_values]
+            if any(isinstance(value, bool) for value in raw_values) or not all(math.isfinite(value) for value in values):
+                raise ValueError("Invalid cashflow amount")
+        except (TypeError, ValueError, OverflowError):
+            pass
+        else:
+            cf_operating, cf_investing, cf_financing, cf_net_change = [round(value, 2) for value in values]
+            cashflow_available = True
 
     cash_position = {
         "available":       cash_balance_available,
@@ -138,6 +148,7 @@ def build_cfo_dashboard_from_data(
         "cash_1110":       cash_1110,
         "bank_1120":       bank_1120,
         "total_liquid":    total_liquid,
+        "cashflow_available": cashflow_available,
         "net_cashflow":    cf_net_change,
         "operating_cf":    cf_operating,
         "investing_cf":    cf_investing,
@@ -448,4 +459,10 @@ async def build_cfo_dashboard(
         period_lock=period_lock_status,
         as_of=effective_as_of,
     )
+    if not pnl_resp.get("ok"):
+        result["profitability"] = {key: None for key in result["profitability"]}
+        result["profitability"].update({"available": False,
+            "error": (pnl_resp.get("error") or {}).get("code", "PNL_UNAVAILABLE")})
+    else:
+        result["profitability"]["available"] = True
     return result

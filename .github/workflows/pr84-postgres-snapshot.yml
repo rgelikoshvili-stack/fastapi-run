@@ -6,6 +6,12 @@ on:
     paths:
       - "scripts/validate_h84_report_snapshots.py"
       - "app/api/services/financial_statements_service.py"
+      - "app/api/services/posted_ledger_reporting.py"
+      - "app/api/services/ledger_service.py"
+      - "app/api/services/cfo_dashboard_service.py"
+      - "tests/unit/test_chat181_functional_currency.py"
+      - "tests/unit/test_chat181_classification_completeness.py"
+      - "tests/unit/test_chat180_cashflow_completeness.py"
       - "tests/unit/test_current_report_snapshot_validation_h84.py"
       - "tests/integration/test_pr127_cashflow_postgres.py"
       - "docs/current_report_snapshot_validation_h84.md"
@@ -64,6 +70,9 @@ jobs:
           python -m pytest
           tests/unit/test_cashflow_classification_biz2.py
           tests/unit/test_cashflow_posted_ledger_safety_biz2.py
+          tests/unit/test_chat180_cashflow_completeness.py
+          tests/unit/test_chat181_functional_currency.py
+          tests/unit/test_chat181_classification_completeness.py
           tests/unit/test_cfo_dashboard_metrics_biz2.py
           tests/unit/test_report_service_posted_ledger_query_mock_contract.py
           -q --tb=short

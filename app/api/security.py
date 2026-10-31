@@ -4,28 +4,72 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from app.api.client_ip import client_ip_for_rate_limit
+from app.api.services.rate_limiter_service import _shared_storage_required
+from app.api.slowapi_shared_guard import GuardedSlowAPILimiter
 
 log = logging.getLogger(__name__)
 
 
 def _real_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # SlowAPI and the category limiter must use the same verified identity.
+    return client_ip_for_rate_limit(request)
 
 
 def _make_limiter() -> Limiter:
-    redis_url = os.environ.get("REDIS_URL")
+    """Preserve existing @limiter.limit quotas with safe strict-mode storage.
+
+    Strict mode must not silently use in-memory counters. If Redis is missing
+    or a limiter cannot be constructed, keep decorators active and return a
+    controlled 503 instead of using a replica-local quota silo.
+    """
+    redis_url = os.environ.get("REDIS_URL", "").strip()
+    strict = _shared_storage_required()
+    if strict:
+        if redis_url.startswith(("redis://", "rediss://")):
+            try:
+                limiter = GuardedSlowAPILimiter(
+                    key_func=_real_ip,
+                    storage_uri=redis_url,
+                    storage_options={
+                        "socket_connect_timeout": 1,
+                        "socket_timeout": 1,
+                    },
+                    in_memory_fallback_enabled=False,
+                    swallow_errors=False,
+                )
+                log.info("slowapi_shared_store_configured")
+                return limiter
+            except Exception as exc:
+                log.error(
+                    "slowapi_shared_store_initialization_failed error_type=%s",
+                    type(exc).__name__,
+                )
+        else:
+            log.error("slowapi_strict_mode_missing_valid_redis_url")
+        return GuardedSlowAPILimiter(
+            key_func=_real_ip,
+            storage_uri="memory://",  # inert: checked before any access
+            unavailable=True,
+            in_memory_fallback_enabled=False,
+            swallow_errors=False,
+        )
+
+    # Local/development compatibility: existing per-route SlowAPI limits
+    # remain unchanged, with isolated memory only when Redis is unavailable.
     if redis_url:
         try:
-            limiter = Limiter(key_func=_real_ip, storage_uri=redis_url)
-            log.info("Rate limiter: Redis storage (%s)", redis_url.split("@")[-1])
-            return limiter
-        except Exception as e:
-            log.warning("Redis limiter init failed (%s), falling back to memory: %s", redis_url, e)
-    log.info("Rate limiter: in-memory storage (single-instance only)")
-    return Limiter(key_func=_real_ip)
+            return GuardedSlowAPILimiter(
+                key_func=_real_ip, storage_uri=redis_url,
+                in_memory_fallback_enabled=False, swallow_errors=False,
+            )
+        except Exception as exc:
+            log.warning(
+                "slowapi_dev_storage_init_failed error_type=%s",
+                type(exc).__name__,
+            )
+    log.info("slowapi_local_in_memory_only")
+    return GuardedSlowAPILimiter(key_func=_real_ip, storage_uri="memory://")
 
 
 limiter = _make_limiter()

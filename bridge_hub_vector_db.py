@@ -62,6 +62,23 @@ def _get_embedder():
     return _embedder
 
 
+def _plain_embedding(values) -> list[float]:
+    """Normalize ONNX/NumPy scalar output to Chroma's finite Python floats.
+
+    list(numpy_array) retains numpy.float32 elements, which Chroma's nested
+    list validator rejects. Use the same conversion for query and writes.
+    """
+    import math
+
+    try:
+        result = [float(value) for value in values]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("Vector embeddings unavailable") from exc
+    if not result or not all(math.isfinite(value) for value in result):
+        raise RuntimeError("Vector embeddings unavailable")
+    return result
+
+
 def _get_client():
     """ChromaDB კლიენტის ინიციალიზაცია."""
     global _chroma_client, _collection, _learn_collection
@@ -238,7 +255,7 @@ def index_files(files_dir: str = None, force_reindex: bool = False) -> dict:
 
         # Embeddings + ChromaDB-ში ჩაწერა
         try:
-            embeddings = list(embedder(chunks))
+            embeddings = [_plain_embedding(values) for values in embedder(chunks)]
 
             ids = [f"{file_hash}_{j}" for j in range(len(chunks))]
             metadatas = [
@@ -336,7 +353,7 @@ def semantic_search(
     if total == 0:
         return []
 
-    query_embedding = list(embedder([query])[0])
+    query_embedding = _plain_embedding(embedder([query])[0])
 
     # ფილტრი კატეგორიით
     where = {"category": category} if category else None
@@ -404,6 +421,87 @@ def semantic_search(
     # სორტირება score-ით
     output.sort(key=lambda x: x["score"], reverse=True)
     return output[:top_k]
+
+
+def tenant_learned_search(
+    query: str,
+    tenant_id: str,
+    top_k: int = 5,
+    min_score: float = 0.3,
+) -> list[dict]:
+    """Read ONLY learned corrections explicitly assigned to this tenant.
+
+    This is a staging-only building block, NOT a public API. The legacy base
+    Chroma collection contains unclassified historical files, so it is never
+    queried here. Existing legacy/global learned entries remain on disk but
+    are deliberately not inherited by a tenant.
+
+    Tenant filtering is applied BOTH at the vector-store query and after
+    retrieval (defense if the store returns forged/malformed metadata).
+    """
+    import math
+
+    if (
+        not isinstance(tenant_id, str) or
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", tenant_id) or
+        tenant_id.casefold() in ("default", "global", "public")
+    ):
+        raise ValueError("Explicit tenant ID required for vector search")
+    if not isinstance(query, str) or not query.strip() or len(query) > 2000:
+        raise ValueError("Nonempty bounded vector search query required")
+    if type(top_k) is not int or not 1 <= top_k <= 20:
+        raise ValueError("Invalid vector result count")
+    if isinstance(min_score, bool) or not isinstance(min_score, (int, float)) or not (
+        math.isfinite(min_score) and 0 <= min_score <= 1
+    ):
+        raise ValueError("Invalid vector similarity threshold")
+
+    _, _, learned = _get_client()
+    total = learned.count()
+    if not isinstance(total, int) or total < 0:
+        raise RuntimeError("Vector collection unavailable")
+    if total == 0:
+        return []
+
+    # No fallback to unfiltered query, global collection, or raw file scan.
+    embedding = _plain_embedding(_get_embedder()([query.strip()])[0])
+    result = learned.query(
+        query_embeddings=[embedding],
+        n_results=min(top_k, total),
+        where={"tenant_id": tenant_id},
+        include=["documents", "metadatas", "distances"],
+    )
+
+    try:
+        docs = result["documents"][0]
+        metas = result["metadatas"][0]
+        distances = result["distances"][0]
+        if not (len(docs) == len(metas) == len(distances)):
+            raise ValueError("Mismatched vector results")
+    except (KeyError, TypeError, IndexError, ValueError) as exc:
+        raise RuntimeError("Vector search results unavailable") from exc
+
+    filtered = []
+    for doc, meta, distance in zip(docs, metas, distances):
+        if not isinstance(meta, dict) or meta.get("tenant_id") != tenant_id:
+            continue
+        if not isinstance(doc, str) or not doc.strip():
+            continue
+        try:
+            score = 1 - float(distance)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(score) or score < min_score:
+            continue
+        # Never expose filesystem path / metadata or let a global result pass.
+        filtered.append({
+            "text": doc,
+            "source": "tenant_human_correction",
+            "category": "LEARNED",
+            "score": round(score, 4),
+        })
+    filtered.sort(key=lambda item: item["score"], reverse=True)
+    return filtered[:top_k]
 
 
 def hybrid_search(query: str, top_k: int = 5) -> list[dict]:
@@ -502,7 +600,7 @@ def learn_from_correction(
     )
 
     doc_id = hashlib.md5(f"{tenant_id}_{original_text}".encode()).hexdigest()
-    embedding = list(embedder([learn_text])[0])
+    embedding = _plain_embedding(embedder([learn_text])[0])
 
     # ძველი ჩანაწერის წაშლა
     try:

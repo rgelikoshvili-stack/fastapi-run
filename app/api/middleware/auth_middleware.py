@@ -1,6 +1,10 @@
 from fastapi import Request
 from app.api.response_utils import http_error
-from app.api.services.auth_service import verify_token
+from app.api.services.auth_service import (
+    access_membership_check_enabled,
+    verify_live_access_membership,
+    verify_token,
+)
 from app.api.observability import structured_log
 import logging
 
@@ -14,6 +18,10 @@ PUBLIC_PATH_PREFIXES = (
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
+    "/auth/signup",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/oauth",
     "/static",
     "/app",
 )
@@ -31,6 +39,12 @@ _DOWNLOAD_PREFIXES = (
     "/api/reports/export/",
     "/api/payroll/slip/",
 )
+
+_PROTECTED_AUTH_PATHS = frozenset({
+    "/auth/me", "/auth/company-profile", "/auth/change-password",
+    "/auth/signature", "/auth/stamp",
+})
+
 
 
 async def auth_middleware(request: Request, call_next):
@@ -70,8 +84,24 @@ async def auth_middleware(request: Request, call_next):
     # tenant_middleware (outermost, runs first) sets it from X-Tenant-ID header.
     # We only override it if JWT carries a tenant_id (JWT takes priority).
 
+    live_check_enabled = access_membership_check_enabled()
+
     if token:
         payload = verify_token(token, expected_type="access")
+        if payload and live_check_enabled:
+            try:
+                current_member = await verify_live_access_membership(payload)
+            except Exception:
+                log.exception("access_membership_check_unavailable")
+                return http_error(
+                    503, "Authentication membership service unavailable",
+                    "AUTH_MEMBERSHIP_UNAVAILABLE",
+                )
+            if not current_member:
+                return http_error(
+                    401, "Access token is no longer authorized",
+                    "AUTH_MEMBERSHIP_REVOKED",
+                )
         if payload:
             request.state.authenticated = True
             request.state.user_id = payload.get("sub")
@@ -114,6 +144,12 @@ async def auth_middleware(request: Request, call_next):
             result="denied",
             error_code="UNAUTHORIZED",
         )
+
+    # RBAC intentionally allows /auth/* through; these protected auth
+    # endpoints must not proceed with an unauthenticated request when the
+    # live revocation guard is enabled. Their handlers also check tokens.
+    if live_check_enabled and path in _PROTECTED_AUTH_PATHS and not request.state.authenticated:
+        return http_error(401, "Access token required", "AUTH_REQUIRED")
 
     from app.api.db import authenticated_tenant_context
     with authenticated_tenant_context(None):

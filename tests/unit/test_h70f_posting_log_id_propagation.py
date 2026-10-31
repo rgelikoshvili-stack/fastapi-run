@@ -48,6 +48,7 @@ class _TrMock:
 
 def _make_conn(fetchrow_side=None, fetchval_side=None):
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     conn.fetchrow = AsyncMock(side_effect=list(fetchrow_side or []))
     conn.fetchval = AsyncMock(side_effect=list(fetchval_side or []))
     conn.execute = AsyncMock()

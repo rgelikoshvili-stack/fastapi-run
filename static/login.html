@@ -110,7 +110,13 @@ if (localStorage.getItem('access_token')) {
 })();
 
 function oauthLogin(provider) {
-  const tenantId = document.getElementById('tenant').value.trim() || 'default';
+  const tenantId = document.getElementById('tenant').value.trim();
+  if (!tenantId || tenantId.toLowerCase() === 'default') {
+    document.getElementById('tenantWrap').style.display = 'block';
+    document.getElementById('err').textContent = 'OAuth შესვლისთვის მიუთითეთ კომპანიის Tenant ID';
+    document.getElementById('tenant').focus();
+    return;
+  }
   window.location.href = `/auth/oauth/${provider}/login?tenant_id=${encodeURIComponent(tenantId)}`;
 }
 

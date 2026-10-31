@@ -33,7 +33,7 @@ async def reverse_journal_entry(draft_id: int, request: Request, payload: dict):
     Body:
       reversal_date  (str, YYYY-MM-DD, required)
       reason         (str, required)
-      allow_closed_period (bool, optional — admin override, defaults False)
+      allow_closed_period (true not supported; explicit rejection until maker/checker policy)
 
     Original entry is never modified. Reversal goes through normal approval flow.
     Permission: approval:write
@@ -44,7 +44,12 @@ async def reverse_journal_entry(draft_id: int, request: Request, payload: dict):
 
     reversal_date = payload.get("reversal_date")
     reason        = str(payload.get("reason") or "").strip()
-    allow_closed  = bool(payload.get("allow_closed_period", False))
+    allow_closed  = payload.get("allow_closed_period", False)
+    if allow_closed is not False:
+        return error_response(
+            "Closed-period override disabled pending independent approval",
+            "CLOSED_PERIOD_OVERRIDE_DISABLED",
+        )
 
     if not reversal_date:
         return error_response("reversal_date is required", "VALIDATION_ERROR")
@@ -83,7 +88,7 @@ async def adjust_journal_entry(draft_id: int, request: Request, payload: dict):
       adjustment_date  (str, YYYY-MM-DD, required)
       reason           (str, required)
       lines            (list, required — balanced DR=CR journal lines)
-      allow_closed_period (bool, optional — admin override, defaults False)
+      allow_closed_period (true not supported; explicit rejection until maker/checker policy)
 
     Original entry is never modified. Adjustment goes through normal approval flow.
     Permission: approval:write
@@ -95,7 +100,12 @@ async def adjust_journal_entry(draft_id: int, request: Request, payload: dict):
     adjustment_date = payload.get("adjustment_date")
     reason          = str(payload.get("reason") or "").strip()
     lines           = payload.get("lines") or []
-    allow_closed    = bool(payload.get("allow_closed_period", False))
+    allow_closed    = payload.get("allow_closed_period", False)
+    if allow_closed is not False:
+        return error_response(
+            "Closed-period override disabled pending independent approval",
+            "CLOSED_PERIOD_OVERRIDE_DISABLED",
+        )
 
     if not adjustment_date:
         return error_response("adjustment_date is required", "VALIDATION_ERROR")

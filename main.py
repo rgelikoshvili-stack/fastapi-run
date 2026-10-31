@@ -57,6 +57,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.security import limiter, rate_limit_exceeded_handler, SECURITY_HEADERS, SECURITY_HEADERS_STATIC
+from app.api.slowapi_shared_guard import (
+    SharedRateLimitStoreUnavailable,
+    shared_rate_limit_unavailable_handler,
+)
 
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -219,6 +223,11 @@ app.add_middleware(
 # --- RATE LIMITING ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# SlowAPI 0.1.9's middleware incorrectly dispatches ordinary Redis exceptions
+# to a 429-only handler; the guarded limiter raises a dedicated safe 503.
+app.add_exception_handler(
+    SharedRateLimitStoreUnavailable, shared_rate_limit_unavailable_handler
+)
 app.add_middleware(SlowAPIMiddleware)
 
 
@@ -234,12 +243,17 @@ app.middleware("http")(tenant_middleware)
 
 @app.middleware("http")
 async def https_redirect(request: Request, call_next):
-    """Redirect HTTP → HTTPS when behind a proxy (Cloud Run / load balancer)."""
-    proto = request.headers.get("X-Forwarded-Proto", "")
-    if proto == "http" and request.url.path != "/health":
-        https_url = str(request.url).replace("http://", "https://", 1)
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=https_url, status_code=301)
+    """Optional HTTPS upgrade; never reflect an untrusted Host/proxy header.
+
+    The external ingress must enforce TLS by default. Application redirect
+    requires explicit, staging-verified proxy CIDRs and canonical HTTPS origin.
+    """
+    from app.api.trusted_request_origin import trusted_https_redirect_target
+    destination = trusted_https_redirect_target(request)
+    if destination is not None:
+        # Temporary 307 preserves the HTTP method if the real trusted edge
+        # sent an HTTP request, without caching a permanent redirect.
+        return RedirectResponse(url=destination, status_code=307)
     return await call_next(request)
 
 
@@ -250,6 +264,10 @@ async def add_security_headers(request: Request, call_next):
     headers = SECURITY_HEADERS_STATIC if request.url.path.startswith("/static/") else SECURITY_HEADERS
     for k, v in headers.items():
         response.headers[k] = v
+    if request.url.path == "/static/reset_password.html":
+        # Legacy query links may carry reset tokens; do not cache or refer them.
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
     if "X-Powered-By" in response.headers:
         del response.headers["X-Powered-By"]
     return response
@@ -272,6 +290,12 @@ async def prometheus_middleware(request: Request, call_next):
         _PROM_LATENCY.labels(method=method, path=path).observe(time.perf_counter() - start)
         _PROM_ACTIVE.dec()
 
+
+# Registered last, ASGI outermost, ahead of HTTP handlers and WebSocket
+# upgrades. Disabled until the actual Host, port and probe inventory is
+# approved. Never reflect Host/X-Forwarded-Host or guess Cloud Run domains.
+from app.api.trusted_host_guard import TrustedHostASGIMiddleware
+app.add_middleware(TrustedHostASGIMiddleware)
 
 
 

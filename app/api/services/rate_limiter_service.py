@@ -1,11 +1,11 @@
 """app/api/services/rate_limiter_service.py
 
-Rate-limiter service with Redis backend (when REDIS_URL is set) and a
-safe in-memory fixed-window fallback for TEST_MODE, local dev, and when
-Redis is unavailable.
+Rate-limit service with an atomic Redis fixed window for multiple replicas.
 
-Tests never call real Redis — get_rate_limiter_service() returns the
-in-memory backend when TEST_MODE=1 or when REDIS_URL is not configured.
+Production (ENVIRONMENT=production) and RATE_LIMIT_REQUIRE_SHARED=1
+FAIL CLOSED if Redis is absent or unavailable. Only tests/local development
+can use a process-local memory fallback. Real Redis tests run in a separate,
+explicitly guarded disposable CI job.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from app.api.services.rate_limit_policy_service import RateLimitRule
@@ -116,80 +116,126 @@ class InMemoryRateLimiterBackend:
 
 
 # ---------------------------------------------------------------------------
-# Redis backend (optional — only used when REDIS_URL is set and redis importable)
+# Shared Redis backend and explicitly denied shared-storage dependency
 # ---------------------------------------------------------------------------
 
-class RedisRateLimiterBackend:
-    """Fixed-window rate limiter backed by Redis (sync client, non-async).
+# Redis evaluates this entire script atomically. This avoids the race between
+# the old INCR and later EXPIRE which could leave a hot key without any TTL.
+_REDIS_FIXED_WINDOW_LUA = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+local ttl = redis.call('TTL', KEYS[1])
+if ttl == -1 then
+    -- Repair a legacy counter missing TTL, but do not extend a normal
+    -- window whose TTL has rounded down to zero just before expiration.
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+    ttl = redis.call('TTL', KEYS[1])
+end
+return {count, ttl}
+"""
 
-    Uses INCR + EXPIRE pipeline for atomic increment.  Falls back to the
-    in-memory backend on any Redis error.
+_SHARED_UNAVAILABLE_CODE = "RATE_LIMIT_BACKEND_UNAVAILABLE"
+_SHARED_RETRY_SECONDS = 5
+
+
+def _shared_storage_required() -> bool:
+    """Production cannot silently downgrade to per-instance counters."""
+    return (
+        os.environ.get("ENVIRONMENT", "").strip().casefold() == "production"
+        or os.environ.get("RATE_LIMIT_REQUIRE_SHARED", "") == "1"
+    )
+
+
+def _shared_unavailable(rule: RateLimitRule, now: float) -> RateLimitResult:
+    return RateLimitResult(
+        allowed=False,
+        remaining=0,
+        limit=rule.limit,
+        retry_after_seconds=_SHARED_RETRY_SECONDS,
+        reset_at=now + _SHARED_RETRY_SECONDS,
+        backend="shared_unavailable",
+        error_code=_SHARED_UNAVAILABLE_CODE,
+    )
+
+
+class UnavailableRateLimiterBackend:
+    """Explicit denial when shared quota storage is missing in strict mode."""
+
+    def check(
+        self, key: str, rule: RateLimitRule, now: Optional[float] = None
+    ) -> RateLimitResult:
+        return _shared_unavailable(rule, now if now is not None else time.time())
+
+    def reset(self, key: str) -> None:
+        raise RuntimeError("Shared quota storage is unavailable")
+
+
+class RedisRateLimiterBackend:
+    """Atomic Redis fixed-window counters shared by all app replicas.
+
+    With require_shared=True Redis errors block *all* limited requests.
+    Local development can opt into historical memory fallback without
+    weakening production. This class never clears Redis keys on outage.
     """
 
-    def __init__(self, redis_url: str) -> None:
-        import redis as _redis  # lazy import — tested in non-TEST_MODE only
-        self._client = _redis.from_url(redis_url, socket_connect_timeout=1, socket_timeout=1)
-        self._fallback = InMemoryRateLimiterBackend()
+    def __init__(self, redis_url: str, require_shared: bool = False) -> None:
+        import redis as _redis  # lazy import, no network call at construction
+        self._client = _redis.from_url(
+            redis_url, socket_connect_timeout=1, socket_timeout=1,
+        )
+        self._require_shared = require_shared
+        self._fallback = (
+            None if require_shared else InMemoryRateLimiterBackend()
+        )
         self._redis_ok = True
 
-    def check(self, key: str, rule: RateLimitRule, now: Optional[float] = None) -> RateLimitResult:
+    def check(
+        self, key: str, rule: RateLimitRule, now: Optional[float] = None
+    ) -> RateLimitResult:
         now = now if now is not None else time.time()
         try:
-            pipe = self._client.pipeline()
-            pipe.incr(key)
-            pipe.ttl(key)
-            count, ttl = pipe.execute()
-
-            if ttl < 0:
-                # Key exists but has no TTL — set it now
-                self._client.expire(key, rule.window_seconds)
-                ttl = rule.window_seconds
-
+            count, ttl = self._client.eval(
+                _REDIS_FIXED_WINDOW_LUA, 1, key, rule.window_seconds,
+            )
+            count, ttl = int(count), int(ttl)
+            if count < 1 or ttl < 0:
+                raise ValueError("Redis counter or TTL was invalid")
+            # Redis TTL may be zero for the final fraction of a second;
+            # keep the original expiry rather than reopening the window.
             remaining = max(0, rule.limit - count)
-            reset_at = now + ttl
-
+            seconds_remaining = max(1, ttl)
             if not self._redis_ok:
-                log.info("Redis rate limiter recovered")
+                log.info("rate_limit_redis_recovered")
                 self._redis_ok = True
-
-            if count > rule.limit:
-                retry_after = max(1, ttl)
-                return RateLimitResult(
-                    allowed=False,
-                    remaining=0,
-                    limit=rule.limit,
-                    retry_after_seconds=retry_after,
-                    reset_at=reset_at,
-                    backend="redis",
-                    error_code=rule.error_code,
-                )
-
-            # First request in new window: set TTL
-            if count == 1:
-                self._client.expire(key, rule.window_seconds)
-
             return RateLimitResult(
-                allowed=True,
+                allowed=count <= rule.limit,
                 remaining=remaining,
                 limit=rule.limit,
-                retry_after_seconds=0,
-                reset_at=reset_at,
+                retry_after_seconds=0 if count <= rule.limit else seconds_remaining,
+                reset_at=now + seconds_remaining,
                 backend="redis",
+                error_code=rule.error_code if count > rule.limit else None,
             )
-
         except Exception as exc:
             if self._redis_ok:
-                log.warning(
-                    "rate_limit_redis_unavailable key=%s error=%s — falling back to memory",
-                    key, exc,
+                # Neither keys nor Redis URLs are logged (privacy/secrets).
+                log.error(
+                    "rate_limit_redis_unavailable error_type=%s strict=%s",
+                    type(exc).__name__, self._require_shared,
                 )
                 self._redis_ok = False
+            if self._require_shared:
+                return _shared_unavailable(rule, now)
             return self._fallback.check(key, rule, now)
 
     def reset(self, key: str) -> None:
         try:
             self._client.delete(key)
         except Exception:
+            if self._require_shared:
+                raise RuntimeError("Shared quota reset unavailable") from None
             self._fallback.reset(key)
 
 
@@ -225,8 +271,9 @@ _service_lock = threading.Lock()
 def get_rate_limiter_service() -> RateLimiterService:
     """Return the singleton rate-limiter service.
 
-    In TEST_MODE or when REDIS_URL is not set, returns in-memory fallback.
-    In production with REDIS_URL set, returns Redis-backed service.
+    Production or RATE_LIMIT_REQUIRE_SHARED=1 requires shared Redis.
+    Missing Redis, initialization errors, and runtime outage all deny requests.
+    In local development or tests, process-local memory may be used.
     """
     global _service
     if _service is not None:
@@ -238,18 +285,32 @@ def get_rate_limiter_service() -> RateLimiterService:
 
         test_mode = os.environ.get("TEST_MODE", "0") == "1"
         redis_url = os.environ.get("REDIS_URL", "").strip()
+        strict = _shared_storage_required()
 
-        if not test_mode and redis_url:
+        if redis_url and (strict or not test_mode):
             try:
-                backend = RedisRateLimiterBackend(redis_url)
-                log.info("Rate limiter: Redis backend (%s)", redis_url.split("@")[-1])
+                backend = RedisRateLimiterBackend(
+                    redis_url, require_shared=strict,
+                )
+                log.info("rate_limit_redis_configured strict=%s", strict)
                 _service = RateLimiterService(backend)
                 return _service
             except Exception as exc:
-                log.warning("Redis rate limiter init failed (%s), using memory fallback", exc)
+                log.error(
+                    "rate_limit_redis_init_failed error_type=%s strict=%s",
+                    type(exc).__name__, strict,
+                )
 
-        log.info("Rate limiter: in-memory fallback (TEST_MODE=%s REDIS_URL=%s)",
-                 test_mode, bool(redis_url))
+        if strict:
+            # Never create a per-process quota silo in Production.
+            log.error("rate_limit_shared_storage_required_but_unavailable")
+            _service = RateLimiterService(UnavailableRateLimiterBackend())
+            return _service
+
+        log.info(
+            "rate_limit_in_memory_local_only test_mode=%s redis_configured=%s",
+            test_mode, bool(redis_url),
+        )
         _service = RateLimiterService(InMemoryRateLimiterBackend())
         return _service
 

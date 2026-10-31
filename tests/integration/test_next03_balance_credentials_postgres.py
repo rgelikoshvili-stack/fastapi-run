@@ -103,7 +103,9 @@ async def credential_db(monkeypatch):
                     amount NUMERIC,
                     status TEXT,
                     currency TEXT,
-                    lines_json JSONB NOT NULL DEFAULT '[]'::jsonb
+                    lines_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    entry_type TEXT NOT NULL DEFAULT 'normal',
+                    reversal_of_draft_id BIGINT
                 );
                 CREATE TABLE period_locks (
                     tenant_id TEXT NOT NULL,
@@ -250,9 +252,9 @@ async def test_missing_balance_credential_never_creates_successful_posting_state
     async with credential_db.acquire() as conn:
         await conn.execute("""
             INSERT INTO journal_drafts
-                (id, tenant_id, status, amount, currency, lines_json)
+                (id, tenant_id, date, status, amount, currency, lines_json)
             VALUES
-                (9001, 'tenant-empty', 'approved', 25.00, 'GEL',
+                (9001, 'tenant-empty', '2026-10-30', 'approved', 25.00, 'GEL',
                  '[{"account_code":"1000","debit":25,"credit":0},'
                  '{"account_code":"3000","debit":0,"credit":25}]'::jsonb)
         """)
@@ -260,7 +262,14 @@ async def test_missing_balance_credential_never_creates_successful_posting_state
     from unittest.mock import AsyncMock, patch
     from app.api.services import posting_service
 
-    with patch.object(posting_service, "get_conn", credentials.get_conn), \
+    # Isolate posting inside a real transaction for the FIN-11 period gate.
+    @asynccontextmanager
+    async def posting_transaction():
+        async with credential_db.acquire() as conn:
+            async with conn.transaction():
+                yield conn
+
+    with patch.object(posting_service, "get_conn", posting_transaction), \
          patch.object(posting_service, "_is_connector_disabled", new_callable=AsyncMock, return_value=False), \
          patch.object(posting_service, "log_event"), \
          patch.object(posting_service, "structured_log"), \

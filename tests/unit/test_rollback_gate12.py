@@ -40,6 +40,7 @@ class _FakeConnCtx:
 
 def _make_approved_conn():
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     draft_row = {
         "id": 10, "tenant_id": "t1", "date": "2026-05-26",
         "description": "Invoice", "partner": "LLC",

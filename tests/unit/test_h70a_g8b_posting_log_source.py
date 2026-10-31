@@ -13,6 +13,7 @@ import pytest
 
 def _make_conn(fetchval_side=None, fetchval_return=None):
     conn = AsyncMock()
+    conn.is_in_transaction = MagicMock(return_value=True)
     if fetchval_side is not None:
         conn.fetchval = AsyncMock(side_effect=fetchval_side)
     else:
@@ -31,7 +32,7 @@ def _make_draft(draft_id=42, lines=None):
     if lines is None:
         lines = [
             {"account_code": "1110", "debit": 500.0, "credit": 0.0,   "label": "DR"},
-            {"account_code": "3100", "debit": 0.0,   "credit": 500.0, "label": "CR"},
+            {"account_code": "3110", "debit": 0.0,   "credit": 500.0, "label": "CR"},
         ]
     return {
         "id": draft_id,
@@ -134,7 +135,7 @@ class TestPostingLogSourceTraceability:
                 conn, _make_draft(), payload, "t1", "mock", "hash5"
             )
         # No INSERTs at all — skipped before write
-        conn.execute.assert_not_called()
+        assert not any("INSERT" in c.args[0] for c in conn.execute.call_args_list)
         assert "ledger_write_skipped" in events
 
     @pytest.mark.asyncio

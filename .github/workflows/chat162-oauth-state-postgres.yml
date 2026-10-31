@@ -41,6 +41,7 @@ on:
       - "docs/sql/chat184_verified_fx_quotes_DRAFT.sql"
       - "docs/sql/chat185_posted_ledger_integrity_DRAFT.sql"
       - "docs/sql/chat186_posting_outbox_DRAFT.sql"
+      - "docs/sql/chat201_fin12_local_ledger_outbox_interlock_DRAFT.sql"
       - "app/api/services/posting_outbox_intent_service.py"
       - "tests/unit/test_chat186_outbox_contract.py"
       - "tests/unit/test_chat187_period_gate.py"

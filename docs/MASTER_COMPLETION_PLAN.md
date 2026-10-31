@@ -710,3 +710,40 @@ No rebase, reset, deletion or production change.
 
 No main, Merge, Production deployment, live DB migration, ERP mutation,
 Windows original file edits or public upload of private Handoff/Evidence.
+
+
+## Chat200 — FIN-12 read-only local ledger/outbox anomaly gate (2026-10-31)
+
+Inherited Chat199 `620d2dd58fa8a0cfbf2c75e1cda10d2e65ca8c1f`,
+PR #154 OPEN/DRAFT, independently verified **9/9 CI SUCCESS**;
+backend 8,573 PASS/3 SKIP and disposable PG15/PG16 765 PASS each.
+Preserve all previous FIN-11/12, FIN-08 work, docs and test history.
+
+- **P0 design gap identified:** the existing posted-ledger writer runs in a
+  distinct caller transaction; unverified outbox `prepared` state does not
+  establish ERP acceptance or a common local commit boundary. A premature
+  posted-ledger link and unverified ERP outbox must not be silently accepted.
+- Red-first unit and synthetic PG15/16 regressions
+  `3e8eda9cce0bce2e903486d9cfe373db3fcff0fe`,
+  `c2dcffad067d687291886b5dc5d81178d8276788`.
+  They assert tenant/transaction and stored outbox integrity, no double
+  ledger source, no unverified terminal certification, one-local-transaction
+  rollback of both records, separate historical anomaly preservation and
+  strict tenant isolation.
+- **Unregistered READ-ONLY diagnostic**
+  `app/api/services/fin12_local_atomicity_guard.py` matches tenant,
+  source and target, invokes FIN-12 stored-payload/idempotency verification,
+  and checks matching existing posted-ledger source links from the same
+  caller-owned DB transaction. Existing/ambiguous source link => manual
+  HOLD. Missing source link => unverified pending state, NOT proof of atomic
+  posting or authorization to dispatch/retry/confirm/write a ledger.
+  Detailed evidence: `docs/chat200-fin12-local-atomicity-diagnostic.md`.
+- **OPEN/EXTERNAL-HOLD** unchanged: actual vendor acceptance/receipt,
+  tenant-bound authenticated ERP result and provider idempotency, real
+  lease/fencing/crash recovery, JWT actors, posted-ledger/receipt/outbox
+  single-local-transaction finalization, production RLS/roles and reports.
+  No router, dispatcher, integration, live migration, posting, Production,
+  main, Merge or Windows original change; private Handoff/Evidence off GitHub.
+- Verify exact final HEAD 9 CI (backend and PG15/16) independently before
+  accepting this bounded Draft safety milestone. Green synthetic evidence
+  never implies real ERP exactly-once behavior.

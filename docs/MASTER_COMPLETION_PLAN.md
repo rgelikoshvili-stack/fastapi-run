@@ -830,3 +830,12 @@ All private Handoff/Technical Report/Evidence archives remain OFF GitHub.
   nine CI workflows, including PostgreSQL 15/16, before this repair can be
   accepted as Draft-verified. A passing code HEAD does not by itself certify
   Production or real cashflow/accounting truth.
+
+## Chat202 — FIN-11 approval period-lock fail-closed (2026-11-01)
+
+- Inherited Chat201 exact SHA `a8eb95501e1f6084fbbffabc4ce62a08aac72311`: independently reverified nine GitHub PR workflows SUCCESS, backend 8,600 PASS/3 SKIP and one smoke PASS; disposable PostgreSQL 15 and 16 each 799 PASS. Real frontend build and Cloud Run deploy job SKIPPED. This is synthetic acceptance only.
+- Confirmed source defect: `approval_service.approve_draft_service` caught period-lock query/date errors, logged a warning, and *continued* to approval SQL; missing posting dates also bypassed checking. An unavailable lock authority cannot authorize approval. FIN-11 Maker/Checker is still not live.
+- Regression-first test-only commit `62c6e07749f3332a57161cd7ac2e86b677503121`: `tests/unit/test_chat202_fin11_period_lock.py`, covering period DB failure, permission error, timeout and forbidden status write/commit. The test was added before the fix, but no independent RED pytest execution has been attested; do not claim a measured failure.
+- Scoped Draft fix commit `309564146564ee899ee4aefd0a835ec951d5769d`: invalid/missing date and failed period-lock read now return `PERIOD_LOCK_UNAVAILABLE` after rollback and before any approval mutation. Existing locked period returns `PERIOD_LOCKED`. No schema, vendor, router or Production activation.
+- Acceptance is **PENDING** until the exact new PR documentation HEAD runs all nine GitHub CI and unit regression; the RED-before implementation is logically established by code inspection, not executed evidence. Preserve all prior commits and parallel finance-precision changes.
+- FIN-12 vendor-certified signed receipt/status, tenant-provider account binding, idempotent dispatch, lease/fencing, crash-safe reconciliation and authenticated local ledger/outbox/receipt finalizer remain EXTERNAL-HOLD. FIN-11 signed Maker/Checker, immutable posted correction, audit and report parity remain OPEN. Continue FIN-07/08 precision after these blocks. Production HOLD.

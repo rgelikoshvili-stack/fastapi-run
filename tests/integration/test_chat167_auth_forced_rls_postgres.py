@@ -3490,3 +3490,61 @@ async def test_chat205_checker_refuses_creator_audit_changed_after_maker_submit(
                 "WHERE tenant_id='t_alpha' "
                 "AND action='correction_review_approved'"
             ) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat206_creator_audit_is_locked_during_checker_decision(auth_db):
+    """Disposable PG15/16 nonowner proof of creator-audit lock lifetime.
+
+    The independent checker must retain a row lock until its transaction
+    finishes: a competing transaction cannot rewrite that audit evidence
+    midway through the already-authorized decision.
+    """
+    from app.api.services.correction_review_service import (
+        submit_correction_review, decide_correction_review,
+    )
+    await _chat192_setup_review_candidates(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await submit_correction_review(
+                conn, tenant_id="t_alpha", draft_id=71,
+                maker_subject="auth:maker-71", maker_role="accountant",
+            )
+
+        async with db.get_conn() as conn:
+            approved = await decide_correction_review(
+                conn, tenant_id="t_alpha", draft_id=71,
+                checker_subject="auth:cfo-2", checker_role="cfo",
+                decision="approved", reason="synthetic audit lock test",
+            )
+            assert approved["state"] == "approved"
+            assert approved["posted"] is False
+
+            # Separate disposable connection tries to change the exact
+            # source-audit row. Use a finite lock timeout so CI cannot hang.
+            # The caught timeout rolls back only this competing transaction.
+            async with auth_db["admin"].acquire() as competitor:
+                with pytest.raises(asyncpg.exceptions.LockNotAvailableError):
+                    async with competitor.transaction():
+                        await competitor.execute(
+                            "SET LOCAL lock_timeout = '200ms'"
+                        )
+                        await competitor.execute("""
+                            UPDATE audit_log SET actor='auth:forged-mid-decision'
+                             WHERE tenant_id='t_alpha'
+                               AND resource='journal_drafts'
+                               AND resource_id='71'
+                               AND action='reversal_draft_created'
+                               AND status='success'
+                        """)
+
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT state FROM correction_review_intents "
+                "WHERE tenant_id='t_alpha' AND draft_id=71"
+            ) == "approved"
+            assert await conn.fetchval(
+                "SELECT count(*) FROM audit_log "
+                "WHERE tenant_id='t_alpha' "
+                "AND action='correction_review_approved'"
+            ) == 1

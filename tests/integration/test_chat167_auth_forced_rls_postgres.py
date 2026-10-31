@@ -1744,7 +1744,7 @@ async def test_chat186_posting_outbox_durable_intent_tenant_dedup_and_unknown_ho
             assert await conn.fetchval("SELECT count(*) FROM posting_outbox_intents")==1
 
     async with auth_db["admin"].acquire() as conn:
-        with pytest.raises(asyncpg.ForeignKeyViolationError):
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_RECEIPT_SOURCE_TENANT_MISMATCH"):
             await conn.execute("""
                 INSERT INTO posting_outbox_receipts (
                     outbox_id,tenant_id,outcome

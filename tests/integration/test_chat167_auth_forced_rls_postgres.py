@@ -3432,3 +3432,61 @@ async def test_chat201_parallel_source_inserts_are_locked_across_transactions(au
             assert await conn.fetchval(
                 "SELECT count(*) FROM journal_entry_headers"
             ) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat205_checker_refuses_creator_audit_changed_after_maker_submit(auth_db):
+    """Disposable PG15/16: actor source audit cannot change before checker.
+
+    This intentionally mutates *synthetic* audit evidence using the disposable
+    test owner. It is NOT a production audit policy, data migration or cleanup.
+    """
+    from app.api.services.correction_review_service import (
+        CorrectionReviewUnavailable,
+        submit_correction_review,
+        decide_correction_review,
+    )
+    await _chat192_setup_review_candidates(auth_db)
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            maker_result = await submit_correction_review(
+                conn, tenant_id="t_alpha", draft_id=71,
+                maker_subject="auth:maker-71", maker_role="accountant",
+            )
+            assert maker_result["state"] == "awaiting_checker"
+
+    # The candidate production audit_log immutability policy is still
+    # unverified. Simulate a drifted/tampered source event inside disposable
+    # schema, *after* review submission but before checker approval.
+    async with auth_db["admin"].acquire() as conn:
+        changed = await conn.execute("""
+            UPDATE audit_log SET actor='auth:unexpected-creator'
+             WHERE tenant_id='t_alpha'
+               AND resource='journal_drafts' AND resource_id='71'
+               AND action='reversal_draft_created'
+        """)
+        assert changed == "UPDATE 1"
+
+    with db.authenticated_tenant_context("t_alpha"):
+        with pytest.raises(CorrectionReviewUnavailable,
+                           match="FIN11_REVIEW_MAKER_NOT_CREATOR"):
+            async with db.get_conn() as conn:
+                await decide_correction_review(
+                    conn, tenant_id="t_alpha", draft_id=71,
+                    checker_subject="auth:cfo-2", checker_role="cfo",
+                    decision="approved", reason="unverified source",
+                )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT state FROM correction_review_intents "
+                "WHERE tenant_id='t_alpha' AND draft_id=71"
+            ) == "awaiting_checker"
+            assert await conn.fetchval(
+                "SELECT count(*) FROM correction_review_events "
+                "WHERE tenant_id='t_alpha' AND action='approved'"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM audit_log "
+                "WHERE tenant_id='t_alpha' "
+                "AND action='correction_review_approved'"
+            ) == 0

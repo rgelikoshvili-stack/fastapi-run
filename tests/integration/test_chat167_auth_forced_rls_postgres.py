@@ -2977,7 +2977,8 @@ async def test_chat198_disposable_fencing_one_shot_and_untrusted_expiry_hold(aut
                           'admin:forged','admin',2)
             """,prepared,"a"*64,"b"*64)
         await conn.execute(
-            f'GRANT SELECT ON posting_outbox_intents TO "{auth_db["role"]}"'
+            f'GRANT SELECT ON posting_outbox_intents, posting_outbox_receipts '
+            f'TO "{auth_db["role"]}"'
         )
         await conn.execute(
             f'GRANT SELECT,INSERT ON posting_outbox_fence_proposals '

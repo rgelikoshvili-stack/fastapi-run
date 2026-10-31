@@ -681,7 +681,8 @@ async def attach_file_to_draft(draft_id: int, request: Request, file=None):
 
 @router.get("/draft/{draft_id}/attachment")
 async def get_draft_attachment(draft_id: int, request: Request):
-    """Return signed URL or file info for a draft's attachment."""
+    """Return a tenant-bound signed URL only to an authorized approval reader."""
+    require_permission(request, "approval:read")
     from app.api.services.storage_service import generate_signed_url, download_file
     from fastapi.responses import Response
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -700,6 +701,15 @@ async def get_draft_attachment(draft_id: int, request: Request):
     file_size = row["attached_file_size"]
 
     if gcs_path:
+        # Stored path is data, not authorization. Reject a foreign or
+        # ambiguous key BEFORE issuing a signed URL or downloading bytes.
+        if (not isinstance(gcs_path, str)
+                or not gcs_path.startswith(f"{tenant_id}/")
+                or any(segment in ("", ".", "..") for segment in gcs_path.split("/"))):
+            return http_error(
+                409, "Attachment storage identity requires review",
+                "FIN11_ATTACHMENT_STORAGE_TENANT_HOLD",
+            )
         signed_url = generate_signed_url(gcs_path, expires_in=900)
         if signed_url:
             return ok_response("Draft attachment URL", {"signed_url": signed_url, "file_name": file_name, "file_size": file_size})

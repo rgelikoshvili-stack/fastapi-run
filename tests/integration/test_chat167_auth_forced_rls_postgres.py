@@ -3266,6 +3266,9 @@ async def test_chat201_local_outbox_ledger_interlock_never_posts_without_real_re
         await conn.execute(
             f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
         )
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_receipts TO "{auth_db["role"]}"'
+        )
 
     payload={"tenant_id":"t_alpha","amount":"100.01","currency":"GEL"}
     def draft(source):

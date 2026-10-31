@@ -370,6 +370,9 @@ async def reclassify_unclassified(request: Request):
                 """SELECT id, description, amount FROM journal_drafts
                    WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL
                                             OR debit_account = '????' OR credit_account = '????')
+                     AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                     AND entry_type IN ('normal', 'standard')
+                     AND reversal_of_draft_id IS NULL
                    ORDER BY id LIMIT 200"""),
                 tenant_id)]
             updated = 0
@@ -392,11 +395,20 @@ async def reclassify_unclassified(request: Request):
                         dr, cr = acc, "1210"
                     else:
                         dr, cr = acc, "3110"
-                    await conn.execute(_q(
+                    # Revalidate the source at UPDATE time: it may have
+                    # become posted/linked after the read in another request.
+                    changed = await conn.fetchrow(_q(
                         """UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s
-                           WHERE id=%s AND tenant_id=%s"""),
+                           WHERE id=%s AND tenant_id=%s
+                             AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                             AND entry_type IN ('normal', 'standard')
+                             AND reversal_of_draft_id IS NULL
+                             AND (debit_account IS NULL OR credit_account IS NULL
+                                  OR debit_account = '????' OR credit_account = '????')
+                           RETURNING id"""),
                         dr, cr, acc, d["id"], tenant_id)
-                    updated += 1
+                    if changed:
+                        updated += 1
                 except Exception as e:
                     log.warning("unexpected error: %s", e)
         return ok_response("Reclassification complete", {"reclassified": updated, "total_unclassified": len(drafts)})

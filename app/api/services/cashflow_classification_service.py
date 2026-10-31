@@ -14,6 +14,7 @@ Policy decisions (documented):
 from __future__ import annotations
 
 from typing import Any
+from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 
 # ── Cash / bank account codes ─────────────────────────────────────────────────
 CASH_ACCOUNTS = frozenset({"1110", "1120"})
@@ -101,6 +102,26 @@ _EXPECTED_ACCOUNT_TYPES: dict[str, frozenset[str]] = {
     **{code: frozenset({"equity"}) for code in ("4110", "4120")},
     "3370": frozenset({"equity", "liability"}),
 }
+
+
+def _cash_decimal(value: Any) -> Decimal:
+    """Carry exact booked NUMERIC cents through all cashflow netting.
+
+    Only convert to the legacy JSON-facing float AFTER aggregation.
+    A value already converted to an imprecise float by an upstream caller
+    cannot have its lost fractional cents restored here.
+    """
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        n = Decimal(str(0 if value is None else value))
+        if not n.is_finite():
+            raise ValueError
+        with localcontext() as context:
+            context.prec = max(38, len(n.as_tuple().digits) + 6)
+            return abs(n).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (DecimalException, ValueError, TypeError, OverflowError) as exc:
+        raise ValueError("CASHFLOW_AMOUNT_INVALID") from exc
 
 
 def classify_cashflow_line(
@@ -200,14 +221,16 @@ def build_cashflow_from_posted_ledger_rows(rows: list[dict[str, Any]]) -> dict[s
             line for line in header_lines
             if str(line.get("account_code") or "").strip() in CASH_ACCOUNTS
         ]
-        cash_debits = sum(float(line.get("debit") or 0) for line in cash_lines)
-        cash_credits = sum(float(line.get("credit") or 0) for line in cash_lines)
+        cash_debits = sum((_cash_decimal(line.get("debit")) for line in cash_lines), Decimal("0"))
+        cash_credits = sum((_cash_decimal(line.get("credit")) for line in cash_lines), Decimal("0"))
         if cash_debits > 0 and cash_credits > 0:
             non_cash_lines = [
                 line for line in header_lines
                 if all(line is not cash_line for cash_line in cash_lines)
             ]
-            if not non_cash_lines and abs(cash_debits - cash_credits) < 0.005:
+            # Ledger NUMERIC(18,2) amounts must agree to the cent. Float
+            # tolerance silently hid a one-cent difference at 2**53 scale.
+            if not non_cash_lines and cash_debits == cash_credits:
                 movements.append({
                     "dr": "1110", "cr": "1120", "amount": cash_debits,
                     "cashflow_category": "internal", "description": "internal cash transfer",
@@ -218,7 +241,7 @@ def build_cashflow_from_posted_ledger_rows(rows: list[dict[str, Any]]) -> dict[s
                 for line in cash_lines:
                     movements.append({
                         "dr": str(line.get("account_code") or ""), "cr": "",
-                        "amount": float(line.get("debit") or line.get("credit") or 0),
+                        "amount": _cash_decimal(line.get("debit") or line.get("credit") or 0),
                         "cashflow_category": "invalid",
                         "description": line.get("description") or "",
                     })
@@ -233,14 +256,14 @@ def build_cashflow_from_posted_ledger_rows(rows: list[dict[str, Any]]) -> dict[s
                 movements.append({
                     "dr": cash_code,
                     "cr": "",
-                    "amount": float(cash.get("debit") or cash.get("credit") or 0),
+                    "amount": _cash_decimal(cash.get("debit") or cash.get("credit") or 0),
                     "cashflow_category": "invalid",
                     "description": cash.get("description") or "",
                 })
                 continue
 
-            debit = float(cash.get("debit") or 0)
-            credit = float(cash.get("credit") or 0)
+            debit = _cash_decimal(cash.get("debit"))
+            credit = _cash_decimal(cash.get("credit"))
             if debit > 0 and credit > 0:
                 movements.append({
                     "dr": cash_code,
@@ -257,7 +280,7 @@ def build_cashflow_from_posted_ledger_rows(rows: list[dict[str, Any]]) -> dict[s
             counterparty_rows = [
                 line for line in header_lines
                 if line is not cash
-                and (float(line.get("credit") or 0) if is_inflow else float(line.get("debit") or 0)) > 0
+                and (_cash_decimal(line.get("credit")) if is_inflow else _cash_decimal(line.get("debit"))) > 0
                 and str(line.get("account_code") or "").strip() not in CASH_ACCOUNTS
             ]
             explicit = (cash.get("cashflow_category") or "").strip().lower()
@@ -356,7 +379,14 @@ def build_cashflow_direct(
         "unknown": {"lines": []},
     }
 
+    totals = {
+        cat: {"inflow": Decimal("0"), "outflow": Decimal("0")}
+        for cat in ("operating", "investing", "financing")
+    }
+    internal_total = Decimal("0")
+
     for raw in lines:
+        amount_exact = _cash_decimal(raw.get("amount", 0))
         classified = classify_cashflow_line(
             raw.get("dr", ""),
             raw.get("cr", ""),
@@ -364,38 +394,37 @@ def build_cashflow_direct(
             cashflow_category=raw.get("cashflow_category"),
             counterpart_account_type=raw.get("counterpart_account_type"),
         )
+        classified["amount"] = float(amount_exact)
         classified["description"] = raw.get("description", "")
         cat = classified["category"]
         direction = classified["direction"]
-        amt = classified["amount"]
-
         if cat in ("operating", "investing", "financing"):
             sec = sections[cat]
             sec["lines"].append(classified)
-            if direction == "inflow":
-                sec["inflows"] = round(sec["inflows"] + amt, 2)
-            elif direction == "outflow":
-                sec["outflows"] = round(sec["outflows"] + amt, 2)
+            if direction in ("inflow", "outflow"):
+                totals[cat][direction] += amount_exact
         elif cat == "internal":
             sections["internal_transfers"]["lines"].append(classified)
-            sections["internal_transfers"]["amount"] = round(
-                sections["internal_transfers"]["amount"] + amt, 2
-            )
+            internal_total += amount_exact
         elif cat == "non_cash":
             sections["non_cash"]["lines"].append(classified)
         else:
             sections["unknown"]["lines"].append(classified)
 
+    net_change_exact = Decimal("0")
     for cat in ("operating", "investing", "financing"):
         sec = sections[cat]
-        sec["net"] = round(sec["inflows"] - sec["outflows"], 2)
-
-    net_change = round(
-        sections["operating"]["net"]
-        + sections["investing"]["net"]
-        + sections["financing"]["net"],
-        2,
-    )
+        inflows = totals[cat]["inflow"]
+        outflows = totals[cat]["outflow"]
+        net_exact = inflows - outflows
+        net_change_exact += net_exact
+        # Preserve existing JSON-facing float shape, but only AFTER exact
+        # Decimal aggregation and cent-level offsetting.
+        sec["inflows"] = float(inflows)
+        sec["outflows"] = float(outflows)
+        sec["net"] = float(net_exact)
+    sections["internal_transfers"]["amount"] = float(internal_total)
+    net_change = float(net_change_exact)
 
     return {
         **sections,

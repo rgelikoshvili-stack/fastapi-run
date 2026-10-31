@@ -6,6 +6,7 @@ import logging
 import os
 from typing import Optional
 from datetime import date
+from decimal import Decimal, localcontext
 
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
@@ -127,7 +128,7 @@ def _build_balance_sheet_posted_ledger_query(
          AND jel.tenant_id = jeh.tenant_id
         WHERE jeh.tenant_id = $1
           AND jeh.status = ANY($2)
-          AND (jel.report_account_type IN ('asset', 'liability', 'equity') OR jel.classification_invalid_count > 0)
+          AND (jel.report_account_type IN ('asset', 'liability', 'equity', 'income', 'expense') OR jel.classification_invalid_count > 0)
           {as_of_filter}
         GROUP BY jel.account_code, jel.report_account_type
         ORDER BY jel.account_code
@@ -464,6 +465,30 @@ async def build_profit_and_loss(
     })
 
 
+def _append_unclosed_result(equity_lines: list, balances) -> float:
+    """Present the remaining cumulative P&L balance as equity, without posting.
+
+    Closing journals already remove the income/expense balances and transfer
+    them to booked equity. Only the remainder is presented, so closing cannot
+    double count earnings. This is not a fiscal-year profit classification or
+    an asset/liability balancing plug.
+    """
+    with localcontext() as context:
+        context.prec = 50
+        result = sum((Decimal(str(credit or 0)) - Decimal(str(debit or 0))
+                      for debit, credit in balances), Decimal(0))
+        amount = float(result.quantize(Decimal("0.01")))
+    if amount:
+        equity_lines.append({
+            "account_code": None,
+            "label": "დაუხურავი მოგება / ზარალი",
+            "amount": amount,
+            "line_type": "unclosed_result",
+            "derived": True,
+        })
+    return amount
+
+
 async def _build_balance_sheet_from_posted_ledger(
     tenant_id: str,
     as_of: Optional[str],
@@ -494,9 +519,16 @@ async def _build_balance_sheet_from_posted_ledger(
         "liability": "liabilities", "liabilities": "liabilities",
         "equity": "equity",
     }
+    unclosed_result = _append_unclosed_result(
+        sections["equity"]["equity"],
+        ((row["total_debit"], row["total_credit"]) for row in rows
+         if row.get("account_type") in ("income", "expense")),
+    )
     for row in rows:
         code = row["account_code"]
         acct_type = row.get("account_type", "")
+        if acct_type in ("income", "expense"):
+            continue
         total_dr = float(row["total_debit"] or 0)
         total_cr = float(row["total_credit"] or 0)
         bs_meta = _BALANCE_SHEET.get(code)
@@ -537,9 +569,10 @@ async def _build_balance_sheet_from_posted_ledger(
             "non_current": {"lines": sections["liabilities"]["non_current"], "total": total_noncurrent_liab},
             "total":       total_liabilities,
         },
-        "equity": {"lines": sections["equity"]["equity"], "total": total_equity},
+        "equity": {"lines": sections["equity"]["equity"], "total": total_equity,
+                   "unclosed_result": unclosed_result},
         "total_liabilities_and_equity": total_le,
-        "balanced": abs(total_assets - total_le) < 0.05,
+        "balanced": total_assets == total_le,
         "currency": "GEL",
     })
 
@@ -595,6 +628,8 @@ async def build_cashflow_statement(
 
 
 async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> dict:
+    # The displayed date must also bound the data, including future postings.
+    as_of = as_of or date.today().isoformat()
     if _posted_ledger_reports_enabled():
         return await _build_balance_sheet_from_posted_ledger(tenant_id, as_of)
 
@@ -613,6 +648,12 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
         "liabilities": {"current": [], "non_current": []},
         "equity":      {"equity":  []},
     }
+
+    unclosed_result = _append_unclosed_result(
+        sections["equity"]["equity"],
+        ((net, 0) for code, net in tb.items()
+         if canonical_account_type(code) in ("income", "expense") or code in _PNL),
+    )
 
     for code, (group, sub, label) in _BALANCE_SHEET.items():
         net = tb.get(code, 0.0)
@@ -637,7 +678,7 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
     total_equity = round(sum(l["amount"] for l in sections["equity"]["equity"]), 2)
     total_le     = round(total_liabilities + total_equity, 2)
 
-    balanced = abs(total_assets - total_le) < 0.05
+    balanced = total_assets == total_le
 
     return ok_response("Balance Sheet built", {
         "as_of": as_of or date.today().isoformat(),
@@ -654,6 +695,7 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
         "equity": {
             "lines": sections["equity"]["equity"],
             "total": total_equity,
+            "unclosed_result": unclosed_result,
         },
         "total_liabilities_and_equity": total_le,
         "balanced": balanced,

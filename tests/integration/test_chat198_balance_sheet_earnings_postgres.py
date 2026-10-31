@@ -78,3 +78,69 @@ async def test_unclosed_fx_profit_closing_entries_asof_and_tenant_isolation(auth
         assert other["data"]["equity"]["unclosed_result"] == 9999
     async with auth_db["runtime"].acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM journal_entry_lines") == 0
+
+
+@pytest.mark.asyncio
+async def test_legacy_gel_equity_closing_and_future_or_unapproved_exclusion(auth_db, monkeypatch):
+    import json
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 31)
+
+    monkeypatch.setenv("POSTED_LEDGER_REPORTS_ENABLED", "0")
+    monkeypatch.setattr(finance, "date", FixedDate)
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE journal_drafts (
+                id SERIAL PRIMARY KEY, tenant_id TEXT, status TEXT, date TEXT,
+                currency TEXT, journal_entries JSONB);
+            ALTER TABLE journal_drafts ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE journal_drafts FORCE ROW LEVEL SECURITY;
+            CREATE POLICY chat198_legacy_exact ON journal_drafts
+                USING (tenant_id=current_setting('app.current_tenant_id',true));
+        """)
+        await conn.execute(f'GRANT SELECT ON journal_drafts TO "{auth_db["role"]}"')
+
+    async def post(tenant, day, dr, cr, amount, status="posted"):
+        async with auth_db["admin"].acquire() as conn:
+            await conn.execute("""
+                INSERT INTO journal_drafts (tenant_id,status,date,currency,journal_entries)
+                VALUES ($1,$2,$3,'GEL',$4::jsonb)
+            """, tenant, status, day,
+                json.dumps([{"dr": dr, "amount": amount}, {"cr": cr, "amount": amount}]))
+
+    await post("t_alpha", "2026-09-01", "1120", "4110", 50)
+    await post("t_alpha", "2026-09-02", "1120", "4210", 40)
+    await post("t_alpha", "2026-10-10", "1120", "6110", 100)
+    await post("t_alpha", "2026-10-20", "7210", "1120", 30)
+    await post("t_alpha", "2099-01-01", "1120", "6110", 90000)
+    await post("t_alpha", "2026-10-10", "1120", "6110", 80000, "approved")
+    await post("t_beta", "2026-10-10", "1120", "6110", 9999)
+    async with auth_db["admin"].acquire() as conn:
+        before = await conn.fetch("SELECT * FROM journal_drafts ORDER BY id")
+    with db.authenticated_tenant_context("t_alpha"):
+        for asof in ("2026-10-30", None):
+            result = await finance.build_balance_sheet("t_alpha", asof)
+            assert result["ok"], result
+            assert result["data"]["assets"]["total"] == 160
+            assert result["data"]["equity"]["total"] == 160
+            assert result["data"]["equity"]["unclosed_result"] == 70
+            assert result["data"]["balanced"] is True
+        pnl = await finance.build_profit_and_loss("t_alpha", None, "2026-10-30")
+        assert pnl["ok"] and pnl["data"]["ebit"] == 70
+    async with auth_db["admin"].acquire() as conn:
+        assert await conn.fetch("SELECT * FROM journal_drafts ORDER BY id") == before
+    await post("t_alpha", "2026-10-31", "6110", "4210", 100)
+    await post("t_alpha", "2026-10-31", "4210", "7210", 30)
+    with db.authenticated_tenant_context("t_alpha"):
+        closed = await finance.build_balance_sheet("t_alpha", "2026-10-31")
+        assert closed["ok"] and closed["data"]["equity"]["total"] == 160
+        assert closed["data"]["equity"]["unclosed_result"] == 0
+        assert closed["data"]["balanced"] is True
+    with db.authenticated_tenant_context("t_beta"):
+        other = await finance.build_balance_sheet("t_beta", "2026-10-31")
+        assert other["ok"] and other["data"]["equity"]["unclosed_result"] == 9999
+    async with auth_db["runtime"].acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM journal_drafts") == 0

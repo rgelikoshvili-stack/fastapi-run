@@ -3041,3 +3041,90 @@ async def test_chat198_disposable_fencing_one_shot_and_untrusted_expiry_hold(aut
         assert await conn.fetchval(
             "SELECT count(*) FROM posting_outbox_fence_proposals"
         ) == 1
+
+
+# Chat199: old direct-SQL outbox rows can claim the correct hash/key while
+# storing a different JSONB payload. The read path MUST hold those rows.
+@pytest.mark.asyncio
+async def test_chat199_disposable_outbox_idempotency_payload_storage_attestation(auth_db):
+    import hashlib
+    import json
+    from pathlib import Path
+    from app.api.services.posting_outbox_intent_service import (
+        prepare_posting_intent, PostingOutboxUnavailable,
+    )
+    sql = Path("docs/sql/chat186_posting_outbox_DRAFT.sql").read_text(encoding="utf-8")
+    canonical = json.dumps({"currency":"GEL","amount":"100.01"},
+                           sort_keys=True,separators=(",",":"),ensure_ascii=False)
+    payload_sha = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def key(source):
+        body=json.dumps(["bridge-erp-intent-v1","t_alpha","journal_draft",source,"balance"],
+                        separators=(",",":"),ensure_ascii=False)
+        return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+    async with auth_db["admin"].acquire() as conn:
+        await conn.execute(sql)
+        await conn.execute(sql)
+        # Direct privileged insertion bypasses the local producer checksum
+        # and records false JSONB with a legitimate-looking SHA-256.
+        for source, saved_key, stored_json in (
+            ("chat199-corrupt-payload", key("chat199-corrupt-payload"),
+             '{"amount":"999.99","currency":"GEL"}'),
+            ("chat199-corrupt-key", "f"*64, canonical),
+        ):
+            await conn.execute("""
+                INSERT INTO posting_outbox_intents(
+                   tenant_id,source_type,source_id,target_system,
+                   idempotency_key,payload_sha256,payload_json
+                ) VALUES ('t_alpha','journal_draft',$1,'balance',$2,$3,$4::jsonb)
+            """, source,saved_key,payload_sha,stored_json)
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_receipts TO "{auth_db["role"]}"'
+        )
+
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            good=await prepare_posting_intent(
+                conn,tenant_id="t_alpha",source_id="chat199-good",target_system="balance",
+                payload={"amount":"100.01","currency":"GEL"},
+            )
+            assert good["local_integrity_checked"] is True
+            assert good["dispatch_allowed"] is False
+            assert good["provider_verified"] is False
+            again=await prepare_posting_intent(
+                conn,tenant_id="t_alpha",source_id="chat199-good",target_system="balance",
+                payload={"currency":"GEL","amount":"100.01"},
+            )
+            assert good==again
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_receipts"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE id=$1",
+                __import__("uuid").UUID(good["intent_id"]),
+            ) == "prepared"
+        for corrupted in ("chat199-corrupt-payload", "chat199-corrupt-key"):
+            with pytest.raises(PostingOutboxUnavailable,
+                               match="OUTBOX_STORED_INTENT_INTEGRITY_FAILED"):
+                async with db.get_conn() as conn:
+                    await prepare_posting_intent(
+                        conn,tenant_id="t_alpha",source_id=corrupted,
+                        target_system="balance",
+                        payload={"currency":"GEL","amount":"100.01"},
+                    )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 3
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_receipts"
+            ) == 0
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 0

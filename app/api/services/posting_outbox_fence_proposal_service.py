@@ -80,10 +80,11 @@ async def prepare_fence_proposal(conn, *, tenant_id, outbox_id,
                                  owner_subject, owner_role):
     """One-shot evidence record with an epoch fixed at ONE. Not a real lease.
 
-    SELECT ... FOR UPDATE serializes proposal creation with SQL updates to the
-    source intent on this connection. Unique (tenant,outbox) blocks concurrent
-    owners/reclaims. Even after a hypothetical expiration there is NO reissue,
-    retry, or vendor dispatch. Never commit a proposal from a failed transaction.
+    SELECT of source fields requires read-only intent access. The unique
+    (tenant,outbox) constraint serializes concurrent proposal INSERTs, but
+    does NOT constitute a provider lease or serialize with external mutation.
+    Even after hypothetical expiration there is NO reissue, retry or vendor
+    dispatch. Caller must roll back on any error.
     """
     uid = _scope(conn, tenant_id, outbox_id)
     subject = _owner(owner_subject, owner_role)
@@ -92,7 +93,7 @@ async def prepare_fence_proposal(conn, *, tenant_id, outbox_id,
                idempotency_key,payload_sha256,
                provider_receipt_id,provider_verified_at
           FROM posting_outbox_intents
-         WHERE id=%s AND tenant_id=%s FOR UPDATE
+         WHERE id=%s AND tenant_id=%s
     """), uid, tenant_id)
     if source is None:
         _deny("FIN12_FENCE_SOURCE_NOT_FOUND")

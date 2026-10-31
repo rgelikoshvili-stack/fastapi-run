@@ -3242,3 +3242,189 @@ async def test_chat200_posted_ledger_with_prepared_outbox_rollback_is_atomic_loc
             assert await conn.fetchval(
                 "SELECT count(*) FROM posting_outbox_intents"
             ) == 0
+
+
+# Chat201 FIN-12: prevent app/privileged direct SQL from creating BOTH a
+# posted-ledger journal_draft source and an unverified ERP outbox for that
+# source. The standalone DDL is unapplied outside synthetic PostgreSQL.
+@pytest.mark.asyncio
+async def test_chat201_local_outbox_ledger_interlock_never_posts_without_real_receipt(auth_db):
+    from pathlib import Path
+    from app.api.services.posting_service import _write_ledger_entries
+    from app.api.services.posting_outbox_intent_service import (
+        prepare_posting_intent, PostingOutboxUnavailable,
+    )
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat179_posted_ledger_tenant_constraints_DRAFT.sql",
+                     "chat185_posted_ledger_integrity_DRAFT.sql",
+                     "chat186_posting_outbox_DRAFT.sql",
+                     "chat201_fin12_local_ledger_outbox_interlock_DRAFT.sql"):
+            sql=Path("docs/sql",name).read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+
+    payload={"tenant_id":"t_alpha","amount":"100.01","currency":"GEL"}
+    def draft(source):
+        return {"id":source,"tenant_id":"t_alpha","date":"2026-10-31",
+                "currency":"GEL","lines":[
+                    {"account_code":"1120","debit":"100.01","credit":"0"},
+                    {"account_code":"6110","debit":"0","credit":"100.01"},
+                ]}
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            prep=await prepare_posting_intent(
+                conn,tenant_id="t_alpha",source_id="chat201-outbox-first",
+                target_system="balance",payload=payload,
+            )
+            assert prep["dispatch_allowed"] is False
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN12_LOCAL_UNVERIFIED_OUTBOX_LEDGER_HOLD"):
+            async with db.get_conn() as conn:
+                await _write_ledger_entries(
+                    conn,draft("chat201-outbox-first"),{},"t_alpha",
+                    "balance","synthetic-fin12",
+                )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_sources"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE source_id=$1",
+                "chat201-outbox-first",
+            ) == "prepared"
+
+        async with db.get_conn() as conn:
+            await _write_ledger_entries(
+                conn,draft("chat201-ledger-first"),{},"t_alpha",
+                "balance","synthetic-fin12",
+            )
+        with pytest.raises(PostingOutboxUnavailable,
+                           match="OUTBOX_STORAGE_UNAVAILABLE"):
+            async with db.get_conn() as conn:
+                await prepare_posting_intent(
+                    conn,tenant_id="t_alpha",source_id="chat201-ledger-first",
+                    target_system="balance",payload=payload,
+                )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_sources"
+            ) == 1  # historical posted entry preserved, not auto-repaired
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_receipts"
+            ) == 0
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat201_preflight_refuses_historical_pair_without_migration_or_repair(auth_db):
+    from pathlib import Path
+    from app.api.services.posting_service import _write_ledger_entries
+    from app.api.services.posting_outbox_intent_service import prepare_posting_intent
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat179_posted_ledger_tenant_constraints_DRAFT.sql",
+                     "chat185_posted_ledger_integrity_DRAFT.sql",
+                     "chat186_posting_outbox_DRAFT.sql"):
+            await conn.execute(Path("docs/sql",name).read_text(encoding="utf-8"))
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            await prepare_posting_intent(
+                conn,tenant_id="t_alpha",source_id="chat201-historical",
+                target_system="balance",payload={"amount":"20.00"},
+            )
+        async with db.get_conn() as conn:
+            await _write_ledger_entries(conn,{
+                "id":"chat201-historical","date":"2026-10-31","currency":"GEL",
+                "lines":[{"account_code":"1120","debit":"20","credit":0},
+                         {"account_code":"6110","debit":0,"credit":"20"}],
+            },{},"t_alpha","balance","synthetic-historical")
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError,
+                           match="FIN12_LOCAL_PAIR_PREFLIGHT_CONFLICT"):
+            async with conn.transaction():
+                await conn.execute(Path(
+                    "docs/sql/chat201_fin12_local_ledger_outbox_interlock_DRAFT.sql"
+                ).read_text(encoding="utf-8"))
+        assert await conn.fetchval(
+            "SELECT count(*) FROM journal_entry_sources"
+        ) == 1
+        assert await conn.fetchval(
+            "SELECT count(*) FROM posting_outbox_intents"
+        ) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat201_parallel_source_inserts_are_locked_across_transactions(auth_db):
+    import asyncio
+    from pathlib import Path
+    from app.api.services.posting_outbox_intent_service import prepare_posting_intent
+    from app.api.services.posting_service import _write_ledger_entries
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat179_posted_ledger_tenant_constraints_DRAFT.sql",
+                     "chat185_posted_ledger_integrity_DRAFT.sql",
+                     "chat186_posting_outbox_DRAFT.sql",
+                     "chat201_fin12_local_ledger_outbox_interlock_DRAFT.sql"):
+            await conn.execute(Path("docs/sql",name).read_text(encoding="utf-8"))
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+    inserted=asyncio.Event()
+    finish=asyncio.Event()
+    async def prepared_owner():
+        with db.authenticated_tenant_context("t_alpha"):
+            async with db.get_conn() as conn:
+                await prepare_posting_intent(
+                    conn,tenant_id="t_alpha",source_id="chat201-parallel",
+                    target_system="balance",payload={"amount":"9.00"},
+                )
+                inserted.set()
+                await asyncio.wait_for(finish.wait(),timeout=12)
+    async def conflicting_ledger_writer():
+        await asyncio.wait_for(inserted.wait(),timeout=12)
+        with db.authenticated_tenant_context("t_alpha"):
+            try:
+                with pytest.raises(asyncpg.RaiseError,
+                                   match="FIN12_LOCAL_UNVERIFIED_OUTBOX_LEDGER_HOLD"):
+                    async with db.get_conn() as conn:
+                        await _write_ledger_entries(conn,{
+                            "id":"chat201-parallel","date":"2026-10-31","currency":"GEL",
+                            "lines":[{"account_code":"1120","debit":9,"credit":0},
+                                     {"account_code":"6110","debit":0,"credit":9}],
+                        },{},"t_alpha","balance","synthetic-concurrent")
+            finally:
+                finish.set()
+    # Deadlock-free completion: the expected writer collision must not
+    # be hidden by a timeout or a falsely successful independent commit.
+    await asyncio.wait_for(
+        asyncio.gather(prepared_owner(),conflicting_ledger_writer()),
+        timeout=20,
+    )
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 0

@@ -578,6 +578,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", note: str = "", 
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
             draft = dict(draft_row)
+            # Correction decisions require the independent Maker/Checker
+            # review service; generic approve/reject cannot mutate them.
+            # A legacy or forged "normal" type cannot hide a source link.
+            if (draft.get("entry_type") in ("reversal", "adjustment")
+                    or draft.get("reversal_of_draft_id") is not None):
+                await tr.rollback()
+                return error_response(
+                    "Independent maker/checker rejection is not yet active",
+                    "FIN11_MAKER_CHECKER_NOT_CONFIGURED",
+                )
             draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
             draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 

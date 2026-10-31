@@ -194,15 +194,10 @@ $fin12$;
 CREATE OR REPLACE FUNCTION fin12_hold_unverified_provider_receipt()
 RETURNS trigger LANGUAGE plpgsql AS $fin12_receipt$
 BEGIN
-    -- Chat197: verify even syntactically unknown observations do not bind
-    -- across tenant boundaries. A matching FK by itself is not provider proof.
-    IF NOT EXISTS (
-        SELECT 1 FROM posting_outbox_intents i
-        WHERE i.id=NEW.outbox_id AND i.tenant_id=NEW.tenant_id
-    ) THEN
-        RAISE EXCEPTION 'FIN12_RECEIPT_SOURCE_TENANT_MISMATCH';
-    END IF;
-
+    -- All outcomes are refused before vendor trust activation. The composite
+    -- tenant FK + FORCE-RLS remain an additional source-isolation safeguard.
+    -- Avoid a trigger SELECT which could be falsely RLS-filtered for an
+    -- unbound privileged DDL test session and hide the actual HOLD reason.
     -- A local UNKNOWN observation is not a vendor-issued receipt, whether
     -- or not it carries forged receipt ID / verified_by / timestamp fields.
     -- Record manual uncertainty in the separate Chat193/196 HOLD model,

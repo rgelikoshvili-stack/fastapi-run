@@ -167,11 +167,15 @@ async def _require_original_maker(conn, tenant_id: str, draft: dict,
     """
     action = ("reversal_draft_created" if draft["entry_type"] == "reversal"
               else "adjustment_draft_created")
+    # Lock the matched creation evidence until the caller-owned review
+    # transaction ends; a parallel UPDATE/DELETE cannot rewrite it between
+    # verification and the checker decision. This does NOT prevent phantom
+    # duplicate INSERTs; audit immutability and uniqueness remain release HOLD.
     events = await conn.fetch(_q("""
         SELECT actor,new_value FROM audit_log
          WHERE tenant_id=%s AND resource='journal_drafts' AND resource_id=%s
            AND action=%s AND status='success'
-         ORDER BY id LIMIT 2
+         ORDER BY id LIMIT 2 FOR SHARE
     """), tenant_id, str(draft["id"]), action)
     if len(events) != 1:
         _deny("FIN11_REVIEW_CREATOR_EVIDENCE_UNAVAILABLE")

@@ -581,3 +581,37 @@ All earlier phases, Draft plans, commits and private evidence preserved.
   posting also remain OPEN.
 - Accept Chat197 only after checking all 9 CI on its exact final HEAD.
   No main/merge/Production/real ERP/Windows-original changes permitted.
+
+
+## Chat198 — FIN-12 offline one-shot fencing/idempotency evidence (2026-10-31)
+
+Starting Chat197 verified HEAD `50223d612e9cec1518da0cf4493edd13372c6f7c`,
+9/9 CI SUCCESS (backend 8,517 PASS/3 SKIP; PG15/16 705 PASS each).
+Earlier code, reports, security holds and plans are preserved.
+
+- New **unregistered** `app/api/services/posting_outbox_fence_proposal_service.py`
+  accepts an independently authenticated tenant-scoped, caller-transactional
+  owner and only an untouched `prepared` source. It creates one immutable
+  audit-only `fence_epoch=1` proposal, never an actual dispatch lease.
+  Duplicate owner/reclaim, source mismatch and unverified tenant fail closed.
+  It needs SELECT (not UPDATE) on the original outbox intent.
+- New separate **unapplied** `docs/sql/chat198_fin12_fence_proposals_DRAFT.sql`
+  has tenant FORCE-RLS, source identity check, a composite tenant FK,
+  UNIQUE(tenant,outbox), no epoch rollover, immutable evidence and constrained
+  `dispatch_allowed=false`, `retry_allowed=false`,
+  `lease_authoritative=false`, `provider_idempotency_certified=false`.
+  No worker, real lease expiration, provider call, token use or local posting.
+- Red-first unit and synthetic PG15/16 regressions added for tenant,
+  unauthorized owner, duplicate source, forged fencing epoch, stale/expired
+  proposal behavior, immutability, RLS and zero ERP/ledger/receipt changes.
+  Explicit Chat198 CI invocation and path triggers added.
+- **OPEN/EXTERNAL-HOLD:** real vendor-certified idempotency, authenticated
+  provider receipts/status readback, tenant/ERP account binding, authenticated
+  worker owner and monotonically fenced dispatch leases, crash-after-send
+  reconciliation, verified local atomic ledger/outbox/receipt completion,
+  Production tenant roles/DDL and financial statement parity.
+  Chat198 proposal **does not authorize any dispatch or retry**, even
+  after a hypothetical expiry. Read
+  `docs/chat198-fin12-fencing-proposal-hold.md`.
+- No main, merge, Production, live DB, real ERP or Windows-original changes.
+  Validate all 9 CI on exact final HEAD before marking Draft-tested.

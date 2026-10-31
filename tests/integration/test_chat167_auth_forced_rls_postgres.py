@@ -2916,3 +2916,127 @@ async def test_chat197_unknown_receipt_metadata_forgery_must_not_enter_provider_
         assert await conn.fetchval(
             "SELECT state FROM posting_outbox_intents WHERE id=$1", ids["prepared"],
         ) == "prepared"
+
+
+# Chat198 FIN-12: one-shot offline fencing proposal, no live lease or provider calls.
+@pytest.mark.asyncio
+async def test_chat198_disposable_fencing_one_shot_and_untrusted_expiry_hold(auth_db):
+    from pathlib import Path
+    import uuid
+    from app.api.services.posting_outbox_fence_proposal_service import (
+        FenceProposalUnavailable, prepare_fence_proposal,
+    )
+    async with auth_db["admin"].acquire() as conn:
+        for name in ("chat186_posting_outbox_DRAFT.sql",
+                     "chat198_fin12_fence_proposals_DRAFT.sql"):
+            sql = Path("docs/sql", name).read_text(encoding="utf-8")
+            await conn.execute(sql)
+            await conn.execute(sql)  # candidate DDL is idempotent in disposable DB
+
+        prepared = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents (
+                tenant_id,source_type,source_id,target_system,
+                idempotency_key,payload_sha256,payload_json
+            ) VALUES ('t_alpha','journal_draft','draft198','balance',
+                      $1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "a"*64, "b"*64)
+        unknown = await conn.fetchval("""
+            INSERT INTO posting_outbox_intents (
+                tenant_id,source_type,source_id,target_system,
+                idempotency_key,payload_sha256,payload_json
+            ) VALUES ('t_alpha','journal_draft','draft198-unknown','balance',
+                      $1,$2,'{}'::jsonb)
+            RETURNING id
+        """, "c"*64, "d"*64)
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1",unknown
+        )
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_FENCE_SOURCE_NOT_PREPARED"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_fence_proposals(
+                  tenant_id,outbox_id,source_id,target_system,idempotency_key,
+                  payload_sha256,owner_subject,owner_role
+                ) VALUES ('t_alpha',$1,'draft198-unknown','balance',$2,$3,
+                          'admin:forged','admin')
+            """,unknown,"c"*64,"d"*64)
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_FENCE_SOURCE_MISMATCH"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_fence_proposals(
+                  tenant_id,outbox_id,source_id,target_system,idempotency_key,
+                  payload_sha256,owner_subject,owner_role
+                ) VALUES ('t_alpha',$1,'wrong-source','balance',$2,$3,
+                          'admin:forged','admin')
+            """,prepared,"a"*64,"b"*64)
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_FENCE_EPOCH_UNAUTHORIZED"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_fence_proposals(
+                  tenant_id,outbox_id,source_id,target_system,idempotency_key,
+                  payload_sha256,owner_subject,owner_role,fence_epoch
+                ) VALUES ('t_alpha',$1,'draft198','balance',$2,$3,
+                          'admin:forged','admin',2)
+            """,prepared,"a"*64,"b"*64)
+        await conn.execute(
+            f'GRANT SELECT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_fence_proposals '
+            f'TO "{auth_db["role"]}"'
+        )
+
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            result = await prepare_fence_proposal(
+                conn,tenant_id="t_alpha",outbox_id=str(prepared),
+                owner_subject="acct:alpha",owner_role="accountant",
+            )
+            assert result["fence_epoch"] == 1
+            assert result["dispatch_allowed"] is False
+            assert result["retry_allowed"] is False
+            assert result["lease_authoritative"] is False
+            assert result["provider_idempotency_certified"] is False
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_fence_proposals"
+            ) == 1
+            assert await conn.fetchval(
+                "SELECT state FROM posting_outbox_intents WHERE id=$1", prepared
+            ) == "prepared"
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_receipts"
+            ) == 0
+        with pytest.raises(FenceProposalUnavailable,match="FIN12_FENCE_ALREADY_PROPOSED"):
+            async with db.get_conn() as conn:
+                await prepare_fence_proposal(
+                    conn,tenant_id="t_alpha",outbox_id=str(prepared),
+                    owner_subject="acct:another",owner_role="accountant",
+                )
+        with pytest.raises(FenceProposalUnavailable,match="FIN12_FENCE_SOURCE_NOT_PREPARED"):
+            async with db.get_conn() as conn:
+                await prepare_fence_proposal(
+                    conn,tenant_id="t_alpha",outbox_id=str(unknown),
+                    owner_subject="acct:alpha",owner_role="accountant",
+                )
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM posting_outbox_fence_proposals"
+            ) == 0
+        with pytest.raises(FenceProposalUnavailable,match="FIN12_FENCE_SOURCE_NOT_FOUND"):
+            async with db.get_conn() as conn:
+                await prepare_fence_proposal(
+                    conn,tenant_id="t_beta",outbox_id=str(prepared),
+                    owner_subject="acct:beta",owner_role="accountant",
+                )
+    async with auth_db["admin"].acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_FENCE_EVIDENCE_IMMUTABLE"):
+            await conn.execute("""
+                UPDATE posting_outbox_fence_proposals
+                SET fence_epoch=2 WHERE outbox_id=$1
+            """,prepared)
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_FENCE_EVIDENCE_IMMUTABLE"):
+            await conn.execute("""
+                DELETE FROM posting_outbox_fence_proposals WHERE outbox_id=$1
+            """,prepared)
+        assert await conn.fetchval(
+            "SELECT count(*) FROM posting_outbox_fence_proposals"
+        ) == 1

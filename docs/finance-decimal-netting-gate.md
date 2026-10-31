@@ -45,3 +45,26 @@ need separate acceptance. No production readiness is implied. FIN-11 signed
 maker/checker and immutable corrections, and FIN-12 real provider proof and
 local finalization, remain OPEN/EXTERNAL-HOLD. No migration, dispatch, retry,
 main edit, merge, deployment, Windows-original edit or data deletion.
+
+
+## Stage 2 Draft repair (after the RED finding; 2026-10-31)
+
+The five prior RED unit cases plus one real PostgreSQL cashflow regression
+showed direct cashflow lost a positive/negative GEL0.01 after offsetting
+NUMERIC turnovers above 2^53; a one-cent mismatch between two cash accounts
+was also marked as an exact internal transfer. Original tests were retained.
+
+Scoped repair commit `2e93f77d89f6a7507eb7e3d2545af4f35bcc62e4` modifies only
+`app/api/services/cashflow_classification_service.py`: direct and posted
+movements retain Decimal cents until netting is finished, without converting
+to binary float during classification/aggregation. Cash-only internal
+transfers now require exact equality of booked cents, not a float-derived
+0.005 tolerance. Existing public response fields remain floats and the
+indirect cashflow path was not modified. No database/ERP write.
+
+This also preserves the concurrent Chat201 FIN-12 interlock and its isolated
+regressions, including a test-only RLS SELECT permission correction.
+Exact final-HEAD 9-workflow CI remains the acceptance criterion; until it is
+confirmed, the stage is DRAFT / pending verification, not production-ready.
+The earlier stage-2 'pending' statement records the historical RED finding;
+this paragraph records its subsequent repair candidate.

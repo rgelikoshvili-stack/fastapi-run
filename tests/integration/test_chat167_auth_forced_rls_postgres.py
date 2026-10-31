@@ -3128,3 +3128,117 @@ async def test_chat199_disposable_outbox_idempotency_payload_storage_attestation
             assert await conn.fetchval(
                 "SELECT count(*) FROM posting_outbox_intents"
             ) == 0
+
+
+# Chat200: demonstrate *local rollback* when a synthetic posted-ledger source
+# appears while the ERP outbox remains unverified/prepared. This is NOT proof of
+# external vendor atomicity and does not activate a posting or worker.
+@pytest.mark.asyncio
+async def test_chat200_posted_ledger_with_prepared_outbox_rollback_is_atomic_locally(auth_db):
+    from pathlib import Path
+    from app.api.services.posting_service import _write_ledger_entries
+    from app.api.services.posting_outbox_intent_service import prepare_posting_intent
+    from app.api.services.fin12_local_atomicity_guard import (
+        LocalAtomicityUnavailable, inspect_local_ledger_outbox_pair,
+    )
+
+    await _chat179_prepare_ledger(auth_db)
+    async with auth_db["admin"].acquire() as conn:
+        sql = Path("docs/sql/chat186_posting_outbox_DRAFT.sql").read_text(encoding="utf-8")
+        await conn.execute(sql)
+        await conn.execute(sql)
+        await conn.execute(
+            f'GRANT SELECT,INSERT ON posting_outbox_intents TO "{auth_db["role"]}"'
+        )
+
+    payload = {"tenant_id":"t_alpha","currency":"GEL","amount":"100.01"}
+    with db.authenticated_tenant_context("t_alpha"):
+        async with db.get_conn() as conn:
+            intent = await prepare_posting_intent(
+                conn, tenant_id="t_alpha", source_id="chat200-no-ledger",
+                target_system="balance", payload=payload,
+            )
+            decision = await inspect_local_ledger_outbox_pair(
+                conn, tenant_id="t_alpha", source_id="chat200-no-ledger",
+                target_system="balance", payload=payload,
+            )
+            assert decision["ledger_source_present"] is False
+            assert decision["provider_verified"] is False
+            assert decision["dispatch_allowed"] is False
+            assert decision["local_atomic_commit_proven"] is False
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM journal_entry_headers"
+            ) == 0
+
+        with pytest.raises(LocalAtomicityUnavailable,
+                           match="FIN12_LOCAL_LEDGER_OUTBOX_UNVERIFIED"):
+            async with db.get_conn() as conn:
+                # Deliberate synthetic misuse of local ledger writer; a single
+                # transaction MUST rollback header, lines, source and intent.
+                await _write_ledger_entries(conn, {
+                    "id":"chat200-rollback", "tenant_id":"t_alpha",
+                    "date":"2026-10-30", "currency":"GEL",
+                    "lines":[
+                        {"account_code":"1120","debit":"100.01","credit":0},
+                        {"account_code":"6110","debit":0,"credit":"100.01"},
+                    ],
+                }, {}, "t_alpha", "balance", "synthetic-test-only-hash")
+                await prepare_posting_intent(
+                    conn,tenant_id="t_alpha",source_id="chat200-rollback",
+                    target_system="balance",payload=payload,
+                )
+                await inspect_local_ledger_outbox_pair(
+                    conn,tenant_id="t_alpha",source_id="chat200-rollback",
+                    target_system="balance",payload=payload,
+                )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_lines"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_sources"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 1
+            assert await conn.fetchval("""
+                SELECT count(*) FROM posting_outbox_intents
+                WHERE source_id='chat200-rollback'
+            """) == 0
+        # A corrupted direct-write outcome from a prior transaction is not
+        # repaired or deleted: preflight must fail and require investigation.
+        async with db.get_conn() as conn:
+            await _write_ledger_entries(conn, {
+                "id":"chat200-no-ledger", "tenant_id":"t_alpha",
+                "date":"2026-10-30","currency":"GEL",
+                "lines":[
+                    {"account_code":"1120","debit":"100.01","credit":0},
+                    {"account_code":"6110","debit":0,"credit":"100.01"},
+                ],
+            }, {}, "t_alpha", "balance", "synthetic-test-only-hash")
+        with pytest.raises(LocalAtomicityUnavailable,
+                           match="FIN12_LOCAL_LEDGER_OUTBOX_UNVERIFIED"):
+            async with db.get_conn() as conn:
+                await inspect_local_ledger_outbox_pair(
+                    conn,tenant_id="t_alpha",source_id="chat200-no-ledger",
+                    target_system="balance",payload=payload,
+                )
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 1  # historical anomaly preserved for manual review
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 1
+
+    with db.authenticated_tenant_context("t_beta"):
+        async with db.get_conn() as conn:
+            assert await conn.fetchval(
+                "SELECT count(*) FROM journal_entry_headers"
+            ) == 0
+            assert await conn.fetchval(
+                "SELECT count(*) FROM posting_outbox_intents"
+            ) == 0

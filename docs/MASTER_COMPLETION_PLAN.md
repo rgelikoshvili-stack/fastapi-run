@@ -547,3 +547,37 @@ CI 9/9 SUCCESS, backend 8,499 PASS/3 SKIP and disposable PG15/16
   Windows file changes or publication of private handoff evidence.
   Exact final Chat196 HEAD and all nine CI results need independent
   post-commit verification before claiming Draft testing complete.
+
+
+## Chat197 — FIN-12 UNKNOWN provider receipt spoofing HOLD (2026-10-31)
+
+Continues independently verified Chat196 exact HEAD
+`1d3793b4ff25b8e6dcb0b9f2fe8030d35e13eb1d` (9/9 CI SUCCESS;
+Backend 8,517 PASS/3 SKIP; synthetic PostgreSQL15/16 704 PASS each).
+All earlier phases, Draft plans, commits and private evidence preserved.
+
+- **FIN-12 P0 trust-boundary defect fixed in UNAPPLIED Draft:** the earlier
+  `posting_outbox_receipts` table allowed `outcome='unknown'` with
+  attacker-supplied `provider_receipt_id`, `verified_by`, and `verified_at`
+  or with no vendor verification at all. Such local data could be mistaken
+  for real ERP evidence.
+- Red-first disposable PG15/16 test
+  `test_chat197_unknown_receipt_metadata_forgery_must_not_enter_provider_receipts`
+  at commit `19ef971983d59b18a1eb704b03c9db0decfe436a`.
+  The final `docs/sql/chat186_posting_outbox_DRAFT.sql` now refuses
+  `unknown` receipt inserts (`FIN12_UNKNOWN_PROVIDER_RECEIPT_HOLD`),
+  while `accepted`/`rejected` inserts remain denied by Chat195.
+  Existing composite tenant FK and FORCE RLS are defense-in-depth;
+  previous Chat186 cross-tenant assertion updated without deleting tests.
+- Keep operator uncertainty in the separate immutable Chat193 manual
+  reconciliation / Chat196 crash HOLD models, never in provider receipts.
+  No send, re-send, worker, webhook, ledger, status transition or live DB DDL.
+  See `docs/chat197-fin12-unknown-receipt-trust-boundary.md`.
+- **FIN-12 STILL OPEN/EXTERNAL-HOLD:** certified vendor receipt + idempotency
+  contract, signed/verified status query and tenant account binding, sender
+  lease/fencing and crash recovery, locally atomic ledger/outbox/receipt
+  finalization, production role audit, live migration/ERP acceptance and
+  financial report parity. FIN-11 JWT checker and immutable correction
+  posting also remain OPEN.
+- Accept Chat197 only after checking all 9 CI on its exact final HEAD.
+  No main/merge/Production/real ERP/Windows-original changes permitted.

@@ -52,6 +52,53 @@ def _ids(tenant_id, source_id, target_system):
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
+def _attest_stored_intent(row, *, tenant_id, source_id, target_system,
+                          canonical_payload):
+    """Fail closed on forged/stale DB idempotency or stored JSONB mismatch.
+
+    A successful check certifies ONLY local identity+payload consistency,
+    never provider-certified idempotency, receipt or permission to dispatch.
+    Does not mutate records or make any external calls.
+    """
+    from uuid import UUID
+
+    try:
+        stored = dict(row)
+        recorded = stored["payload_json"]
+        if isinstance(recorded, str):
+            recorded = json.loads(recorded)
+        # PostgreSQL JSONB may reorder object keys. The exact canonical
+        # encoding used by the original producer must be reconstructed.
+        stored_canonical = _canonical_payload(recorded)
+        expected_key = _ids(tenant_id, source_id, target_system)
+        expected_sha = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+        stored_sha = hashlib.sha256(stored_canonical.encode("utf-8")).hexdigest()
+        uid = str(UUID(str(stored["id"])))
+    except (ValueError, TypeError, KeyError, AttributeError,
+            OverflowError, PostingOutboxUnavailable):
+        _deny("OUTBOX_STORED_INTENT_INTEGRITY_FAILED")
+    if (stored.get("tenant_id") != tenant_id
+            or stored.get("source_type") != "journal_draft"
+            or stored.get("source_id") != source_id
+            or stored.get("target_system") != target_system
+            or stored.get("idempotency_key") != expected_key
+            or stored.get("payload_sha256") != stored_sha
+            or stored.get("state") not in (
+                "prepared", "in_flight", "unknown", "confirmed", "rejected"
+            )):
+        _deny("OUTBOX_STORED_INTENT_INTEGRITY_FAILED")
+    if stored_sha != expected_sha:
+        _deny("OUTBOX_INTENT_CONFLICT")
+    return {
+        "intent_id": uid, "state": stored["state"],
+        "idempotency_key": expected_key, "payload_sha256": stored_sha,
+        "local_integrity_checked": True,
+        "provider_verified": False, "vendor_idempotency_certified": False,
+        "dispatch_allowed": False, "retry_allowed": False,
+        "confirm_allowed": False, "ledger_write_allowed": False,
+    }
+
+
 async def prepare_posting_intent(conn, *, tenant_id, source_id, target_system, payload):
     """Record before any vendor request, within the caller's DB transaction.
 
@@ -73,22 +120,25 @@ async def prepare_posting_intent(conn, *, tenant_id, source_id, target_system, p
             ) VALUES (%s,'journal_draft',%s,%s,%s,%s,%s::jsonb)
             ON CONFLICT (tenant_id,source_type,source_id,target_system)
             DO NOTHING
-            RETURNING id, state, idempotency_key, payload_sha256
+            RETURNING id, tenant_id, source_type, source_id, target_system,
+                      state, idempotency_key, payload_sha256, payload_json
         """), tenant_id, source_id, target_system, key, payload_sha, canonical)
         if row is None:
             row = await conn.fetchrow(_q("""
-                SELECT id, state, idempotency_key, payload_sha256
+                SELECT id, tenant_id, source_type, source_id, target_system,
+                       state, idempotency_key, payload_sha256, payload_json
                 FROM posting_outbox_intents
                 WHERE tenant_id=%s AND source_type='journal_draft'
                   AND source_id=%s AND target_system=%s
             """), tenant_id, source_id, target_system)
     except Exception:
         _deny("OUTBOX_STORAGE_UNAVAILABLE")
-    if row is None or row["idempotency_key"] != key or row["payload_sha256"] != payload_sha:
+    if row is None:
         _deny("OUTBOX_INTENT_CONFLICT")
-    return {"intent_id": str(row["id"]), "state": row["state"],
-            "idempotency_key": key, "payload_sha256": payload_sha,
-            "dispatch_allowed": False}
+    return _attest_stored_intent(
+        row, tenant_id=tenant_id, source_id=source_id,
+        target_system=target_system, canonical_payload=canonical,
+    )
 
 
 def delivery_decision(state):

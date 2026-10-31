@@ -135,7 +135,18 @@ def test_approval_attachment_responses_keep_data_field():
     import inspect
     import app.api.routes_approval as mod
 
-    src = inspect.getsource(mod)
-    assert 'ok_response("Draft attachment saved", {"draft_id": draft_id' in src
-    assert 'ok_response("Draft attachment URL", {"signed_url": signed_url' in src
-    assert 'ok_response("Draft attachment deleted", {"draft_id": draft_id' in src
+    upload_src = inspect.getsource(mod.attach_file_to_draft)
+    read_src = inspect.getsource(mod.get_draft_attachment)
+    delete_src = inspect.getsource(mod.delete_draft_attachment)
+
+    # Keep the existing public response envelope without tying it to
+    # one exact whitespace layout in the source code.
+    assert 'ok_response(' in upload_src
+    assert '"Draft attachment saved"' in upload_src
+    assert '"draft_id": draft_id' in upload_src
+    assert 'ok_response("Draft attachment URL", {"signed_url": signed_url' in read_src
+
+    # Chat204 FIN-11: irreversible GCS delete is intentionally on HOLD
+    # until a reviewed retention/atomic unlink contract exists.
+    assert '"FIN11_ATTACHMENT_DELETE_HOLD"' in delete_src
+    assert 'delete_file(' not in delete_src

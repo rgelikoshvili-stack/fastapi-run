@@ -1,5 +1,9 @@
 # Bridge Hub — MASTER COMPLETION PLAN
 
+> მიმდინარე განახლება: 2026-10-31, FIN-08 continuation alongside Chat198.
+> უახლესი შედეგები და შემდეგი ნაბიჯები ამ ფაილის ბოლოშია. ქვემოთ არსებული
+> ძველი checkpoint-ები ისტორიაა; ყველა წინა ჩანაწერი შენარჩუნებულია.
+
 განახლება: 2026-10-30, Chat189 (Chat180–188 history preserved). სტატუსი: სამუშაო გეგმა; **Production HOLD**.
 ეს არის ერთი საერთო შესრულების გეგმა. ძველი გეგმები, ანგარიშები და კოდი ინახება.
 შემდეგი სამუშაოები განახლდება ამავე ფაილში, მტკიცებულებით და ზუსტი commit-ით.
@@ -97,7 +101,7 @@ universal RS.ge submission, ავტომატური ფინანსუ
 | FIN-05 P0 V1 | Chat184 reviewed NBG quote source/approved provenance/as-of 7-day bound for foreign posting and revaluation DRAFT-VERIFIED at `55ebd684`; mutable legacy rate cache excluded | quote provenance import and authoritative provider calendar/source proof, production schema/grants, writer receipt linkage, holiday policy, exact historical UI parity EXTERNAL-HOLD |
 | FIN-06 P0 V1-B | Chat185 Draft DB candidate DRAFT-VERIFIED at `afdf8cc`: scoped source uniqueness, append-only triggers, deferred stored line/header/FX totals and link checks; PG15/16 570PASS each | existing-data preflight and composite-FK dependency; no live DDL, no history repair; correction/reversal FIN11 and durable external receipt FIN12 OPEN; Production EXTERNAL-HOLD |
 | FIN-07 P0 V1 | canonical P&L reused by two AI readers; DRAFT-VERIFIED for synthetic GEL | all report/dashboard/AI tools share authority, period, currency and no-data semantics; unposted/demo/reversed exclusions |
-| FIN-08 P1 V1 | balance sheet assets/liabilities/equity read path | current profit/retained earnings, opening balances, period close and FX; trial equation and complete equity reconciliation, not just asset totals |
+| FIN-08 P1 V1 | unclosed P&L presented in equity, actual as-of cutoff and cent-exact displayed equation; DRAFT-VERIFIED at `13c2a3b`; historical scope preserved in execution log below | approved opening/fiscal-year presentation, multi-year/source completeness, large-value JSON precision and UI acceptance; full V1 reconciliation remains OPEN |
 | FIN-09 P1 V1 | unknown periods fail closed; unavailable CFO cashflow is null; DRAFT-VERIFIED at `2381108` | complete classification-review workflow and actual cash reconciliation; FX/compound/noncash/reversals and UI unavailable-state acceptance remain |
 | FIN-10 P1 V1 | trial/account/counterparty ledgers have legacy posted-draft paths | consistent source flag/labels, opening/period/closing balances and statement parity; no silent fallback |
 | FIN-11 P0 V1-B | Chat187 close-vs-post locks; Chat188 correction authorization/strict DATE/period isolation; Chat189 tenant+source reversal preflight lock and DB partial unique candidate, adjustment distinguished from reversal; isolated PG15/16 608 PASS each, 9/9 CI at `2264a2d` | DB index is unapplied Production; historical duplicate/ambiguous rows inventory, maker/checker, durable in-transaction audit, append-only posted-ledger reversal and receipt sync still OPEN / EXTERNAL-HOLD |
@@ -615,3 +619,56 @@ Earlier code, reports, security holds and plans are preserved.
   `docs/chat198-fin12-fencing-proposal-hold.md`.
 - No main, merge, Production, live DB, real ERP or Windows-original changes.
   Validate all 9 CI on exact final HEAD before marking Draft-tested.
+
+
+## FIN-08 continuation — unclosed equity and truthful as-of (2026-10-31)
+
+This proceeds from the real current Draft, not the old Chat181 HEAD. Chat197
+`50223d612e9cec1518da0cf4493edd13372c6f7c` independently passed 9/9 CI
+(backend 8,517 PASS/3 SKIP; PG15/16 705 each). Concurrent Chat198 FIN-12
+commits through `b90c712` and its isolated SELECT-fixture repair `13c2a3b`
+are preserved; no history was reset/rebased or force-pushed.
+
+- **Prior FIN-08 scope:** balance sheet assets/liabilities/equity read path;
+  current profit/retained earnings, opening balances, period close and FX;
+  trial equation and complete equity reconciliation. This original scope
+  remains the V1 requirement; one repaired defect does not complete it.
+- **Confirmed defect:** balanced stored journals with GEL310 cash and
+  GEL220 unclosed P&L reported only GEL90 equity. Both posted-ledger and
+  legacy GEL paths omitted the remaining income/expense result. Missing
+  as-of queried future rows while displaying today; a cent discrepancy
+  could still report `balanced=true`.
+- **RED first:** `9f0c96510699d5e665a04904d4270c0d44eb9072`, PG15/16
+  15 FAIL /705 PASS each (14 unit cases plus the actual writer/report case).
+- **Repair:** `88ac9ef146e2f948eeaad8e80522d661e1f4cb27`; cumulative
+  unclosed result becomes a clearly derived equity line, no invented GL
+  account/closing journal or balancing amount. Existing closing journals
+  reduce the residual naturally; default as-of is actually bound. Two
+  synthetic real-PG tests cover FX, closing, A/B isolation and no source edits.
+- **Verified implementation HEAD:** `13c2a3b0aea65d6436a7b53bbadf73514cdae769`,
+  **9/9 CI SUCCESS**, backend 8,552 PASS /3 SKIP +smoke1, PG15/16
+  743 PASS each; Chroma43, Redis210, membership45, vault104, RLS18,
+  reporting270+1, snapshots82/219+1. Deploy and real React build SKIPPED.
+  The earlier 88ac9ef PG failure was only the concurrent fence fixture's
+  missing receipt SELECT permission; all new FIN-08 tests already passed.
+  See `docs/chat198-fin08-unclosed-equity-gate.md` for evidence and contracts.
+
+### Current next safe order
+
+1. Preserve exact final documentation-HEAD CI and provenance. Re-fetch PR154
+   before every change; review any concurrent advance without overwriting it.
+2. **P0 FIN-11/12:** continue only isolated immutable correction/report
+   parity and locally atomic ledger/outbox design. Actual provider dispatch,
+   retry, receipt authentication, leases and JWT checker activation stay HOLD
+   until their required independent contracts/evidence are available.
+3. **P0 FIN-05/07; P1 FIN-08/10:** precise numeric output, opening/closing
+   and multi-year fixtures; same authority/tenant/period/currency across
+   canonical P&L/BS/TB/CF/AI/CFO, including unavailable states. Approved
+   quote/COA import and historical provenance remain separate external gates.
+4. **P1 COM-01 and ING/AI/UI:** deterministic subscription lifecycle,
+   document/job crash tests and maintained UI acceptance can proceed in
+   isolated Draft scope independently of real ERP/provider access.
+
+All G0–G8, R01–R10 and V1-versus-later feature scopes above remain. No
+main, merge, Production/config, live DB migration, real ERP, Windows-original
+or private-evidence-publication permission is implied by green CI.

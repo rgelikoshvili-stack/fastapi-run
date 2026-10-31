@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Optional
 from datetime import date
-from decimal import Decimal, localcontext
+from decimal import Decimal
 
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, error_response
@@ -14,6 +14,7 @@ from app.api.services.posted_ledger_reporting import (
     functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
     LEGACY_FX_INVALID_LINE, LEGACY_FX_ERROR, legacy_fx_unavailable,
     POSTED_CLASS_ERROR, basis_error_code, canonical_account_type,
+    report_money_sum, report_money_net, report_json_numbers,
 )
 
 log = logging.getLogger(__name__)
@@ -216,9 +217,9 @@ async def _get_posted_trial_balance_as_of(
         rows = await conn.fetch(sql, *params)
     assert_functional_basis(rows)
     return {
-        str(row["account_code"]): round(
-            float(row["total_debit"] or 0) - float(row["total_credit"] or 0), 2
-        )
+        str(row["account_code"]): float(report_money_net(
+            row["total_debit"], row["total_credit"],
+        ))
         for row in rows
         if row.get("account_code")
     }
@@ -338,18 +339,18 @@ async def _get_trial_balance(
     if legacy_fx_unavailable(rows):
         raise ValueError(LEGACY_FX_ERROR)
 
-    balances: dict[str, float] = {}
+    balances: dict[str, Decimal] = {}
     for row in rows:
         code = row["account_code"]
         if not canonical_account_type(code) and code not in _PNL and code not in _BALANCE_SHEET:
             raise ValueError(POSTED_CLASS_ERROR)
-        val = float(row["total"] or 0)
+        val = Decimal(str(row["total"] or 0))
         if code not in balances:
-            balances[code] = 0.0
+            balances[code] = Decimal(0)
         if row["side"] == "debit":
-            balances[code] += val
+            balances[code] = report_money_sum((balances[code], val), rounded=False)
         else:
-            balances[code] -= val
+            balances[code] = report_money_net(balances[code], val, rounded=False)
     return balances  # positive = net debit balance
 
 
@@ -377,8 +378,8 @@ async def _build_pnl_from_posted_ledger(
     for row in rows:
         code = row["account_code"]
         acct_type = row.get("account_type", "")
-        total_dr = float(row["total_debit"] or 0)
-        total_cr = float(row["total_credit"] or 0)
+        total_dr = row["total_debit"]
+        total_cr = row["total_credit"]
         audit = {
             "source_draft_id": row.get("source_draft_id"),
             "posting_log_id": row.get("posting_log_id"),
@@ -386,24 +387,24 @@ async def _build_pnl_from_posted_ledger(
         }
         pnl_meta = _PNL.get(code)
         if acct_type == "income":
-            amount = round(total_cr - total_dr, 2)
+            amount = report_money_net(total_cr, total_dr)
             revenue_lines.append({"account_code": code,
                                    "label": pnl_meta[1] if pnl_meta else code,
                                    "amount": amount, **audit})
         elif acct_type == "expense":
-            amount = round(total_dr - total_cr, 2)
+            amount = report_money_net(total_dr, total_cr)
             section = pnl_meta[0] if pnl_meta else "opex"
             label = pnl_meta[1] if pnl_meta else code
             line = {"account_code": code, "label": label, "amount": amount, **audit}
             (cogs_lines if section == "cogs" else opex_lines).append(line)
 
-    total_revenue = round(sum(l["amount"] for l in revenue_lines), 2)
-    total_cogs    = round(sum(l["amount"] for l in cogs_lines), 2)
-    gross_profit  = round(total_revenue - total_cogs, 2)
-    total_opex    = round(sum(l["amount"] for l in opex_lines), 2)
-    ebit          = round(gross_profit - total_opex, 2)
+    total_revenue = report_money_sum(l["amount"] for l in revenue_lines)
+    total_cogs    = report_money_sum(l["amount"] for l in cogs_lines)
+    gross_profit  = report_money_net(total_revenue, total_cogs)
+    total_opex    = report_money_sum(l["amount"] for l in opex_lines)
+    ebit          = report_money_net(gross_profit, total_opex)
 
-    return ok_response("P&L built (posted ledger)", {
+    return ok_response("P&L built (posted ledger)", report_json_numbers({
         "source": "posted_ledger",
         "period": {"from": date_from, "to": date_to},
         "revenue":      {"lines": revenue_lines, "total": total_revenue},
@@ -412,7 +413,7 @@ async def _build_pnl_from_posted_ledger(
         "opex":         {"lines": opex_lines,    "total": total_opex},
         "ebit":         ebit,
         "currency":     "GEL",
-    })
+    }))
 
 
 async def build_profit_and_loss(
@@ -436,11 +437,11 @@ async def build_profit_and_loss(
     revenue_lines, cogs_lines, opex_lines = [], [], []
 
     for code, (section, label) in _PNL.items():
-        net = tb.get(code, 0.0)
+        net = Decimal(str(tb.get(code, 0)))
         if net == 0.0:
             continue
-        amount = -net if section == "revenue" else net
-        line = {"account_code": code, "label": label, "amount": round(amount, 2)}
+        amount = net.copy_negate() if section == "revenue" else net
+        line = {"account_code": code, "label": label, "amount": report_money_sum((amount,))}
         if section == "revenue":
             revenue_lines.append(line)
         elif section == "cogs":
@@ -448,13 +449,13 @@ async def build_profit_and_loss(
         else:
             opex_lines.append(line)
 
-    total_revenue = round(sum(l["amount"] for l in revenue_lines), 2)
-    total_cogs    = round(sum(l["amount"] for l in cogs_lines), 2)
-    gross_profit  = round(total_revenue - total_cogs, 2)
-    total_opex    = round(sum(l["amount"] for l in opex_lines), 2)
-    ebit          = round(gross_profit - total_opex, 2)
+    total_revenue = report_money_sum(l["amount"] for l in revenue_lines)
+    total_cogs    = report_money_sum(l["amount"] for l in cogs_lines)
+    gross_profit  = report_money_net(total_revenue, total_cogs)
+    total_opex    = report_money_sum(l["amount"] for l in opex_lines)
+    ebit          = report_money_net(gross_profit, total_opex)
 
-    return ok_response("P&L built", {
+    return ok_response("P&L built", report_json_numbers({
         "period": {"from": date_from, "to": date_to},
         "revenue":       {"lines": revenue_lines, "total": total_revenue},
         "cogs":          {"lines": cogs_lines,    "total": total_cogs},
@@ -462,10 +463,10 @@ async def build_profit_and_loss(
         "opex":          {"lines": opex_lines,    "total": total_opex},
         "ebit":          ebit,
         "currency":      "GEL",
-    })
+    }))
 
 
-def _append_unclosed_result(equity_lines: list, balances) -> float:
+def _append_unclosed_result(equity_lines: list, balances) -> Decimal:
     """Present the remaining cumulative P&L balance as equity, without posting.
 
     Closing journals already remove the income/expense balances and transfer
@@ -473,11 +474,7 @@ def _append_unclosed_result(equity_lines: list, balances) -> float:
     double count earnings. This is not a fiscal-year profit classification or
     an asset/liability balancing plug.
     """
-    with localcontext() as context:
-        context.prec = 50
-        result = sum((Decimal(str(credit or 0)) - Decimal(str(debit or 0))
-                      for debit, credit in balances), Decimal(0))
-        amount = float(result.quantize(Decimal("0.01")))
+    amount = report_money_sum(report_money_net(credit, debit, rounded=False) for debit, credit in balances)
     if amount:
         equity_lines.append({
             "account_code": None,
@@ -529,8 +526,8 @@ async def _build_balance_sheet_from_posted_ledger(
         acct_type = row.get("account_type", "")
         if acct_type in ("income", "expense"):
             continue
-        total_dr = float(row["total_debit"] or 0)
-        total_cr = float(row["total_credit"] or 0)
+        total_dr = row["total_debit"]
+        total_cr = row["total_credit"]
         bs_meta = _BALANCE_SHEET.get(code)
         normalized_type = str(acct_type or "").strip().lower()
         group = type_to_group.get(
@@ -540,23 +537,23 @@ async def _build_balance_sheet_from_posted_ledger(
         sub = bs_meta[1] if bs_meta else ("current" if group != "equity" else "equity")
         if group not in sections or sub not in sections.get(group, {}):
             continue
-        amount = round((total_dr - total_cr) if group == "assets" else (total_cr - total_dr), 2)
+        amount = report_money_net(total_dr, total_cr) if group == "assets" else report_money_net(total_cr, total_dr)
         sections[group][sub].append({
             "account_code": code,
             "label": bs_meta[2] if bs_meta else code,
             "amount": amount,
         })
 
-    total_current_assets    = round(sum(l["amount"] for l in sections["assets"]["current"]), 2)
-    total_noncurrent_assets = round(sum(l["amount"] for l in sections["assets"]["non_current"]), 2)
-    total_assets            = round(total_current_assets + total_noncurrent_assets, 2)
-    total_current_liab      = round(sum(l["amount"] for l in sections["liabilities"]["current"]), 2)
-    total_noncurrent_liab   = round(sum(l["amount"] for l in sections["liabilities"]["non_current"]), 2)
-    total_liabilities       = round(total_current_liab + total_noncurrent_liab, 2)
-    total_equity            = round(sum(l["amount"] for l in sections["equity"]["equity"]), 2)
-    total_le                = round(total_liabilities + total_equity, 2)
+    total_current_assets    = report_money_sum(l["amount"] for l in sections["assets"]["current"])
+    total_noncurrent_assets = report_money_sum(l["amount"] for l in sections["assets"]["non_current"])
+    total_assets            = report_money_sum((total_current_assets, total_noncurrent_assets))
+    total_current_liab      = report_money_sum(l["amount"] for l in sections["liabilities"]["current"])
+    total_noncurrent_liab   = report_money_sum(l["amount"] for l in sections["liabilities"]["non_current"])
+    total_liabilities       = report_money_sum((total_current_liab, total_noncurrent_liab))
+    total_equity            = report_money_sum(l["amount"] for l in sections["equity"]["equity"])
+    total_le                = report_money_sum((total_liabilities, total_equity))
 
-    return ok_response("Balance Sheet built (posted ledger)", {
+    return ok_response("Balance Sheet built (posted ledger)", report_json_numbers({
         "source": "posted_ledger",
         "as_of": as_of or date.today().isoformat(),
         "assets": {
@@ -574,7 +571,7 @@ async def _build_balance_sheet_from_posted_ledger(
         "total_liabilities_and_equity": total_le,
         "balanced": total_assets == total_le,
         "currency": "GEL",
-    })
+    }))
 
 
 async def build_cashflow_statement(
@@ -656,31 +653,31 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
     )
 
     for code, (group, sub, label) in _BALANCE_SHEET.items():
-        net = tb.get(code, 0.0)
+        net = Decimal(str(tb.get(code, 0)))
         if net == 0.0:
             continue
-        amount = net if group == "assets" else -net
+        amount = net if group == "assets" else net.copy_negate()
 
         sections[group][sub].append({
             "account_code": code,
             "label": label,
-            "amount": round(amount, 2),
+            "amount": report_money_sum((amount,)),
         })
 
-    total_current_assets    = round(sum(l["amount"] for l in sections["assets"]["current"]), 2)
-    total_noncurrent_assets = round(sum(l["amount"] for l in sections["assets"]["non_current"]), 2)
-    total_assets            = round(total_current_assets + total_noncurrent_assets, 2)
+    total_current_assets    = report_money_sum(l["amount"] for l in sections["assets"]["current"])
+    total_noncurrent_assets = report_money_sum(l["amount"] for l in sections["assets"]["non_current"])
+    total_assets            = report_money_sum((total_current_assets, total_noncurrent_assets))
 
-    total_current_liab    = round(sum(l["amount"] for l in sections["liabilities"]["current"]), 2)
-    total_noncurrent_liab = round(sum(l["amount"] for l in sections["liabilities"]["non_current"]), 2)
-    total_liabilities     = round(total_current_liab + total_noncurrent_liab, 2)
+    total_current_liab    = report_money_sum(l["amount"] for l in sections["liabilities"]["current"])
+    total_noncurrent_liab = report_money_sum(l["amount"] for l in sections["liabilities"]["non_current"])
+    total_liabilities     = report_money_sum((total_current_liab, total_noncurrent_liab))
 
-    total_equity = round(sum(l["amount"] for l in sections["equity"]["equity"]), 2)
-    total_le     = round(total_liabilities + total_equity, 2)
+    total_equity = report_money_sum(l["amount"] for l in sections["equity"]["equity"])
+    total_le     = report_money_sum((total_liabilities, total_equity))
 
     balanced = total_assets == total_le
 
-    return ok_response("Balance Sheet built", {
+    return ok_response("Balance Sheet built", report_json_numbers({
         "as_of": as_of or date.today().isoformat(),
         "assets": {
             "current":     {"lines": sections["assets"]["current"],     "total": total_current_assets},
@@ -700,4 +697,4 @@ async def build_balance_sheet(tenant_id: str, as_of: Optional[str] = None) -> di
         "total_liabilities_and_equity": total_le,
         "balanced": balanced,
         "currency": "GEL",
-    })
+    }))

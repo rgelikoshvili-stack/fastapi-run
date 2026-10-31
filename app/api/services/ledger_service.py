@@ -11,7 +11,7 @@ from app.api.db import get_conn, _q
 from app.api.services.posted_ledger_reporting import (
     functional_ledger_cte, FX_INVALID_LINE, assert_functional_basis, POSTED_FX_ERROR,
     LEGACY_FX_INVALID_LINE, LEGACY_FX_INVALID_HEADER, LEGACY_FX_ERROR, legacy_fx_unavailable,
-    basis_error_code,
+    basis_error_code, report_money_sum, report_money_net, report_json_numbers,
 )
 from app.api.services.financial_statements_service import (
     _posted_ledger_reports_enabled,
@@ -223,22 +223,22 @@ async def _get_trial_balance_from_posted_ledger(
 
     items = []
     for row in rows:
-        dr = float(row["total_debit"] or 0)
-        cr = float(row["total_credit"] or 0)
+        dr = report_money_sum((row["total_debit"],))
+        cr = report_money_sum((row["total_credit"],))
         items.append({
             "account_code": row["account_code"],
             "opening_balance": 0.0,
-            "debit_turnover": round(dr, 2),
-            "credit_turnover": round(cr, 2),
-            "closing_balance": round(dr - cr, 2),
-            "debit": round(dr, 2),
-            "credit": round(cr, 2),
-            "net": round(dr - cr, 2),
+            "debit_turnover": dr,
+            "credit_turnover": cr,
+            "closing_balance": report_money_net(dr, cr),
+            "debit": dr,
+            "credit": cr,
+            "net": report_money_net(dr, cr),
         })
 
-    grand_dr = round(sum(i["debit_turnover"] for i in items), 2)
-    grand_cr = round(sum(i["credit_turnover"] for i in items), 2)
-    return {
+    grand_dr = report_money_sum(i["debit_turnover"] for i in items)
+    grand_cr = report_money_sum(i["credit_turnover"] for i in items)
+    return report_json_numbers({
         "source": "posted_ledger",
         "currency": "GEL",
         "date_from": date_from,
@@ -247,10 +247,10 @@ async def _get_trial_balance_from_posted_ledger(
         "total_credit": grand_cr,
         "balanced": grand_dr == grand_cr,
         "opening_total": 0.0,
-        "closing_total": round(grand_dr - grand_cr, 2),
+        "closing_total": report_money_net(grand_dr, grand_cr),
         "accounts": items,
         "count": len(items),
-    }
+    })
 
 
 async def get_trial_balance(
@@ -329,54 +329,54 @@ async def get_trial_balance(
         if code not in accounts:
             accounts[code] = {
                 "account_code": code,
-                "opening_debit": 0.0,
-                "opening_credit": 0.0,
-                "debit_turnover": 0.0,
-                "credit_turnover": 0.0,
+                "opening_debit": Decimal(0),
+                "opening_credit": Decimal(0),
+                "debit_turnover": Decimal(0),
+                "credit_turnover": Decimal(0),
             }
         bucket = "opening" if r["bucket"] == "opening" else "period"
         if bucket == "opening" and r["side"] == "debit":
-            accounts[code]["opening_debit"] += float(r["total"] or 0)
+            accounts[code]["opening_debit"] = report_money_sum((accounts[code]["opening_debit"], r["total"]), rounded=False)
         elif bucket == "opening":
-            accounts[code]["opening_credit"] += float(r["total"] or 0)
+            accounts[code]["opening_credit"] = report_money_sum((accounts[code]["opening_credit"], r["total"]), rounded=False)
         elif r["side"] == "debit":
-            accounts[code]["debit_turnover"] += float(r["total"] or 0)
+            accounts[code]["debit_turnover"] = report_money_sum((accounts[code]["debit_turnover"], r["total"]), rounded=False)
         else:
-            accounts[code]["credit_turnover"] += float(r["total"] or 0)
+            accounts[code]["credit_turnover"] = report_money_sum((accounts[code]["credit_turnover"], r["total"]), rounded=False)
 
     items = []
     for raw in sorted(accounts.values(), key=lambda x: x["account_code"]):
-        opening_balance = raw["opening_debit"] - raw["opening_credit"]
-        closing_balance = opening_balance + raw["debit_turnover"] - raw["credit_turnover"]
+        opening_balance = report_money_net(raw["opening_debit"], raw["opening_credit"], rounded=False)
+        closing_balance = report_money_sum((opening_balance, raw["debit_turnover"], raw["credit_turnover"].copy_negate()))
         items.append({
             "account_code": raw["account_code"],
-            "opening_balance": round(opening_balance, 2),
-            "debit_turnover": round(raw["debit_turnover"], 2),
-            "credit_turnover": round(raw["credit_turnover"], 2),
-            "closing_balance": round(closing_balance, 2),
-            "debit": round(raw["debit_turnover"], 2),
-            "credit": round(raw["credit_turnover"], 2),
-            "net": round(closing_balance, 2),
+            "opening_balance": report_money_sum((opening_balance,)),
+            "debit_turnover": report_money_sum((raw["debit_turnover"],)),
+            "credit_turnover": report_money_sum((raw["credit_turnover"],)),
+            "closing_balance": report_money_sum((closing_balance,)),
+            "debit": report_money_sum((raw["debit_turnover"],)),
+            "credit": report_money_sum((raw["credit_turnover"],)),
+            "net": report_money_sum((closing_balance,)),
         })
 
-    grand_dr = sum(i["debit_turnover"] for i in items)
-    grand_cr = sum(i["credit_turnover"] for i in items)
-    opening_total = sum(i["opening_balance"] for i in items)
-    closing_total = sum(i["closing_balance"] for i in items)
+    grand_dr = report_money_sum(i["debit_turnover"] for i in items)
+    grand_cr = report_money_sum(i["credit_turnover"] for i in items)
+    opening_total = report_money_sum(i["opening_balance"] for i in items)
+    closing_total = report_money_sum(i["closing_balance"] for i in items)
 
-    return {
+    return report_json_numbers({
         "source": "posted_drafts",
         "currency": "GEL",
         "date_from": date_from,
         "date_to": date_to,
-        "total_debit": round(grand_dr, 2),
-        "total_credit": round(grand_cr, 2),
-        "balanced": round(grand_dr, 2) == round(grand_cr, 2),
-        "opening_total": round(opening_total, 2),
-        "closing_total": round(closing_total, 2),
+        "total_debit": grand_dr,
+        "total_credit": grand_cr,
+        "balanced": grand_dr == grand_cr,
+        "opening_total": opening_total,
+        "closing_total": closing_total,
         "accounts": items,
         "count": len(items),
-    }
+    })
 
 
 # ── 3. Counterparty Ledger ──────────────────────────────────────────────────

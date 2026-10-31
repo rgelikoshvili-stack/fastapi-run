@@ -4,7 +4,41 @@ No FX lookup, guessed rate, schema mutation or historical repair occurs here.
 Old GEL rows with the schema's zero amount_gel default keep their exact raw
 GEL amounts; foreign rows require valid, consistent stored posting evidence.
 """
+from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+
 from app.knowledge.chart_of_accounts import CHART_OF_ACCOUNTS
+
+
+def report_money_sum(values, *, rounded=True):
+    """Keep booked NUMERIC cents through arithmetic, before JSON conversion.
+
+    Fifty digits cover NUMERIC(18,2) ledger values and aggregate headroom.
+    Use a local context so unrelated callers cannot lower report precision.
+    This does not change posting/FX rounding or manufacture missing balances.
+    """
+    with localcontext() as context:
+        context.prec = 50
+        total = sum((Decimal(str(value or 0)) for value in values), Decimal(0))
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN) if rounded else total
+
+
+def report_money_net(debit, credit, *, rounded=True):
+    return report_money_sum((debit, Decimal(str(credit or 0)).copy_negate()), rounded=rounded)
+
+
+def report_json_numbers(value):
+    """Preserve existing numeric API fields only at the final response boundary.
+
+    Arbitrarily large final floats still cannot encode every cent. A versioned
+    exact-decimal transport contract remains separate from correct arithmetic.
+    """
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {key: report_json_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [report_json_numbers(item) for item in value]
+    return value
 
 POSTED_CLASS_ERROR = "LEDGER_CLASSIFICATION_INCOMPLETE"
 _CANONICAL_TYPES = {"asset", "liability", "equity", "income", "expense"}

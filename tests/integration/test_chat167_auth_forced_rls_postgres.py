@@ -2860,3 +2860,59 @@ async def test_chat196_no_dispatch_without_provider_contract_and_durable_crash_h
         assert await conn.fetchval("""
             SELECT count(*) FROM posting_outbox_receipts
         """)==0
+
+
+# Chat197 FIN-12 — unsigned UNKNOWN observations must NEVER masquerade
+# as an ERP provider receipt. Only the separate reconciliation/HOLD cases
+# may contain unverified operator notes; real vendor auth remains external.
+@pytest.mark.asyncio
+async def test_chat197_unknown_receipt_metadata_forgery_must_not_enter_provider_receipts(auth_db):
+    from pathlib import Path
+    async with auth_db["admin"].acquire() as conn:
+        sql = Path("docs/sql/chat186_posting_outbox_DRAFT.sql").read_text(encoding="utf-8")
+        await conn.execute(sql)
+        await conn.execute(sql)
+        ids = {}
+        for name in ("prepared", "unknown"):
+            uid = await conn.fetchval("""
+                INSERT INTO posting_outbox_intents(
+                    tenant_id, source_id, target_system, idempotency_key,
+                    payload_sha256, payload_json
+                ) VALUES ('t_alpha', $1, 'balance', $2, $3, '{}'::jsonb)
+                RETURNING id
+            """, "chat197-"+name, ("a" if name == "prepared" else "c")*64,
+                ("b" if name == "prepared" else "d")*64)
+            ids[name] = uid
+        await conn.execute(
+            "UPDATE posting_outbox_intents SET state='unknown' WHERE id=$1",
+            ids["unknown"],
+        )
+        for source_state in ("prepared", "unknown"):
+            for forged_metadata in (False, True):
+                with pytest.raises(asyncpg.RaiseError, match="FIN12_UNKNOWN_PROVIDER_RECEIPT_HOLD"):
+                    await conn.execute("""
+                        INSERT INTO posting_outbox_receipts(
+                            outbox_id, tenant_id, outcome, provider_receipt_id,
+                            evidence_sha256, verified_by, verified_at
+                        ) VALUES ($1, 't_alpha', 'unknown', $2, $3, $4, $5)
+                    """, ids[source_state],
+                        "fake-erp-accepted-42" if forged_metadata else None,
+                        "f"*64 if forged_metadata else None,
+                        "untrusted-accountant" if forged_metadata else None,
+                        __import__("datetime").datetime.now(
+                            __import__("datetime").timezone.utc
+                        ) if forged_metadata else None)
+
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_SOURCE_TENANT_MISMATCH"):
+            await conn.execute("""
+                INSERT INTO posting_outbox_receipts(
+                    outbox_id, tenant_id, outcome
+                ) VALUES ($1, 't_beta', 'unknown')
+            """, ids["unknown"])
+        assert await conn.fetchval("SELECT COUNT(*) FROM posting_outbox_receipts") == 0
+        assert await conn.fetchval(
+            "SELECT state FROM posting_outbox_intents WHERE id=$1", ids["unknown"],
+        ) == "unknown"
+        assert await conn.fetchval(
+            "SELECT state FROM posting_outbox_intents WHERE id=$1", ids["prepared"],
+        ) == "prepared"

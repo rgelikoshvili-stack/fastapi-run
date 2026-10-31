@@ -50,6 +50,8 @@ on:
       - "tests/unit/test_chat193_fin12_unknown_reconciliation.py"
       - "tests/unit/test_chat194_signed_receipt_candidate.py"
       - "tests/unit/test_chat196_dispatch_crash_hold.py"
+      - "tests/unit/test_chat198_balance_sheet_earnings.py"
+      - "tests/integration/test_chat198_balance_sheet_earnings_postgres.py"
       - "app/api/services/posting_outbox_crash_hold_service.py"
       - "docs/sql/chat196_fin12_crash_hold_DRAFT.sql"
       - "app/api/services/signed_receipt_candidate_service.py"
@@ -166,6 +168,7 @@ jobs:
           tests/integration/test_chat166_session_version_postgres.py
           tests/integration/test_chat167_auth_forced_rls_postgres.py
           tests/integration/test_chat183_tenant_coa_postgres.py
+          tests/integration/test_chat198_balance_sheet_earnings_postgres.py
           tests/unit/test_chat161_oauth_state.py
           tests/unit/test_chat161_refresh_membership.py
           tests/unit/test_chat164_live_access_revocation.py
@@ -196,6 +199,7 @@ jobs:
           tests/unit/test_chat193_fin12_unknown_reconciliation.py
           tests/unit/test_chat194_signed_receipt_candidate.py
           tests/unit/test_chat196_dispatch_crash_hold.py
+          tests/unit/test_chat198_balance_sheet_earnings.py
           tests/unit/test_p0_ai_action_confirm.py
           tests/unit/test_oauth_existing_tenant_membership.py
           -q -s --tb=short

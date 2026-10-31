@@ -1744,7 +1744,7 @@ async def test_chat186_posting_outbox_durable_intent_tenant_dedup_and_unknown_ho
             assert await conn.fetchval("SELECT count(*) FROM posting_outbox_intents")==1
 
     async with auth_db["admin"].acquire() as conn:
-        with pytest.raises(asyncpg.RaiseError,match="FIN12_RECEIPT_SOURCE_TENANT_MISMATCH"):
+        with pytest.raises(asyncpg.RaiseError,match="FIN12_UNKNOWN_PROVIDER_RECEIPT_HOLD"):
             await conn.execute("""
                 INSERT INTO posting_outbox_receipts (
                     outbox_id,tenant_id,outcome
@@ -2903,7 +2903,7 @@ async def test_chat197_unknown_receipt_metadata_forgery_must_not_enter_provider_
                             __import__("datetime").timezone.utc
                         ) if forged_metadata else None)
 
-        with pytest.raises(asyncpg.RaiseError, match="FIN12_RECEIPT_SOURCE_TENANT_MISMATCH"):
+        with pytest.raises(asyncpg.RaiseError, match="FIN12_UNKNOWN_PROVIDER_RECEIPT_HOLD"):
             await conn.execute("""
                 INSERT INTO posting_outbox_receipts(
                     outbox_id, tenant_id, outcome

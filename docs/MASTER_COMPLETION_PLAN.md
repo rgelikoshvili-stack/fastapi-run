@@ -808,3 +808,25 @@ changes were preserved without overwriting the finance workstream.
   overall PR CI; always report their actual status, never mask them.
 
 All private Handoff/Technical Report/Evidence archives remain OFF GitHub.
+
+
+## Chat201 concurrent finance-precision repair — cashflow cent parity (2026-10-31)
+
+- Preserved existing FIN-12 ledger/outbox interlock and all historic financial
+  commits. New cashflow RED regressions from the independent FIN-07/08/10
+  workstream showed 5 unit +1 synthetic PG failure for +/−0.01 net at very
+  large offsetting turnovers and a falsely excluded near-equal internal
+  transfer. These are separate from Chat201's isolated receipt SELECT fixture.
+- Scoped Draft repair `2e93f77d89f6a7507eb7e3d2545af4f35bcc62e4`:
+  `cashflow_classification_service.py` retains Decimal cents throughout
+  direct/posted movement netting, requires equal booked cash-in/cash-out to
+  mark an internal transfer, and converts to existing JSON-number output
+  only after net calculation. No source write, real provider call or
+  Production change. Prior RED tests remain unchanged.
+- **Still OPEN:** exact large-value wire/UI contract, other cashflow methods,
+  source completeness, verified tenant/provider ERP receipts, and real
+  atomic settlement. See `docs/finance-decimal-netting-gate.md`.
+- The latest code and final documentation HEAD must independently pass all
+  nine CI workflows, including PostgreSQL 15/16, before this repair can be
+  accepted as Draft-verified. A passing code HEAD does not by itself certify
+  Production or real cashflow/accounting truth.

@@ -291,3 +291,115 @@ async def decide_correction_review(conn, *, tenant_id: str, draft_id: int,
                           "maker_subject": row["maker_subject"]})
     return {"review_id": row["id"], "draft_id": draft_id, "state": decision,
             "posted": False, "journal_status": "pending_approval"}
+
+
+# Chat208 FIN-11: strict, signed, live-member identity entrypoints.
+# These are INERT: no public router, worker, posting, migration or ERP call
+# is registered here. Original low-level review remains separately internal.
+from dataclasses import dataclass
+from datetime import timezone
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedCorrectionActor:
+    """Only a re-verified access JWT plus active DB membership may create this."""
+
+    subject: str
+    role: str
+    tenant_id: str
+
+
+async def resolve_signed_review_actor(request, phase: str) -> VerifiedCorrectionActor:
+    """Independently attest a Maker/Checker using the signed Bearer token.
+
+    Never trust user-submitted maker_subject, checker_subject, role, tenant or
+    request.state alone. Even if the global membership feature flag is off,
+    this high-risk FIN-11 gate ALWAYS demands a current tenant membership
+    DB read; errors/disabled DB fail closed. It adds no Production route.
+    """
+    from datetime import datetime, timezone
+    from app.api.services import auth_service
+
+    try:
+        headers = request.headers.getlist("authorization")
+        if len(headers) != 1 or not isinstance(headers[0], str):
+            _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+        scheme, sep, token = headers[0].partition(" ")
+        if (scheme.lower() != "bearer" or sep != " " or not token
+                or token.strip() != token or any(c.isspace() for c in token)):
+            _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+    except CorrectionReviewUnavailable:
+        raise
+    except (AttributeError, TypeError, ValueError):
+        _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+
+    try:
+        claims = auth_service.verify_token(token, expected_type="access")
+    except Exception:
+        _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+    if not isinstance(claims, dict) or claims.get("type") != "access":
+        _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+
+    subject = claims.get("sub")
+    role = claims.get("role")
+    tenant = claims.get("tenant_id")
+    email = claims.get("email")
+    issued = claims.get("iat")
+    expiry = claims.get("exp")
+    now = int(datetime.now(timezone.utc).timestamp())
+    if (not isinstance(subject, str) or not subject.isascii()
+            or not subject.isdecimal() or not 0 < len(subject) <= 18
+            or int(subject) <= 0 or str(int(subject)) != subject
+            or not isinstance(tenant, str) or not tenant
+            or tenant != tenant.strip() or tenant.casefold() == "default"
+            or not isinstance(role, str) or not role
+            or not isinstance(email, str) or not email.strip()
+            or type(issued) is not int or type(expiry) is not int
+            or issued <= 0 or issued > now + 60
+            or expiry <= issued or expiry <= now):
+        _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+
+    principal_subject = _checked_actor(f"auth:{subject}", role, phase)
+    try:
+        if (getattr(request.state, "authenticated", False) is not True
+                or getattr(request.state, "user_id", None) != subject
+                or getattr(request.state, "role", None) != role
+                or getattr(request.state, "auth_tenant_id", None) != tenant
+                or getattr(request.state, "tenant_id", None) != tenant):
+            _deny("FIN11_REVIEW_SIGNED_IDENTITY_REQUIRED")
+        require_current_tenant_id(tenant)
+    except CorrectionReviewUnavailable:
+        raise
+    except (AttributeError, TypeError, ValueError):
+        _deny("FIN11_REVIEW_TENANT_UNAUTHORIZED")
+
+    try:
+        valid_member = await auth_service.verify_live_access_membership(claims)
+    except Exception:
+        _deny("FIN11_REVIEW_MEMBERSHIP_UNAVAILABLE")
+    if valid_member is not True:
+        _deny("FIN11_REVIEW_MEMBERSHIP_REVOKED")
+    return VerifiedCorrectionActor(
+        subject=principal_subject, role=role, tenant_id=tenant,
+    )
+
+
+async def submit_attested_correction_review(conn, *, request, draft_id: int) -> dict:
+    """INERT safe entrypoint: source actor/role/tenant can ONLY be attested."""
+    principal = await resolve_signed_review_actor(request, "maker")
+    return await submit_correction_review(
+        conn, tenant_id=principal.tenant_id, draft_id=draft_id,
+        maker_subject=principal.subject, maker_role=principal.role,
+    )
+
+
+async def decide_attested_correction_review(
+    conn, *, request, draft_id: int, decision: str, reason: str = "",
+) -> dict:
+    """INERT safe entrypoint: checker actor is never caller-supplied text."""
+    principal = await resolve_signed_review_actor(request, "checker")
+    return await decide_correction_review(
+        conn, tenant_id=principal.tenant_id, draft_id=draft_id,
+        checker_subject=principal.subject, checker_role=principal.role,
+        decision=decision, reason=reason,
+    )

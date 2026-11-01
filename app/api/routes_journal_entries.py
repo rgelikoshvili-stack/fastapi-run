@@ -123,8 +123,14 @@ async def adjust_journal_entry(draft_id: int, request: Request, payload: dict):
     Permission: approval:write
     """
     require_permission(request, "approval:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    actor     = getattr(request.state, "user_email", None) or getattr(request.state, "user_id", "system")
+    creator = await _verified_correction_maker(request)
+    if creator is None:
+        return error_response(
+            "Verified Maker identity is required for journal corrections",
+            "FIN11_CREATOR_IDENTITY_UNVERIFIED",
+        )
+    tenant_id = creator.tenant_id
+    actor = creator.subject
 
     adjustment_date = payload.get("adjustment_date")
     reason          = str(payload.get("reason") or "").strip()

@@ -1,3 +1,8 @@
+> Latest verified code checkpoint: 2026-11-01, indirect cashflow continuation.
+> Code `22cbd6af50cecbb1ff6f8ceb1252fa0a5b3d8974`: 9/9 CI SUCCESS;
+> backend 8,671 PASS / 3 SKIP; disposable PG15/16 821 PASS each.
+> This preserves the complete plan below, including Chat208. Production HOLD.
+
 # Bridge Hub — MASTER COMPLETION PLAN
 
 > მიმდინარე განახლება: 2026-10-31, FIN-08 continuation alongside Chat198.
@@ -919,3 +924,15 @@ All private Handoff/Technical Report/Evidence archives remain OFF GitHub.
 - **FIN-11 OPEN/HOLD:** actual reversal/adjustment creation audit must use the same signed canonical subject; direct underlying low-level review has no public registration, and Chat192 review / Chat207 audit uniqueness DDL are UNAPPLIED. Verify real JWT/session membership, nonowner grants/RLS, database owner trigger bypass, historic creator mapping, independent checker workflow, immutable posted correction/report parity before enabling. **FIN-12 EXTERNAL-HOLD:** vendor-signed receipt/status, tenant provider account identity, provider-certified idempotency, crash-safe fencing/UNKNOWN and approved atomic local ledger/outbox/receipt finalizer. **FIN-07/08 OPEN:** wire/UI Decimal and indirect historical cashflow parity.
 - No Merge/`main`, Production deploy/live migration, real ERP posting, Windows original edit, deletion, force push or private Evidence/Handoff public upload. **Production HOLD**.
 
+
+
+## FIN-07/08 — indirect cashflow precision continuation (2026-11-01)
+
+- Combined source parent `f6c000f16b345a6e42bbb86c526a5260a05964aa` preserves Chat208 signed-actor work and all previous plan entries. PR154 remains OPEN/DRAFT/UNMERGED; `main` remains `aa8ba59ca816bbb6c74523979289b59ed9265554`.
+- **Confirmed bounded defect:** pure `build_cashflow_indirect` binary-float adjustment/activity sums lost a one-cent residual under cancellation; Decimal inputs with optional float defaults raised TypeError. Synthetic reproduction only; no production loss alleged.
+- **RED first** `e5aaddb632085fa977373e836f12ca3dd5f4d91e`: 12 regression cases; Python3.11 backend 10 FAIL / 8,661 other PASS / 3 SKIP (run 41303935187), PG15/16 10 FAIL / 811 other PASS each (41303935056). Python3.12 local: 6 FAIL / 6 PASS because its float summation differs.
+- **Arithmetic repair DONE within this scope** `22cbd6af50cecbb1ff6f8ceb1252fa0a5b3d8974`: reuse report Decimal arithmetic/local precision, convert JSON numbers at the final boundary; retain input mappings and response shape. Local focused 122 PASS. Exact fix SHA **9/9 CI SUCCESS**, backend **8,671 PASS / 3 SKIP** + smoke1 (41304067575), disposable PG15/16 **821 PASS each** (41304067586), Chroma43, Redis210, membership45, vault104, RLS18, reporting270+realDB1, snapshots82/219+realDB1. Actual frontend install/build and deploy SKIPPED.
+- New indirect tests are pure arithmetic cases even when executed by the PG matrix; no active production caller for this helper was discovered. Authoritative historical indirect data sourcing and direct/indirect report parity are **NOT complete**. Exact large-value JSON/wire/UI decimals and finite-input policy remain **OPEN**. Existing FIN-05 booked-currency repair remains preserved; historical provider/opening/fiscal-year acceptance is not implied by these synthetic tests.
+- Sanitized report: `docs/finance-indirect-cashflow-precision-gate.md`. Earlier direct-cashflow netting stage is preserved, including independent implementation `2e93f77d89f6a7507eb7e3d2545af4f35bcc62e4`; this continuation does not replace its rounding policy.
+- **Next safe order:** P1 exact numeric output contract and consumer inventory; regression-first compatible wire/UI solution; authoritative source/historical reconciliation fixtures; independently verified FIN-11 signed creator identity and real JWT/membership integration in disposable environments. FIN-12 external vendor certification stays HOLD. Keep 54 workstreams, V1/later distinction, P0/P1 ordering, G0–G8 acceptance and R01–R10 review slices above; arithmetic success does not close those gates.
+- This document-only follow-up must have its own exact-SHA CI recorded in the private technical report/handoff. No merge, main edit, active configuration, live migration, ERP send/retry, original Windows change, deletion, history rewrite or public private-evidence upload.

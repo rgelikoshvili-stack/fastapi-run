@@ -68,3 +68,14 @@ Exact final-HEAD 9-workflow CI remains the acceptance criterion; until it is
 confirmed, the stage is DRAFT / pending verification, not production-ready.
 The earlier stage-2 'pending' statement records the historical RED finding;
 this paragraph records its subsequent repair candidate.
+
+
+## 2026-11-01 follow-up attestation
+
+The earlier pending stage-2 wording is historical. Its independent direct-cashflow
+repair `2e93f77d89f6a7507eb7e3d2545af4f35bcc62e4` and regression tests are
+preserved in verified combined SHA `22cbd6af50cecbb1ff6f8ceb1252fa0a5b3d8974`.
+That exact SHA passed all nine workflows: backend 8,671 PASS /3 SKIP and
+disposable PG15/16 821 PASS each. The additional indirect-helper cancellation
+repair and remaining wire/UI/source limitations are documented separately in
+`docs/finance-indirect-cashflow-precision-gate.md`. No Production activation.

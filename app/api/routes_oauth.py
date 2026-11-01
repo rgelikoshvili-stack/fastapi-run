@@ -1,23 +1,85 @@
 """app/api/routes_oauth.py — Google / Microsoft SSO, OAuth 2.0 code flow."""
+import hashlib
+import html
+import json
 import logging
+from datetime import datetime, timedelta, timezone
 import os
 import secrets
-import time
 from urllib.parse import urlencode
 
 import requests as _http
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-from app.api.db import get_conn, _q
+from app.api.db import get_conn, _q, tenant_db_context
 from app.api.response_utils import ok_response, http_error
-from app.api.services.auth_service import create_access_token, create_refresh_token
+from app.api.services.auth_service import create_access_token, create_refresh_token, jwt_session_version_enabled
+from app.api.trusted_request_origin import configured_oauth_origin
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
 
 _STATE_TTL = 600  # seconds
-_states: dict[str, tuple[float, str]] = {}  # state → (expiry, tenant_id)
+_STATE_PURGE_BATCH = 128  # bounded cleanup, avoids unbounded delete locks
+
+
+async def _purge_expired_states(conn) -> None:
+    """Remove at most one indexed batch during login; safe under concurrency.
+
+    This is opportunistic cleanup, not a time-based scheduled job: expired
+    rows with no new login traffic still require an approved periodic job.
+    """
+    await conn.execute(
+        _q(
+            "WITH stale AS ("
+            " SELECT state_hash FROM oauth_login_states"
+            " WHERE expires_at <= NOW()"
+            " ORDER BY expires_at"
+            " LIMIT %s FOR UPDATE SKIP LOCKED"
+            ")"
+            " DELETE FROM oauth_login_states AS states USING stale"
+            " WHERE states.state_hash = stale.state_hash"
+        ),
+        _STATE_PURGE_BATCH,
+    )
+
+
+async def _issue_state(tenant_id: str, provider: str) -> str:
+    """Persist only the hash of a one-use OAuth state across Cloud Run replicas.
+
+    The dedicated table must be provisioned by migration 014 before this
+    feature is enabled. On DB failure the login fails closed, not in-memory.
+    """
+    state = secrets.token_urlsafe(32)
+    state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+    expiry = datetime.now(timezone.utc) + timedelta(seconds=_STATE_TTL)
+    async with get_conn() as conn:
+        await _purge_expired_states(conn)
+        await conn.execute(
+            _q(
+                "INSERT INTO oauth_login_states (state_hash, tenant_id, provider, expires_at) "
+                "VALUES (%s, %s, %s, %s)"
+            ),
+            state_hash, tenant_id, provider, expiry,
+        )
+    return state
+
+
+async def _consume_state(state: str, provider: str) -> str | None:
+    """Consume once through one atomic DELETE, bound to the OAuth provider."""
+    state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
+    async with get_conn() as conn:
+        row = await conn.fetchrow(
+            _q(
+                "DELETE FROM oauth_login_states "
+                "WHERE state_hash=%s AND provider=%s AND expires_at > NOW() "
+                "RETURNING tenant_id"
+            ),
+            state_hash, provider,
+        )
+    return row["tenant_id"] if row else None
+
 
 _PROVIDERS = {
     "google": {
@@ -40,28 +102,15 @@ _PROVIDERS = {
 
 
 def _redirect_uri(request: Request, provider: str) -> str:
-    base = os.environ.get("APP_BASE_URL", str(request.base_url).rstrip("/"))
+    # Never obtain OAuth callback authority from Host or X-Forwarded-*.
+    # APP_BASE_URL or OAUTH_REDIRECT_BASE_URL must be explicitly trusted.
+    base = configured_oauth_origin()
     return f"{base}/auth/oauth/{provider}/callback"
 
 
-def _issue_state(tenant_id: str) -> str:
-    state = secrets.token_urlsafe(32)
-    _states[state] = (time.time() + _STATE_TTL, tenant_id)
-    now = time.time()
-    for k in [k for k, v in list(_states.items()) if v[0] < now]:
-        _states.pop(k, None)
-    return state
-
-
-def _consume_state(state: str):
-    entry = _states.pop(state, None)
-    if entry and entry[0] > time.time():
-        return entry[1]
-    return None
-
 
 @router.get("/{provider}/login")
-def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
+async def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
     if provider not in _PROVIDERS:
         return http_error(400, f"Unknown provider: {provider}", "INVALID_PROVIDER")
     cfg = _PROVIDERS[provider]
@@ -69,10 +118,26 @@ def oauth_login(provider: str, request: Request, tenant_id: str = "default"):
     if not client_id:
         return http_error(503, f"{provider} OAuth not configured — set {cfg['client_id_env']}", "OAUTH_NOT_CONFIGURED")
 
-    state = _issue_state(tenant_id)
+    if (not isinstance(tenant_id, str) or not tenant_id.strip() or
+            tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
+        return http_error(403, "Explicit tenant ID is required for OAuth login", "OAUTH_MEMBERSHIP_REQUIRED")
+
+    # Fail before issuing/persisting any one-time state when callback origin
+    # is not configured. Never redirect to a request-controlled hostname.
+    try:
+        redirect_uri = _redirect_uri(request, provider)
+    except ValueError:
+        log.error("oauth_redirect_origin_not_configured provider=%s", provider)
+        return http_error(503, "OAuth callback origin unavailable", "OAUTH_ORIGIN_UNTRUSTED")
+
+    try:
+        state = await _issue_state(tenant_id, provider)
+    except Exception:
+        log.exception("oauth_state_creation_failed provider=%s", provider)
+        return http_error(503, "OAuth state unavailable", "OAUTH_STATE_UNAVAILABLE")
     params = {
         "client_id": client_id,
-        "redirect_uri": _redirect_uri(request, provider),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": cfg["scope"],
         "state": state,
@@ -95,9 +160,24 @@ async def oauth_callback(
     if provider not in _PROVIDERS:
         return http_error(400, f"Unknown provider: {provider}", "INVALID_PROVIDER")
 
-    tenant_id = _consume_state(state)
+    # Callback must use the identical configured URI as the authorization
+    # request. Fail before consuming the one-use state on misconfiguration.
+    try:
+        redirect_uri = _redirect_uri(request, provider)
+    except ValueError:
+        log.error("oauth_callback_origin_not_configured provider=%s", provider)
+        return http_error(503, "OAuth callback origin unavailable", "OAUTH_ORIGIN_UNTRUSTED")
+
+    try:
+        tenant_id = await _consume_state(state, provider)
+    except Exception:
+        log.exception("oauth_state_consume_failed provider=%s", provider)
+        return http_error(503, "OAuth state unavailable", "OAUTH_STATE_UNAVAILABLE")
     if tenant_id is None:
         return http_error(400, "State expired or already used", "OAUTH_STATE_INVALID")
+    if (not isinstance(tenant_id, str) or not tenant_id.strip() or
+            tenant_id != tenant_id.strip() or tenant_id.casefold() == "default"):
+        return http_error(403, "Explicit tenant membership required", "OAUTH_MEMBERSHIP_REQUIRED")
 
     cfg = _PROVIDERS[provider]
     client_id = os.environ.get(cfg["client_id_env"], "")
@@ -108,7 +188,7 @@ async def oauth_callback(
             "code": code,
             "client_id": client_id,
             "client_secret": client_secret,
-            "redirect_uri": _redirect_uri(request, provider),
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }, timeout=10)
         tok.raise_for_status()
@@ -131,46 +211,60 @@ async def oauth_callback(
     name = info.get("name") or info.get("displayName") or email
     if not email:
         return http_error(400, "Provider did not return email", "OAUTH_NO_EMAIL")
+    if provider == "google" and info.get("email_verified") is not True:
+        return http_error(403, "Google email is not verified", "OAUTH_EMAIL_NOT_VERIFIED")
 
+    # An OAuth identity is NOT an invitation to join a tenant.
+    # Membership must already exist and be active; do not INSERT, UPSERT, or DDL here.
+    version_enabled = jwt_session_version_enabled()
+    columns = "id, role, auth_version" if version_enabled else "id, role"
     try:
-        async with get_conn() as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(32)"
-                )
+        # The one-use, provider-bound state supplies tenant scope only AFTER
+        # verified provider identity and server-side tenant validation. An
+        # unprivileged runtime role with FORCE RLS on users otherwise sees
+        # zero rows. The SQL lookup still requires the exact email+tenant.
+        async with tenant_db_context(tenant_id):
+            async with get_conn() as conn:
                 existing = await conn.fetchrow(_q(
-                    "SELECT id, role FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
+                    f"SELECT {columns} FROM users WHERE email=%s AND tenant_id=%s AND is_active=TRUE"
                 ), email, tenant_id)
-                if not existing:
-                    row = await conn.fetchrow(_q("""
-                        INSERT INTO users (email, password_hash, tenant_id, role, oauth_provider)
-                        VALUES (%s, %s, %s, 'accountant', %s)
-                        ON CONFLICT (email, tenant_id) DO UPDATE
-                            SET oauth_provider = EXCLUDED.oauth_provider
-                        RETURNING id, role
-                    """), email, secrets.token_hex(32), tenant_id, provider)
-                    role = row["role"] if row else "accountant"
-                else:
-                    role = existing["role"]
-    except Exception as e:
-        log.warning("oauth_user_upsert failed: %s", e)
-        return http_error(500, "User persistence failed", "DB_ERROR")
+    except Exception:
+        log.exception("oauth_membership_lookup_failed provider=%s", provider)
+        return http_error(500, "Membership lookup failed", "DB_ERROR")
+    if not existing:
+        log.warning("oauth_tenant_membership_denied provider=%s tenant=%s", provider, tenant_id)
+        return http_error(403, "Tenant membership required", "OAUTH_MEMBERSHIP_REQUIRED")
 
-    jwt_access  = create_access_token({"sub": email, "tenant_id": tenant_id, "role": role or "accountant"})
-    jwt_refresh = create_refresh_token({"sub": email, "tenant_id": tenant_id})
+    role = existing["role"]
+    if existing["id"] is None or not role:
+        return http_error(403, "Incomplete tenant membership", "OAUTH_MEMBERSHIP_REQUIRED")
+    user_id = str(existing["id"])
+
+    # Use the same identity/refresh claims as password-based login.
+    claims = {"sub": user_id, "tenant_id": tenant_id, "role": role, "email": email}
+    if version_enabled:
+        claims["auth_version"] = existing["auth_version"]
+    jwt_access = create_access_token(claims)
+    jwt_refresh = create_refresh_token(claims)
     log.info("action=oauth_login provider=%s email=%s tenant=%s", provider, email, tenant_id)
 
-    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+    def _script_json(value: str) -> str:
+        # Encode <, > and & to prevent closing the enclosing HTML script.
+        # json.dumps already escapes U+2028/U+2029 with ensure_ascii=True.
+        return (json.dumps(value).replace("<", "\\u003c")
+                .replace(">", "\\u003e").replace("&", "\\u0026"))
+
+    page = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
 <script>
-localStorage.setItem('access_token', {repr(jwt_access)});
-localStorage.setItem('refresh_token', {repr(jwt_refresh)});
-localStorage.setItem('tenant_id', {repr(tenant_id)});
+localStorage.setItem('access_token', {_script_json(jwt_access)});
+localStorage.setItem('refresh_token', {_script_json(jwt_refresh)});
+localStorage.setItem('tenant_id', {_script_json(tenant_id)});
 window.location.replace('/');
 </script></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px">
-  <p>Logging in as <strong>{name}</strong>…</p>
+  <p>Logging in as <strong>{html.escape(str(name))}</strong>…</p>
 </body></html>"""
-    return HTMLResponse(html)
+    return HTMLResponse(page)
 
 
 @router.get("/providers")

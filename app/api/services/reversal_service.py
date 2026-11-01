@@ -4,7 +4,7 @@ Accounting safety rules:
   - Original posted entries are NEVER modified or deleted.
   - Reversal flips every line's debit/credit; DR=CR must hold.
   - Reversal references original via reversal_of_draft_id.
-  - Reversal date must be in an open period (unless admin override).
+  - Closed-period override is refused until distinct maker/checker approval is implemented.
   - Adjustment is a new balanced journal entry referencing the original.
   - Both create drafts in 'pending_approval' status (normal approval flow applies).
   - Duplicate reversal protection: second reversal raises ValueError.
@@ -25,6 +25,8 @@ from typing import Optional
 from app.api.db import get_conn, _q
 from app.api.audit_service import log_event
 from app.api.services.period_lock_service import assert_period_open, PeriodLockedError
+from app.api.services.period_transaction_gate import acquire_posting_gate
+from app.api.services.reversal_source_gate import acquire_reversal_source_gate
 from app.api.services.posting_helpers import (
     _normalize_lines,
     _validate_lines,
@@ -32,6 +34,16 @@ from app.api.services.posting_helpers import (
 )
 
 log = logging.getLogger(__name__)
+
+def _strict_entry_date(value: str) -> _date:
+    """Reject timestamp suffixes, missing days or coerced non-string dates."""
+    if not isinstance(value, str) or len(value) != 10:
+        raise ValueError("YYYY-MM-DD accounting date is required")
+    try:
+        return _date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("YYYY-MM-DD accounting date is required") from None
+
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +75,7 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
             SELECT id, tenant_id, date, description, partner,
                    COALESCE(amount, 0) AS amount,
                    COALESCE(currency, 'GEL') AS currency,
-                   status,
+                   status, entry_type, reversal_of_draft_id,
                    COALESCE(lines_json, '[]'::jsonb) AS lines_json
             FROM journal_drafts
             WHERE id = %s AND tenant_id = %s
@@ -72,7 +84,15 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
     )
     if not row:
         return None
+    # Legacy linked records or unknown entry types cannot be treated as
+    # an unambiguous original posting. No historical backfill is performed.
+    entry_type = row["entry_type"]
+    source_ref = row["reversal_of_draft_id"]
+    if entry_type not in ("normal", "standard") or source_ref is not None:
+        raise ValueError("FIN11_SOURCE_CLASSIFICATION_UNVERIFIED")
     return {
+        "entry_type": entry_type,
+        "reversal_of_draft_id": source_ref,
         "id":          row["id"],
         "tenant_id":   row["tenant_id"],
         "date":        str(row["date"]) if row["date"] else None,
@@ -86,18 +106,41 @@ async def _fetch_draft(conn, draft_id: int, tenant_id: str) -> Optional[dict]:
 
 
 async def _reversal_already_exists(conn, original_draft_id: int, tenant_id: str) -> bool:
-    """Return True if a non-rejected reversal draft for original_draft_id exists."""
+    """Refuse ambiguous active legacy references, never infer their category."""
     row = await conn.fetchrow(
         _q("""
-            SELECT id FROM journal_drafts
+            SELECT id, entry_type FROM journal_drafts
             WHERE tenant_id = %s
               AND reversal_of_draft_id = %s
-              AND status NOT IN ('rejected')
+              AND status IS DISTINCT FROM 'rejected'
+              AND (entry_type IS NULL OR entry_type <> 'adjustment')
+            ORDER BY CASE WHEN entry_type = 'reversal' THEN 1 ELSE 0 END, id
             LIMIT 1
         """),
         tenant_id, original_draft_id,
     )
-    return row is not None
+    if row is None:
+        return False
+    if row["entry_type"] != "reversal":
+        raise ValueError("FIN11_AMBIGUOUS_CORRECTION_HISTORY")
+    return True
+
+
+async def _write_correction_audit(conn, *, tenant_id: str, draft_id: int,
+                                  original_id: int, actor: str, action: str) -> None:
+    """Audit and draft creation succeed or roll back in ONE DB transaction."""
+    from app.api.db import _validate_tenant_id
+    _validate_tenant_id(tenant_id)
+    if conn.is_in_transaction() is not True or not isinstance(actor, str) or not actor.strip():
+        raise ValueError("FIN11_AUDIT_TRANSACTION_OR_ACTOR_REQUIRED")
+    await conn.execute(_q("""
+        INSERT INTO audit_log
+            (actor, role, action, resource, resource_id,
+             old_value, new_value, status, details, tenant_id)
+        VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s)
+    """), actor, "maker", action, "journal_drafts", str(draft_id),
+        json.dumps({"source_id": original_id, "status": "pending_approval"}),
+        "success", "FIN11 correction draft created; not posted", tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +163,12 @@ async def create_reversal_draft(
 
     RBAC: caller must verify actor has approval:write permission before calling.
     """
+    if allow_closed_period is not False:
+        raise ValueError("CLOSED_PERIOD_OVERRIDE_DISABLED: open-period adjustment required")
     if not reason or not reason.strip():
         raise ValueError("reversal_reason is required and cannot be blank")
 
-    reversal_date_obj = _date.fromisoformat(str(reversal_date)[:10])
+    reversal_date_obj = _strict_entry_date(reversal_date)
 
     async with get_conn() as conn:
         # 1. Fetch and validate original
@@ -132,22 +177,26 @@ async def create_reversal_draft(
             raise ValueError(
                 f"draft {original_draft_id} not found for tenant {tenant_id}"
             )
-        if original["status"] not in ("posted", "simulated_success"):
+        if original["status"] != "posted":
             raise ValueError(
                 f"draft {original_draft_id} has status={original['status']}; "
                 "only posted entries can be reversed"
             )
 
-        # 2. Duplicate reversal protection
+        # 2. Lock the TENANT+ORIGINAL reversal identity, then re-read under
+        # the same PostgreSQL transaction. Separate workers must not both
+        # pass the preflight before either reversal has committed.
+        await acquire_reversal_source_gate(conn, tenant_id, original_draft_id)
         if await _reversal_already_exists(conn, original_draft_id, tenant_id):
             raise ValueError(
                 f"A non-rejected reversal for draft {original_draft_id} already exists. "
                 "Post a second correcting adjustment entry instead."
             )
 
-        # 3. Period check — reversal date must be in an open period
-        if not allow_closed_period:
-            await assert_period_open(conn, tenant_id, reversal_date_obj, "reversal")
+        # 3. Serialize with period close/reopen before checking or drafting.
+        # This preserves the period lock check through transaction commit.
+        await acquire_posting_gate(conn, tenant_id, reversal_date_obj)
+        await assert_period_open(conn, tenant_id, reversal_date_obj, "reversal")
 
         # 4. Build reversed lines
         reversed_lines = flip_lines(original["lines"])
@@ -180,7 +229,7 @@ async def create_reversal_draft(
                 RETURNING id, tenant_id, date, description, amount, currency, status
             """),
             tenant_id,
-            str(reversal_date_obj),
+            reversal_date_obj,
             description,
             original.get("partner") or "",
             amount,
@@ -192,20 +241,11 @@ async def create_reversal_draft(
 
         reversal_id = row["id"]
 
-        # 6. Audit event
-        log_event(
-            "reversal_draft_created",
-            {
-                "entity_type":         "journal_draft",
-                "entity_id":           reversal_id,
-                "original_draft_id":   original_draft_id,
-                "reversal_date":       str(reversal_date_obj),
-                "reason":              reason.strip(),
-                "actor":               actor,
-                "lines_count":         len(reversed_lines),
-            },
-            actor=actor,
-            tenant_id=tenant_id,
+        # Same transaction as INSERT: no independent best-effort connection.
+        await _write_correction_audit(
+            conn, tenant_id=tenant_id, draft_id=reversal_id,
+            original_id=original_draft_id, actor=actor,
+            action="reversal_draft_created",
         )
 
     log.info(
@@ -240,18 +280,20 @@ async def create_adjustment_draft(
     """Create an adjustment (correcting) journal entry referencing the original.
 
     The original draft is never touched.
-    Adjustment date must be in an open period unless allow_closed_period=True.
+    Adjustment date must be in an open period; unsupported overrides are refused.
     Lines must be DR=CR balanced and non-empty.
     Returns the new adjustment draft dict (status=pending_approval).
 
     RBAC: caller must verify actor has approval:write permission before calling.
     """
+    if allow_closed_period is not False:
+        raise ValueError("CLOSED_PERIOD_OVERRIDE_DISABLED: open-period adjustment required")
     if not reason or not reason.strip():
         raise ValueError("adjustment_reason is required and cannot be blank")
     if not lines:
         raise ValueError("adjustment lines are required")
 
-    adjustment_date_obj = _date.fromisoformat(str(adjustment_date)[:10])
+    adjustment_date_obj = _strict_entry_date(adjustment_date)
     normalized = _normalize_lines(lines)
 
     if not lines_balanced(normalized):
@@ -272,9 +314,12 @@ async def create_adjustment_draft(
                 f"draft {original_draft_id} not found for tenant {tenant_id}"
             )
 
-        # 2. Period check — adjustment date must be in an open period
-        if not allow_closed_period:
-            await assert_period_open(conn, tenant_id, adjustment_date_obj, "adjustment")
+        # 2. Only previously posted financial transactions may be corrected.
+        if original["status"] != "posted":
+            raise ValueError("only posted entries can be adjusted")
+        # 3. Hold shared month/year locks until the correction draft commits.
+        await acquire_posting_gate(conn, tenant_id, adjustment_date_obj)
+        await assert_period_open(conn, tenant_id, adjustment_date_obj, "adjustment")
 
         amount = _derive_amount_from_lines(normalized)
         description = f"[ADJUSTMENT of #{original_draft_id}] {reason.strip()}"
@@ -291,7 +336,7 @@ async def create_adjustment_draft(
                 RETURNING id, tenant_id, date, description, amount, currency, status
             """),
             tenant_id,
-            str(adjustment_date_obj),
+            adjustment_date_obj,
             description,
             original.get("partner") or "",
             amount,
@@ -303,20 +348,10 @@ async def create_adjustment_draft(
 
         adj_id = row["id"]
 
-        # 4. Audit event
-        log_event(
-            "adjustment_draft_created",
-            {
-                "entity_type":       "journal_draft",
-                "entity_id":         adj_id,
-                "original_draft_id": original_draft_id,
-                "adjustment_date":   str(adjustment_date_obj),
-                "reason":            reason.strip(),
-                "actor":             actor,
-                "lines_count":       len(normalized),
-            },
-            actor=actor,
-            tenant_id=tenant_id,
+        await _write_correction_audit(
+            conn, tenant_id=tenant_id, draft_id=adj_id,
+            original_id=original_draft_id, actor=actor,
+            action="adjustment_draft_created",
         )
 
     log.info(

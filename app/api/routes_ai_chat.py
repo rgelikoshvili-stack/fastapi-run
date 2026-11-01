@@ -7,7 +7,8 @@ Thin routes only
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from app.api.authz import require_permission
+from app.api.authz import require_permission, require_signed_tenant_permission
+from app.api.services.ai_session_scope import scoped_ai_session
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -109,8 +110,15 @@ class IndexRequest(BaseModel):
 # Routes
 # ─────────────────────────────────────────────────────────────
 @router.get("/stats")
-async def ai_stats():
-    return get_ai_system_stats()
+async def ai_stats(request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    # Global learned-rule/vector counts are not tenant-isolated.
+    from app.api.services import ai_calculators_service as calc
+    return {
+        "kb_loaded": bool(calc.KB_LOADED),
+        "accounting_rules_loaded": bool(calc.ACCT_RULES_LOADED),
+        "vector_search_tenant_isolated": False,
+    }
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -125,9 +133,8 @@ async def ai_chat(
     file: UploadFile = File(None),
     files: Optional[List[UploadFile]] = File(None),
 ):
-    # Prefer tenant_id from auth middleware over form field
-    require_permission(request, "chat:use")
-    tenant_id = getattr(request.state, "tenant_id", None) or tenant_id or "global"
+    # Never use caller-submitted tenant or role as an authorization claim.
+    tenant_id, scoped_session_id = scoped_ai_session(request, session_id)
     message = (message or "").strip()
 
     # Merge: multi-file field + legacy single file field
@@ -139,19 +146,26 @@ async def ai_chat(
 
     if not message and not all_files:
         raise HTTPException(status_code=400, detail="შეტყობინება ან ფაილი აუცილებელია")
+    # AI processing can create drafts via files or posting intent.
+    # chat:use alone never authorizes a financial write.
+    if all_files or "გატარე" in message.lower() or "post" in message.lower():
+        require_signed_tenant_permission(request, "posting:write")
 
     result = await handle_ai_chat(
         message=message,
-        session_id=session_id,
+        session_id=scoped_session_id,
         tenant_id=tenant_id,
-        use_vector_search=use_vector_search,
+        # Shared Chroma collections are not tenant isolated.
+        use_vector_search=False,
         file=all_files[0] if len(all_files) == 1 else None,
         files=all_files if len(all_files) > 1 else None,
-        role=role or None,
+        role=getattr(request.state, "role", None),
         draft_id=draft_id,
     )
 
-    payload = ChatResponse(**result)
+    # The scoped DB/LLM identifier is internal. Clients keep their original
+    # public session ID; otherwise they would double-scope it on the next turn.
+    payload = ChatResponse(**{**result, "session_id": session_id})
     return JSONResponse(
         content=jsonable_encoder(payload),
         media_type="application/json; charset=utf-8",
@@ -167,10 +181,8 @@ async def preview_action(request: Request, body: dict):
     Body: { "action": "approve_draft", "params": {"draft_id": 1130} }
     Response: { "preview": {...}, "requires_human_approval": true, "action": "..." }
     """
-    require_permission(request, "chat:use")
+    tenant_id = require_signed_tenant_permission(request, "chat:use")
     from app.api.response_utils import ok_response
-
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
     action = body.get("action", "")
     params = body.get("params") or {}
 
@@ -192,6 +204,7 @@ async def preview_action(request: Request, body: dict):
         })
 
     if action == "approve_draft":
+        require_signed_tenant_permission(request, "approval:read")
         draft_id = params.get("draft_id")
         if not draft_id:
             raise HTTPException(400, "draft_id required")
@@ -222,6 +235,7 @@ async def preview_action(request: Request, body: dict):
         })
 
     if action == "reject_draft":
+        require_signed_tenant_permission(request, "approval:read")
         draft_id = params.get("draft_id")
         reason = params.get("reason", "")
         if not draft_id:
@@ -280,7 +294,7 @@ async def confirm_action(request: Request, body: dict):
     """
     # P0: approve/reject requires approval:write, not just chat:use
     require_permission(request, "approval:write")
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    tenant_id = require_signed_tenant_permission(request, "approval:write")
     action = body.get("action", "")
     params = body.get("params") or {}
 
@@ -307,82 +321,91 @@ async def confirm_action(request: Request, body: dict):
 @router.get("/session/{session_id}")
 async def get_session(session_id: str, request: Request):
     """Return metadata about a chat session."""
-    require_permission(request, "chat:use")
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    tenant_id, scoped_id = scoped_ai_session(request, session_id)
     from app.api.services.chat_session_service import get_session_summary
     from app.api.response_utils import ok_response
-    return ok_response("Session", await get_session_summary(session_id, tenant_id))
+    summary = await get_session_summary(scoped_id, tenant_id)
+    if summary.get("exists"):
+        summary["session_id"] = session_id
+    return ok_response("Session", summary)
 
 
 @router.delete("/session/{session_id}")
 async def clear_session(session_id: str, request: Request):
     """Clear conversation history for a session (fresh start)."""
-    require_permission(request, "chat:use")
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
+    tenant_id, scoped_id = scoped_ai_session(request, session_id)
     from app.api.services.chat_session_service import clear_history
     from app.api.services.llm_service import _chat_history
     from app.api.response_utils import ok_response
-    await clear_history(session_id, tenant_id)
-    _chat_history.pop(session_id, None)
+    await clear_history(scoped_id, tenant_id)
+    _chat_history.pop((tenant_id, scoped_id), None)
     return ok_response("Session cleared", {"session_id": session_id})
 
 
 @router.get("/search")
-async def ai_search(q: str, top_k: int = 5, use_vector: bool = True):
-    return run_ai_search(q=q, top_k=top_k, use_vector=use_vector)
+async def ai_search(request: Request, q: str, top_k: int = 5, use_vector: bool = True):
+    require_signed_tenant_permission(request, "chat:use")
+    result = run_ai_search(q=q, top_k=max(1, min(top_k, 20)), use_vector=False)
+    return {**result, "vector_search_tenant_isolated": False}
 
 
 @router.post("/vat")
-async def vat_calc(request: VATRequest):
-    require_permission(request, "chat:use")
-    return run_vat_calc(request)
+async def vat_calc(body: VATRequest, request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    return run_vat_calc(body)
 
 
 @router.post("/dividend")
-async def dividend_calc(request: DividendRequest):
-    require_permission(request, "chat:use")
-    return run_dividend_calc(request)
+async def dividend_calc(body: DividendRequest, request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    return run_dividend_calc(body)
 
 
 @router.post("/payroll")
-async def payroll_calc(request: PayrollRequest):
-    require_permission(request, "chat:use")
-    return run_payroll_calc(request)
+async def payroll_calc(body: PayrollRequest, request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    return run_payroll_calc(body)
 
 
 @router.post("/cit")
-async def cit_calc(request: CITRequest):
-    require_permission(request, "chat:use")
-    return run_cit_calc(request)
+async def cit_calc(body: CITRequest, request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    return run_cit_calc(body)
 
 
 @router.post("/depreciation")
-async def dep_calc(request: DepreciationRequest):
-    require_permission(request, "chat:use")
-    return run_depreciation_calc(request)
+async def dep_calc(body: DepreciationRequest, request: Request):
+    require_signed_tenant_permission(request, "chat:use")
+    return run_depreciation_calc(body)
 
 
 @router.post("/classify")
-async def classify_tx(request: ClassifyRequest):
-    require_permission(request, "chat:use")
-    return run_classify_tx(request)
+async def classify_tx(body: ClassifyRequest, request: Request):
+    tenant_id = require_signed_tenant_permission(request, "chat:use")
+    return run_classify_tx(body.model_copy(update={"tenant_id": tenant_id}))
 
 
 @router.post("/learn")
-async def learn_rule(request: LearnRequest):
-    require_permission(request, "chat:use")
-    return await run_learn_rule(request)
+async def learn_rule(body: LearnRequest, request: Request):
+    tenant_id = require_signed_tenant_permission(request, "patterns:manage")
+    # Global Chroma learned-rule collection is not tenant-filtered on reads.
+    return await run_learn_rule(body.model_copy(update={
+        "tenant_id": tenant_id, "use_vector": False,
+    }))
 
 
 @router.post("/index")
-async def index_files_ep(request: IndexRequest):
-    require_permission(request, "chat:use")
-    return run_index_files(request)
+async def index_files_ep(body: IndexRequest, request: Request):
+    require_signed_tenant_permission(request, "patterns:manage")
+    # Remote directory scanning / global vector writes are not tenant-safe;
+    # keep all previously indexed files intact, require separate offline review.
+    raise HTTPException(status_code=503, detail="Remote AI file indexing disabled")
 
 
 @router.get("/vector-stats")
-async def vector_stats():
-    return run_vector_stats()
+async def vector_stats(request: Request):
+    require_signed_tenant_permission(request, "patterns:manage")
+    raise HTTPException(status_code=503, detail="Tenant-scoped vector stats unavailable")
 
 
 # ─── Export endpoints ────────────────────────────────────────────────────────
@@ -390,12 +413,11 @@ async def vector_stats():
 @router.get("/export/txt")
 async def export_chat_txt(session_id: str, request: Request):
     """Export full conversation history as plain text."""
-    require_permission(request, "chat:use")
+    tenant_id, scoped_id = scoped_ai_session(request, session_id)
     from fastapi.responses import PlainTextResponse
     from app.api.services.chat_session_service import load_history
 
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
-    messages = await load_history(session_id, tenant_id)
+    messages = await load_history(scoped_id, tenant_id)
 
     if not messages:
         raise HTTPException(status_code=404, detail="Session not found or empty")
@@ -416,12 +438,11 @@ async def export_chat_txt(session_id: str, request: Request):
 @router.get("/export/md")
 async def export_chat_md(session_id: str, request: Request):
     """Export full conversation history as Markdown."""
-    require_permission(request, "chat:use")
+    tenant_id, scoped_id = scoped_ai_session(request, session_id)
     from fastapi.responses import PlainTextResponse
     from app.api.services.chat_session_service import load_history
 
-    tenant_id = getattr(request.state, "tenant_id", None) or "default"
-    messages = await load_history(session_id, tenant_id)
+    messages = await load_history(scoped_id, tenant_id)
 
     if not messages:
         raise HTTPException(status_code=404, detail="Session not found or empty")

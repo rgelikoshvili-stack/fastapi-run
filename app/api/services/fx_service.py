@@ -16,6 +16,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from app.api.db import get_conn, _q
+from app.api.services.verified_fx_quote_service import (
+    get_verified_quote_on_conn, FxQuoteUnverified,
+)
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +31,9 @@ async def _get_rate_conn(conn, currency: str, rate_date: date) -> Optional[Decim
     """Fetch rate using an existing asyncpg conn (no extra pool checkout)."""
     if currency.upper() == "GEL":
         return Decimal("1")
-    row = await conn.fetchrow(_q(
-        "SELECT rate FROM exchange_rates WHERE currency = %s ORDER BY updated_at DESC LIMIT 1"
-    ), currency.upper())
-    return Decimal(str(row["rate"])) if row else None
+    # The previous query ignored rate_date and selected the newest mutable
+    # snapshot, even for historical revaluation. Refuse unverified sources.
+    return (await get_verified_quote_on_conn(conn, currency.upper(), rate_date))["rate"]
 
 
 async def get_rate(currency: str, rate_date: date) -> Optional[Decimal]:
@@ -103,8 +105,7 @@ async def revalue_open_items(tenant_id: str, revalue_date: date) -> list[dict]:
 
                 current_rate = await _get_rate_conn(conn, currency, revalue_date)
                 if not current_rate:
-                    log.warning("No rate for %s on %s", currency, revalue_date)
-                    continue
+                    raise FxQuoteUnverified("FX_QUOTE_UNVERIFIED")
 
                 fx = calculate_fx_difference(
                     Decimal(str(total)), currency,
@@ -123,8 +124,13 @@ async def revalue_open_items(tenant_id: str, revalue_date: date) -> list[dict]:
                     "currency": currency,
                     **fx,
                 })
+    except FxQuoteUnverified:
+        # No partial apparent success: one unverified open position makes
+        # the whole official revaluation unavailable.
+        raise
     except Exception as e:
-        log.warning("revalue_open_items failed: %s", e)
+        log.warning("revalue_open_items failed type=%s", type(e).__name__)
+        raise RuntimeError("FX_REVALUATION_UNAVAILABLE") from None
 
     return results
 

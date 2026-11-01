@@ -198,8 +198,9 @@ async def _load_history(session_id: str, tenant_id: str) -> list:
     """Load from DB, fall back to in-memory cache."""
     if not session_id:
         return []
-    if session_id in _chat_history:
-        return _chat_history[session_id]
+    cache_key = (tenant_id, session_id)
+    if cache_key in _chat_history:
+        return _chat_history[cache_key]
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(_q(
@@ -211,7 +212,7 @@ async def _load_history(session_id: str, tenant_id: str) -> list:
         if isinstance(msgs, str):
             msgs = json.loads(msgs)
         if isinstance(msgs, list):
-            _chat_history[session_id] = msgs
+            _chat_history[cache_key] = msgs
         return msgs if isinstance(msgs, list) else []
     except Exception:
         return []
@@ -222,7 +223,7 @@ async def _save_history(session_id: str, tenant_id: str, messages: list, role: s
     if not session_id:
         return
     trimmed = messages[-(2 * _HISTORY_MAX_TURNS):]
-    _chat_history[session_id] = trimmed
+    _chat_history[(tenant_id, session_id)] = trimmed
     try:
         async with get_conn() as conn:
             await conn.execute(_q("""

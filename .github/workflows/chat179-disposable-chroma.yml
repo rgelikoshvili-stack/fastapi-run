@@ -1,0 +1,36 @@
+name: Chat179 Disposable Chroma and ONNX
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bridge_hub_vector_db.py"
+      - "tests/integration/test_chat179_real_chroma.py"
+      - "tests/unit/test_chat178_vector_and_ledger_guards.py"
+      - ".github/workflows/chat179-disposable-chroma.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-vector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TEST_MODE: "1"
+      DATABASE_URL: ""
+      JWT_SECRET: "chat179-synthetic-signing-key-for-tests-only"
+      ANONYMIZED_TELEMETRY: "FALSE"
+      CHAT179_REAL_EMBEDDING_TEST: "1"
+    steps:
+      - name: Checkout isolated Draft source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime dependencies and pinned optional vector test backend
+        run: python -m pip install -r requirements.txt chromadb==1.0.20 onnxruntime==1.22.1 tokenizers==0.21.4 huggingface-hub==0.34.4
+      - name: Exercise real persistent Chroma and local default ONNX embeddings
+        run: python -m pytest tests/integration/test_chat179_real_chroma.py tests/unit/test_chat178_vector_and_ledger_guards.py -q -s --tb=short

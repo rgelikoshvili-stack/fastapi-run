@@ -208,3 +208,37 @@ def require_permission(request: Request, permission: str):
                 "required": permission,
             },
         )
+
+
+def require_signed_tenant_permission(request: Request, permission: str) -> str:
+    """Require RBAC plus one consistent authenticated, transaction-scoped tenant.
+
+    Never use an unsigned X-Tenant-ID/query hint or a legacy INN lookup as
+    authority for a sensitive route. Auth middleware must obtain the claim
+    from a verified access JWT, install its transaction-local database scope,
+    and set both state fields consistently. Direct calls without that
+    middleware context are denied too.
+    """
+    from app.api.db import require_current_tenant_id
+
+    require_permission(request, permission)
+    signed = getattr(request.state, "auth_tenant_id", None)
+    visible = getattr(request.state, "tenant_id", None)
+    if (
+        not isinstance(signed, str)
+        or not signed
+        or signed != signed.strip()
+        or signed.casefold() == "default"
+        or visible != signed
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Authenticated tenant required"},
+        )
+    try:
+        return require_current_tenant_id(signed)
+    except ValueError:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Tenant context mismatch"},
+        ) from None

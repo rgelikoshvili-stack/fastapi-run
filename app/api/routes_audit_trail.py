@@ -1,6 +1,6 @@
 """app/api/routes_audit_trail.py — Immutable entity audit trail endpoints."""
 from fastapi import APIRouter, Request, Query
-from app.api.authz import require_permission
+from app.api.authz import require_permission, require_signed_tenant_permission
 from app.api.tenant_context import resolve_tenant_id
 from app.api.db import get_conn, _q
 from app.api.response_utils import ok_response, http_error
@@ -21,11 +21,10 @@ _VALID_ENTITIES = {
 async def get_history(entity_type: str, entity_id: int, request: Request,
                       limit: int = Query(50, ge=1, le=200)):
     """Full immutable change history for any entity — who changed what, when."""
-    require_permission(request, "audit:read")
+    tenant_id = require_signed_tenant_permission(request, "audit:read")
     if entity_type not in _VALID_ENTITIES:
         return http_error(400, f"Unknown entity type: {entity_type}", "VALIDATION_ERROR")
 
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     async with get_conn() as conn:
         history = await get_entity_history_async(conn, entity_type, entity_id, tenant_id, limit)
 
@@ -43,8 +42,7 @@ async def recent_changes(request: Request,
                          actor: str = Query(None),
                          limit: int = Query(100, ge=1, le=500)):
     """Recent audit events across all entities for this tenant."""
-    require_permission(request, "audit:read")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_signed_tenant_permission(request, "audit:read")
 
     conditions = ["tenant_id::text = %s"]
     params: list = [tenant_id]

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request, Query
 
 from app.api.authz import require_permission
 from app.api.db import get_conn, _q
+from app.api.services.period_transaction_gate import acquire_close_gate
 from app.api.response_utils import ok_response, http_error
 from app.api.tenant_context import resolve_tenant_id
 
@@ -92,14 +93,16 @@ async def lock_period(request: Request, payload: dict):
     try:
         async with get_conn() as conn:
             await conn.execute(_CREATE_TABLE)
+            await acquire_close_gate(conn, tenant_id, year, month)
             await conn.execute(_q("""
                 INSERT INTO period_locks (tenant_id, period_year, period_month, locked_by, notes)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (tenant_id, period_year, period_month)
                 DO UPDATE SET locked_by=%s, locked_at=NOW(), unlocked_at=NULL, notes=%s
             """), tenant_id, year, month, user, notes, user, notes)
-    except Exception as e:
-        return http_error(500, str(e), "DB_ERROR")
+    except Exception as exc:
+        log.error("period_lock_unavailable error_type=%s", type(exc).__name__)
+        return http_error(503, "Accounting period lock unavailable", "PERIOD_LOCK_UNAVAILABLE")
 
     label = "Full Year" if month == 0 else date(year, month, 1).strftime("%B %Y")
     log.info("action=period_lock tenant=%s year=%d month=%d by=%s", tenant_id, year, month, user)
@@ -140,13 +143,15 @@ async def unlock_period(request: Request, payload: dict):
     try:
         async with get_conn() as conn:
             await conn.execute(_CREATE_TABLE)
+            await acquire_close_gate(conn, tenant_id, year, month)
             await conn.execute(_q("""
                 UPDATE period_locks
                 SET unlocked_at = NOW(), locked_by = %s, notes = COALESCE(notes, '') || ' | UNLOCK: ' || %s
                 WHERE tenant_id = %s AND period_year = %s AND period_month = %s
             """), user, reason, tenant_id, year, month)
-    except Exception as e:
-        return http_error(500, str(e), "DB_ERROR")
+    except Exception as exc:
+        log.error("period_unlock_unavailable error_type=%s", type(exc).__name__)
+        return http_error(503, "Accounting period lock unavailable", "PERIOD_LOCK_UNAVAILABLE")
 
     label = "Full Year" if month == 0 else date(year, month, 1).strftime("%B %Y") if month else f"year {year}"
     log.info("action=period_unlock tenant=%s year=%d month=%d by=%s reason=%s",

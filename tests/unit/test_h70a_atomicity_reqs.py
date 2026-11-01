@@ -15,6 +15,7 @@ import pytest
 
 def _make_conn(fetchval_return=None, fetch_return=None, fetchrow_return=None):
     conn = AsyncMock()
+    conn.is_in_transaction = MagicMock(return_value=True)
     conn.fetchval = AsyncMock(return_value=fetchval_return)
     conn.fetch    = AsyncMock(return_value=fetch_return or [])
     conn.fetchrow = AsyncMock(return_value=fetchrow_return)
@@ -35,7 +36,8 @@ def _make_ctx(conn):
 
 def _make_draft(draft_id=42, lines=None):
     if lines is None:
-        lines = [{"account_code": "1110", "debit": 100.0, "credit": 0.0, "label": "test"}]
+        lines = [{"account_code": "1110", "debit": 100.0, "credit": 0.0, "label": "test"},
+                 {"account_code": "6110", "debit": 0.0, "credit": 100.0, "label": "test"}]
     return {
         "id": draft_id,
         "date": "2026-05-25",
@@ -62,7 +64,7 @@ class TestReq5IdempotentPreCheck:
         # fetchval called once for the pre-check
         conn.fetchval.assert_called_once()
         # no INSERT executed
-        conn.execute.assert_not_called()
+        assert not any("INSERT" in c.args[0] for c in conn.execute.call_args_list)
         # ledger_write_skipped emitted
         assert "ledger_write_skipped" in logged_events
 
@@ -81,8 +83,8 @@ class TestReq5IdempotentPreCheck:
         assert conn.execute.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_skips_when_draft_id_is_empty_string(self):
-        """Draft with no id — pre-check skipped, write proceeds."""
+    async def test_rejects_when_draft_id_is_empty_string(self):
+        """A source-less journal cannot satisfy migration 011's source constraint."""
         conn = _make_conn(fetchval_return=None)
         conn.fetchval = AsyncMock(side_effect=[None, "header-uuid"])
 
@@ -90,10 +92,11 @@ class TestReq5IdempotentPreCheck:
             from app.api.services.posting_service import _write_ledger_entries
             draft = _make_draft()
             draft["id"] = ""
-            await _write_ledger_entries(conn, draft, {}, "t1", "mock", "hash")
+            with pytest.raises(ValueError, match="LEDGER_SOURCE_REQUIRED"):
+                await _write_ledger_entries(conn, draft, {}, "t1", "mock", "hash")
 
-        # No pre-check SQL fired (empty draft_id_str)
-        assert conn.fetchval.call_count == 1  # only the header INSERT RETURNING
+        conn.fetchval.assert_not_called()
+        conn.execute.assert_not_called()
 
 
 # ── REQ-1: ledger_write_failed audit event ────────────────────────────────────

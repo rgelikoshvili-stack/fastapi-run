@@ -12,6 +12,7 @@ from app.api.response_utils import ok_response, error_response, http_error
 from app.api.services.fx_service import (
     get_rate, calculate_fx_difference, revalue_open_items, build_fx_journal_entry,
 )
+from app.api.services.verified_fx_quote_service import FxQuoteUnverified
 import logging
 
 router = APIRouter(prefix="/fx", tags=["fx"])
@@ -36,7 +37,10 @@ async def calculate_fx(body: FXCalcRequest, request: Request):
     require_permission(request, "reports:read")
 
     revalue_date = date.fromisoformat(body.revalue_date) if body.revalue_date else date.today()
-    current_rate = await get_rate(body.currency, revalue_date)
+    try:
+        current_rate = await get_rate(body.currency, revalue_date)
+    except FxQuoteUnverified:
+        return http_error(404, "Verified FX quote unavailable", "FX_QUOTE_UNVERIFIED")
     if not current_rate:
         return http_error(404, f"No NBG rate for {body.currency} on {revalue_date}", "RATE_NOT_FOUND")
 
@@ -55,7 +59,10 @@ async def get_currency_rate(currency: str, request: Request,
     """Get NBG rate for a currency on a given date."""
     require_permission(request, "reports:read")
     d = date.fromisoformat(rate_date) if rate_date else date.today()
-    rate = await get_rate(currency.upper(), d)
+    try:
+        rate = await get_rate(currency.upper(), d)
+    except FxQuoteUnverified:
+        return http_error(404, "Verified FX quote unavailable", "FX_QUOTE_UNVERIFIED")
     if not rate:
         return http_error(404, f"No rate for {currency} on {d}", "RATE_NOT_FOUND")
 
@@ -101,8 +108,11 @@ async def revalue_positions(body: FXRevaluationRequest, request: Request):
                     except Exception as e:
                         log.warning("FX draft insert failed: %s", e)
 
-    except Exception as e:
-        return error_response("Revaluation failed", "FX_ERROR", str(e))
+    except FxQuoteUnverified:
+        return error_response("Verified FX quote unavailable", "FX_QUOTE_UNVERIFIED")
+    except Exception:
+        log.warning("fx_revaluation_failed")
+        return error_response("Revaluation unavailable", "FX_ERROR")
 
     total_gain = sum(r["difference_gel"] for r in fx_results if r["is_gain"])
     total_loss = sum(abs(r["difference_gel"]) for r in fx_results if not r["is_gain"])

@@ -183,8 +183,9 @@ class TestCashPosition:
 
     def test_cash_without_cashflow(self, trial_balance, pnl_data):
         result = build_cfo_dashboard_from_data(trial_balance=trial_balance, pnl=pnl_data)
-        # cashflow defaults to 0 when not provided
-        assert result["cash_position"]["net_cashflow"] == 0.0
+        # Missing cashflow is unavailable, not a verified zero.
+        assert result["cash_position"]["net_cashflow"] is None
+        assert result["cash_position"]["cashflow_available"] is False
         assert result["cash_position"]["total_liquid"] == 1382.00 + 7268.00
 
 

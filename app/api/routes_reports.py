@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, Request
 import logging
 from typing import Optional
 from app.api.db import get_conn, _q
-from app.api.authz import require_permission
+from app.api.authz import require_permission, require_signed_tenant_permission
 from app.api.security import limiter
 from app.api.response_utils import ok_response, error_response, http_error
 from app.api.tenant_context import resolve_tenant_id
@@ -72,8 +72,7 @@ async def monthly_report(request: Request):
 @limiter.limit("10/minute")
 @router.get("/annual")
 async def annual_report(request: Request):
-    require_permission(request, "reports:read")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_signed_tenant_permission(request, "reports:read")
     async with get_conn() as conn:
         rows = await conn.fetch(_q("""
             SELECT EXTRACT(YEAR FROM created_at) as year,
@@ -89,8 +88,7 @@ async def annual_report(request: Request):
 @limiter.limit("10/minute")
 @router.get("/audit-trail")
 async def audit_trail(request: Request):
-    require_permission(request, "reports:read")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    tenant_id = require_signed_tenant_permission(request, "reports:read")
     async with get_conn() as conn:
         rows = await conn.fetch(_q("""
             SELECT run_id, filename, state, created_at

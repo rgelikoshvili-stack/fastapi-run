@@ -245,6 +245,12 @@ def test_ledger_writer_rejects_zero_rate_instead_of_coercing_to_one():
     from app.api.services.posting_service import _write_ledger_entries
 
     class EmptyConn:
+        def is_in_transaction(self):
+            return True
+
+        async def execute(self, *args):
+            return None
+
         async def fetchval(self, *args):
             return None
 

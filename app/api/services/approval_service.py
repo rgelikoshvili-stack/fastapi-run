@@ -214,32 +214,43 @@ async def approve_draft_service(draft_id: int, tenant_id: str):
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
             draft = dict(draft_row)
+            if draft.get("entry_type") in ("reversal", "adjustment") or draft.get("reversal_of_draft_id") is not None:
+                await tr.rollback()
+                return error_response(
+                    "Independent maker/checker approval is not yet active",
+                    "FIN11_MAKER_CHECKER_NOT_CONFIGURED",
+                )
             draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
             draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 
-            # Period lock check (is_period_locked is already async + asyncpg-compatible)
+            # An unknown/failed period-lock check cannot authorize approval.
+            # Remain fail-closed before any status mutation or side effect.
             try:
                 from app.api.routes_period_lock import is_period_locked
                 from datetime import date as _date
                 entry_date_raw = draft.get("date")
-                if entry_date_raw:
-                    if isinstance(entry_date_raw, str):
-                        entry_date_raw = _date.fromisoformat(str(entry_date_raw)[:10])
-                    if await is_period_locked(conn, tenant_id, entry_date_raw):
-                        await tr.rollback()
-                        return error_response(
-                            "Period is locked", "PERIOD_LOCKED",
-                            f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
-                        )
+                if not entry_date_raw:
+                    raise ValueError("missing posting date")
+                if isinstance(entry_date_raw, str):
+                    entry_date_raw = _date.fromisoformat(entry_date_raw)
+                if not isinstance(entry_date_raw, _date):
+                    raise ValueError("invalid posting date")
+                period_is_locked = await is_period_locked(conn, tenant_id, entry_date_raw)
             except Exception as _pl_exc:
-                # Period-lock check failed unexpectedly. Log so it is visible in
-                # Cloud Run logs; do NOT silently pass — at minimum the operator
-                # must see this. We continue because a broken lock-check function
-                # must not block all approvals, but the operator should fix it.
                 log.warning(
-                    "period_lock check raised an unexpected exception for draft %s "
-                    "(approval proceeding — investigate period_lock service): %s",
-                    draft_id, _pl_exc,
+                    "approval_period_lock_unavailable draft_id=%s error_type=%s",
+                    draft_id, type(_pl_exc).__name__,
+                )
+                await tr.rollback()
+                return error_response(
+                    "Accounting period validation unavailable",
+                    "PERIOD_LOCK_UNAVAILABLE",
+                )
+            if period_is_locked:
+                await tr.rollback()
+                return error_response(
+                    "Period is locked", "PERIOD_LOCKED",
+                    f"The accounting period {entry_date_raw.strftime('%B %Y')} is locked. Unlock it first.",
                 )
 
             if draft["status"] == "approved":
@@ -567,6 +578,16 @@ async def reject_draft_service(draft_id: int, reason: str = "", note: str = "", 
                                       f"Draft {draft_id} not found for tenant {tenant_id}")
 
             draft = dict(draft_row)
+            # Correction decisions require the independent Maker/Checker
+            # review service; generic approve/reject cannot mutate them.
+            # A legacy or forged "normal" type cannot hide a source link.
+            if (draft.get("entry_type") in ("reversal", "adjustment")
+                    or draft.get("reversal_of_draft_id") is not None):
+                await tr.rollback()
+                return error_response(
+                    "Independent maker/checker rejection is not yet active",
+                    "FIN11_MAKER_CHECKER_NOT_CONFIGURED",
+                )
             draft["confidence"] = round(float(draft.get("confidence") or 0.0), 6)
             draft["amount"] = round(float(draft.get("amount") or 0.0), 2)
 
@@ -773,6 +794,8 @@ def autopilot_approve_service(
                 AND lp.status = 'active'
             WHERE jd.status IN ('drafted', 'pending_approval')
               AND jd.tenant_id = %s
+              AND COALESCE(jd.entry_type, 'normal') NOT IN ('reversal', 'adjustment')
+              AND jd.reversal_of_draft_id IS NULL
               AND jd.confidence >= %s
               AND (jd.review_required = false OR jd.confidence >= 0.85)
             ORDER BY jd.confidence DESC
@@ -879,6 +902,8 @@ def autopilot_approve_service(
                     updated_at = NOW()
                 WHERE id = %s AND tenant_id = %s
                   AND status IN ('drafted', 'pending_approval')
+                  AND entry_type IN ('normal', 'standard')
+                  AND reversal_of_draft_id IS NULL
                 RETURNING id
                 """,
                 (draft_id, tenant_id),

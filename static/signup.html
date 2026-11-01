@@ -136,7 +136,11 @@ let INN_VALID = false;
 })();
 
 function oauthLogin(provider) {
-  const tenantId = localStorage.getItem('tenant_id') || 'default';
+  const tenantId = (localStorage.getItem('tenant_id') || '').trim();
+  if (!tenantId || tenantId.toLowerCase() === 'default') {
+    document.getElementById('reg-err').textContent = 'Google/Microsoft შესვლა შესაძლებელია მხოლოდ უკვე არსებული კომპანიის წევრობისთვის. გადადით შესვლის გვერდზე და მიუთითეთ კომპანიის Tenant ID.';
+    return;
+  }
   window.location.href = `/auth/oauth/${provider}/login?tenant_id=${encodeURIComponent(tenantId)}`;
 }
 

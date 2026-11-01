@@ -24,7 +24,7 @@ TOOL_DESCRIPTIONS = {
     "show_risks":                 "Show high-risk drafts: low confidence, high amount, missing fields",
     "show_pending_tasks":         "List all pending approval tasks with priority",
     "financial_summary":          "P&L, revenue, expenses, profit summary for the tenant",
-    "tax_summary":                "VAT/PIT/CIT payable summary from approved entries",
+    "tax_summary":                "Posted draft tax-account credits; NOT a reconciled tax liability statement",
     "search_documents":           "Full-text search across drafts, invoices, waybills, tax invoices, evidence by keyword",
     "prepare_approval_preview":   "Prepare an approval preview for a draft (human must confirm)",
     "prepare_posting_preview":    "Prepare a posting preview to Balance.ge or 1C (human must confirm)",
@@ -60,8 +60,8 @@ async def run_tool(tool_name: str, params: dict, tenant_id: str) -> dict:
     try:
         return await fn(params, tenant_id)
     except Exception as e:
-        log.error("tool %s failed: %s", tool_name, e)
-        return {"error": str(e), "tool": tool_name}
+        log.error("tool_unavailable name=%s error_type=%s", tool_name, type(e).__name__)
+        return {"error": "Tool temporarily unavailable", "tool": tool_name}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -188,18 +188,20 @@ async def _show_pending_tasks(params: dict, tenant_id: str) -> dict:
 
 
 async def _financial_summary(params: dict, tenant_id: str) -> dict:
+    """Use the same canonical P&L as /reports/pnl, never approved drafts.
+
+    Approval KPIs are workflow status counts, not income or expenses.
+    """
+    from app.api.services.financial_statements_service import build_profit_and_loss
+
     async with get_conn() as conn:
         row = _safe(await conn.fetchrow(_q("""
             SELECT
-                COUNT(*) as total_drafts,
-                COUNT(CASE WHEN status IN ('approved','auto_approved') THEN 1 END) as approved,
-                COUNT(CASE WHEN status='pending_approval' THEN 1 END) as pending,
-                COUNT(CASE WHEN status='rejected' THEN 1 END) as rejected,
-                COALESCE(SUM(CASE WHEN credit_account LIKE '6%%'
-                    AND status IN ('approved','auto_approved') THEN amount ELSE 0 END), 0) as revenue,
-                COALESCE(SUM(CASE WHEN debit_account  LIKE '7%%'
-                    AND status IN ('approved','auto_approved') THEN amount ELSE 0 END), 0) as expenses,
-                COALESCE(AVG(confidence), 0) as avg_confidence
+                COUNT(*) AS total_drafts,
+                COUNT(CASE WHEN status IN ('approved','auto_approved') THEN 1 END) AS approved,
+                COUNT(CASE WHEN status='pending_approval' THEN 1 END) AS pending,
+                COUNT(CASE WHEN status='rejected' THEN 1 END) AS rejected,
+                COALESCE(AVG(confidence), 0) AS avg_confidence
             FROM journal_drafts
             WHERE tenant_id = %s
         """), tenant_id))
@@ -209,26 +211,36 @@ async def _financial_summary(params: dict, tenant_id: str) -> dict:
             "WHERE tenant_id=%s ORDER BY balance DESC LIMIT 5"
         ), tenant_id)]
 
-    rev = float(row.get("revenue") or 0)
-    exp = float(row.get("expenses") or 0)
-    profit = rev - exp
-
-    return {
-        "approval_required": False,
-        "preview": {
-            "revenue":         f"{rev:,.2f} GEL",
-            "expenses":        f"{exp:,.2f} GEL",
-            "profit":          f"{profit:,.2f} GEL",
-            "margin":          f"{profit/rev*100:.1f}%" if rev > 0 else "N/A",
-            "total_drafts":    int(row.get("total_drafts") or 0),
-            "approved":        int(row.get("approved") or 0),
-            "pending":         int(row.get("pending") or 0),
-            "rejected":        int(row.get("rejected") or 0),
-            "avg_confidence":  f"{float(row.get('avg_confidence') or 0):.0%}",
-            "bank_accounts":   banks,
-        },
+    preview = {
+        "total_drafts": int(row.get("total_drafts") or 0),
+        "approved": int(row.get("approved") or 0),
+        "pending": int(row.get("pending") or 0),
+        "rejected": int(row.get("rejected") or 0),
+        "avg_confidence": f"{float(row.get('avg_confidence') or 0):.0%}",
+        "bank_accounts": banks,
+        "accounting_basis": "unavailable",
     }
+    try:
+        report = await build_profit_and_loss(tenant_id)
+        if not report.get("ok"):
+            raise ValueError("Canonical P&L unavailable")
+        data = report["data"]
+        rev = float(data["revenue"]["total"])
+        exp = float(data["cogs"]["total"]) + float(data["opex"]["total"])
+        profit = float(data["ebit"])
+        preview.update({
+            "revenue": f"{rev:,.2f} GEL",
+            "expenses": f"{exp:,.2f} GEL",
+            "profit": f"{profit:,.2f} GEL",
+            "margin": f"{profit / rev * 100:.1f}%" if rev > 0 else "N/A",
+            "accounting_basis": data.get("source", "posted_drafts"),
+        })
+    except Exception as exc:
+        log.warning("ai_financial_summary_unavailable error_type=%s", type(exc).__name__)
+        preview["pnl_unavailable"] = True
+        preview["note"] = "Canonical P&L unavailable; do not infer financial totals."
 
+    return {"approval_required": False, "preview": preview}
 
 async def _tax_summary(params: dict, tenant_id: str) -> dict:
     async with get_conn() as conn:
@@ -240,7 +252,7 @@ async def _tax_summary(params: dict, tenant_id: str) -> dict:
                 COALESCE(SUM(CASE WHEN credit_account='3330' THEN amount ELSE 0 END),0) as payg_payable,
                 COALESCE(SUM(CASE WHEN credit_account='3350' THEN amount ELSE 0 END),0) as withholding_payable
             FROM journal_drafts
-            WHERE tenant_id = %s AND status IN ('approved','auto_approved')
+            WHERE tenant_id = %s AND status = 'posted'
         """), tenant_id))
 
     return {
@@ -251,7 +263,7 @@ async def _tax_summary(params: dict, tenant_id: str) -> dict:
             "cit_payable":         f"{float(row.get('cit_payable') or 0):,.2f} GEL",
             "payg_payable":        f"{float(row.get('payg_payable') or 0):,.2f} GEL",
             "withholding_payable": f"{float(row.get('withholding_payable') or 0):,.2f} GEL",
-            "note":                "მონაცემები: journal_drafts approved/auto_approved entries",
+            "note": "Posted draft tax-account credits only; not reconciled tax liabilities.",
         },
     }
 

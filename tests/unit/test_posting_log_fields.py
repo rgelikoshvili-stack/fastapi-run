@@ -40,6 +40,7 @@ def _make_apply_conn(draft_id=10, tenant_id="t1"):
       fetchval[1]  → INSERT posting_logs RETURNING id
     """
     conn = AsyncMock()
+    conn.is_in_transaction = lambda: True
     draft_row = {
         "id": draft_id,
         "tenant_id": tenant_id,
@@ -117,7 +118,10 @@ async def test_apply_posting_preserves_demo_mode_in_config_missing_audit_log():
     assert result["error"]["code"] == "CONNECTOR_NOT_READY"
     assert "demo" in params
     assert "live" not in params
-    assert conn.execute.await_count == 0
+    # Shared transaction locks are read-only; connector-not-ready does no DML.
+    assert conn.execute.await_count == 2
+    assert all("pg_advisory_xact_lock_shared" in c.args[0]
+               for c in conn.execute.await_args_list)
 
 
 @pytest.mark.asyncio

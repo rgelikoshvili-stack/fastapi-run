@@ -258,20 +258,20 @@ def test_annual_report_filters_by_tenant():
 
 
 def test_annual_report_passes_tenant_id_to_query():
-    """annual_report must pass tenant_id as a positional param (not inline in SQL)."""
+    """Annual report binds a signed Tenant and uses a SQL parameter."""
     import app.api.routes_reports as mod
     src = inspect.getsource(mod.annual_report)
     assert "WHERE tenant_id = %s" in src
-    assert "getattr(request.state" in src
+    assert 'require_signed_tenant_permission(request, "reports:read")' in src
 
 
 def test_audit_trail_filters_by_tenant():
-    """audit_trail SQL must include WHERE tenant_id = %s."""
+    """Audit-trail SQL must filter by the signed Tenant scope."""
     import app.api.routes_reports as mod
     src = inspect.getsource(mod.audit_trail)
     assert "FROM pipeline_runs" in src
     assert "WHERE tenant_id = %s" in src
-    assert "getattr(request.state" in src
+    assert 'require_signed_tenant_permission(request, "reports:read")' in src
 
 
 def test_audit_trail_has_rate_limiter():

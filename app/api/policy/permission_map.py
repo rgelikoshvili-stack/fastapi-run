@@ -15,6 +15,7 @@
     ("*",      "/invoice",            "posting:write"),
     ("*",      "/ai-journal",         "posting:write"),
     ("*",      "/decision-engine",    "posting:write"),
+    ("GET",    "/erp-memory",         "posting:read"),
     ("*",      "/erp-memory",         "posting:write"),
     ("*",      "/erp-connectors",     "posting:write"),
     ("*",      "/fx",                 "posting:write"),
@@ -214,6 +215,14 @@
     ("POST",   "/rs-ge",              "documents:write"),
     ("PATCH",  "/rs-ge",              "documents:write"),
     ("DELETE", "/rs-ge",              "documents:write"),
+
+    # Chat177: AI endpoints must never rely on the old public /api/ai bypass.
+    # More restrictive entries precede the general chat permission.
+    ("POST",   "/api/ai/action/confirm", "approval:write"),
+    ("POST",   "/api/ai/learn",          "patterns:manage"),
+    ("POST",   "/api/ai/index",          "patterns:manage"),
+    ("GET",    "/api/ai/vector-stats",   "patterns:manage"),
+    ("*",      "/api/ai/",              "chat:use"),
 
     # ── Chat / Collaboration ──────────────────────────────────────────────────
     ("*",      "/chat",               "chat:use"),

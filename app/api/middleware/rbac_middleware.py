@@ -26,7 +26,6 @@ async def rbac_middleware(request: Request, call_next):
         "/static",
         "/app",
         "/favicon",
-        "/api/ai/",
         "/api/claude/",
         "/dashboard/",
         "/coa/",
@@ -40,25 +39,11 @@ async def rbac_middleware(request: Request, call_next):
     if path == "/" or path.startswith(public_prefixes):
         return await call_next(request)
 
-    # ?token= fallback is intentionally restricted to PDF/file download paths only.
-    # Using a token in the URL is unsafe for general API calls because Cloud Run
-    # access logs record the full URL including query params, which exposes tokens
-    # to anyone with log access.  All other API paths must use Authorization header.
-    _DOWNLOAD_PREFIXES = ("/api/documents/download/", "/api/reports/export/", "/api/payroll/slip/")
-    if not getattr(request.state, "authenticated", False) and path.startswith(_DOWNLOAD_PREFIXES):
-        _qt = request.query_params.get("token")
-        if _qt:
-            try:
-                from app.api.services.auth_service import verify_token as _vt
-                _pl = _vt(_qt, expected_type="access")
-                if _pl:
-                    request.state.authenticated = True
-                    request.state.user_id = _pl.get("sub")
-                    request.state.role = _pl.get("role")
-                    if _pl.get("tenant_id"):
-                        request.state.tenant_id = _pl.get("tenant_id")
-            except Exception as e:
-                log.warning("unexpected error: %s", e)
+    # Token-in-URL is only allowed on the carefully scoped download paths
+    # declared by auth_middleware._DOWNLOAD_PREFIXES.  Auth middleware runs
+    # before RBAC and is the ONLY verifier of query-string access tokens.
+    # Do not re-verify a token here: doing so would bypass the live membership
+    # check and could let a revoked user's download token regain access.
 
     if not getattr(request.state, "authenticated", False):
         structured_log(

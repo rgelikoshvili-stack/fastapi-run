@@ -204,12 +204,16 @@ async def correct_draft_route(draft_id: int, req: CorrectRequest, request: Reque
 async def delete_draft(draft_id: int, request: Request):
     """Permanently delete a journal draft (tenant-scoped)."""
     require_permission(request, "approval:write")
-    user_id = resolve_tenant_id(getattr(request.state, "user_id", "anon") if request else "anon")
+    user_id = getattr(request.state, "user_id", "anon")
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
     try:
         async with get_conn() as conn:
             row = await conn.fetchrow(
-                _q("DELETE FROM journal_drafts WHERE id = %s AND tenant_id = %s RETURNING id"),
+                _q("""DELETE FROM journal_drafts
+                    WHERE id = %s AND tenant_id = %s
+                      AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL RETURNING id"""),
                 draft_id, tenant_id,
             )
         if not row:
@@ -252,10 +256,16 @@ async def update_draft(draft_id: int, req: DraftUpdateRequest, request: Request)
     vals += [draft_id, tenant_id]
     try:
         async with get_conn() as conn:
-            await conn.execute(
-                _q(f"UPDATE journal_drafts SET {', '.join(fields)} WHERE id = %s AND tenant_id = %s"),
+            changed = await conn.fetchrow(
+                _q(f"""UPDATE journal_drafts SET {', '.join(fields)}
+                    WHERE id = %s AND tenant_id = %s
+                      AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL RETURNING id"""),
                 *vals,
             )
+        if not changed:
+            return error_response("Draft is not safely editable", "DRAFT_MUTATION_BLOCKED")
         return ok_response("Draft updated", {"draft_id": draft_id})
     except Exception as e:
         structured_log(
@@ -360,6 +370,9 @@ async def reclassify_unclassified(request: Request):
                 """SELECT id, description, amount FROM journal_drafts
                    WHERE tenant_id = %s AND (debit_account IS NULL OR credit_account IS NULL
                                             OR debit_account = '????' OR credit_account = '????')
+                     AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                     AND entry_type IN ('normal', 'standard')
+                     AND reversal_of_draft_id IS NULL
                    ORDER BY id LIMIT 200"""),
                 tenant_id)]
             updated = 0
@@ -382,11 +395,20 @@ async def reclassify_unclassified(request: Request):
                         dr, cr = acc, "1210"
                     else:
                         dr, cr = acc, "3110"
-                    await conn.execute(_q(
+                    # Revalidate the source at UPDATE time: it may have
+                    # become posted/linked after the read in another request.
+                    changed = await conn.fetchrow(_q(
                         """UPDATE journal_drafts SET debit_account=%s, credit_account=%s, account_code=%s
-                           WHERE id=%s AND tenant_id=%s"""),
+                           WHERE id=%s AND tenant_id=%s
+                             AND status IN ('drafted', 'pending_approval', 'pending_human_review', 'needs_correction')
+                             AND entry_type IN ('normal', 'standard')
+                             AND reversal_of_draft_id IS NULL
+                             AND (debit_account IS NULL OR credit_account IS NULL
+                                  OR debit_account = '????' OR credit_account = '????')
+                           RETURNING id"""),
                         dr, cr, acc, d["id"], tenant_id)
-                    updated += 1
+                    if changed:
+                        updated += 1
                 except Exception as e:
                     log.warning("unexpected error: %s", e)
         return ok_response("Reclassification complete", {"reclassified": updated, "total_unclassified": len(drafts)})
@@ -464,6 +486,8 @@ async def batch_action(body: BatchActionRequest, request: Request):
                     WHERE id = ANY(%s)
                       AND tenant_id = %s
                       AND status NOT IN ('approved', 'rejected', 'posted')
+                      AND entry_type IN ('normal', 'standard')
+                      AND reversal_of_draft_id IS NULL
                     RETURNING id
                 """), new_status, body.draft_ids, tenant_id)
             updated_ids = {int(r["id"]) for r in rows}
@@ -557,7 +581,7 @@ async def batch_action(body: BatchActionRequest, request: Request):
 async def attach_file_to_draft(draft_id: int, request: Request, file=None):
     """Attach a file to an existing journal draft."""
     require_permission(request, "approval:write")
-    from app.api.services.storage_service import upload_file as gcs_upload, generate_signed_url
+    from app.api.services.storage_service import upload_file as gcs_upload
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
 
     form = await request.form()
@@ -576,29 +600,89 @@ async def attach_file_to_draft(draft_id: int, request: Request, file=None):
 
     try:
         async with get_conn() as conn:
-            row = await conn.fetchrow(_q(
-                "SELECT id FROM journal_drafts WHERE id = %s AND tenant_id = %s"),
-                draft_id, tenant_id)
+            # get_conn owns the transaction. Hold a real row lock through
+            # storage upload and the guarded DB update; never upload for a
+            # terminal, linked, correction, or ambiguous historical draft.
+            row = await conn.fetchrow(_q("""
+                SELECT id,status,entry_type,reversal_of_draft_id,
+                       attached_file_path,attached_file_name,attached_file_size
+                FROM journal_drafts
+                WHERE id = %s AND tenant_id = %s
+                FOR UPDATE NOWAIT
+            """), draft_id, tenant_id)
             if not row:
                 return http_error(404, "Draft not found", "NOT_FOUND")
 
-            gcs_path = gcs_upload(file_bytes, file.filename, file.content_type or "application/octet-stream", tenant_id)
+            draft = dict(row)
+            if (draft.get("status") not in (
+                    "drafted", "pending_approval", "pending_human_review",
+                    "needs_correction")
+                    or draft.get("entry_type") not in ("normal", "standard")
+                    or draft.get("reversal_of_draft_id") is not None):
+                return http_error(
+                    409, "Attachment mutation is blocked on protected drafts",
+                    "FIN11_ATTACHMENT_MUTATION_BLOCKED",
+                )
+            # Do not silently replace the only recorded source evidence.
+            # A reviewed versioned evidence/retention process is pending.
+            if any(draft.get(key) is not None for key in (
+                    "attached_file_path", "attached_file_name",
+                    "attached_file_size")):
+                return http_error(
+                    409, "Existing attachment must be preserved",
+                    "FIN11_ATTACHMENT_REPLACE_HOLD",
+                )
 
-            await conn.execute(_q(
-                """UPDATE journal_drafts
-                   SET attached_file_path = %s, attached_file_name = %s, attached_file_size = %s
-                   WHERE id = %s AND tenant_id = %s"""),
-                gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
-        log.info("action=draft_attach draft_id=%s tenant=%s file=%s", draft_id, tenant_id, file.filename)
-        return ok_response("Draft attachment saved", {"draft_id": draft_id, "file_name": file.filename, "file_size": len(file_bytes)})
+            gcs_path = gcs_upload(
+                file_bytes, file.filename,
+                file.content_type or "application/octet-stream", tenant_id,
+            )
+            # The storage helper previously returned None on failure and
+            # the route falsely marked an attachment as saved with no blob.
+            if not isinstance(gcs_path, str) or not gcs_path.startswith(f"{tenant_id}/"):
+                return error_response(
+                    "Attachment storage unavailable",
+                    "ATTACHMENT_STORAGE_UNAVAILABLE",
+                )
+
+            changed = await conn.fetchrow(_q("""
+                UPDATE journal_drafts
+                SET attached_file_path = %s, attached_file_name = %s,
+                    attached_file_size = %s
+                WHERE id = %s AND tenant_id = %s
+                  AND status IN ('drafted', 'pending_approval',
+                                 'pending_human_review', 'needs_correction')
+                  AND entry_type IN ('normal', 'standard')
+                  AND reversal_of_draft_id IS NULL
+                  AND attached_file_path IS NULL
+                  AND attached_file_name IS NULL
+                  AND attached_file_size IS NULL
+                RETURNING id
+            """), gcs_path, file.filename, len(file_bytes), draft_id, tenant_id)
+            if changed is None:
+                # Do NOT delete uploaded evidence: storage and PostgreSQL
+                # cannot roll back together. Investigate orphan manually.
+                log.error("attachment_commit_precondition_failed draft_id=%s", draft_id)
+                return error_response(
+                    "Attachment consistency hold",
+                    "FIN11_ATTACHMENT_CONCURRENT_CHANGE_HOLD",
+                )
+        log.info("action=draft_attach draft_id=%s tenant=%s", draft_id, tenant_id)
+        return ok_response(
+            "Draft attachment saved",
+            {"draft_id": draft_id, "file_name": file.filename,
+             "file_size": len(file_bytes)},
+        )
     except Exception as e:
-        log.error("attach_file_to_draft draft_id=%s: %s", draft_id, e)
-        return error_response("Attach failed", "ATTACH_ERROR", str(e))
+        log.error("attachment_attach_unavailable draft_id=%s error_type=%s",
+                  draft_id, type(e).__name__)
+        return error_response("Attach failed", "ATTACH_ERROR")
 
 
 @router.get("/draft/{draft_id}/attachment")
 async def get_draft_attachment(draft_id: int, request: Request):
-    """Return signed URL or file info for a draft's attachment."""
+    """Return a tenant-bound signed URL only to an authorized approval reader."""
+    require_permission(request, "approval:read")
     from app.api.services.storage_service import generate_signed_url, download_file
     from fastapi.responses import Response
     tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
@@ -617,6 +701,15 @@ async def get_draft_attachment(draft_id: int, request: Request):
     file_size = row["attached_file_size"]
 
     if gcs_path:
+        # Stored path is data, not authorization. Reject a foreign or
+        # ambiguous key BEFORE issuing a signed URL or downloading bytes.
+        if (not isinstance(gcs_path, str)
+                or not gcs_path.startswith(f"{tenant_id}/")
+                or any(segment in ("", ".", "..") for segment in gcs_path.split("/"))):
+            return http_error(
+                409, "Attachment storage identity requires review",
+                "FIN11_ATTACHMENT_STORAGE_TENANT_HOLD",
+            )
         signed_url = generate_signed_url(gcs_path, expires_in=900)
         if signed_url:
             return ok_response("Draft attachment URL", {"signed_url": signed_url, "file_name": file_name, "file_size": file_size})
@@ -632,29 +725,18 @@ async def get_draft_attachment(draft_id: int, request: Request):
 
 @router.delete("/draft/{draft_id}/attachment")
 async def delete_draft_attachment(draft_id: int, request: Request):
-    """Remove attachment from a draft."""
+    """FIN-11 HOLD: no irreversible attachment deletion before retention review.
+
+    GCS deletion cannot be rolled back with the journal DB transaction.
+    Preserve existing evidence; do not unlink, overwrite or delete it.
+    A reviewed immutable/versioned archival contract is required to release.
+    """
     require_permission(request, "approval:write")
-    from app.api.services.storage_service import delete_file
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-
-    try:
-        async with get_conn() as conn:
-            row = await conn.fetchrow(_q(
-                "SELECT attached_file_path FROM journal_drafts WHERE id = %s AND tenant_id = %s"),
-                draft_id, tenant_id)
-            if not row:
-                return http_error(404, "Draft not found", "NOT_FOUND")
-
-            if row["attached_file_path"]:
-                delete_file(row["attached_file_path"])
-
-            await conn.execute(_q(
-                "UPDATE journal_drafts SET attached_file_path=NULL, attached_file_name=NULL, attached_file_size=NULL "
-                "WHERE id=%s AND tenant_id=%s"),
-                draft_id, tenant_id)
-        return ok_response("Draft attachment deleted", {"draft_id": draft_id, "removed": True})
-    except Exception as e:
-        return error_response("Delete failed", "ATTACH_ERROR", str(e))
+    resolve_tenant_id(getattr(request.state, "tenant_id", None))
+    return http_error(
+        409, "Attachment deletion requires approved evidence retention",
+        "FIN11_ATTACHMENT_DELETE_HOLD",
+    )
 
 
 # ── CFO Second Approval ───────────────────────────────────────────────────────
@@ -676,6 +758,9 @@ async def cfo_approve(draft_id: int, request: Request):
                 """), draft_id, tenant_id)
                 if not draft:
                     return http_error(404, "Draft not found or not awaiting CFO approval", "NOT_FOUND")
+                if draft["entry_type"] in ("reversal", "adjustment") or draft["reversal_of_draft_id"] is not None:
+                    return http_error(409, "Independent maker/checker gate is not configured",
+                                      "FIN11_MAKER_CHECKER_NOT_CONFIGURED")
 
                 await conn.execute(_q("""
                     UPDATE journal_drafts

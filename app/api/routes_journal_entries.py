@@ -6,7 +6,7 @@ Endpoints:
 
 Both endpoints:
   - Require approval:write permission
-  - Validate actor via request.state
+  - Attest maker via signed access JWT and live tenant membership
   - Call reversal_service or adjustment_service
   - Return ok_response / error_response envelope
   - Never modify the original posted entry
@@ -18,12 +18,31 @@ from fastapi import APIRouter, Request
 
 from app.api.authz import require_permission
 from app.api.response_utils import ok_response, error_response
-from app.api.tenant_context import resolve_tenant_id
 from app.api.services.period_lock_service import PeriodLockedError
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/journal-entries", tags=["journal-entries"])
+
+
+async def _verified_correction_maker(request: Request):
+    """Fail closed before creating any reversal/adjustment DB audit evidence.
+
+    The low-level correction service is shared with internal callers. This
+    existing HTTP route must NEVER directly forward unsigned actor/tenant
+    hints from middleware state or JSON body into that service.
+    """
+    try:
+        from app.api.services.correction_review_service import (
+            resolve_signed_review_actor,
+        )
+        return await resolve_signed_review_actor(request, "maker")
+    except Exception as exc:
+        log.warning(
+            "fin11_correction_creator_identity_denied error_type=%s",
+            type(exc).__name__,
+        )
+        return None
 
 
 @router.post("/{draft_id}/reverse")
@@ -33,18 +52,33 @@ async def reverse_journal_entry(draft_id: int, request: Request, payload: dict):
     Body:
       reversal_date  (str, YYYY-MM-DD, required)
       reason         (str, required)
-      allow_closed_period (bool, optional — admin override, defaults False)
+      allow_closed_period (true not supported; explicit rejection until maker/checker policy)
 
     Original entry is never modified. Reversal goes through normal approval flow.
     Permission: approval:write
     """
     require_permission(request, "approval:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    actor     = getattr(request.state, "user_email", None) or getattr(request.state, "user_id", "system")
+    # FIN-11: the journal creator and its audit actor MUST be tied to the
+    # independently verified access JWT and live tenant membership.
+    # Do not fall back to request.state.user_email, raw tenant headers,
+    # anonymous/system actor, or a user-supplied payload field.
+    creator = await _verified_correction_maker(request)
+    if creator is None:
+        return error_response(
+            "Verified Maker identity is required for journal corrections",
+            "FIN11_CREATOR_IDENTITY_UNVERIFIED",
+        )
+    tenant_id = creator.tenant_id
+    actor = creator.subject
 
     reversal_date = payload.get("reversal_date")
     reason        = str(payload.get("reason") or "").strip()
-    allow_closed  = bool(payload.get("allow_closed_period", False))
+    allow_closed  = payload.get("allow_closed_period", False)
+    if allow_closed is not False:
+        return error_response(
+            "Closed-period override disabled pending independent approval",
+            "CLOSED_PERIOD_OVERRIDE_DISABLED",
+        )
 
     if not reversal_date:
         return error_response("reversal_date is required", "VALIDATION_ERROR")
@@ -83,19 +117,30 @@ async def adjust_journal_entry(draft_id: int, request: Request, payload: dict):
       adjustment_date  (str, YYYY-MM-DD, required)
       reason           (str, required)
       lines            (list, required — balanced DR=CR journal lines)
-      allow_closed_period (bool, optional — admin override, defaults False)
+      allow_closed_period (true not supported; explicit rejection until maker/checker policy)
 
     Original entry is never modified. Adjustment goes through normal approval flow.
     Permission: approval:write
     """
     require_permission(request, "approval:write")
-    tenant_id = resolve_tenant_id(getattr(request.state, "tenant_id", None))
-    actor     = getattr(request.state, "user_email", None) or getattr(request.state, "user_id", "system")
+    creator = await _verified_correction_maker(request)
+    if creator is None:
+        return error_response(
+            "Verified Maker identity is required for journal corrections",
+            "FIN11_CREATOR_IDENTITY_UNVERIFIED",
+        )
+    tenant_id = creator.tenant_id
+    actor = creator.subject
 
     adjustment_date = payload.get("adjustment_date")
     reason          = str(payload.get("reason") or "").strip()
     lines           = payload.get("lines") or []
-    allow_closed    = bool(payload.get("allow_closed_period", False))
+    allow_closed    = payload.get("allow_closed_period", False)
+    if allow_closed is not False:
+        return error_response(
+            "Closed-period override disabled pending independent approval",
+            "CLOSED_PERIOD_OVERRIDE_DISABLED",
+        )
 
     if not adjustment_date:
         return error_response("adjustment_date is required", "VALIDATION_ERROR")

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.api.response_utils import ok_response, error_response
 from app.api.services.erp_import_service import import_erp_history
-from app.api.authz import require_permission
+from app.api.authz import require_signed_tenant_permission
 
 router = APIRouter(prefix="/erp-memory/import", tags=["erp-memory-import"])
 
@@ -33,12 +33,15 @@ class ErpImportRequest(BaseModel):
 
 @router.post("/json")
 def import_erp_history_json(data: ErpImportRequest, request: Request):
-    require_permission(request, "posting:write")
+    tenant_id = require_signed_tenant_permission(request, "posting:write")
     try:
         result = import_erp_history(
             items=[item.model_dump() for item in data.items],
             default_source_system=data.source_system or "balance",
+            tenant_id=tenant_id,
         )
+        if not result.get("ok"):
+            return error_response("ERP history import incomplete", "ERP_HISTORY_IMPORT_INCOMPLETE", result)
         return ok_response("ERP history imported", result)
-    except Exception as e:
-        return error_response("ERP history import failed", "ERP_HISTORY_IMPORT_ERROR", str(e))
+    except Exception:
+        return error_response("ERP history import failed", "ERP_HISTORY_IMPORT_ERROR")

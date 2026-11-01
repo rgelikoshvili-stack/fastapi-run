@@ -109,13 +109,21 @@ def _request() -> Request:
 ])
 async def test_route_rejects_closed_period_override_before_service(endpoint,payload):
     from app.api import routes_journal_entries as route
+    # An authorized signed Maker is now required *before* evaluating
+    # closed-period override. Preserve the old period safety assertion
+    # while providing a synthetic attested identity (no real JWT/DB).
     with patch.object(route, "require_permission"), \
-         patch.object(route, "resolve_tenant_id", return_value="tenant-a"), \
+         patch.object(route, "_verified_correction_maker",
+                      new_callable=AsyncMock,
+                      return_value=MagicMock(
+                          tenant_id="tenant-a", subject="auth:71",
+                      )) as identity, \
          patch.object(reversal, "create_reversal_draft", new_callable=AsyncMock) as reverser, \
          patch.object(reversal, "create_adjustment_draft", new_callable=AsyncMock) as adjuster:
         result = await getattr(route, endpoint)(41, _request(), payload)
     assert result["ok"] is False
     assert result["error"]["code"] == "CLOSED_PERIOD_OVERRIDE_DISABLED"
+    identity.assert_awaited_once()
     reverser.assert_not_called()
     adjuster.assert_not_called()
 

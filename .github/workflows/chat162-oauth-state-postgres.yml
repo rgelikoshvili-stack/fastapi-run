@@ -58,6 +58,7 @@ on:
       - "app/api/services/posting_outbox_intent_service.py"
       - "app/api/services/posting_outbox_fence_proposal_service.py"
       - "docs/sql/chat198_fin12_fence_proposals_DRAFT.sql"
+      - "tests/unit/test_indirect_cashflow_decimal.py"
       - "tests/unit/test_finance_decimal_netting.py"
       - "tests/integration/test_finance_decimal_netting_postgres.py"
       - "tests/unit/test_chat198_balance_sheet_earnings.py"
@@ -212,6 +213,7 @@ jobs:
           tests/unit/test_chat198_fence_proposal.py
           tests/unit/test_chat199_outbox_integrity.py
           tests/unit/test_chat200_local_atomicity_guard.py
+          tests/unit/test_indirect_cashflow_decimal.py
           tests/unit/test_finance_decimal_netting.py
           tests/integration/test_finance_decimal_netting_postgres.py
           tests/unit/test_chat198_balance_sheet_earnings.py

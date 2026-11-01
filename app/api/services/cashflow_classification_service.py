@@ -16,6 +16,8 @@ from __future__ import annotations
 from typing import Any
 from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 
+from app.api.services.posted_ledger_reporting import report_money_sum, report_json_numbers
+
 # ── Cash / bank account codes ─────────────────────────────────────────────────
 CASH_ACCOUNTS = frozenset({"1110", "1120"})
 
@@ -463,28 +465,31 @@ def build_cashflow_indirect(
         Indirect cashflow statement dict
     """
     wc = working_capital_changes or {}
-    total_wc = round(sum(wc.values()), 2)
-    total_non_cash = round(depreciation + fx_revaluation_loss, 2)
-    operating_net = round(net_profit_loss + total_non_cash + total_wc, 2)
-    net_change = round(operating_net + investing_net + financing_net, 2)
+    # Inputs may be exact database NUMERIC values or existing API numbers.
+    # Net in Decimal before serializing; float addition loses small residuals
+    # between large adjustments, and Decimal + float defaults raises TypeError.
+    total_wc = report_money_sum(wc.values())
+    total_non_cash = report_money_sum((depreciation, fx_revaluation_loss))
+    operating_net = report_money_sum((net_profit_loss, total_non_cash, total_wc))
+    net_change = report_money_sum((operating_net, investing_net, financing_net))
 
-    return {
+    return report_json_numbers({
         "method": "indirect",
         "operating_activities": {
-            "net_profit_loss": round(net_profit_loss, 2),
+            "net_profit_loss": report_money_sum((net_profit_loss,)),
             "adjustments_for_non_cash": {
-                "depreciation": round(depreciation, 2),
-                "fx_revaluation_loss": round(fx_revaluation_loss, 2),
-                "total": round(total_non_cash, 2),
+                "depreciation": report_money_sum((depreciation,)),
+                "fx_revaluation_loss": report_money_sum((fx_revaluation_loss,)),
+                "total": total_non_cash,
             },
             "working_capital_changes": {**wc, "total": total_wc},
             "net": operating_net,
         },
         "investing_activities": {
-            "net": round(investing_net, 2),
+            "net": report_money_sum((investing_net,)),
         },
         "financing_activities": {
-            "net": round(financing_net, 2),
+            "net": report_money_sum((financing_net,)),
         },
         "net_change_in_cash": net_change,
         "policy_notes": [
@@ -492,4 +497,4 @@ def build_cashflow_indirect(
             "Depreciation added back as non-cash item",
             "Unrealised FX revaluation added back as non-cash",
         ],
-    }
+    })
